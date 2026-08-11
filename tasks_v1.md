@@ -40,14 +40,14 @@ This checklist tracks the implementation progress of the Streamify Android App b
 - [x] Commit & Push (Phase 2 complete).
 
 ## Phase 3: Search & Download Pipeline
-- [ ] Setup Python module `app/src/main/python/download_engine/` and `__init__.py`.
-- [ ] Port Matcher Logic: Convert `matcher.py` to `search.py` (scoring algorithm).
-- [ ] Port Downloader Logic: Convert `download_track.py` to `downloader.py` (yt-dlp via Chaquopy).
-- [ ] Build UI: Create `SearchScreen.kt` (with download banner) and `DownloadScreen.kt`.
-- [ ] Create `SearchViewModel.kt` handling Python interop.
-- [ ] Implement `DownloadService.kt` (Foreground service for yt-dlp).
-- [ ] Verify end-to-end download to internal storage.
-- [ ] Commit & Push (Phase 3 complete).
+- [x] Setup Python module `app/src/main/python/download_engine/` and `__init__.py`.
+- [x] Port Matcher Logic: Convert `matcher.py` to `search.py` (scoring algorithm).
+- [x] Port Downloader Logic: Convert `download_track.py` to `downloader.py` (yt-dlp via Chaquopy).
+- [x] Build UI: Create `SearchScreen.kt` (with download banner) and `DownloadScreen.kt`.
+- [x] Create `SearchViewModel.kt` handling Python interop.
+- [x] Implement `DownloadService.kt` (Foreground service for yt-dlp).
+- [x] Verify end-to-end download to internal storage.
+- [x] Commit & Push (Phase 3 complete).
 
 ## Phase 4: AI Recommendation Engine
 - [ ] Port `VectorStore.cc` to ARM NEON (`native/engine/VectorStore.cc`).
