@@ -30,6 +30,73 @@
 
 ---
 
+## 🤖 AI EXECUTION INSTRUCTIONS
+
+> **ATTENTION AI AGENT:** This document is the single source of truth for building the Streamify Android app.
+> When the user says "read implementation.md and execute", follow this protocol exactly.
+
+### How This Document Works
+
+- **Sections 1–14** are the architecture reference. Read them to understand *what* you're building and *why*.
+- **Section 15** is the execution roadmap. It tells you *exactly what to do*, step by step.
+- **Sections 16–17** are design/asset references you'll consult during execution.
+
+### How To Determine Which Phase To Execute
+
+1. Check if `app/build.gradle.kts` exists. If **NO** → execute **Phase 1**.
+2. Check if `native/engine/StreamifyDB.cc` exists. If **NO** → execute **Phase 2**.
+3. Check if `app/src/main/python/download_engine/downloader.py` exists. If **NO** → execute **Phase 3**.
+4. Check if `native/engine/VectorStore.cc` exists. If **NO** → execute **Phase 4**.
+5. Check if `app/src/main/java/com/streamify/app/util/MediaStoreScanner.kt` exists. If **NO** → execute **Phase 5**.
+6. Check if `app/src/main/java/com/streamify/app/ui/screens/LyricsScreen.kt` exists. If **NO** → execute **Phase 6**.
+7. If all exist → all phases are complete. Ask the user what to do next.
+
+### Reference File Protocol
+
+Many steps say **"Reference: `legacy/path/to/file`"**. This means:
+1. **Read that legacy file first** to understand the original implementation.
+2. **Port the logic** into the new file path specified, applying the changes described (e.g., remove Drogon HTTP, replace AVX2 with NEON, etc.).
+3. **Do NOT copy the file verbatim.** Strip framework dependencies, adapt APIs, and integrate with JNI.
+
+### After Completing Each Phase
+
+```bash
+git add -A
+git commit -m "<commit message template from the phase>"
+git push origin main
+git push gitlab main
+```
+Then report to the user: "Phase N complete. [summary of what was built]. Ready for Phase N+1."
+
+### Environment Expectations
+
+- **OS**: Android development on Linux (Termux ARM64 or standard x86_64)
+- **Java**: JDK 17 (install via `apt install openjdk-17` or equivalent)
+- **Android SDK**: Install via `sdkmanager` or manual setup
+- **NDK**: Version `26.1.10909125` (install via `sdkmanager "ndk;26.1.10909125"`)
+- **Git remotes already configured**: `origin` → GitHub, `gitlab` → GitLab
+- **All legacy source code**: Located in `legacy/` directory within this repo
+
+### Version Pinning (Use These Exact Versions)
+
+| Dependency | Version |
+|:-----------|:--------|
+| Kotlin | `1.9.22` |
+| Compose BOM | `2024.02.00` |
+| Compose Compiler | `1.5.10` |
+| Gradle | `8.4` |
+| AGP (Android Gradle Plugin) | `8.2.2` |
+| NDK | `26.1.10909125` |
+| Min SDK | `26` (Android 8.0) |
+| Target SDK | `34` (Android 14) |
+| Compile SDK | `34` |
+| Media3 | `1.2.1` |
+| Coil Compose | `2.5.0` |
+| Navigation Compose | `2.7.7` |
+| Chaquopy | `15.0.1` |
+| ONNX Runtime Android | `1.17.0` |
+| SQLite (vendored amalgamation) | `3.45.3` |
+
 ## 1. Executive Vision
 
 Transform the existing NAS-hosted Streamify web server into a **standalone, offline-first Android application** that functions as the most faithful, high-performance Spotify clone ever built. The app will:
@@ -989,59 +1056,467 @@ git remote set-url --add --push origin git@gitlab.com:sireenyadav/streamify-apk.
 
 ## 15. Phase-by-Phase Execution Roadmap
 
-### Phase 1: Foundation (Week 1-2)
-- [ ] Initialize Android project (Gradle + Compose + NDK + Chaquopy)
-- [ ] Port `StreamifyDB.cc` to NDK (remove Drogon, pure SQLite3 C API)
-- [ ] Create JNI bridge skeleton (`NativeBridge.kt` <-> `jni_bridge.cc`)
-- [ ] Implement `StreamifyTheme` (colors, typography, spacing from CSS)
-- [ ] Build `MiniPlayerBar` composable
-- [ ] Build `HomeScreen` with static data
-- [ ] Set up GitHub Actions build workflow
+This section dictates exactly how to build this app. Execute steps sequentially.
 
-### Phase 2: Core Playback (Week 3-4)
-- [ ] Integrate Media3/ExoPlayer in `PlaybackService`
-- [ ] Wire `PlayerViewModel` <-> `NativeBridge` <-> C++ database
-- [ ] Build full `PlayerScreen` (seekbar, controls, album art)
-- [ ] Build `LibraryScreen` (liked songs via JNI)
-- [ ] Implement lock-screen + notification media controls
-- [ ] Local file playback working end-to-end
+### Phase 1: Android Project Foundation
 
-### Phase 3: Search & Download (Week 5-7)
-- [ ] Integrate Chaquopy Python runtime
-- [ ] Port `download_track.py` + `matcher.py` search/score logic
-- [ ] Build `SearchScreen` with local search (JNI)
-- [ ] Build `DownloadScreen` with source selection UI
-- [ ] Build `QualitySelector` dialog
-- [ ] Implement `DownloadService` foreground service
-- [ ] Build real-time download progress UI (`DownloadCard`, `ProcessingStatusCard`)
-- [ ] Port `cover_art.py` -> `CoverArtClient.cc` (iTunes API)
-- [ ] Port `lyrics.py` -> `LyricsClient.cc` (LRCLIB API)
+**Objective**: Scaffold the Android project, configure Gradle/CMake, setup JNI, and build the UI theme.
 
-### Phase 4: AI Engine (Week 8-10)
-- [ ] Port `VectorStore.cc` AVX2 -> ARM NEON
-- [ ] Port `AudioPipeline.cc` (replace FFTW3 with kissfft)
-- [ ] Integrate ONNX Runtime Mobile
-- [ ] Port `RecommendEngine.cc` (two-stage ranking)
-- [ ] Port `EventTracker.cc` (Markov chain play/skip logging)
-- [ ] Wire AI recommendations to HomeScreen "Made For You" section
-- [ ] Wire Up Next Queue with live AI predictions
+**Step-by-Step Instructions**:
 
-### Phase 5: Device Music Discovery (Week 11-12)
-- [ ] Implement `MediaStoreScanner.kt`
-- [ ] Implement `IngestionWorker` (WorkManager)
-- [ ] Build `DeviceScanner.cc` (batch file processor)
-- [ ] Background ONNX embedding generation
-- [ ] `ProcessingStatusCard` in HomeScreen
-- [ ] Full integration: device music -> AI recommendations
+1. **Scaffold Directory Structure**:
+   Run the following shell command to create the necessary directories:
+   ```bash
+   mkdir -p app/src/main/java/com/streamify/app/ui/theme app/src/main/res/drawable app/src/main/res/font app/src/main/assets/card_art gradle/wrapper native/jni native/engine native/ingest native/metadata native/dsp native/third_party/sqlite3 native/third_party/onnxruntime
+   ```
 
-### Phase 6: Lyrics & Polish (Week 13-14)
-- [ ] Build `LyricsScreen` with synced `.lrc` display
-- [ ] Tap-to-seek on lyrics lines
-- [ ] Auto-scroll synced to playback
-- [ ] Implement all animations (card hover, player transitions, FAB reveal)
-- [ ] Edge-to-edge design, status bar theming
-- [ ] Performance profiling and optimization
-- [ ] Release APK build + GitHub Release workflow
+2. **Root Gradle Configuration**:
+   Create `settings.gradle.kts`:
+   ```kotlin
+   pluginManagement {
+       repositories {
+           google()
+           mavenCentral()
+           gradlePluginPortal()
+       }
+   }
+   dependencyResolutionManagement {
+       repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+       repositories {
+           google()
+           mavenCentral()
+           maven { url = uri("https://chaquo.com/maven") }
+       }
+   }
+   rootProject.name = "Streamify"
+   include(":app")
+   ```
+   Create `gradle.properties`:
+   ```properties
+   android.useAndroidX=true
+   android.nonTransitiveRClass=true
+   org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+   ```
+   Create `build.gradle.kts` (Root):
+   ```kotlin
+   plugins {
+       id("com.android.application") version "8.2.2" apply false
+       id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+       id("com.chaquo.python") version "15.0.1" apply false
+   }
+   ```
+   Run: `gradle wrapper --gradle-version 8.4`
+
+3. **App Module Configuration (`app/build.gradle.kts`)**:
+   Create the file with this exact content:
+   ```kotlin
+   plugins {
+       id("com.android.application")
+       id("org.jetbrains.kotlin.android")
+       id("com.chaquo.python")
+   }
+
+   android {
+       namespace = "com.streamify.app"
+       compileSdk = 34
+
+       defaultConfig {
+           applicationId = "com.streamify.app"
+           minSdk = 26
+           targetSdk = 34
+           versionCode = 1
+           versionName = "1.0"
+
+           externalNativeBuild {
+               cmake {
+                   cppFlags += "-std=c++17 -O3 -flto"
+                   arguments += "-DANDROID_STL=c++_shared"
+               }
+           }
+           ndk {
+               abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+           }
+       }
+
+       buildTypes {
+           release {
+               isMinifyEnabled = true
+               proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+           }
+       }
+       compileOptions {
+           sourceCompatibility = JavaVersion.VERSION_17
+           targetCompatibility = JavaVersion.VERSION_17
+       }
+       kotlinOptions {
+           jvmTarget = "17"
+       }
+       buildFeatures {
+           compose = true
+       }
+       composeOptions {
+           kotlinCompilerExtensionVersion = "1.5.10"
+       }
+       externalNativeBuild {
+           cmake {
+               path = file("../native/CMakeLists.txt")
+               version = "3.22.1"
+           }
+       }
+       chaquopy {
+           defaultConfig {
+               version = "3.11"
+               pip {
+                   install("yt-dlp")
+                   install("mutagen")
+                   install("requests")
+               }
+           }
+       }
+   }
+
+   dependencies {
+       val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
+       implementation(composeBom)
+       implementation("androidx.core:core-ktx:1.12.0")
+       implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+       implementation("androidx.activity:activity-compose:1.8.2")
+       implementation("androidx.compose.ui:ui")
+       implementation("androidx.compose.ui:ui-graphics")
+       implementation("androidx.compose.ui:ui-tooling-preview")
+       implementation("androidx.compose.material3:material3")
+       
+       // Media3
+       implementation("androidx.media3:media3-exoplayer:1.2.1")
+       implementation("androidx.media3:media3-session:1.2.1")
+       
+       // Coil
+       implementation("io.coil-kt:coil-compose:2.5.0")
+       
+       // Navigation
+       implementation("androidx.navigation:navigation-compose:2.7.7")
+
+       debugImplementation("androidx.compose.ui:ui-tooling")
+   }
+   ```
+
+4. **Master NDK CMake File (`native/CMakeLists.txt`)**:
+   Create the file with:
+   ```cmake
+   cmake_minimum_required(VERSION 3.22.1)
+   project("streamify_core")
+
+   add_library(streamify_core SHARED
+       jni/jni_bridge.cc
+   )
+
+   target_link_libraries(streamify_core
+       android
+       log
+   )
+   ```
+
+5. **JNI Bridge Initialization**:
+   Create `app/src/main/java/com/streamify/app/data/NativeBridge.kt`:
+   ```kotlin
+   package com.streamify.app.data
+   
+   object NativeBridge {
+       init { System.loadLibrary("streamify_core") }
+       external fun stringFromJNI(): String
+   }
+   ```
+   Create `native/jni/jni_bridge.cc`:
+   ```cpp
+   #include <jni.h>
+   #include <string>
+   
+   extern "C" JNIEXPORT jstring JNICALL
+   Java_com_streamify_app_data_NativeBridge_stringFromJNI(JNIEnv* env, jobject /* this */) {
+       return env->NewStringUTF("Streamify C++ Core Initialized");
+   }
+   ```
+
+6. **AndroidManifest (`app/src/main/AndroidManifest.xml`)**:
+   ```xml
+   <?xml version="1.0" encoding="utf-8"?>
+   <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+       <uses-permission android:name="android.permission.INTERNET" />
+       <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+       <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+       <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+       <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+       <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+       <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+       <application
+           android:name=".StreamifyApp"
+           android:allowBackup="true"
+           android:icon="@mipmap/ic_launcher"
+           android:label="Streamify"
+           android:roundIcon="@mipmap/ic_launcher_round"
+           android:supportsRtl="true"
+           android:theme="@style/Theme.Streamify">
+           <activity
+               android:name=".MainActivity"
+               android:exported="true"
+               android:theme="@style/Theme.Streamify">
+               <intent-filter>
+                   <action android:name="android.intent.action.MAIN" />
+                   <category android:name="android.intent.category.LAUNCHER" />
+               </intent-filter>
+           </activity>
+       </application>
+   </manifest>
+   ```
+
+7. **Theme and Styles**:
+   Create `app/src/main/res/values/themes.xml`:
+   ```xml
+   <?xml version="1.0" encoding="utf-8"?>
+   <resources>
+       <style name="Theme.Streamify" parent="android:Theme.Material.Light.NoActionBar" />
+   </resources>
+   ```
+   *Reference: Port colors from `legacy/web/style.css` (lines 1-16) to Compose `Color.kt`.*
+   Create `app/src/main/java/com/streamify/app/ui/theme/Color.kt`, `Type.kt`, `Theme.kt`, `Dimens.kt`.
+
+8. **Core Application Classes**:
+   Create `app/src/main/java/com/streamify/app/StreamifyApp.kt`:
+   ```kotlin
+   package com.streamify.app
+   import android.app.Application
+   class StreamifyApp : Application()
+   ```
+   Create `app/src/main/java/com/streamify/app/MainActivity.kt`:
+   ```kotlin
+   package com.streamify.app
+   import android.os.Bundle
+   import androidx.activity.ComponentActivity
+   import androidx.activity.compose.setContent
+   import androidx.compose.material3.Text
+   import com.streamify.app.data.NativeBridge
+   
+   class MainActivity : ComponentActivity() {
+       override fun onCreate(savedInstanceState: Bundle?) {
+           super.onCreate(savedInstanceState)
+           setContent {
+               Text(text = NativeBridge.stringFromJNI())
+           }
+       }
+   }
+   ```
+
+9. **Assets & CI**:
+   - Shell: `cp legacy/web/assets/*.png app/src/main/res/drawable/`
+   - Shell: `cp legacy/web/assets/*.jpeg app/src/main/assets/card_art/`
+   - Download Montserrat/Poppins `.ttf` files to `app/src/main/res/font/`.
+   - Create `.github/workflows/build.yml` with `./gradlew assembleDebug` step.
+
+10. **Verify Build**:
+    Run `./gradlew assembleDebug`. Ensure it succeeds.
+
+**DONE CRITERIA**:
+- `app/build/outputs/apk/debug/app-debug.apk` is generated.
+- The JNI string appears on screen when run.
+
+**Commit Message Template**:
+```
+feat: initialize Android project and NDK foundation (Phase 1)
+```
+
+---
+
+### Phase 2: Core Playback & Database
+
+**Objective**: Port SQLite logic to NDK, wire up JNI models, and build the ExoPlayer/Media3 foreground service.
+
+**Step-by-Step Instructions**:
+
+1. **Vendor SQLite**:
+   - Download SQLite amalgamation 3.45.3 and place `sqlite3.c` and `sqlite3.h` in `native/third_party/sqlite3/`.
+   - Update `native/CMakeLists.txt` to include `third_party/sqlite3/sqlite3.c`.
+
+2. **Port `StreamifyDB` to C++ NDK**:
+   - Read `legacy/server/services/StreamifyDB.cc` and `.h`.
+   - Create `native/engine/StreamifyDB.h` and `native/engine/StreamifyDB.cc`.
+   - **Crucial**: Remove ALL Drogon includes. Use standard `sqlite3_prepare_v2`, `sqlite3_step`. Use `sqlite3_open_v2` with a database path passed from Kotlin (e.g., `context.getDatabasePath("streamify.db").absolutePath`).
+
+3. **Expand JNI Bridge**:
+   - In `NativeBridge.kt`, add:
+     ```kotlin
+     external fun initDatabase(dbPath: String): Boolean
+     external fun getAllTracks(): Array<TrackNative>
+     // ... add searchTracks, insertTrack, toggleLike, getLikedTracks
+     ```
+   - In `jni_bridge.cc`, implement these JNI functions. Construct Java objects (`TrackNative`) from C++ SQLite results using `env->NewObject`.
+
+4. **Kotlin Data Layer**:
+   - Create `app/src/main/java/com/streamify/app/data/models/Track.kt` representing a song.
+   - Create `app/src/main/java/com/streamify/app/data/TrackRepository.kt` wrapping `NativeBridge` calls into suspend functions / Flows.
+
+5. **Media3 Playback Service**:
+   - Create `app/src/main/java/com/streamify/app/service/PlaybackService.kt`.
+   - Extend `MediaSessionService`. Build an `ExoPlayer` instance in `onCreate()`. Set `C.AUDIO_CONTENT_TYPE_MUSIC`, `C.USAGE_MEDIA`, and `setHandleAudioBecomingNoisy(true)`.
+
+6. **UI Implementation**:
+   - Create `PlayerViewModel.kt` to manage `ExoPlayer` state via StateFlow.
+   - Implement `MiniPlayerBar.kt` mirroring the web's bottom sticky player.
+   - Implement `PlayerScreen.kt` for full-screen playback.
+   - Implement `HomeScreen.kt` displaying tracks from `TrackRepository`.
+   - Setup `AppNavGraph.kt` and integrate into `MainActivity.kt`.
+
+7. **Verify**:
+   - Ensure the app launches, queries the NDK database, and can play a local `.mp3` file via Media3.
+
+**DONE CRITERIA**:
+- `StreamifyDB.cc` is compiled and queried via JNI.
+- Media3 service plays audio and shows a notification.
+
+**Commit Message Template**:
+```
+feat: core playback and native sqlite db via JNI (Phase 2)
+```
+
+---
+
+### Phase 3: Search & Download Pipeline
+
+**Objective**: Integrate Chaquopy to run yt-dlp and kaviraj-tool matching logic natively.
+
+**Step-by-Step Instructions**:
+
+1. **Python Module Setup**:
+   - Create `app/src/main/python/download_engine/` and `__init__.py`.
+
+2. **Port Matcher Logic**:
+   - Read `legacy/kaviraj-tool/Music.yt.Spot/downloader/matcher.py`.
+   - Create `app/src/main/python/download_engine/search.py`.
+   - Keep the exact scoring algorithm (`seq_ratio`, `set_ratio`, duration penalties, bad candidate flags).
+
+3. **Port Downloader Logic**:
+   - Read `legacy/scripts/download_track.py`.
+   - Create `app/src/main/python/download_engine/downloader.py`.
+   - Ensure it calls `yt-dlp` using the embedded Python environment. Configure it to write to `context.filesDir.absolutePath`.
+
+4. **UI Integration**:
+   - Create `app/src/main/java/com/streamify/app/ui/screens/SearchScreen.kt`. Implement the `.download-banner` UI when local results are empty.
+   - Create `app/src/main/java/com/streamify/app/ui/screens/DownloadScreen.kt`.
+   - Create `SearchViewModel.kt` handling Kotlin-to-Python calls via `Python.getInstance().getModule(...)`.
+   - Create `DownloadService.kt` (Foreground Service) to manage long-running yt-dlp processes.
+
+5. **Verify**:
+   - Search for a song, view ranked results, select one, and verify it downloads successfully to app storage.
+
+**DONE CRITERIA**:
+- yt-dlp executes via Chaquopy and downloads an audio file.
+
+**Commit Message Template**:
+```
+feat: search and yt-dlp download pipeline via Chaquopy (Phase 3)
+```
+
+---
+
+### Phase 4: AI Recommendation Engine
+
+**Objective**: Port the C++ AVX2 vector engine to ARM NEON and implement ONNX inference.
+
+**Step-by-Step Instructions**:
+
+1. **Port VectorStore to ARM NEON**:
+   - Read `legacy/music-procengine/server/src/services/VectorStore.cc`.
+   - Create `native/engine/VectorStore.cc`.
+   - **Crucial**: Use the NEON code provided in section 10.2 (4x unrolled `vfmaq_f32`). Update `native/CMakeLists.txt` to compile with NEON support if necessary.
+
+2. **Port DSP and Inference**:
+   - Replace FFTW3 with `kissfft` (download and vendor into `native/dsp/kissfft/`).
+   - Read `legacy/music-procengine/server/src/ingest/AudioPipeline.cc`.
+   - Create `native/ingest/AudioPipeline.cc`. Update to use `kissfft` for the STFT.
+   - Link `onnxruntime` (Android build) in CMake. Include the LAION CLAP `clap_int8.onnx` model in `assets/models/`.
+
+3. **Port Ranking Logic**:
+   - Read `legacy/music-procengine/server/controllers/RecommendController.cc` and `EventController.cc`.
+   - Create `native/engine/RecommendEngine.cc` and `native/engine/EventTracker.cc`. Remove Drogon, expose pure C++ functions to JNI.
+
+4. **UI Wire-up**:
+   - Update `HomeScreen.kt` to call JNI recommendations and display them in the "Made For You" grid.
+
+5. **Verify**:
+   - Run recommendation JNI call; ensure it completes in <10ms utilizing NEON.
+
+**DONE CRITERIA**:
+- `VectorStore.cc` compiles for ARM64 and performs NEON vector similarity.
+- Audio pipeline extracts 512-D vectors from audio.
+
+**Commit Message Template**:
+```
+feat: ONNX AI recommendation engine with ARM NEON SIMD (Phase 4)
+```
+
+---
+
+### Phase 5: Device Music Discovery
+
+**Objective**: Scan local device storage for music and process embeddings in the background.
+
+**Step-by-Step Instructions**:
+
+1. **MediaStore Scanner**:
+   - Create `app/src/main/java/com/streamify/app/util/MediaStoreScanner.kt`. Use `ContentResolver` to query `MediaStore.Audio.Media.EXTERNAL_CONTENT_URI`.
+
+2. **Background Ingestion**:
+   - Create `app/src/main/java/com/streamify/app/service/IngestionWorker.kt` extending `CoroutineWorker`.
+   - Pass discovered file paths to C++ `AudioPipeline` via JNI for ONNX vector generation.
+
+3. **UI Status Card**:
+   - Implement `ProcessingStatusCard.kt` in `HomeScreen` observing `IngestionViewModel` StateFlow.
+
+4. **Verify**:
+   - Ensure existing `/sdcard/Music` files are ingested and vectors added to SQLite.
+
+**DONE CRITERIA**:
+- Local files are successfully processed and embedded without blocking the UI.
+
+**Commit Message Template**:
+```
+feat: device music discovery and background ingestion (Phase 5)
+```
+
+---
+
+### Phase 6: Lyrics, Polish & Release
+
+**Objective**: Complete metadata fetching, finalize UI animations, and build the release APK.
+
+**Step-by-Step Instructions**:
+
+1. **Port Metadata Clients**:
+   - Read `legacy/kaviraj-tool/Music.yt.Spot/downloader/lyrics.py` and `cover_art.py`.
+   - Implement these network calls in C++ (`native/metadata/LyricsClient.cc` and `CoverArtClient.cc`) or Kotlin (using OkHttp).
+
+2. **Lyrics UI**:
+   - Create `app/src/main/java/com/streamify/app/ui/screens/LyricsScreen.kt`. Implement auto-scrolling synced `.lrc` view.
+
+3. **Polish**:
+   - Verify all CSS hover animations are ported to Compose interactions (e.g., card lift).
+   - Implement Edge-to-Edge display (transparent status bar).
+
+4. **Release Configuration**:
+   - Ensure `build.gradle.kts` release type has `isMinifyEnabled = true`.
+   - Create `.github/workflows/release.yml`.
+
+5. **Verify**:
+   - Run `./gradlew assembleRelease` and ensure a signed, optimized APK is produced.
+
+**DONE CRITERIA**:
+- Synced lyrics scroll smoothly in the UI.
+- Release APK builds successfully.
+
+**Commit Message Template**:
+```
+chore: release preparations, lyrics UI, and final polish (Phase 6)
+```
 
 ---
 
