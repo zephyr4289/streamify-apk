@@ -1,0 +1,37 @@
+# Android / Gradle
+*.iml
+.gradle/
+local.properties
+.idea/
+*.apk
+*.aar
+*.aab
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# NDK
+*.so
+*.a
+obj/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keystore
+*.jks
+*.keystore

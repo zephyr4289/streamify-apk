@@ -1,0 +1,10 @@
+build/
+server/build/
+*.db
+*.db-shm
+*.db-wal
+*.bin
+*.faiss
+*.log
+.DS_Store
+
