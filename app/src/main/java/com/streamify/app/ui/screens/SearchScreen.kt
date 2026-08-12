@@ -42,9 +42,10 @@ fun SearchScreen(
     ingestionViewModel: IngestionViewModel = viewModel(),
     onTrackClick: (Int, List<com.streamify.app.data.models.Track>) -> Unit
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     var query by remember { mutableStateOf("") }
-    var pendingDownloadTrack by remember { mutableStateOf<com.streamify.app.data.models.SearchTrack?>(null) }
+    var pendingDownloadTrack by remember { mutableStateOf<com.streamify.app.viewmodel.OnlineSearchResult?>(null) }
     var selectedOptionsTrack by remember { mutableStateOf<com.streamify.app.data.models.Track?>(null) }
 
     if (pendingDownloadTrack != null) {
