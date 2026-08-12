@@ -9,46 +9,46 @@
 ## 🏗 Phase 1: Design Foundation & Configuration
 
 ### Dependencies & Build Config
-- [ ] Add `androidx.palette:palette-ktx:1.0.0` to `app/build.gradle.kts`.
-- [ ] Add `androidx.compose.material:material-icons-extended` to `app/build.gradle.kts`.
-- [ ] Add `androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0` to `app/build.gradle.kts`.
-- [ ] Add `androidx.compose.animation:animation` to `app/build.gradle.kts`.
-- [ ] Add `com.google.accompanist:accompanist-systemuicontroller:0.34.0` to `app/build.gradle.kts`.
-- [ ] Create `app/proguard-rules.pro` and add JNI/Chaquopy keep rules (e.g., `-keep class com.streamify.app.data.models.** { *; }`).
-- [ ] Ensure `themes.xml` parent is `Theme.Material.NoActionBar` with black window background and status bar.
+- [x] Add `androidx.palette:palette-ktx:1.0.0` to `app/build.gradle.kts`.
+- [x] Add `androidx.compose.material:material-icons-extended` to `app/build.gradle.kts`.
+- [x] Add `androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0` to `app/build.gradle.kts`.
+- [x] Add `androidx.compose.animation:animation` to `app/build.gradle.kts`.
+- [x] Add `com.google.accompanist:accompanist-systemuicontroller:0.34.0` to `app/build.gradle.kts`.
+- [x] Create `app/proguard-rules.pro` and add JNI/Chaquopy keep rules (e.g., `-keep class com.streamify.app.data.models.** { *; }`).
+- [x] Ensure `themes.xml` parent is `Theme.Material.NoActionBar` with black window background and status bar.
 
 ### Design Tokens
-- [ ] Download and place `montserrat_*.ttf` (5 weights) into `app/src/main/res/font/`.
-- [ ] Download and place `poppins_*.ttf` (4 weights) into `app/src/main/res/font/`.
-- [ ] Rewrite `Type.kt` to use the actual `.ttf` files and define all `StreamifyType` text styles.
-- [ ] Update `Color.kt` with missing tokens: `BgElevated`, `BgSearchBar`, `TextDimmed`, `TextOnSearch`, `Divider`, `Explicit`, `Scrim`, `PlayerGradient`, `PrimaryDark`, `Shuffle`.
-- [ ] Rewrite `Dimens.kt` to define the complete 30+ dimension/spacing token system.
-- [ ] Create `Shape.kt` and define `StreamifyShapes` (CardShape, MiniPlayerShape, ChipShape, SearchBarShape, CategoryShape, BottomSheet, PlayButton).
-- [ ] Update `Theme.kt` to apply the updated Typography, Colors, and Shapes.
+- [x] Download and place `montserrat_*.ttf` (5 weights) into `app/src/main/res/font/`.
+- [x] Download and place `poppins_*.ttf` (4 weights) into `app/src/main/res/font/`.
+- [x] Rewrite `Type.kt` to use the actual `.ttf` files and define all `StreamifyType` text styles.
+- [x] Update `Color.kt` with missing tokens: `BgElevated`, `BgSearchBar`, `TextDimmed`, `TextOnSearch`, `Divider`, `Explicit`, `Scrim`, `PlayerGradient`, `PrimaryDark`, `Shuffle`.
+- [x] Rewrite `Dimens.kt` to define the complete 30+ dimension/spacing token system.
+- [x] Create `Shape.kt` and define `StreamifyShapes` (CardShape, MiniPlayerShape, ChipShape, SearchBarShape, CategoryShape, BottomSheet, PlayButton).
+- [x] Update `Theme.kt` to apply the updated Typography, Colors, and Shapes.
 
 ---
 
 ## 🧩 Phase 2: Component Library & Utilities
 
 ### Core Utilities
-- [ ] Create `TimeGreeting.kt` (returns dynamic greeting based on system clock).
-- [ ] Create `DurationFormatter.kt` (formats seconds into `mm:ss`).
-- [ ] Create `PaletteExtractor.kt` (extracts dominant color from Bitmap).
-  - [ ] **CRITICAL**: Implement Dynamic Palette Luminance Safety (clamp luminance > 0.35 towards `#121212` or apply dark scrim).
-- [ ] Create `PermissionHelper.kt` (handles `READ_MEDIA_AUDIO` / `READ_EXTERNAL_STORAGE`).
+- [x] Create `TimeGreeting.kt` (returns dynamic greeting based on system clock).
+- [x] Create `DurationFormatter.kt` (formats seconds into `mm:ss`).
+- [x] Create `PaletteExtractor.kt` (extracts dominant color from Bitmap).
+  - [x] **CRITICAL**: Implement Dynamic Palette Luminance Safety (clamp luminance > 0.35 towards `#121212` or apply dark scrim).
+- [x] Create `PermissionHelper.kt` (handles `READ_MEDIA_AUDIO` / `READ_EXTERNAL_STORAGE`).
 
 ### UI Components
-- [ ] Create `EmptyStateView.kt` (illustration, title, subtitle, CTA).
-- [ ] Create `ShimmerPlaceholder.kt` (animated linear gradient brush).
-- [ ] Create `MarqueeText.kt` (auto-scrolling text for overflowed titles).
-- [ ] Create `HeartButton.kt` (animated like toggle with burst effect).
-- [ ] Create `BottomNavBar.kt` (4-tab destination bar matching Spotify style).
-- [ ] Create `TrackCard.kt` (square album art, text, animated play FAB overlay).
-- [ ] Create `ArtistCircleCard.kt` (circular clip, name text).
-- [ ] Create `RecentPlayCard.kt` (compact 56dp horizontal card).
-- [ ] Create `TrackListItem.kt` (56dp row, art, title, artist, context menu button).
-- [ ] Create `CategoryCard.kt` (160x100dp gradient card for search).
-- [ ] Create `ContextMenuSheet.kt` (long-press bottom sheet for track actions).
+- [x] Create `EmptyStateView.kt` (illustration, title, subtitle, CTA).
+- [x] Create `ShimmerPlaceholder.kt` (animated linear gradient brush).
+- [x] Create `MarqueeText.kt` (auto-scrolling text for overflowed titles).
+- [x] Create `HeartButton.kt` (animated like toggle with burst effect).
+- [x] Create `BottomNavBar.kt` (4-tab destination bar matching Spotify style).
+- [x] Create `TrackCard.kt` (square album art, text, animated play FAB overlay).
+- [x] Create `ArtistCircleCard.kt` (circular clip, name text).
+- [x] Create `RecentPlayCard.kt` (compact 56dp horizontal card).
+- [x] Create `TrackListItem.kt` (56dp row, art, title, artist, context menu button).
+- [x] Create `CategoryCard.kt` (160x100dp gradient card for search).
+- [x] Create `ContextMenuSheet.kt` (long-press bottom sheet for track actions).
 
 ---
 
