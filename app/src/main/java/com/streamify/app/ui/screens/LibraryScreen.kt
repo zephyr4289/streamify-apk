@@ -29,9 +29,11 @@ import com.streamify.app.viewmodel.PlayerViewModel
 fun LibraryScreen(
     playerViewModel: PlayerViewModel,
     viewModel: LibraryViewModel = viewModel(),
+    ingestionViewModel: com.streamify.app.viewmodel.IngestionViewModel = viewModel(),
     onTrackClick: (Int, List<com.streamify.app.data.models.Track>) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val downloadTasks by ingestionViewModel.downloadTasks.collectAsState()
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
     
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
@@ -99,8 +101,29 @@ fun LibraryScreen(
                 colors = FilterChipDefaults.filterChipColors(containerColor = StreamifyColors.BgCard)
             )
         }
-
+        
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+        
+        if (downloadTasks.isNotEmpty()) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = StreamifyDimens.SpaceLG)
+                    .padding(bottom = StreamifyDimens.SpaceLG),
+                colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(text = "Active Transfers", style = StreamifyType.TitleSmall, color = StreamifyColors.Primary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    downloadTasks.forEach { task ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(text = task.title, style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain, maxLines = 1, modifier = Modifier.weight(1f))
+                            Text(text = task.progress, style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                        }
+                    }
+                }
+            }
+        }
 
         when (val state = uiState) {
             is LibraryUiState.Loading -> {

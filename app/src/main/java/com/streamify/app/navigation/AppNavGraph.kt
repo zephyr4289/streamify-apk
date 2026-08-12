@@ -7,6 +7,8 @@ import androidx.compose.runtime.getValue
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.screens.*
 import com.streamify.app.viewmodel.PlayerViewModel
@@ -14,14 +16,22 @@ import com.streamify.app.viewmodel.PlayerViewModel
 @Composable
 fun AppNavGraph(
     navController: NavHostController,
-    playerViewModel: PlayerViewModel
+    playerViewModel: PlayerViewModel,
+    dominantColor: androidx.compose.ui.graphics.Color = com.streamify.app.ui.theme.StreamifyColors.BgBase
 ) {
-    NavHost(navController = navController, startDestination = "home") {
+    NavHost(
+        navController = navController,
+        startDestination = "home",
+        modifier = Modifier.fillMaxSize()
+    ) {
         composable("home") {
-            HomeScreen(onTrackClick = { trackId, allTracks ->
-                val track = allTracks.find { it.id == trackId }
-                if (track != null) playerViewModel.playTrack(track, allTracks)
-            })
+            HomeScreen(
+                playerViewModel = playerViewModel,
+                dominantColor = dominantColor,
+                onTrackClick = { id, list ->
+                    playerViewModel.playTrack(id, list)
+                }
+            )
         }
         composable("search") {
             SearchScreen(
@@ -40,9 +50,6 @@ fun AppNavGraph(
                     if (track != null) playerViewModel.playTrack(track, allTracks)
                 }
             )
-        }
-        composable("downloads") {
-            DownloadScreen()
         }
         composable("queue") {
             QueueScreen(

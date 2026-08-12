@@ -1,6 +1,8 @@
 #include "VectorStore.h"
 #if defined(__ARM_NEON)
 #include <arm_neon.h>
+#elif defined(__AVX__) || defined(__AVX2__)
+#include <immintrin.h>
 #endif
 #include <fstream>
 #include <algorithm>
@@ -98,6 +100,30 @@ std::vector<SearchResult> VectorStore::searchNearest(const std::vector<float>& q
         float dot = vgetq_lane_f32(sum_vec, 0) + vgetq_lane_f32(sum_vec, 1) + 
                     vgetq_lane_f32(sum_vec, 2) + vgetq_lane_f32(sum_vec, 3);
                     
+        for (; j < dim_; ++j) {
+            dot += q[j] * v[j];
+        }
+        
+        results[i] = {i, dot};
+    }
+#elif defined(__AVX__) || defined(__AVX2__)
+    for (int i = 0; i < num_vectors; ++i) {
+        const float* v = data + i * dim_;
+        __m256 sum_vec = _mm256_setzero_ps();
+        
+        int j = 0;
+        for (; j <= dim_ - 8; j += 8) {
+            __m256 a = _mm256_loadu_ps(q + j);
+            __m256 b = _mm256_loadu_ps(v + j);
+            // _mm256_dp_ps calculates dot product of two 256-bit vectors.
+            // 0xFF means calculate all 8 products and store sum in all 8 positions
+            __m256 dp = _mm256_dp_ps(a, b, 0xFF);
+            sum_vec = _mm256_add_ps(sum_vec, dp);
+        }
+        
+        // Extract the sums (the high and low 128-bit lanes)
+        float dot = ((float*)&sum_vec)[0] + ((float*)&sum_vec)[4];
+        
         for (; j < dim_; ++j) {
             dot += q[j] * v[j];
         }

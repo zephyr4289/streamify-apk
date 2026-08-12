@@ -11,12 +11,49 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.work.ForegroundInfo
+
 class DownloadWorker(
     appContext: Context,
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
 
+    private val notificationId = 12345
+
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        return createForegroundInfo(inputData.getString("title") ?: "Downloading Track")
+    }
+
+    private fun createForegroundInfo(title: String): ForegroundInfo {
+        val channelId = "download_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Downloads"
+            val channel = NotificationChannel(channelId, name, NotificationManager.IMPORTANCE_LOW)
+            val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(applicationContext, channelId)
+            .setContentTitle(title)
+            .setContentText("Downloading from source...")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setOngoing(true)
+            .build()
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(notificationId, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(notificationId, notification)
+        }
+    }
+
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        setForeground(getForegroundInfo())
         val url = inputData.getString("url") ?: return@withContext Result.failure()
         val title = inputData.getString("title") ?: "Unknown"
         val artist = inputData.getString("artist") ?: "Unknown"

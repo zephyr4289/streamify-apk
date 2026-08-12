@@ -98,7 +98,7 @@ sqlite3* StreamifyDB::getConnection() {
             return nullptr;
         }
         char* err = nullptr;
-        sqlite3_exec(tls_db, "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;", nullptr, nullptr, &err);
+        sqlite3_exec(tls_db, "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;", nullptr, nullptr, &err);
         if (err) sqlite3_free(err);
     }
     return tls_db;

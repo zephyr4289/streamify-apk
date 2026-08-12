@@ -53,18 +53,8 @@ fun FullPlayerSheet(
 ) {
     if (track == null) return
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val coroutineScope = rememberCoroutineScope()
-
-    ModalBottomSheet(
-        onDismissRequest = onCollapse,
-        sheetState = sheetState,
-        dragHandle = null, // Custom programmatic drag handle if needed
-        containerColor = Color.Transparent,
-        modifier = Modifier.fillMaxSize()
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            PlayerBackground(dominantColor = dominantColor)
+    Box(modifier = Modifier.fillMaxSize()) {
+        PlayerBackground(dominantColor = dominantColor)
 
             Column(
                 modifier = Modifier
@@ -78,9 +68,7 @@ fun FullPlayerSheet(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = {
-                        coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { onCollapse() }
-                    }) {
+                    IconButton(onClick = onCollapse) {
                         Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse", tint = StreamifyColors.TextMain)
                     }
                     Text("Now Playing", style = StreamifyType.Caption, color = StreamifyColors.TextMain)
@@ -210,6 +198,5 @@ fun FullPlayerSheet(
 
                 Spacer(modifier = Modifier.weight(1f))
             }
-        }
     }
 }

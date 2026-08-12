@@ -1,3 +1,5 @@
+#!/bin/bash
+cat << 'KOTLIN' > app/src/main/java/com/streamify/app/MainActivity.kt
 package com.streamify.app
 
 import android.os.Bundle
@@ -18,9 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import coil.imageLoader
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,7 +39,6 @@ import com.streamify.app.ui.screens.FullPlayerSheet
 import com.streamify.app.ui.theme.StreamifyTheme
 import com.streamify.app.util.PermissionHelper
 import com.streamify.app.viewmodel.PlayerViewModel
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
@@ -63,36 +62,6 @@ class MainActivity : ComponentActivity() {
                 var currentTab by remember { mutableStateOf(BottomTab.HOME) }
                 val playerViewModel: PlayerViewModel = viewModel()
                 val playerState by playerViewModel.playerState.collectAsState()
-                val scope = rememberCoroutineScope()
-                val context = androidx.compose.ui.platform.LocalContext.current
-                
-                var targetColor by remember { mutableStateOf(androidx.compose.ui.graphics.Color(0xFF1DB954)) }
-                val dominantColor by androidx.compose.animation.animateColorAsState(
-                    targetValue = targetColor,
-                    animationSpec = androidx.compose.animation.core.tween(1000),
-                    label = "dominantColor"
-                )
-
-                LaunchedEffect(playerState.currentTrack?.coverArtPath) {
-                    val path = playerState.currentTrack?.coverArtPath
-                    if (path != null) {
-                        val request = coil.request.ImageRequest.Builder(context)
-                            .data(path)
-                            .allowHardware(false)
-                            .build()
-                        val result = (coil.imageLoader(context).execute(request) as? coil.request.SuccessResult)?.drawable
-                        val bitmap = (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
-                        if (bitmap != null) {
-                            androidx.palette.graphics.Palette.from(bitmap).generate { palette ->
-                                palette?.dominantSwatch?.rgb?.let { colorInt ->
-                                    targetColor = androidx.compose.ui.graphics.Color(colorInt)
-                                } ?: palette?.mutedSwatch?.rgb?.let { colorInt ->
-                                    targetColor = androidx.compose.ui.graphics.Color(colorInt)
-                                }
-                            }
-                        }
-                    }
-                }
 
                 LaunchedEffect(Unit) {
                     playerViewModel.initialize(this@MainActivity)
@@ -140,7 +109,7 @@ class MainActivity : ComponentActivity() {
                                         onPlayPause = { playerViewModel.togglePlayPause() },
                                         onNext = { playerViewModel.skipNext() },
                                         onPrevious = { playerViewModel.skipPrevious() },
-                                        onExpand = { scope.launch { sheetState.expand() } },
+                                        onExpand = { /* Let sheet swipe handle expansion */ },
                                         modifier = Modifier.align(Alignment.TopCenter)
                                     )
                                 }
@@ -158,8 +127,8 @@ class MainActivity : ComponentActivity() {
                                         progress = progress,
                                         isShuffleActive = playerState.isShuffleActive,
                                         isRepeatActive = playerState.isRepeatActive,
-                                        dominantColor = dominantColor,
-                                        onCollapse = { scope.launch { sheetState.partialExpand() } },
+                                        dominantColor = androidx.compose.ui.graphics.Color(0xFF1DB954),
+                                        onCollapse = { /* Handle collapse via state if needed */ },
                                         onPlayPause = { playerViewModel.togglePlayPause() },
                                         onNext = { playerViewModel.skipNext() },
                                         onPrevious = { playerViewModel.skipPrevious() },
@@ -169,14 +138,8 @@ class MainActivity : ComponentActivity() {
                                         onShuffleToggle = { playerViewModel.toggleShuffle() },
                                         onRepeatToggle = { playerViewModel.toggleRepeat() },
                                         onToggleLike = { playerViewModel.toggleLike() },
-                                        onQueueClick = { 
-                                            scope.launch { sheetState.partialExpand() }
-                                            navController.navigate("queue") 
-                                        },
-                                        onLyricsClick = { 
-                                            scope.launch { sheetState.partialExpand() }
-                                            navController.navigate("lyrics") 
-                                        }
+                                        onQueueClick = { navController.navigate("queue") },
+                                        onLyricsClick = { navController.navigate("lyrics") }
                                     )
                                 }
                             }
@@ -186,8 +149,7 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.fillMaxSize()) {
                         AppNavGraph(
                             navController = navController,
-                            playerViewModel = playerViewModel,
-                            dominantColor = dominantColor
+                            playerViewModel = playerViewModel
                         )
                         // Bottom Navigation overlaps scaffold bottom when collapsed
                         BottomNavBar(
@@ -205,9 +167,7 @@ class MainActivity : ComponentActivity() {
                                     restoreState = true
                                 }
                             },
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = innerPadding.calculateBottomPadding())
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = innerPadding.calculateBottomPadding())
                         )
                     }
                 }
@@ -215,3 +175,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+KOTLIN
+chmod +x update_main.sh
+./update_main.sh

@@ -27,6 +27,8 @@ import com.streamify.app.viewmodel.HomeViewModel
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = viewModel(),
+    playerViewModel: com.streamify.app.viewmodel.PlayerViewModel,
+    dominantColor: androidx.compose.ui.graphics.Color = StreamifyColors.BgBase,
     onTrackClick: (Int, List<Track>) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -42,12 +44,27 @@ fun HomeScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(StreamifyColors.BgBase)
-            .padding(horizontal = StreamifyDimens.SpaceLG)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Gradient Header
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .background(
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            dominantColor.copy(alpha = 0.4f),
+                            StreamifyColors.BgBase
+                        )
+                    )
+                )
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = StreamifyDimens.SpaceLG)
+        ) {
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceGiant)) // Status bar + padding
 
         Text(
@@ -187,6 +204,7 @@ fun HomeScreen(
                     }
                 }
             }
+        }
         }
     }
 }

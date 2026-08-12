@@ -118,7 +118,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository(
                         duration = actualDuration
                     )
                 }
-                delay(1000)
+                delay(200)
             }
         }
     }
