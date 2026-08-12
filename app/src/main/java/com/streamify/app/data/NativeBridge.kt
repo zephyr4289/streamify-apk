@@ -1,6 +1,7 @@
 package com.streamify.app.data
 
 import com.streamify.app.data.models.TrackNative
+import com.streamify.app.data.models.RecommendationNative
 
 object NativeBridge {
     init { System.loadLibrary("streamify_core") }
