@@ -36,7 +36,8 @@ std::vector<float> AudioPipeline::processAudio(const std::string& filepath) {
         return std::vector<float>(512, 0.0f);
     }
     
-    ma_uint64 total_frames = ma_decoder_get_length_in_pcm_frames(&decoder);
+    ma_uint64 total_frames = 0;
+    ma_decoder_get_length_in_pcm_frames(&decoder, &total_frames);
     if (total_frames == 0) total_frames = 16000 * 30; // Approx 30s buffer if length unknown
     std::vector<float> pcm(total_frames);
     ma_uint64 frames_read = 0;
