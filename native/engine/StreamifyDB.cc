@@ -129,6 +129,39 @@ std::optional<StreamifyTrack> StreamifyDB::getTrackById(int track_id) {
     return track;
 }
 
+std::optional<StreamifyTrack> StreamifyDB::getTrackByVectorOffset(int offset) {
+    sqlite3* db = getConnection();
+    if (!db) return std::nullopt;
+
+    const char* sql = "SELECT id, filepath, title, artist, album, duration_sec, bpm, key, vector_offset, cover_art_path, lyrics_path, source, is_processed, download_quality FROM tracks WHERE vector_offset = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+
+    sqlite3_bind_int(stmt, 1, offset);
+
+    std::optional<StreamifyTrack> track;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        StreamifyTrack t;
+        t.id = sqlite3_column_int(stmt, 0);
+        t.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        t.title = sqlite3_column_text(stmt, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
+        t.artist = sqlite3_column_text(stmt, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)) : "";
+        t.album = sqlite3_column_text(stmt, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)) : "Single";
+        t.duration_sec = sqlite3_column_int(stmt, 5);
+        t.bpm = sqlite3_column_double(stmt, 6);
+        t.key = sqlite3_column_text(stmt, 7) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7)) : "C";
+        t.vector_offset = sqlite3_column_int(stmt, 8);
+        t.cover_art_path = sqlite3_column_text(stmt, 9) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9)) : "";
+        t.lyrics_path = sqlite3_column_text(stmt, 10) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 10)) : "";
+        t.source = sqlite3_column_text(stmt, 11) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11)) : "";
+        t.is_processed = sqlite3_column_int(stmt, 12);
+        t.download_quality = sqlite3_column_text(stmt, 13) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13)) : "";
+        track = t;
+    }
+    sqlite3_finalize(stmt);
+    return track;
+}
+
 std::vector<StreamifyTrack> StreamifyDB::getAllTracks() {
     std::vector<StreamifyTrack> tracks;
     sqlite3* db = getConnection();

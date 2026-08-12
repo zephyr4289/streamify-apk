@@ -50,14 +50,14 @@ This checklist tracks the implementation progress of the Streamify Android App b
 - [x] Commit & Push (Phase 3 complete).
 
 ## Phase 4: AI Recommendation Engine
-- [ ] Port `VectorStore.cc` to ARM NEON (`native/engine/VectorStore.cc`).
-- [ ] Vendor `kissfft` into `native/dsp/kissfft/` and update `CMakeLists.txt`.
-- [ ] Port DSP: Create `native/ingest/AudioPipeline.cc` using `kissfft`.
-- [ ] Link ONNX Runtime (Mobile) in CMake and add `clap_int8.onnx` to `assets/models/`.
-- [ ] Port Ranking Logic: Create `native/engine/RecommendEngine.cc` and `native/engine/EventTracker.cc` (remove Drogon).
-- [ ] Wire UI: Update `HomeScreen.kt` to fetch JNI recommendations ("Made For You").
-- [ ] Verify Vector retrieval speed and correctness.
-- [ ] Commit & Push (Phase 4 complete).
+- [x] Port `VectorStore.cc` to ARM NEON (`native/engine/VectorStore.cc`).
+- [x] Vendor `kissfft` into `native/dsp/kissfft/` and update `CMakeLists.txt`.
+- [x] Port DSP: Create `native/ingest/AudioPipeline.cc` using `kissfft`.
+- [x] Link ONNX Runtime (Mobile) in CMake and add `clap_int8.onnx` to `assets/models/`.
+- [x] Port Ranking Logic: Create `native/engine/RecommendEngine.cc` and `native/engine/EventTracker.cc` (remove Drogon).
+- [x] Wire UI: Update `HomeScreen.kt` to fetch JNI recommendations ("Made For You").
+- [x] Verify Vector retrieval speed and correctness.
+- [x] Commit & Push (Phase 4 complete).
 
 ## Phase 5: Device Music Discovery
 - [ ] Implement `MediaStoreScanner.kt` to query `/sdcard/Music` and `/Downloads`.

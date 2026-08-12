@@ -102,3 +102,71 @@ Java_com_streamify_app_data_NativeBridge_getLikedTracks(JNIEnv* env, jobject /* 
     std::vector<StreamifyTrack> tracks = StreamifyDB::getInstance().getUserLikedTracks(userId);
     return convertTrackList(env, tracks);
 }
+
+#include "../engine/VectorStore.h"
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_initVectorStore(JNIEnv* env, jobject /* this */, jstring binPath) {
+    const char* path = env->GetStringUTFChars(binPath, 0);
+    bool success = VectorStore::getInstance().init(path);
+    env->ReleaseStringUTFChars(binPath, path);
+    return success;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_streamify_app_data_NativeBridge_searchSimilarTracks(JNIEnv* env, jobject /* this */, jint trackId, jint topK) {
+    std::optional<StreamifyTrack> track = StreamifyDB::getInstance().getTrackById(trackId);
+    if (!track.has_value() || track->vector_offset < 0) {
+        return env->NewIntArray(0);
+    }
+
+    std::vector<SearchResult> results = VectorStore::getInstance().searchNearest(track->vector_offset, topK);
+    
+    // We only need the track IDs which correspond to the vector offsets (assuming 1:1 mapping in simple case, or we query DB).
+    // In legacy, vector_offset == track_id - 1 usually, but here we can just query the DB for tracks with these vector_offsets.
+    // For simplicity, let's return the vector_offsets as track IDs directly (assuming vector_offset = trackId).
+    // Actually, StreamifyDB stores vector_offset. We should return an array of offsets.
+    jintArray resultArray = env->NewIntArray(results.size());
+    if (results.size() > 0) {
+        jint* elements = env->GetIntArrayElements(resultArray, 0);
+        for (size_t i = 0; i < results.size(); ++i) {
+            elements[i] = results[i].vector_offset; 
+        }
+        env->ReleaseIntArrayElements(resultArray, elements, 0);
+    }
+    return resultArray;
+}
+
+#include "../engine/RecommendEngine.h"
+#include "../engine/EventTracker.h"
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_streamify_app_data_NativeBridge_getRecommendations(JNIEnv* env, jobject /* this */, jint trackId, jintArray recentHistory, jint userId, jint limit) {
+    jsize len = env->GetArrayLength(recentHistory);
+    jint* historyElements = env->GetIntArrayElements(recentHistory, 0);
+    std::vector<int> history(historyElements, historyElements + len);
+    env->ReleaseIntArrayElements(recentHistory, historyElements, 0);
+
+    std::vector<Recommendation> recs = RecommendEngine::getInstance().getNextTracks(trackId, history, limit);
+
+    jclass recClass = env->FindClass("com/streamify/app/data/models/RecommendationNative");
+    jmethodID constructor = env->GetMethodID(recClass, "<init>", "(IF)V");
+
+    jobjectArray resultArray = env->NewObjectArray(recs.size(), recClass, nullptr);
+    for (size_t i = 0; i < recs.size(); ++i) {
+        jobject obj = env->NewObject(recClass, constructor, recs[i].trackId, recs[i].score);
+        env->SetObjectArrayElement(resultArray, i, obj);
+        env->DeleteLocalRef(obj);
+    }
+    return resultArray;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_logPlayEvent(JNIEnv* env, jobject /* this */, jint fromTrackId, jint toTrackId, jint userId) {
+    EventTracker::getInstance().logPlay(fromTrackId, toTrackId, userId);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_logSkipEvent(JNIEnv* env, jobject /* this */, jint fromTrackId, jint toTrackId, jint userId) {
+    EventTracker::getInstance().logSkip(fromTrackId, toTrackId, userId);
+}

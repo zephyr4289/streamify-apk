@@ -35,6 +35,7 @@ public:
 
     bool init(const std::string& db_path);
     std::optional<StreamifyTrack> getTrackById(int track_id);
+    std::optional<StreamifyTrack> getTrackByVectorOffset(int offset);
     std::vector<StreamifyTrack> getAllTracks();
     std::vector<StreamifyTrack> searchTracks(const std::string& query);
     int insertTrack(const std::string& filepath, const std::string& title, const std::string& artist, const std::string& album, int duration_sec, double bpm);

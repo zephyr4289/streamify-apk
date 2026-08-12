@@ -15,4 +15,13 @@ object NativeBridge {
     // Liked Songs
     external fun toggleLike(userId: Int, trackId: Int): Boolean
     external fun getLikedTracks(userId: Int): Array<TrackNative>
+
+    // AI Recommender / VectorStore
+    external fun initVectorStore(binPath: String): Boolean
+    external fun searchSimilarTracks(trackId: Int, topK: Int): IntArray
+    external fun getRecommendations(trackId: Int, recentHistory: IntArray, userId: Int, limit: Int): Array<RecommendationNative>
+
+    // Events
+    external fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int)
+    external fun logSkipEvent(fromTrackId: Int, toTrackId: Int, userId: Int)
 }
