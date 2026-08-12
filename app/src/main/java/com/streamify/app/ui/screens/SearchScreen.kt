@@ -16,9 +16,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamify.app.ui.components.CategoryCard
 import com.streamify.app.ui.components.TrackListItem
+import com.streamify.app.ui.components.ContextMenuSheet
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyShapes
@@ -30,16 +32,20 @@ import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
 import com.streamify.app.viewmodel.IngestionViewModel
 
+import com.streamify.app.viewmodel.PlayerViewModel
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     viewModel: SearchViewModel = viewModel(),
     ingestionViewModel: IngestionViewModel = viewModel(),
+    playerViewModel: PlayerViewModel,
     onTrackClick: (Int, List<com.streamify.app.data.models.Track>) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var query by remember { mutableStateOf("") }
     val context = LocalContext.current
+    var selectedOptionsTrack by remember { mutableStateOf<com.streamify.app.data.models.Track?>(null) }
 
     // Mock Categories
     val categories = listOf(
@@ -153,7 +159,7 @@ fun SearchScreen(
                             TrackListItem(
                                 track = track,
                                 onClick = { onTrackClick(track.id, (uiState as? SearchUiState.Success)?.localResults ?: emptyList()) },
-                                onOptionsClick = { /* Handle options */ }
+                                onOptionsClick = { selectedOptionsTrack = track }
                             )
                         }
                     } 
@@ -165,8 +171,9 @@ fun SearchScreen(
                             // Use TrackListItem as a generic row for now by mocking a Track
                             val mockTrack = com.streamify.app.data.models.Track(
                                 id = 0, title = onlineTrack.title, artist = onlineTrack.uploader,
-                                album = "Online", durationMs = onlineTrack.duration * 1000L,
-                                filePath = "", coverArtPath = null
+                                album = "Online", durationSec = onlineTrack.duration,
+                                filepath = "", coverArtPath = null,
+                                bpm = 0f, key = "", lyricsPath = null, source = "online"
                             )
                             TrackListItem(
                                 track = mockTrack,
@@ -180,7 +187,7 @@ fun SearchScreen(
                                     )
                                     Toast.makeText(context, "Added to Download Queue", Toast.LENGTH_SHORT).show()
                                 },
-                                onOptionsClick = { }
+                                onOptionsClick = { selectedOptionsTrack = mockTrack }
                             )
                         }
                     } 
@@ -194,5 +201,21 @@ fun SearchScreen(
                 }
             }
         }
+    }
+    
+    selectedOptionsTrack?.let { track ->
+        ContextMenuSheet(
+            track = track,
+            onDismissRequest = { selectedOptionsTrack = null },
+            onLikeClick = { 
+                playerViewModel.toggleLike(track)
+                selectedOptionsTrack = null 
+            },
+            onAddToPlaylistClick = { selectedOptionsTrack = null },
+            onAddToQueueClick = { 
+                playerViewModel.addToQueue(track)
+                selectedOptionsTrack = null 
+            }
+        )
     }
 }
