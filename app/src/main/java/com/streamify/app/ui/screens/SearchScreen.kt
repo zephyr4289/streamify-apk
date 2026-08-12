@@ -148,31 +148,84 @@ fun SearchScreen(
 
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXL))
 
+        LaunchedEffect(context) {
+            viewModel.init(context)
+        }
+        
+        val searchHistory by viewModel.searchHistory.collectAsState()
+
         when (val state = uiState) {
             is SearchUiState.Idle -> {
-                Text(
-                    text = "Browse all",
-                    style = StreamifyType.TitleMedium,
-                    color = StreamifyColors.TextMain,
-                    modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceLG)
-                )
-                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(
-                        start = StreamifyDimens.SpaceLG,
-                        end = StreamifyDimens.SpaceLG,
-                        bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG),
-                    verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
+                LazyColumn(
+                    contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
                 ) {
-                    items(categories) { category ->
-                        CategoryCard(
-                            title = category.first,
-                            backgroundColor = category.second,
-                            onClick = { /* Handle category */ }
+                    if (searchHistory.isNotEmpty()) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = StreamifyDimens.SpaceLG),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Recent Searches",
+                                    style = StreamifyType.TitleMedium,
+                                    color = StreamifyColors.TextMain
+                                )
+                                TextButton(onClick = { viewModel.clearHistory() }) {
+                                    Text("Clear", color = StreamifyColors.TextSub)
+                                }
+                            }
+                        }
+                        items(searchHistory) { pastQuery ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { 
+                                        query = pastQuery
+                                        viewModel.search(pastQuery) 
+                                    }
+                                    .padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Filled.Search, contentDescription = null, tint = StreamifyColors.TextSub)
+                                Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
+                                Text(pastQuery, style = StreamifyType.BodyLarge, color = StreamifyColors.TextMain)
+                            }
+                        }
+                        item { Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG)) }
+                    }
+
+                    item {
+                        Text(
+                            text = "Browse all",
+                            style = StreamifyType.TitleMedium,
+                            color = StreamifyColors.TextMain,
+                            modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceLG)
                         )
+                        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+                    }
+                    
+                    item {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier.heightIn(max = 1000.dp), // Quick fix for nested scrolling
+                            contentPadding = PaddingValues(
+                                start = StreamifyDimens.SpaceLG,
+                                end = StreamifyDimens.SpaceLG
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG),
+                            verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
+                        ) {
+                            items(categories) { category ->
+                                CategoryCard(
+                                    title = category.first,
+                                    backgroundColor = category.second,
+                                    onClick = { /* Handle category */ }
+                                )
+                            }
+                        }
                     }
                 }
             }

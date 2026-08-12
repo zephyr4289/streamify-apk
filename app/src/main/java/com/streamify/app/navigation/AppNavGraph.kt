@@ -85,6 +85,7 @@ fun AppNavGraph(
             LyricsScreen(
                 lyrics = lyricsLines,
                 currentPositionMs = playerState.currentPosition,
+                dominantColor = dominantColor,
                 onSeek = { ms -> playerViewModel.seekTo(ms) }
             )
         }

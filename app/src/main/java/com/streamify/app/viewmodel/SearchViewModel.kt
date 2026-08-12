@@ -34,7 +34,37 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
+    private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
+    val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
+
     private var searchJob: kotlinx.coroutines.Job? = null
+    private var prefs: android.content.SharedPreferences? = null
+
+    fun init(context: android.content.Context) {
+        if (prefs == null) {
+            prefs = context.getSharedPreferences("search_history", android.content.Context.MODE_PRIVATE)
+            val saved = prefs?.getString("history", "") ?: ""
+            if (saved.isNotBlank()) {
+                _searchHistory.value = saved.split(";;")
+            }
+        }
+    }
+
+    private fun addQueryToHistory(query: String) {
+        val q = query.trim()
+        if (q.isBlank()) return
+        val current = _searchHistory.value.toMutableList()
+        current.remove(q)
+        current.add(0, q)
+        if (current.size > 10) current.removeAt(current.size - 1)
+        _searchHistory.value = current
+        prefs?.edit()?.putString("history", current.joinToString(";;"))?.apply()
+    }
+
+    fun clearHistory() {
+        _searchHistory.value = emptyList()
+        prefs?.edit()?.remove("history")?.apply()
+    }
 
     fun search(query: String) {
         searchJob?.cancel()
@@ -42,6 +72,12 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         if (query.isBlank()) {
             _uiState.value = SearchUiState.Idle
             return
+        }
+
+        // Add to history after a short delay so typing doesn't spam history
+        searchJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(1000)
+            addQueryToHistory(query)
         }
 
         searchJob = viewModelScope.launch {
