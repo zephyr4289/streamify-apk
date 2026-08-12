@@ -123,8 +123,17 @@ fun LibraryScreen(
             )
             FilterChip(
                 selected = selectedFilter == 3,
-                onClick = { selectedFilter = 3 },
-                label = { Text("Folders", color = if (selectedFilter == 3) StreamifyColors.BgBase else StreamifyColors.TextMain) },
+                onClick = { selectedFilter = 3; selectedFolder = null },
+                label = { Text("Playlists", color = if (selectedFilter == 3) StreamifyColors.BgBase else StreamifyColors.TextMain) },
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = StreamifyColors.BgCard,
+                    selectedContainerColor = StreamifyColors.Primary
+                )
+            )
+            FilterChip(
+                selected = selectedFilter == 4,
+                onClick = { selectedFilter = 4 },
+                label = { Text("Folders", color = if (selectedFilter == 4) StreamifyColors.BgBase else StreamifyColors.TextMain) },
                 colors = FilterChipDefaults.filterChipColors(
                     containerColor = StreamifyColors.BgCard,
                     selectedContainerColor = StreamifyColors.Primary
@@ -177,8 +186,49 @@ fun LibraryScreen(
                         if (lastSlash != -1) path.substring(0, lastSlash) else "Unknown Folder"
                     }
                 }
-
+                
+                val playlists by com.streamify.app.data.PlaylistRepository.playlists.collectAsState()
+                
                 if (selectedFilter == 3 && selectedFolder == null) {
+                    if (playlists.isEmpty()) {
+                        EmptyStateView(
+                            title = "No Playlists",
+                            subtitle = "Create playlists to group your favorite songs",
+                            actionText = "Add from Context Menu",
+                            onActionClick = { }
+                        )
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
+                        ) {
+                            items(playlists, key = { it.id }) { playlist ->
+                                val trackCount = playlist.trackIds.size
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { selectedFolder = playlist.id }
+                                        .padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = androidx.compose.material.icons.Icons.Filled.QueueMusic,
+                                        contentDescription = "Playlist",
+                                        tint = StreamifyColors.Primary,
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
+                                    Column {
+                                        Text(playlist.name, style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                                        Text("$trackCount tracks", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
+                                        if (playlist.description.isNotBlank()) {
+                                            Text(playlist.description, style = StreamifyType.Caption, color = StreamifyColors.TextSub, maxLines = 1)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (selectedFilter == 4 && selectedFolder == null) {
                     if (folders.isEmpty()) {
                         EmptyStateView(
                             title = "No folders found",
@@ -220,12 +270,24 @@ fun LibraryScreen(
                     val displayTracks = when (selectedFilter) {
                         1 -> state.likedTracks
                         2 -> state.tracks.filter { it.filepath.isNotBlank() }
-                        3 -> folders[selectedFolder] ?: emptyList()
+                        3 -> {
+                            val p = playlists.find { it.id == selectedFolder }
+                            if (p != null) {
+                                val tm = state.tracks.associateBy { it.id }
+                                p.trackIds.mapNotNull { tm[it] }
+                            } else emptyList()
+                        }
+                        4 -> folders[selectedFolder] ?: emptyList()
                         else -> state.tracks
                     }
                     
                     Column {
-                        if (selectedFilter == 3 && selectedFolder != null) {
+                        if ((selectedFilter == 3 || selectedFilter == 4) && selectedFolder != null) {
+                            val headerTitle = if (selectedFilter == 3) {
+                                playlists.find { it.id == selectedFolder }?.name ?: "Playlist"
+                            } else {
+                                selectedFolder?.substringAfterLast("/") ?: ""
+                            }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -235,7 +297,7 @@ fun LibraryScreen(
                             ) {
                                 Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = StreamifyColors.TextMain)
                                 Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
-                                Text(selectedFolder?.substringAfterLast("/") ?: "", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                                Text(headerTitle, style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
                             }
                         }
                         

@@ -33,6 +33,7 @@ class PlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .setPauseAtEndOfMediaItems(false)
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
         
         player = exoPlayer

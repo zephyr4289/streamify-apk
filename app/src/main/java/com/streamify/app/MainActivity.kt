@@ -102,6 +102,7 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     playerViewModel.initialize(this@MainActivity)
+                    com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
                 }
 
                 val screenHeight = LocalConfiguration.current.screenHeightDp.dp

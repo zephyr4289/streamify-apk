@@ -99,8 +99,7 @@ fun ContextMenuSheet(
                 icon = Icons.Filled.Add,
                 text = "Add to Playlist",
                 onClick = {
-                    onAddToPlaylistClick()
-                    onDismissRequest()
+                    showPlaylistDialog = true
                 }
             )
             ContextActionItem(
@@ -181,6 +180,85 @@ fun ContextMenuSheet(
             },
             dismissButton = {
                 TextButton(onClick = { showEditDialog = false }) { Text("Cancel", color = StreamifyColors.TextSub) }
+            },
+            containerColor = StreamifyColors.BgCard
+        )
+    }
+
+    var showPlaylistDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showCreatePlaylistDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val playlists by com.streamify.app.data.PlaylistRepository.playlists.androidx.compose.runtime.collectAsState()
+
+    if (showPlaylistDialog) {
+        AlertDialog(
+            onDismissRequest = { showPlaylistDialog = false },
+            title = { Text("Add to Playlist", color = StreamifyColors.TextMain) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    TextButton(onClick = {
+                        showPlaylistDialog = false
+                        showCreatePlaylistDialog = true
+                    }) {
+                        Icon(Icons.Filled.Add, contentDescription = "Create", tint = StreamifyColors.Primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Create New Playlist", color = StreamifyColors.Primary)
+                    }
+                    Divider(color = StreamifyColors.Divider)
+                    if (playlists.isEmpty()) {
+                        Text("No playlists yet.", color = StreamifyColors.TextSub)
+                    } else {
+                        androidx.compose.foundation.lazy.LazyColumn {
+                            androidx.compose.foundation.lazy.items(playlists) { playlist ->
+                                Text(
+                                    text = playlist.name,
+                                    color = StreamifyColors.TextMain,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            com.streamify.app.data.PlaylistRepository.addTrackToPlaylist(playlist.id, track.id)
+                                            showPlaylistDialog = false
+                                            onDismissRequest()
+                                        }
+                                        .padding(vertical = 12.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPlaylistDialog = false }) { Text("Cancel", color = StreamifyColors.TextSub) }
+            },
+            containerColor = StreamifyColors.BgCard
+        )
+    }
+
+    if (showCreatePlaylistDialog) {
+        var playlistName by remember { androidx.compose.runtime.mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreatePlaylistDialog = false },
+            title = { Text("New Playlist", color = StreamifyColors.TextMain) },
+            text = {
+                TextField(
+                    value = playlistName,
+                    onValueChange = { playlistName = it },
+                    label = { Text("Playlist Name") },
+                    colors = TextFieldDefaults.colors(focusedContainerColor = StreamifyColors.BgElevated, unfocusedContainerColor = StreamifyColors.BgElevated)
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (playlistName.isNotBlank()) {
+                            com.streamify.app.data.PlaylistRepository.createPlaylist(playlistName)
+                            showCreatePlaylistDialog = false
+                            showPlaylistDialog = true
+                        }
+                    }
+                ) { Text("Create", color = StreamifyColors.Primary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreatePlaylistDialog = false }) { Text("Cancel", color = StreamifyColors.TextSub) }
             },
             containerColor = StreamifyColors.BgCard
         )
