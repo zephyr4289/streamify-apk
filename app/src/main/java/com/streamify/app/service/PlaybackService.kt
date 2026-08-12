@@ -37,6 +37,7 @@ class PlaybackService : MediaSessionService() {
             .build()
         
         player = exoPlayer
+        exoPlayer.skipSilenceEnabled = true
         
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
             override fun onAudioSessionIdChanged(audioSessionId: Int) {

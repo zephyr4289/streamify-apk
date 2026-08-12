@@ -49,7 +49,9 @@ fun FullPlayerSheet(
     onRepeatToggle: () -> Unit,
     onToggleLike: () -> Unit,
     onQueueClick: (() -> Unit)? = null,
-    onLyricsClick: (() -> Unit)? = null
+    onLyricsClick: (() -> Unit)? = null,
+    isAutoPlayEnabled: Boolean = false,
+    onAutoPlayToggle: (() -> Unit)? = null
 ) {
     if (track == null) return
 
@@ -225,6 +227,13 @@ fun FullPlayerSheet(
                             imageVector = Icons.Filled.QueueMusic,
                             contentDescription = "Up Next Queue",
                             tint = StreamifyColors.TextSub
+                        )
+                    }
+                    IconButton(onClick = { onAutoPlayToggle?.invoke() }) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Filled.AutoAwesome,
+                            contentDescription = "Neural Infinity Radio",
+                            tint = if (isAutoPlayEnabled) StreamifyColors.Primary else StreamifyColors.TextSub
                         )
                     }
                     IconButton(onClick = { onLyricsClick?.invoke() }) {

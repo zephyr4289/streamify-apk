@@ -25,6 +25,8 @@ fun DownloadScreen(
     viewModel: IngestionViewModel = viewModel()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val tasks by viewModel.downloadTasks.collectAsState()
+    
     androidx.compose.runtime.LaunchedEffect(context) {
         viewModel.observeDownloads(context)
     }

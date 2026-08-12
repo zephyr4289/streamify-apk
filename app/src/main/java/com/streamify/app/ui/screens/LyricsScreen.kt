@@ -78,19 +78,25 @@ fun LyricsScreen(
                     val isActive = index == activeIndex
                     val isPast = index < activeIndex
                     
+                    val targetScale = if (isActive) 1.2f else 1.0f
+
                     val targetAlpha = when {
                         isActive -> 1f
                         isPast -> 0.5f
                         else -> 0.3f
                     }
-                    
-                    val targetScale = if (isActive) 1.2f else 1.0f
-
                     val animatedAlpha by androidx.compose.animation.core.animateFloatAsState(
                         targetValue = targetAlpha,
                         animationSpec = androidx.compose.animation.core.tween(400)
                     )
                     
+                    val nextLineTimeMs = if (index < lyrics.size - 1) lyrics[index + 1].timeMs else line.timeMs + 5000L
+                    
+                    val lineProgress = if (isActive && currentPositionMs >= line.timeMs) {
+                        val duration = (nextLineTimeMs - line.timeMs).toFloat()
+                        if (duration > 0) ((currentPositionMs - line.timeMs) / duration).coerceIn(0f, 1f) else 1f
+                    } else if (isPast) 1f else 0f
+
                     val animatedScale by androidx.compose.animation.core.animateFloatAsState(
                         targetValue = targetScale,
                         animationSpec = androidx.compose.animation.core.spring(
@@ -98,13 +104,27 @@ fun LyricsScreen(
                             stiffness = androidx.compose.animation.core.Spring.StiffnessLow
                         )
                     )
+                    
+                    val brush = if (isActive || isPast) {
+                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            0.0f to StreamifyColors.TextMain,
+                            (lineProgress - 0.05f).coerceAtLeast(0f) to StreamifyColors.TextMain,
+                            (lineProgress + 0.05f).coerceAtMost(1f) to StreamifyColors.TextMain.copy(alpha = 0.3f),
+                            1.0f to StreamifyColors.TextMain.copy(alpha = 0.3f)
+                        )
+                    } else {
+                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            0.0f to StreamifyColors.TextMain.copy(alpha = animatedAlpha),
+                            1.0f to StreamifyColors.TextMain.copy(alpha = animatedAlpha)
+                        )
+                    }
 
                     Text(
                         text = line.text,
-                        color = StreamifyColors.TextMain.copy(alpha = animatedAlpha),
                         fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Bold,
                         fontSize = 28.sp,
                         lineHeight = 36.sp,
+                        style = androidx.compose.ui.text.TextStyle(brush = brush),
                         modifier = Modifier
                             .fillMaxWidth()
                             .androidx.compose.ui.graphics.graphicsLayer {

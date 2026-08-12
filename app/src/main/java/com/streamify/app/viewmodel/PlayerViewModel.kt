@@ -31,7 +31,8 @@ data class PlayerState(
     val isShuffleActive: Boolean = false,
     val isRepeatActive: Boolean = false,
     val sleepTimerMinutesLeft: Int? = null,
-    val sleepTimerEndTrack: Boolean = false
+    val sleepTimerEndTrack: Boolean = false,
+    val isAutoPlayEnabled: Boolean = true
 )
 
 class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
@@ -123,6 +124,49 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     ctrl.pause()
                     _playerState.value = _playerState.value.copy(sleepTimerEndTrack = false, sleepTimerMinutesLeft = null)
                 }
+
+                // NEURAL INFINITY RADIO: If we reached the last song in the queue (and auto-play is enabled), fetch recommendations
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && _playerState.value.isAutoPlayEnabled) {
+                    val currentQueue = _playerState.value.queue
+                    val currentIdx = currentQueue.indexOfFirst { it.id.toString() == mediaItem?.mediaId }
+                    if (currentIdx >= 0 && currentIdx == currentQueue.size - 1) {
+                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            val currentT = _playerState.value.currentTrack
+                            if (currentT != null && currentT.id > 0) {
+                                val recentHistory = currentQueue.takeLast(5).map { it.id }.toIntArray()
+                                val recs = repository.getRecommendations(currentT.id, recentHistory, 1, 5)
+                                if (recs.isNotEmpty()) {
+                                    val newQueue = currentQueue.toMutableList()
+                                    val newMediaItems = mutableListOf<MediaItem>()
+                                    for (rec in recs) {
+                                        if (!newQueue.any { it.id == rec.id }) {
+                                            newQueue.add(rec)
+                                            newMediaItems.add(
+                                                MediaItem.Builder()
+                                                    .setMediaId(rec.id.toString())
+                                                    .setUri(rec.filepath)
+                                                    .setMediaMetadata(
+                                                        MediaMetadata.Builder()
+                                                            .setTitle(rec.title)
+                                                            .setArtist(rec.artist)
+                                                            .setAlbumTitle(rec.album)
+                                                            .setArtworkUri(android.net.Uri.parse(rec.coverArtPath ?: ""))
+                                                            .build()
+                                                    ).build()
+                                            )
+                                        }
+                                    }
+                                    if (newMediaItems.isNotEmpty()) {
+                                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            _playerState.value = _playerState.value.copy(queue = newQueue)
+                                            ctrl.addMediaItems(newMediaItems)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -133,6 +177,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 _playerState.value = _playerState.value.copy(isRepeatActive = repeatMode != Player.REPEAT_MODE_OFF)
             }
         })
+    }
+    
+    fun toggleAutoPlay() {
+        _playerState.value = _playerState.value.copy(isAutoPlayEnabled = !_playerState.value.isAutoPlayEnabled)
     }
     
     private fun updateCurrentTrackFromMediaItem(mediaItem: MediaItem?) {

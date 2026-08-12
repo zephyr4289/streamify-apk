@@ -184,7 +184,9 @@ class MainActivity : ComponentActivity() {
                                         onLyricsClick = { 
                                             scope.launch { sheetState.partialExpand() }
                                             navController.navigate("lyrics") 
-                                        }
+                                        },
+                                        isAutoPlayEnabled = playerState.isAutoPlayEnabled,
+                                        onAutoPlayToggle = { playerViewModel.toggleAutoPlay() }
                                     )
                                 }
                             }
