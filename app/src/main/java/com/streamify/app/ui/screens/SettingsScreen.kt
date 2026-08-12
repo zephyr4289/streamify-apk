@@ -20,7 +20,8 @@ import com.streamify.app.service.CrossfadeAudioProcessor
 @Composable
 fun SettingsScreen(
     playerViewModel: PlayerViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToEq: () -> Unit = {}
 ) {
     val playerState by playerViewModel.playerState.collectAsState()
     var crossfadeValue by remember { mutableStateOf(CrossfadeAudioProcessor.crossfadeDurationMs / 1000f) }
@@ -58,6 +59,29 @@ fun SettingsScreen(
                 .padding(horizontal = StreamifyDimens.SpaceLG),
             verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceXL)
         ) {
+            item {
+                Text("Audio Quality & Effects", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+                
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onNavigateToEq
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Equalizer", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                            Text("Tune bass, treble, and surround sound", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                        }
+                        Icon(androidx.compose.material.icons.Icons.Filled.ArrowForward, contentDescription = null, tint = StreamifyColors.TextSub)
+                    }
+                }
+            }
+
             item {
                 Text("Playback", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))

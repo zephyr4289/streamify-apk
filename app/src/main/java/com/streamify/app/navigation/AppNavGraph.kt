@@ -95,6 +95,12 @@ fun AppNavGraph(
         composable("settings") {
             SettingsScreen(
                 playerViewModel = playerViewModel,
+                onBack = { navController.popBackStack() },
+                onNavigateToEq = { navController.navigate("eq") }
+            )
+        }
+        composable("eq") {
+            EqualizerScreen(
                 onBack = { navController.popBackStack() }
             )
         }

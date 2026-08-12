@@ -38,6 +38,13 @@ class PlaybackService : MediaSessionService() {
         
         player = exoPlayer
         
+        exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                super.onAudioSessionIdChanged(audioSessionId)
+                EqualizerManager.init(audioSessionId)
+            }
+        })
+
         mediaSession = MediaSession.Builder(this, exoPlayer)
             .build()
     }

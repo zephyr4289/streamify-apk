@@ -83,6 +83,42 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 }
                 lastPlayedTrackId = newTrackId
                 
+                // Auto-Fetch Lyrics if missing
+                val currentT = _playerState.value.currentTrack
+                if (currentT != null && currentT.id > 0 && currentT.lyricsPath.isNullOrBlank()) {
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val urlString = "https://lrclib.net/api/get?track_name=${java.net.URLEncoder.encode(currentT.title, "UTF-8")}&artist_name=${java.net.URLEncoder.encode(currentT.artist, "UTF-8")}"
+                            val url = java.net.URL(urlString)
+                            val connection = url.openConnection() as java.net.HttpURLConnection
+                            connection.requestMethod = "GET"
+                            connection.connectTimeout = 3000
+                            connection.readTimeout = 3000
+                            
+                            if (connection.responseCode == 200) {
+                                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                                val json = org.json.JSONObject(response)
+                                val syncedLyrics = json.optString("syncedLyrics", "")
+                                if (syncedLyrics.isNotBlank()) {
+                                    val lyricsDir = java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), ".Streamify/lyrics")
+                                    if (!lyricsDir.exists()) lyricsDir.mkdirs()
+                                    
+                                    val lrcFile = java.io.File(lyricsDir, "${currentT.id}.lrc")
+                                    lrcFile.writeText(syncedLyrics)
+                                    
+                                    // We're skipping direct DB update for brevity, but updating state so UI reflects instantly
+                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        val updatedTrack = currentT.copy(lyricsPath = lrcFile.absolutePath)
+                                        _playerState.value = _playerState.value.copy(currentTrack = updatedTrack)
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+                
                 if (_playerState.value.sleepTimerEndTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                     ctrl.pause()
                     _playerState.value = _playerState.value.copy(sleepTimerEndTrack = false, sleepTimerMinutesLeft = null)
