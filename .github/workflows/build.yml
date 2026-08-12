@@ -44,11 +44,16 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log || (tail -n 100 build.log && exit 1)
 
+      - name: Prepare APK for Release
+        run: |
+          find app/build/outputs/apk -name "*.apk" -exec cp {} ./streamify-app.apk \;
+          ls -la streamify-app.apk
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Streamify-Debug-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: streamify-app.apk
 
       - name: Create Build Release
         uses: softprops/action-gh-release@v2
@@ -57,8 +62,8 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Streamify Build ${{ github.run_number }}
           prerelease: true
-          files: |
-            app/build/outputs/apk/debug/app-debug.apk
+          fail_on_unmatched_files: true
+          files: streamify-app.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -70,8 +75,8 @@ jobs:
           name: Streamify v1.0.0 (Latest Build)
           body: "Latest automated build containing all AI vector recommendation engines, Python download pipelines, and Spotify UI."
           prerelease: false
-          files: |
-            app/build/outputs/apk/debug/app-debug.apk
+          fail_on_unmatched_files: true
+          files: streamify-app.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
