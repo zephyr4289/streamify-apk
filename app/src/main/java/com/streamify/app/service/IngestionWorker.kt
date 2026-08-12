@@ -1,24 +1,73 @@
 package com.streamify.app.service
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
+import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.streamify.app.data.NativeBridge
+import com.streamify.app.data.TrackRepository
 import com.streamify.app.util.MediaStoreScanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 class IngestionWorker(
     appContext: Context,
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
 
+    private val notificationId = 54321
+
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        return createForegroundInfo("Scanning Local Music", 0, 1)
+    }
+
+    private fun createForegroundInfo(title: String, current: Int, total: Int): ForegroundInfo {
+        val channelId = "ingestion_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Media Scanner"
+            val channel = NotificationChannel(channelId, name, NotificationManager.IMPORTANCE_LOW)
+            val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(channel)
+        }
+
+        val progressText = if (total > 0) "Indexed $current of $total tracks" else "Scanning device..."
+        val notification = NotificationCompat.Builder(applicationContext, channelId)
+            .setContentTitle(title)
+            .setContentText(progressText)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setProgress(total, current, total == 0)
+            .setOngoing(true)
+            .build()
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(notificationId, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(notificationId, notification)
+        }
+    }
+
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
+            try {
+                setForeground(createForegroundInfo("Scanning Local Music", 0, 0))
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
             val localFiles = MediaStoreScanner.scanLocalMusic(applicationContext)
-            
-            localFiles.forEachIndexed { index, file ->
+            val existingTracks = NativeBridge.getAllTracks()
+            val existingPaths = existingTracks.map { it.filepath }.toSet()
+
+            val newFiles = localFiles.filter { !existingPaths.contains(it.dataPath) }
+            var insertedCount = 0
+
+            newFiles.forEachIndexed { index, file ->
                 val trackId = NativeBridge.insertTrack(
                     filepath = file.dataPath,
                     title = file.title,
@@ -29,16 +78,22 @@ class IngestionWorker(
                 ).toInt()
 
                 if (trackId > 0) {
-                    NativeBridge.processAudioFile(trackId, file.dataPath)
+                    insertedCount++
                 }
 
-                val progress = (index + 1).toFloat() / localFiles.size.toFloat()
-                setProgress(androidx.work.workDataOf("PROGRESS" to progress))
+                val progress = (index + 1).toFloat() / newFiles.size.toFloat()
+                setProgress(workDataOf("PROGRESS" to progress))
+            }
+
+            if (insertedCount > 0 || existingTracks.isEmpty()) {
+                TrackRepository.refresh()
             }
 
             Result.success()
         } catch (e: Exception) {
+            e.printStackTrace()
             Result.failure()
         }
     }
 }
+

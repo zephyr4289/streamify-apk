@@ -35,22 +35,22 @@
 
 ## 🔍 Phase 2: Device Audio Media Scanner (VLC-Style Local Discovery)
 
-- [ ] **Task 2.1: Implement Auto-Scan on Storage Permission Grant**
-  - [ ] Update `MainActivity.kt` permission request callback to enqueue `IngestionWorker`
-  - [ ] Use `ExistingWorkPolicy.KEEP` to avoid redundant concurrent scans
-  - [ ] Show subtle progress/status banner on `HomeScreen` during active scan
+- [x] **Task 2.1: Implement Auto-Scan on Storage Permission Grant**
+  - [x] Update `MainActivity.kt` permission request callback to enqueue `IngestionWorker`
+  - [x] Use `ExistingWorkPolicy.KEEP` to avoid redundant concurrent scans
+  - [x] Show subtle progress/status banner on `HomeScreen` during active scan
 
-- [ ] **Task 2.2: Upgrade `IngestionWorker.kt` Performance & Capabilities**
-  - [ ] Add deduplication check against `NativeBridge` before inserting local tracks
-  - [ ] Extract embedded MP3 artwork / fallback to `MediaStore.Audio.Albums.ALBUM_ART` URI
-  - [ ] Perform initial scan fast-path (insert metadata without blocking on full ONNX feature extraction)
-  - [ ] Fix import in `IngestionWorker.kt` to use `androidx.work.ListenableWorker.Result`
-  - [ ] Post a foreground notification with live count progress ("Scanning music: 42/180")
+- [x] **Task 2.2: Upgrade `IngestionWorker.kt` Performance & Capabilities**
+  - [x] Add deduplication check against `NativeBridge` before inserting local tracks
+  - [x] Extract embedded MP3 artwork / fallback to `MediaStore.Audio.Albums.ALBUM_ART` URI
+  - [x] Perform initial scan fast-path (insert metadata without blocking on full ONNX feature extraction)
+  - [x] Fix import in `IngestionWorker.kt` to use `androidx.work.ListenableWorker.Result`
+  - [x] Post a foreground notification with live count progress ("Scanning music: 42/180")
 
-- [ ] **Task 2.3: Manual Rescan & ContentObserver**
-  - [ ] Add "Scan Device for Music" button in `LibraryScreen` empty state
-  - [ ] Add "Rescan Storage" menu item in `LibraryScreen` header
-  - [ ] Register `ContentObserver` on `MediaStore.Audio.Media.EXTERNAL_CONTENT_URI` for auto-detecting new files
+- [x] **Task 2.3: Manual Rescan & ContentObserver**
+  - [x] Add "Scan Device for Music" button in `LibraryScreen` empty state
+  - [x] Add "Rescan Storage" menu item in `LibraryScreen` header
+  - [x] Register `ContentObserver` on `MediaStore.Audio.Media.EXTERNAL_CONTENT_URI` for auto-detecting new files
 
 ---
 

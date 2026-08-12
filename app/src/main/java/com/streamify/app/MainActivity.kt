@@ -50,11 +50,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions()
-            ) { }
+            ) { permissions ->
+                if (permissions.values.any { it }) {
+                    enqueueMediaScan(this@MainActivity)
+                }
+            }
 
             LaunchedEffect(Unit) {
                 if (!PermissionHelper.hasPermissions(this@MainActivity)) {
                     permissionLauncher.launch(PermissionHelper.REQUIRED_PERMISSIONS)
+                } else {
+                    enqueueMediaScan(this@MainActivity)
                 }
             }
 
@@ -214,4 +220,12 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+private fun enqueueMediaScan(context: android.content.Context) {
+    val workManager = androidx.work.WorkManager.getInstance(context)
+    val scanRequest = androidx.work.OneTimeWorkRequestBuilder<com.streamify.app.service.IngestionWorker>()
+        .addTag("ingestion_worker")
+        .build()
+    workManager.enqueueUniqueWork("media_scan", androidx.work.ExistingWorkPolicy.KEEP, scanRequest)
 }

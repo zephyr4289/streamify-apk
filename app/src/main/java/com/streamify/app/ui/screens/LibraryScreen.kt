@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -79,11 +79,8 @@ fun LibraryScreen(
                 )
             }
             Row {
-                IconButton(onClick = { /* Search library */ }) {
-                    Icon(Icons.Filled.Search, contentDescription = "Search", tint = StreamifyColors.TextMain)
-                }
-                IconButton(onClick = { /* Add new */ }) {
-                    Icon(Icons.Filled.Add, contentDescription = "Add", tint = StreamifyColors.TextMain)
+                IconButton(onClick = { enqueueMediaScan(context) }) {
+                    Icon(Icons.Filled.Sync, contentDescription = "Rescan Storage", tint = StreamifyColors.TextMain)
                 }
             }
         }
@@ -171,7 +168,9 @@ fun LibraryScreen(
                 if (displayTracks.isEmpty()) {
                     EmptyStateView(
                         title = "No songs found",
-                        subtitle = if (selectedFilter == 1) "Tracks you like will appear here" else "Downloaded or ingested songs will appear here",
+                        subtitle = if (selectedFilter == 1) "Tracks you like will appear here" else "Scan your device storage or download songs to listen offline",
+                        actionText = "Scan Device Storage",
+                        onActionClick = { enqueueMediaScan(context) }
                     )
                 } else {
                     LazyColumn(
@@ -206,3 +205,12 @@ fun LibraryScreen(
         )
     }
 }
+
+private fun enqueueMediaScan(context: android.content.Context) {
+    val workManager = androidx.work.WorkManager.getInstance(context)
+    val scanRequest = androidx.work.OneTimeWorkRequestBuilder<com.streamify.app.service.IngestionWorker>()
+        .addTag("ingestion_worker")
+        .build()
+    workManager.enqueueUniqueWork("media_scan", androidx.work.ExistingWorkPolicy.REPLACE, scanRequest)
+}
+
