@@ -163,6 +163,17 @@ fun HomeScreen(
                             }
                         }
                     }
+
+                    if (state.allTracks.isEmpty() && state.recent.isEmpty()) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth().height(400.dp), contentAlignment = Alignment.Center) {
+                                com.streamify.app.ui.components.EmptyStateView(
+                                    title = "Your library is empty",
+                                    subtitle = "Go to the Search tab to find and download some music!"
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

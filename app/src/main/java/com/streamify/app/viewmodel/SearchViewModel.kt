@@ -52,10 +52,22 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository(
                         val py = Python.getInstance()
                         val searchModule = py.getModule("download_engine.search")
                         val resultJson = searchModule.callAttr("search_youtube", query).toString()
-                        // Basic parsing implementation would go here.
-                        // Currently returning empty as placeholder until the Download Pipeline phase
-                        emptyList<OnlineSearchResult>()
+                        val jsonArray = org.json.JSONArray(resultJson)
+                        val results = mutableListOf<OnlineSearchResult>()
+                        for (i in 0 until jsonArray.length()) {
+                            val obj = jsonArray.getJSONObject(i)
+                            results.add(
+                                OnlineSearchResult(
+                                    title = obj.optString("title", "Unknown"),
+                                    uploader = obj.optString("uploader", "Unknown"),
+                                    url = obj.optString("url", ""),
+                                    duration = obj.optInt("duration", 0)
+                                )
+                            )
+                        }
+                        results
                     } catch (e: Exception) {
+                        e.printStackTrace()
                         emptyList<OnlineSearchResult>()
                     }
                 }

@@ -26,14 +26,20 @@ import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.viewmodel.SearchUiState
 import com.streamify.app.viewmodel.SearchViewModel
 
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import com.streamify.app.viewmodel.IngestionViewModel
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     viewModel: SearchViewModel = viewModel(),
+    ingestionViewModel: IngestionViewModel = viewModel(),
     onTrackClick: (Int, List<com.streamify.app.data.models.Track>) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var query by remember { mutableStateOf("") }
+    val context = LocalContext.current
 
     // Mock Categories
     val categories = listOf(
@@ -140,6 +146,9 @@ fun SearchScreen(
                     contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
                 ) {
                     if (state.localResults.isNotEmpty()) {
+                        item {
+                            Text("Your Library", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
+                        }
                         items(state.localResults) { track ->
                             TrackListItem(
                                 track = track,
@@ -147,9 +156,35 @@ fun SearchScreen(
                                 onOptionsClick = { /* Handle options */ }
                             )
                         }
-                    } else if (state.onlineResults.isNotEmpty()) {
-                        // Display online results here later
-                    } else {
+                    } 
+                    if (state.onlineResults.isNotEmpty()) {
+                        item {
+                            Text("YouTube Results", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
+                        }
+                        items(state.onlineResults) { onlineTrack ->
+                            // Use TrackListItem as a generic row for now by mocking a Track
+                            val mockTrack = com.streamify.app.data.models.Track(
+                                id = 0, title = onlineTrack.title, artist = onlineTrack.uploader,
+                                album = "Online", durationMs = onlineTrack.duration * 1000L,
+                                filePath = "", coverArtPath = null
+                            )
+                            TrackListItem(
+                                track = mockTrack,
+                                onClick = { 
+                                    ingestionViewModel.enqueueDownload(
+                                        context = context,
+                                        url = onlineTrack.url,
+                                        title = onlineTrack.title,
+                                        artist = onlineTrack.uploader,
+                                        album = "Downloads"
+                                    )
+                                    Toast.makeText(context, "Added to Download Queue", Toast.LENGTH_SHORT).show()
+                                },
+                                onOptionsClick = { }
+                            )
+                        }
+                    } 
+                    if (state.localResults.isEmpty() && state.onlineResults.isEmpty()) {
                         item {
                             Box(modifier = Modifier.fillMaxWidth().padding(StreamifyDimens.SpaceXL), contentAlignment = Alignment.Center) {
                                 Text("No results found for \"$query\"", color = StreamifyColors.TextMain)
