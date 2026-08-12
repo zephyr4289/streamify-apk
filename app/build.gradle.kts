@@ -55,7 +55,7 @@ android {
         defaultConfig {
             version = "3.11"
             pip {
-                install("yt-dlp")
+                install("yt-dlp==2024.1.1")
                 install("mutagen")
                 install("requests")
             }
@@ -86,6 +86,16 @@ dependencies {
 
     // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    // UI Additions
+    implementation("androidx.palette:palette-ktx:1.0.0")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+    implementation("androidx.compose.animation:animation")
+    implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
+
+    // ONNX Runtime
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

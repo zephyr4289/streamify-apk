@@ -18,6 +18,7 @@ fun StreamifyTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = DarkColorScheme,
         typography = Typography,
+        shapes = AppShapes,
         content = content
     )
 }

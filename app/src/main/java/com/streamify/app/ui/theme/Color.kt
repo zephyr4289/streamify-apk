@@ -3,16 +3,37 @@ package com.streamify.app.ui.theme
 import androidx.compose.ui.graphics.Color
 
 object StreamifyColors {
-    val BgBase       = Color(0xFF000000)     // --bg-base: #000000
-    val BgSurface    = Color(0xFF121212)     // --bg-surface: #121212
-    val BgCard       = Color(0xFF181818)     // --bg-card: #181818
-    val BgCardHover  = Color(0xFF282828)     // --bg-card-hover: #282828
-    val BgPlayer     = Color(0xFF0F0F0F)     // --bg-player: #0f0f0f
-    val Primary      = Color(0xFF1DB954)     // --primary: #1DB954
-    val PrimaryHover = Color(0xFF1ED760)     // --primary-hover: #1ed760
-    val TextMain     = Color(0xFFFFFFFF)     // --text-main: #FFFFFF
-    val TextSub      = Color(0xFFB3B3B3)     // --text-sub: #b3b3b3
-    val Border       = Color(0xFF242424)     // --border-color: #242424
-    val ErrorRed     = Color(0xFFFF4D4D)
-    val ErrorBg      = Color(0x26EB5757)     // rgba(235, 87, 87, 0.15)
+    // Backgrounds (dark-to-light hierarchy)
+    val BgBase         = Color(0xFF000000)     // App root background
+    val BgSurface      = Color(0xFF121212)     // Primary surface (avoids OLED smearing)
+    val BgCard         = Color(0xFF181818)     // Card/container backgrounds
+    val BgCardHover    = Color(0xFF282828)     // Elevated surfaces, pressed cards
+    val BgElevated     = Color(0xFF282828)     // Mini player, dialogs, bottom sheets
+    val BgPlayer       = Color(0xFF0F0F0F)     // Full player background base
+    val BgSearchBar    = Color(0xFFFFFFFF)     // Search input (white on dark)
+
+    // Brand
+    val Primary        = Color(0xFF1DB954)     // Spotify Green — CTAs, active states
+    val PrimaryHover   = Color(0xFF1ED760)     // Green hover/pressed variant
+    val PrimaryDark    = Color(0xFF169C46)     // Green for dark contexts
+
+    // Text
+    val TextMain       = Color(0xFFFFFFFF)     // Primary text — titles, active lyrics
+    val TextSub        = Color(0xFFB3B3B3)     // Secondary text — artist names, metadata
+    val TextDimmed     = Color(0xFF6A6A6A)     // Tertiary — timestamps, inactive elements
+    val TextOnSearch   = Color(0xFF000000)     // Black text on white search bar
+
+    // Borders & Dividers
+    val Border         = Color(0xFF242424)     // Subtle dividers
+    val Divider        = Color(0xFF333333)     // Track list dividers
+
+    // Semantic
+    val ErrorRed       = Color(0xFFFF4D4D)     // Error states
+    val ErrorBg        = Color(0x26EB5757)     // Error background tint
+    val Explicit       = Color(0xFF9E9E9E)     // "E" badge background
+    val Shuffle        = Color(0xFF1DB954)     // Active shuffle/repeat
+
+    // Overlay
+    val Scrim          = Color(0x99000000)     // 60% black overlay for modals
+    val PlayerGradient = Color(0xCC121212)     // 80% dark for player gradient bottom
 }
