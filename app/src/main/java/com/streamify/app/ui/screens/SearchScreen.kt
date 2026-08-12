@@ -201,7 +201,7 @@ fun SearchScreen(
                         item {
                             Text("Your Library", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
                         }
-                        items(state.localResults) { track ->
+                        items(state.localResults, key = { it.id }) { track ->
                             TrackListItem(
                                 track = track,
                                 onClick = { onTrackClick(track.id, (uiState as? SearchUiState.Success)?.localResults ?: emptyList()) },
@@ -213,7 +213,7 @@ fun SearchScreen(
                         item {
                             Text("YouTube Results", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
                         }
-                        items(state.onlineResults) { onlineTrack ->
+                        items(state.onlineResults, key = { it.id }) { onlineTrack ->
                             val mockTrack = com.streamify.app.data.models.Track(
                                 id = 0, title = onlineTrack.title, artist = onlineTrack.uploader,
                                 album = "Online", durationSec = onlineTrack.duration,

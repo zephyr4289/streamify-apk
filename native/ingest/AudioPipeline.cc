@@ -4,7 +4,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 #include "AudioPipeline.h"
-#include <iostream>
+#include <android/log.h>
 #include <kiss_fftr.h>
 
 #define MINIAUDIO_IMPLEMENTATION
@@ -37,7 +37,7 @@ bool AudioPipeline::init(const std::string& onnx_model_path) {
         session_ = new Ort::Session(env_, onnx_model_path.c_str(), session_options);
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[AudioPipeline] Failed to init ONNX: " << e.what() << std::endl;
+        __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[AudioPipeline] Failed to init ONNX: %s", e.what());
         return false;
     }
 }
@@ -47,7 +47,7 @@ std::vector<float> AudioPipeline::processAudio(const std::string& filepath) {
     ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 1, 16000);
     
     if (ma_decoder_init_file(filepath.c_str(), &config, &decoder) != MA_SUCCESS) {
-        std::cerr << "[AudioPipeline] Failed to open audio: " << filepath << std::endl;
+        __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[AudioPipeline] Failed to open audio: %s", filepath.c_str());
         return std::vector<float>(512, 0.0f);
     }
     
@@ -61,7 +61,7 @@ std::vector<float> AudioPipeline::processAudio(const std::string& filepath) {
     ma_decoder_uninit(&decoder);
 
     if (pcm.empty()) {
-        std::cerr << "[AudioPipeline] No PCM frames read from: " << filepath << std::endl;
+        __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[AudioPipeline] No PCM frames read from: %s", filepath.c_str());
         return {};
     }
 
@@ -173,7 +173,7 @@ std::vector<float> AudioPipeline::processAudio(const std::string& filepath) {
     delete[] out;
     
     if (chunks_processed == 0) {
-        std::cerr << "[AudioPipeline] Corrupted audio features detected for track: " << filepath << std::endl;
+        __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[AudioPipeline] Corrupted audio features detected for track: %s", filepath.c_str());
         return std::vector<float>(); 
     }
     

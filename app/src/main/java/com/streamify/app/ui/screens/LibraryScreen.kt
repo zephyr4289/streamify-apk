@@ -5,7 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,7 +37,8 @@ fun LibraryScreen(
     val downloadTasks by ingestionViewModel.downloadTasks.collectAsState()
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
     
-    var selectedFilter by remember { mutableStateOf(0) } // 0: All, 1: Liked, 2: Downloads
+    var selectedFilter by remember { mutableStateOf(0) } // 0: All, 1: Liked, 2: Downloads, 3: Folders
+    var selectedFolder by remember { mutableStateOf<String?>(null) }
     
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(context) {
@@ -80,7 +82,7 @@ fun LibraryScreen(
             }
             Row {
                 IconButton(onClick = { enqueueMediaScan(context) }) {
-                    Icon(Icons.Filled.Sync, contentDescription = "Rescan Storage", tint = StreamifyColors.TextMain)
+                    Icon(androidx.compose.material.icons.Icons.Filled.Sync, contentDescription = "Rescan Storage", tint = StreamifyColors.TextMain)
                 }
             }
         }
@@ -112,8 +114,17 @@ fun LibraryScreen(
             )
             FilterChip(
                 selected = selectedFilter == 2,
-                onClick = { selectedFilter = 2 },
+                onClick = { selectedFilter = 2; selectedFolder = null },
                 label = { Text("Downloads", color = if (selectedFilter == 2) StreamifyColors.BgBase else StreamifyColors.TextMain) },
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = StreamifyColors.BgCard,
+                    selectedContainerColor = StreamifyColors.Primary
+                )
+            )
+            FilterChip(
+                selected = selectedFilter == 3,
+                onClick = { selectedFilter = 3 },
+                label = { Text("Folders", color = if (selectedFilter == 3) StreamifyColors.BgBase else StreamifyColors.TextMain) },
                 colors = FilterChipDefaults.filterChipColors(
                     containerColor = StreamifyColors.BgCard,
                     selectedContainerColor = StreamifyColors.Primary
@@ -159,29 +170,94 @@ fun LibraryScreen(
                 )
             }
             is LibraryUiState.Success -> {
-                val displayTracks = when (selectedFilter) {
-                    1 -> state.likedTracks
-                    2 -> state.tracks.filter { it.filepath.isNotBlank() }
-                    else -> state.tracks
+                val folders = remember(state.tracks) {
+                    state.tracks.filter { it.filepath.isNotBlank() }.groupBy {
+                        val path = it.filepath
+                        val lastSlash = path.lastIndexOf('/')
+                        if (lastSlash != -1) path.substring(0, lastSlash) else "Unknown Folder"
+                    }
                 }
-                
-                if (displayTracks.isEmpty()) {
-                    EmptyStateView(
-                        title = "No songs found",
-                        subtitle = if (selectedFilter == 1) "Tracks you like will appear here" else "Scan your device storage or download songs to listen offline",
-                        actionText = "Scan Device Storage",
-                        onActionClick = { enqueueMediaScan(context) }
-                    )
+
+                if (selectedFilter == 3 && selectedFolder == null) {
+                    if (folders.isEmpty()) {
+                        EmptyStateView(
+                            title = "No folders found",
+                            subtitle = "Scan your device storage to add local music folders",
+                            actionText = "Scan Device Storage",
+                            onActionClick = { enqueueMediaScan(context) }
+                        )
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
+                        ) {
+                            items(folders.keys.toList().sorted(), key = { it }) { folderPath ->
+                                val folderName = folderPath.substringAfterLast("/")
+                                val trackCount = folders[folderPath]?.size ?: 0
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { selectedFolder = folderPath }
+                                        .padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Folder,
+                                        contentDescription = "Folder",
+                                        tint = StreamifyColors.Primary,
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
+                                    Column {
+                                        Text(folderName, style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                                        Text("$trackCount tracks", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
+                                        Text(folderPath, style = StreamifyType.Caption, color = StreamifyColors.TextSub, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
-                    ) {
-                        items(displayTracks) { track ->
-                            TrackListItem(
-                                track = track,
-                                onClick = { onTrackClick(track.id, displayTracks) },
-                                onOptionsClick = { selectedOptionsTrack = track }
+                    val displayTracks = when (selectedFilter) {
+                        1 -> state.likedTracks
+                        2 -> state.tracks.filter { it.filepath.isNotBlank() }
+                        3 -> folders[selectedFolder] ?: emptyList()
+                        else -> state.tracks
+                    }
+                    
+                    Column {
+                        if (selectedFilter == 3 && selectedFolder != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedFolder = null }
+                                    .padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = StreamifyColors.TextMain)
+                                Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
+                                Text(selectedFolder?.substringAfterLast("/") ?: "", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                            }
+                        }
+                        
+                        if (displayTracks.isEmpty()) {
+                            EmptyStateView(
+                                title = "No songs found",
+                                subtitle = if (selectedFilter == 1) "Tracks you like will appear here" else "Scan your device storage or download songs to listen offline",
+                                actionText = "Scan Device Storage",
+                                onActionClick = { enqueueMediaScan(context) }
                             )
+                        } else {
+                            LazyColumn(
+                                contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
+                            ) {
+                                items(displayTracks, key = { it.id }) { track ->
+                                    TrackListItem(
+                                        track = track,
+                                        onClick = { onTrackClick(track.id, displayTracks) },
+                                        onOptionsClick = { selectedOptionsTrack = track }
+                                    )
+                                }
+                            }
                         }
                     }
                 }

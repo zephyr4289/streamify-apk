@@ -60,8 +60,19 @@ fun FullPlayerSheet(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = StreamifyDimens.SpaceXL)
-                    .padding(top = StreamifyDimens.SpaceXL, bottom = StreamifyDimens.SpaceHuge)
+                    .padding(top = 12.dp, bottom = StreamifyDimens.SpaceHuge)
             ) {
+                // Pull indicator handle
+                Box(
+                    modifier = Modifier
+                        .width(48.dp)
+                        .height(4.dp)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.4f))
+                        .align(Alignment.CenterHorizontally)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                
                 // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -88,7 +99,34 @@ fun FullPlayerSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(1f)
+                            .androidx.compose.ui.draw.shadow(
+                                elevation = 24.dp,
+                                shape = StreamifyShapes.CardShape,
+                                spotColor = dominantColor
+                            )
                             .clip(StreamifyShapes.CardShape)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+                
+                // Device Destination Indicator
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Filled.Computer,
+                        contentDescription = "Device",
+                        tint = StreamifyColors.Primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(StreamifyDimens.SpaceXS))
+                    Text(
+                        text = "This Device (Local JNI)",
+                        style = StreamifyType.Caption,
+                        color = StreamifyColors.Primary
                     )
                 }
 

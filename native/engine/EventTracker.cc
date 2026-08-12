@@ -1,6 +1,6 @@
 #include "EventTracker.h"
 #include "StreamifyDB.h"
-#include <iostream>
+#include <android/log.h>
 
 EventTracker& EventTracker::getInstance() {
     static EventTracker instance;
@@ -10,11 +10,11 @@ EventTracker& EventTracker::getInstance() {
 void EventTracker::logPlay(int fromTrackId, int toTrackId, int userId) {
     if (fromTrackId <= 0 || toTrackId <= 0) return;
     StreamifyDB::getInstance().insertTransition(userId, fromTrackId, toTrackId, "play");
-    std::cout << "[EventTracker] Logged PLAY transition from " << fromTrackId << " to " << toTrackId << std::endl;
+    __android_log_print(ANDROID_LOG_INFO, "StreamifyNative", "[EventTracker] Logged PLAY transition from %d to %d", fromTrackId, toTrackId);
 }
 
 void EventTracker::logSkip(int fromTrackId, int toTrackId, int userId) {
     if (fromTrackId <= 0 || toTrackId <= 0) return;
     StreamifyDB::getInstance().insertTransition(userId, fromTrackId, toTrackId, "skip");
-    std::cout << "[EventTracker] Logged SKIP transition from " << fromTrackId << " to " << toTrackId << std::endl;
+    __android_log_print(ANDROID_LOG_INFO, "StreamifyNative", "[EventTracker] Logged SKIP transition from %d to %d", fromTrackId, toTrackId);
 }

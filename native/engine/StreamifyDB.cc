@@ -1,5 +1,5 @@
 #include "StreamifyDB.h"
-#include <iostream>
+#include <android/log.h>
 #include <random>
 #include <sstream>
 #include <iomanip>
@@ -88,7 +88,7 @@ bool StreamifyDB::init(const std::string& db_path) {
     char* err = nullptr;
     if (sqlite3_exec(db, schema_init, nullptr, nullptr, &err) != SQLITE_OK) {
         if (err) {
-            std::cerr << "[StreamifyDB] Migration error: " << err << std::endl;
+            __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[StreamifyDB] Migration error: %s", err);
             sqlite3_free(err);
         }
     }
@@ -99,7 +99,7 @@ sqlite3* StreamifyDB::getConnection() {
     thread_local sqlite3* tls_db = nullptr;
     if (tls_db == nullptr) {
         if (sqlite3_open_v2(db_path_.c_str(), &tls_db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
-            std::cerr << "[StreamifyDB] Cannot open database in thread" << std::endl;
+            __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[StreamifyDB] Cannot open database in thread");
             return nullptr;
         }
         char* err = nullptr;

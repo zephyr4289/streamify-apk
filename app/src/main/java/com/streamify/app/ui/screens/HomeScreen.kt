@@ -159,7 +159,7 @@ fun HomeScreen(
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
                             ) {
-                                items(state.recommendations) { track ->
+                                items(state.recommendations, key = { it.id }) { track ->
                                     TrackCard(
                                         track = track,
                                         onClick = { onTrackClick(track.id, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) }
@@ -182,7 +182,7 @@ fun HomeScreen(
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
                             ) {
-                                items(state.allTracks) { track ->
+                                items(state.allTracks, key = { it.id }) { track ->
                                     TrackCard(
                                         track = track,
                                         onClick = { onTrackClick(track.id, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) }

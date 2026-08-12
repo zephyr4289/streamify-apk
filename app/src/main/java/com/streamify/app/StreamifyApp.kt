@@ -10,7 +10,20 @@ import com.streamify.app.data.NativeBridge
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 
-class StreamifyApp : Application() {
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.memory.MemoryCache
+
+class StreamifyApp : Application(), ImageLoaderFactory {
+    override fun newImageLoader(): ImageLoader {
+        return ImageLoader.Builder(this)
+            .memoryCache {
+                MemoryCache.Builder(this)
+                    .maxSizePercent(0.25)
+                    .build()
+            }
+            .build()
+    }
     override fun onCreate() {
         super.onCreate()
         

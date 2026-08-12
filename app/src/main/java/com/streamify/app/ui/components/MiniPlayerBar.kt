@@ -102,11 +102,16 @@ fun MiniPlayerBar(
             )
 
             IconButton(onClick = onPlayPause) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = StreamifyColors.TextMain
-                )
+                androidx.compose.animation.AnimatedContent(
+                    targetState = isPlaying,
+                    label = "play_pause_anim"
+                ) { playing ->
+                    Icon(
+                        imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (playing) "Pause" else "Play",
+                        tint = StreamifyColors.TextMain
+                    )
+                }
             }
         }
 

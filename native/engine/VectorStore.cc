@@ -115,14 +115,12 @@ std::vector<SearchResult> VectorStore::searchNearest(const std::vector<float>& q
         for (; j <= dim_ - 8; j += 8) {
             __m256 a = _mm256_loadu_ps(q + j);
             __m256 b = _mm256_loadu_ps(v + j);
-            // _mm256_dp_ps calculates dot product of two 256-bit vectors.
-            // 0xFF means calculate all 8 products and store sum in all 8 positions
-            __m256 dp = _mm256_dp_ps(a, b, 0xFF);
-            sum_vec = _mm256_add_ps(sum_vec, dp);
+            sum_vec = _mm256_add_ps(sum_vec, _mm256_mul_ps(a, b));
         }
         
-        // Extract the sums (the high and low 128-bit lanes)
-        float dot = ((float*)&sum_vec)[0] + ((float*)&sum_vec)[4];
+        float temp[8];
+        _mm256_storeu_ps(temp, sum_vec);
+        float dot = temp[0] + temp[1] + temp[2] + temp[3] + temp[4] + temp[5] + temp[6] + temp[7];
         
         for (; j < dim_; ++j) {
             dot += q[j] * v[j];
