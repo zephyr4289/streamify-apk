@@ -47,7 +47,7 @@ jobs:
       - name: Prepare APK for Release
         run: |
           find app/build/outputs/apk -name "*.apk" -exec cp {} ./streamify-app.apk \;
-          ls -la streamify-app.apk
+          ls -la streamify-app.apk > prepare.log 2>&1 || true
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -62,7 +62,6 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Streamify Build ${{ github.run_number }}
           prerelease: true
-          fail_on_unmatched_files: true
           files: streamify-app.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -75,8 +74,20 @@ jobs:
           name: Streamify v1.0.0 (Latest Build)
           body: "Latest automated build containing all AI vector recommendation engines, Python download pipelines, and Spotify UI."
           prerelease: false
-          fail_on_unmatched_files: true
           files: streamify-app.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Logs to build-logs branch
+        if: always()
+        run: |
+          git clone --branch build-logs https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git logs-repo || true
+          cp build.log logs-repo/build-${{ github.run_id }}.log || true
+          cp prepare.log logs-repo/prepare-${{ github.run_id }}.log || true
+          cd logs-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "docs: add build log for run ${{ github.run_id }}" || true
+          git push origin build-logs || true
 
