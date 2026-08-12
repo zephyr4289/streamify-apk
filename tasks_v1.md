@@ -67,10 +67,9 @@ This checklist tracks the implementation progress of the Streamify Android App b
 - [x] Commit & Push (Phase 5 complete).
 
 ## Phase 6: Lyrics, Polish & Release
-- [ ] Port Metadata Clients: Create C++ `LyricsClient.cc` and `CoverArtClient.cc` (or Kotlin equivalents).
-- [ ] Build UI: Create `LyricsScreen.kt` (synced `.lrc` auto-scrolling).
-- [ ] Polish UI: Ensure all hover/press animations are ported to Compose interactions. Implement Edge-to-Edge UI.
-- [ ] Release Configuration: Update `build.gradle.kts` (`isMinifyEnabled = true`, ProGuard).
-- [ ] Create GitHub Action: `.github/workflows/release.yml` for Signed APK on tag push.
-- [ ] Verify Release build.
-- [ ] Commit & Push (Phase 6 complete).
+- [x] Port Metadata Clients: Create C++ `LyricsClient.cc` and `CoverArtClient.cc` (or Kotlin equivalents).
+- [x] Build UI: Create `app/src/main/java/com/streamify/app/ui/screens/LyricsScreen.kt` for synced `.lrc` view.
+- [x] Polish: Ensure CSS hover animations are ported to Compose, implement Edge-to-Edge display.
+- [x] Setup Release: Configure `.github/workflows/release.yml` for signed APK builds.
+- [x] Verify: Run `./gradlew assembleRelease` and ensure a signed, optimized APK is produced.
+- [x] Commit & Push (Phase 6 complete).
