@@ -7,9 +7,17 @@ import android.content.Context
 import android.os.Build
 import com.streamify.app.data.NativeBridge
 
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
+
 class StreamifyApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        
+        if (!Python.isStarted()) {
+            Python.start(AndroidPlatform(this))
+        }
+        
         val dbPath = getDatabasePath("streamify.db").absolutePath
         NativeBridge.initDatabase(dbPath)
         createNotificationChannels()
