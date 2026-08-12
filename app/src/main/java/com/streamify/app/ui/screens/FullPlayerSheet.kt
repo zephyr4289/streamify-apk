@@ -112,11 +112,27 @@ fun FullPlayerSheet(
                             style = StreamifyType.PlayerTitle,
                             color = StreamifyColors.TextMain
                         )
-                        Text(
-                            text = track.artist,
-                            style = StreamifyType.PlayerArtist,
-                            color = StreamifyColors.TextSub
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = track.artist,
+                                style = StreamifyType.PlayerArtist,
+                                color = StreamifyColors.TextSub
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            // AI Extraction Badge
+                            Box(
+                                modifier = Modifier
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                    .background(StreamifyColors.Primary.copy(alpha = 0.15f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "${track.bpm.toInt()} BPM • ${track.key}",
+                                    style = StreamifyType.Caption,
+                                    color = StreamifyColors.Primary
+                                )
+                            }
+                        }
                     }
                     HeartButton(
                         isLiked = track.isLiked,

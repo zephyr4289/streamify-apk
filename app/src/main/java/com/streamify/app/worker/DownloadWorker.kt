@@ -41,18 +41,29 @@ class DownloadWorker(
                 }
 
                 override fun onFinished(filepath: String) {
-                    // Inject metadata
-                    metadataModule.callAttr("inject_metadata", filepath, title, artist, album, null)
+                    // Inject metadata and run simulated AI extraction
+                    val metadataResult = metadataModule.callAttr("inject_metadata", filepath, title, artist, album, null)
+                    
+                    var durationSec = 0
+                    var bpm = 120.0f
+                    try {
+                        val list = metadataResult.asList()
+                        if (list.size >= 2) {
+                            durationSec = list[0].toInt()
+                            bpm = list[1].toFloat()
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                     
                     // Insert to database using JNI
-                    // We need dummy duration and bpm for now until we parse it
                     NativeBridge.insertTrack(
                         filepath = filepath,
                         title = title,
                         artist = artist,
                         album = album,
-                        durationSec = 0,
-                        bpm = 120.0f
+                        durationSec = durationSec,
+                        bpm = bpm
                     )
                 }
 
