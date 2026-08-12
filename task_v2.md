@@ -94,21 +94,20 @@
 
 ---
 
-## ☁️ Phase 5: Download Pipeline UI
+## 📥 Phase 5: Download Engine Pipeline
 
-### Data Layer
-- [ ] Create `SearchCandidate.kt` (model for yt-dlp results: title, channel, duration, score, flags).
-- [ ] Create `DownloadState.kt` (model for pipeline steps and progress).
-- [ ] Create `DownloadViewModel.kt` (Chaquopy invocation, JSON parsing, step updates).
+### Chaquopy setup & Scripts
+- [x] Create `download_engine/core.py` (yt-dlp wrapper, progress hooks).
+- [x] Create `download_engine/search.py` (YouTube search parsing).
+- [x] Create `download_engine/metadata.py` (id3 tag injection with mutagen).
 
-### UI Components
-- [ ] Create `SearchResultItem.kt` (card with thumbnail, badges, download CTA).
-- [ ] Create `QualitySelector.kt` (BottomSheet with Best/320k/256k/128k options).
-- [ ] Create `DownloadProgressCard.kt` (step-by-step checklist and progress bar).
+### ViewModels & Workers
+- [x] Update `IngestionViewModel.kt` (StateFlow for download progress, active tasks).
+- [x] Create `DownloadWorker.kt` (WorkManager integration for background downloads, foreground service).
+- [x] Connect `DownloadWorker` to `TrackRepository` (Insert to SQLite via JNI on success).
 
-### Service & Screens
-- [ ] Update `DownloadService.kt` to be a foreground service with progress notifications and StateFlow updates.
-- [ ] Rewrite `DownloadScreen.kt` (Source list with best match highlighted, quality selector trigger, progress view).
+### UI Screens
+- [x] Rewrite `DownloadScreen.kt` (Active download list, progress bars, pause/cancel buttons).
 
 ---
 
