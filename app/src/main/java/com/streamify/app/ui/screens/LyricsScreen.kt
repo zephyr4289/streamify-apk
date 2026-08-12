@@ -55,7 +55,7 @@ fun LyricsScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 32.dp, bottom = 120.dp) // Padding for player bar
+                contentPadding = PaddingValues(top = 32.dp, bottom = 120.dp) // Padding for player bar
             ) {
                 itemsIndexed(lyrics) { index, line ->
                     val isActive = index == activeIndex
