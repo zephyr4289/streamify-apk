@@ -35,9 +35,12 @@ fun MiniPlayerBar(
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onExpand: () -> Unit,
+    onToggleLike: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (track == null) return
+
+    var totalDrag by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0f) }
 
     Column(
         modifier = modifier
@@ -49,11 +52,14 @@ fun MiniPlayerBar(
             .clickable(onClick = onExpand)
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
-                    onDragEnd = { /* Snap back */ },
+                    onDragEnd = { 
+                        if (totalDrag < -50f) onNext()
+                        else if (totalDrag > 50f) onPrevious()
+                        totalDrag = 0f
+                    },
                     onHorizontalDrag = { change, dragAmount ->
                         change.consume()
-                        if (dragAmount > 50) onNext()
-                        else if (dragAmount < -50) onPrevious()
+                        totalDrag += dragAmount
                     }
                 )
             }
@@ -92,7 +98,7 @@ fun MiniPlayerBar(
 
             HeartButton(
                 isLiked = track.isLiked,
-                onToggle = { /* Like */ }
+                onToggle = { onToggleLike?.invoke() }
             )
 
             IconButton(onClick = onPlayPause) {
@@ -110,7 +116,7 @@ fun MiniPlayerBar(
                 .fillMaxWidth()
                 .height(StreamifyDimens.ProgressLineH),
             color = StreamifyColors.TextMain,
-            trackColor = StreamifyColors.BgElevated
+            trackColor = StreamifyColors.TextDimmed.copy(alpha = 0.3f)
         )
     }
 }

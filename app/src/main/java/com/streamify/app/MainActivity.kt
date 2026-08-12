@@ -147,6 +147,7 @@ class MainActivity : ComponentActivity() {
                                         onNext = { playerViewModel.skipNext() },
                                         onPrevious = { playerViewModel.skipPrevious() },
                                         onExpand = { scope.launch { sheetState.expand() } },
+                                        onToggleLike = { playerViewModel.toggleLike() },
                                         modifier = Modifier.align(Alignment.TopCenter)
                                     )
                                 }

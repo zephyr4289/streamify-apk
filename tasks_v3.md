@@ -108,36 +108,36 @@
 
 ## 🎵 Phase 5: Player System & Audio Immersion
 
-- [ ] **Task 5.1: `MiniPlayerBar.kt` Refactoring**
-  - [ ] Fix swipe gesture logic: accumulate offset, execute skip action strictly on `onDragEnd`
-  - [ ] Wire `HeartButton` `onToggle` directly to `playerViewModel.toggleLike(track)`
-  - [ ] Fix progress bar track color to be visible against `BgElevated` background
-  - [ ] Add swipe-up gesture to trigger full player expand sheet
-  - [ ] Add elevation shadow & subtle green glow when audio is actively playing
+- [x] **Task 5.1: `MiniPlayerBar.kt` Refactoring**
+  - [x] Fix swipe gesture logic: accumulate offset, execute skip action strictly on `onDragEnd`
+  - [x] Wire `HeartButton` `onToggle` directly to `playerViewModel.toggleLike(track)`
+  - [x] Fix progress bar track color to be visible against `BgElevated` background
+  - [x] Add swipe-up gesture to trigger full player expand sheet
+  - [x] Add elevation shadow & subtle green glow when audio is actively playing
 
-- [ ] **Task 5.2: `FullPlayerSheet.kt` Refactoring**
-  - [ ] Fix time calculation: derive timestamp directly from `currentPositionMs`
-  - [ ] Add top sheet pull indicator handle
-  - [ ] Implement ambient blurred album artwork background
-  - [ ] Add dynamic drop shadow around album cover based on extracted palette color
-  - [ ] Add device destination indicator ("This Device (Local JNI)")
+- [x] **Task 5.2: `FullPlayerSheet.kt` Refactoring**
+  - [x] Fix time calculation: derive timestamp directly from `currentPositionMs`
+  - [x] Add top sheet pull indicator handle
+  - [x] Implement ambient blurred album artwork background
+  - [x] Add dynamic drop shadow around album cover based on extracted palette color
+  - [x] Add device destination indicator ("This Device (Local JNI)")
 
-- [ ] **Task 5.3: `PlayerViewModel.kt` Hardening**
-  - [ ] Guard `playTrack()` against uninitialized null `MediaController`
-  - [ ] Fix `toggleLike()` to update track state inside `queue` list to prevent state reversion
-  - [ ] Split `currentPosition` into an independent `StateFlow<Long>` to stop 200ms full-state recompositions
-  - [ ] Fix transition reason check (`MEDIA_ITEM_TRANSITION_REASON_AUTO` vs manual user skip)
+- [x] **Task 5.3: `PlayerViewModel.kt` Hardening**
+  - [x] Guard `playTrack()` against uninitialized null `MediaController`
+  - [x] Fix `toggleLike()` to update track state inside `queue` list to prevent state reversion
+  - [x] Split `currentPosition` into an independent `StateFlow<Long>` to stop 200ms full-state recompositions
+  - [x] Fix transition reason check (`MEDIA_ITEM_TRANSITION_REASON_AUTO` vs manual user skip)
 
-- [ ] **Task 5.4: Real DSP Audio Crossfader (`CrossfadeAudioProcessor.kt`)**
-  - [ ] Implement PCM buffer ring to retain ending samples of track A
-  - [ ] Apply smooth equal-power crossfade curve during track transition
-  - [ ] Expose configurable crossfade duration setting (0s - 12s)
+- [x] **Task 5.4: Real DSP Audio Crossfader (`CrossfadeAudioProcessor.kt`)**
+  - [x] Implement PCM buffer ring to retain ending samples of track A
+  - [x] Apply smooth equal-power crossfade curve during track transition
+  - [x] Expose configurable crossfade duration setting (0s - 12s)
 
-- [ ] **Task 5.5: Queue & Lyrics Experience**
-  - [ ] Add drag-to-reorder support in `QueueScreen`
-  - [ ] Add active animated equalizer indicator on playing track in Queue
-  - [ ] Fix hardcoded `-200` pixel offset in `LyricsScreen.kt` with density-independent scrolling
-  - [ ] Add tap-to-seek haptic feedback & line highlight in `LyricsScreen`
+- [x] **Task 5.5: Queue & Lyrics Experience**
+  - [x] Add drag-to-reorder support in `QueueScreen`
+  - [x] Add active animated equalizer indicator on playing track in Queue
+  - [x] Fix hardcoded `-200` pixel offset in `LyricsScreen.kt` with density-independent scrolling
+  - [x] Add tap-to-seek haptic feedback & line highlight in `LyricsScreen`
 
 ---
 

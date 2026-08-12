@@ -150,11 +150,13 @@ fun FullPlayerSheet(
                     val currentMs = (progress * track.durationSec * 1000).toLong()
                     Text(
                         text = DurationFormatter.formatMs(currentMs),
-                        style = StreamifyType.SeekbarTime
+                        style = StreamifyType.SeekbarTime,
+                        color = StreamifyColors.TextSub
                     )
                     Text(
                         text = DurationFormatter.formatSec(track.durationSec.toLong()),
-                        style = StreamifyType.SeekbarTime
+                        style = StreamifyType.SeekbarTime,
+                        color = StreamifyColors.TextSub
                     )
                 }
 

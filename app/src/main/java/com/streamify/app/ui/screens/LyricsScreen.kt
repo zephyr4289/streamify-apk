@@ -28,13 +28,16 @@ fun LyricsScreen(
     // Find active line
     var activeIndex by remember { mutableStateOf(-1) }
     
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val scrollOffsetPx = remember(density) { with(density) { (-180).dp.roundToPx() } }
+    
     LaunchedEffect(currentPositionMs, lyrics) {
         val index = lyrics.indexOfLast { it.timeMs <= currentPositionMs }
         if (index != activeIndex && index >= 0) {
             activeIndex = index
             // Auto-scroll to center the active line
             coroutineScope.launch {
-                listState.animateScrollToItem(index, scrollOffset = -200)
+                listState.animateScrollToItem(index, scrollOffset = scrollOffsetPx)
             }
         }
     }
