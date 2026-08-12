@@ -1,6 +1,10 @@
+#define _USE_MATH_DEFINES
+#include <cmath>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include "AudioPipeline.h"
 #include <iostream>
-#include <cmath>
 #include <kiss_fftr.h>
 
 #define MINIAUDIO_IMPLEMENTATION

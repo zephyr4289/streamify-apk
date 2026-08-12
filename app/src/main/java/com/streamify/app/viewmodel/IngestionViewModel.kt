@@ -1,11 +1,13 @@
 package com.streamify.app.viewmodel
 
 import android.content.Context
+import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModel
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,7 +56,7 @@ class IngestionViewModel : ViewModel() {
 
     private fun observeTaskProgress(context: Context, taskId: UUID) {
         val workManager = WorkManager.getInstance(context)
-        workManager.getWorkInfoByIdLiveData(taskId).observeForever { workInfo ->
+        workManager.getWorkInfoByIdLiveData(taskId).observeForever(Observer<WorkInfo> { workInfo ->
             if (workInfo != null) {
                 val progressStr = workInfo.progress.getString("progress") ?: "Downloading..."
                 val speedStr = workInfo.progress.getString("speed") ?: ""
@@ -70,7 +72,7 @@ class IngestionViewModel : ViewModel() {
                     } else task
                 }
             }
-        }
+        })
     }
 
     fun cancelDownload(context: Context, taskId: UUID) {
