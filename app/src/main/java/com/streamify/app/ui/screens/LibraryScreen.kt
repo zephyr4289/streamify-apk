@@ -8,27 +8,31 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamify.app.ui.components.EmptyStateView
 import com.streamify.app.ui.components.TrackListItem
+import com.streamify.app.ui.components.ContextMenuSheet
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.viewmodel.LibraryUiState
 import com.streamify.app.viewmodel.LibraryViewModel
+import com.streamify.app.data.models.Track
+import com.streamify.app.viewmodel.PlayerViewModel
 
 @Composable
 fun LibraryScreen(
+    playerViewModel: PlayerViewModel,
     viewModel: LibraryViewModel = viewModel(),
     onTrackClick: (Int, List<com.streamify.app.data.models.Track>) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
 
     Column(
         modifier = Modifier
@@ -115,12 +119,28 @@ fun LibraryScreen(
                             TrackListItem(
                                 track = track,
                                 onClick = { onTrackClick(track.id, (uiState as? LibraryUiState.Success)?.likedTracks ?: emptyList()) },
-                                onOptionsClick = { /* Handle options */ }
+                                onOptionsClick = { selectedOptionsTrack = track }
                             )
                         }
                     }
                 }
             }
         }
+    }
+    
+    selectedOptionsTrack?.let { track ->
+        ContextMenuSheet(
+            track = track,
+            onDismissRequest = { selectedOptionsTrack = null },
+            onLikeClick = { 
+                playerViewModel.toggleLike(track)
+                selectedOptionsTrack = null 
+            },
+            onAddToPlaylistClick = { selectedOptionsTrack = null },
+            onAddToQueueClick = { 
+                playerViewModel.addToQueue(track)
+                selectedOptionsTrack = null 
+            }
+        )
     }
 }

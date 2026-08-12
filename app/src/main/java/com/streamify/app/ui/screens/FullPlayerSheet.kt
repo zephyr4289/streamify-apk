@@ -42,7 +42,8 @@ fun FullPlayerSheet(
     onPrevious: () -> Unit,
     onSeek: (Float) -> Unit,
     onShuffleToggle: () -> Unit,
-    onRepeatToggle: () -> Unit
+    onRepeatToggle: () -> Unit,
+    onToggleLike: () -> Unit
 ) {
     if (track == null) return
 
@@ -119,7 +120,7 @@ fun FullPlayerSheet(
                     }
                     HeartButton(
                         isLiked = track.isLiked,
-                        onToggle = { /* toggle like */ }
+                        onToggle = onToggleLike
                     )
                 }
 

@@ -5,21 +5,26 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.streamify.app.data.models.Track
+import com.streamify.app.ui.components.ContextMenuSheet
 import com.streamify.app.ui.components.TrackListItem
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
+import com.streamify.app.viewmodel.PlayerViewModel
 
 @Composable
 fun QueueScreen(
-    nowPlaying: Track?,
-    upNext: List<Track>,
+    playerViewModel: PlayerViewModel,
     onTrackClick: (Int) -> Unit
 ) {
+    val playerState by playerViewModel.playerState.collectAsState()
+    var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
+    val nowPlaying = playerState.currentTrack
+    val upNext = playerState.queue
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -38,7 +43,7 @@ fun QueueScreen(
                 track = nowPlaying,
                 isPlaying = true,
                 onClick = { },
-                onOptionsClick = { }
+                onOptionsClick = { selectedOptionsTrack = nowPlaying }
             )
         }
 
@@ -59,9 +64,25 @@ fun QueueScreen(
                     track = track,
                     isPlaying = false,
                     onClick = { onTrackClick(track.id) },
-                    onOptionsClick = { }
+                    onOptionsClick = { selectedOptionsTrack = track }
                 )
             }
         }
+    }
+
+    selectedOptionsTrack?.let { track ->
+        ContextMenuSheet(
+            track = track,
+            onDismissRequest = { selectedOptionsTrack = null },
+            onLikeClick = { 
+                playerViewModel.toggleLike(track)
+                selectedOptionsTrack = null 
+            },
+            onAddToPlaylistClick = { selectedOptionsTrack = null },
+            onAddToQueueClick = { 
+                playerViewModel.addToQueue(track)
+                selectedOptionsTrack = null 
+            }
+        )
     }
 }

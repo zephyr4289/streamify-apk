@@ -177,6 +177,28 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository(
         val ctrl = controller ?: return
         ctrl.repeatMode = if (ctrl.repeatMode == Player.REPEAT_MODE_OFF) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
     }
+    
+    fun toggleLike(trackToToggle: Track? = null) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val track = trackToToggle ?: _playerState.value.currentTrack ?: return@launch
+            repository.toggleLike(track.id)
+            
+            // If the toggled track is the currently playing one, update the player state optimistically
+            if (_playerState.value.currentTrack?.id == track.id) {
+                val updatedTrack = track.copy(isLiked = !track.isLiked)
+                _playerState.value = _playerState.value.copy(currentTrack = updatedTrack)
+            }
+        }
+    }
+
+    fun addToQueue(track: Track) {
+        val currentQueue = _playerState.value.queue
+        if (!currentQueue.contains(track)) {
+            _playerState.value = _playerState.value.copy(
+                queue = currentQueue + track
+            )
+        }
+    }
 
     override fun onCleared() {
         super.onCleared()

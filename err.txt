@@ -1,0 +1,1 @@
+Error: Unable to access jarfile /data/data/com.termux/files/usr/opt/kotlin/bin/kotlinc

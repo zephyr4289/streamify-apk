@@ -21,19 +21,43 @@ fun AppNavGraph(
             })
         }
         composable("search") {
-            SearchScreen(onTrackClick = { trackId, allTracks ->
-                val track = allTracks.find { it.id == trackId }
-                if (track != null) playerViewModel.playTrack(track, allTracks)
-            })
+            SearchScreen(
+                playerViewModel = playerViewModel,
+                onTrackClick = { trackId, allTracks ->
+                    val track = allTracks.find { it.id == trackId }
+                    if (track != null) playerViewModel.playTrack(track, allTracks)
+                }
+            )
         }
         composable("library") {
-            LibraryScreen(onTrackClick = { trackId, allTracks ->
-                val track = allTracks.find { it.id == trackId }
-                if (track != null) playerViewModel.playTrack(track, allTracks)
-            })
+            LibraryScreen(
+                playerViewModel = playerViewModel,
+                onTrackClick = { trackId, allTracks ->
+                    val track = allTracks.find { it.id == trackId }
+                    if (track != null) playerViewModel.playTrack(track, allTracks)
+                }
+            )
         }
         composable("downloads") {
             DownloadScreen()
+        }
+        composable("queue") {
+            QueueScreen(
+                playerViewModel = playerViewModel,
+                onTrackClick = { trackId ->
+                    val track = playerViewModel.playerState.value.queue.find { it.id == trackId }
+                    if (track != null) {
+                        playerViewModel.playTrack(track, playerViewModel.playerState.value.queue)
+                    }
+                }
+            )
+        }
+        composable("lyrics") {
+            LyricsScreen(
+                lyrics = emptyList(), // TODO: Fetch lyrics from TrackRepository
+                currentPositionMs = playerViewModel.playerState.value.currentPosition,
+                onSeek = { ms -> playerViewModel.seekTo(ms) }
+            )
         }
         composable("player") {
             PlayerScreen(track = null) { navController.popBackStack() }

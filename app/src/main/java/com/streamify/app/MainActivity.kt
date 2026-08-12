@@ -130,7 +130,8 @@ class MainActivity : ComponentActivity() {
                             playerViewModel.seekTo((fraction * playerState.duration).toLong())
                         },
                         onShuffleToggle = { playerViewModel.toggleShuffle() },
-                        onRepeatToggle = { playerViewModel.toggleRepeat() }
+                        onRepeatToggle = { playerViewModel.toggleRepeat() },
+                        onToggleLike = { playerViewModel.toggleLike() }
                     )
                 }
             }

@@ -37,9 +37,9 @@ import com.streamify.app.viewmodel.PlayerViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
+    playerViewModel: PlayerViewModel,
     viewModel: SearchViewModel = viewModel(),
     ingestionViewModel: IngestionViewModel = viewModel(),
-    playerViewModel: PlayerViewModel,
     onTrackClick: (Int, List<com.streamify.app.data.models.Track>) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
