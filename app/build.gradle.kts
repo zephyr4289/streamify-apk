@@ -55,7 +55,7 @@ android {
         defaultConfig {
             version = "3.11"
             pip {
-                install("yt-dlp==2024.1.1")
+                install("yt-dlp")
                 install("mutagen")
                 install("requests")
             }
