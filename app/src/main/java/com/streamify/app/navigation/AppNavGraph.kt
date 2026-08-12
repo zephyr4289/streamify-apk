@@ -29,7 +29,8 @@ fun AppNavGraph(
                 playerViewModel = playerViewModel,
                 dominantColor = dominantColor,
                 onTrackClick = { id, list ->
-                    playerViewModel.playTrack(id, list)
+                    val track = list.find { it.id == id }
+                    if (track != null) playerViewModel.playTrack(track, list)
                 }
             )
         }

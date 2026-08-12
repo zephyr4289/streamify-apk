@@ -16,8 +16,7 @@ class PlaybackService : MediaSessionService() {
             override fun buildAudioSink(
                 context: android.content.Context,
                 enableFloatOutput: Boolean,
-                enableAudioTrackPlaybackParams: Boolean,
-                enableOffload: Boolean
+                enableAudioTrackPlaybackParams: Boolean
             ): androidx.media3.exoplayer.audio.AudioSink {
                 return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
                     .setAudioProcessors(arrayOf(CrossfadeAudioProcessor()))

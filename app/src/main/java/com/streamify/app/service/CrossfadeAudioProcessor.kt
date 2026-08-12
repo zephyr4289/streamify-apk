@@ -14,7 +14,7 @@ class CrossfadeAudioProcessor : AudioProcessor {
     // and mix it when the stream format is reconfigured for the next track.
     
     override fun configure(inputAudioFormat: AudioFormat): AudioFormat {
-        if (inputAudioFormat.sampleRate == AudioFormat.NOT_SET) {
+        if (inputAudioFormat.sampleRate == androidx.media3.common.C.RATE_UNSET) {
             throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
         }
         this.inputAudioFormat = inputAudioFormat
