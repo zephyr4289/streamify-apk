@@ -49,8 +49,11 @@ jobs:
         if: steps.gradle_build.outcome != 'success'
         run: exit 1
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Create Nightly Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
         with:
-          name: streamify-debug
-          path: app/build/outputs/apk/debug/*.apk
+          tag_name: nightly
+          name: Nightly Build
+          prerelease: true
+          files: app/build/outputs/apk/debug/*.apk
