@@ -25,7 +25,10 @@ data class Track(
     val album: String,
     val durationSec: Int,
     val bpm: Float,
+    val key: String,
     val coverArtPath: String?,
+    val lyricsPath: String?,
+    val source: String,
     val isLiked: Boolean = false
 )
 
@@ -37,5 +40,8 @@ fun TrackNative.toTrack() = Track(
     album = album,
     durationSec = durationSec,
     bpm = bpm,
-    coverArtPath = coverArtPath.takeIf { it.isNotEmpty() }
+    key = key,
+    coverArtPath = coverArtPath.takeIf { it.isNotEmpty() },
+    lyricsPath = lyricsPath.takeIf { it.isNotEmpty() },
+    source = source
 )

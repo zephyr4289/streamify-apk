@@ -55,20 +55,20 @@
 ## 🏠 Phase 3: Core Screens (Home, Library, Search)
 
 ### Architecture & Data Layer Updates
-- [ ] Update `TrackRepository.kt` with methods for recommendations, queue management, liked tracks.
-  - [ ] **CRITICAL**: Enforce `Dispatchers.IO` / dedicated native thread executor for ALL JNI calls to prevent UI-Thread freeze (ANRs).
-- [ ] Update `Track.kt` model to include `lyricsPath`, `source`, `key`.
-- [ ] Create `HomeViewModel.kt` (manage catalog, recommendations, ingestion state).
-- [ ] Create `LibraryViewModel.kt` (manage liked tracks, filter/sort state).
-- [ ] Rewrite `SearchViewModel.kt` (handle local JNI search + online yt-dlp search).
+- [x] Update `TrackRepository.kt` with methods for recommendations, queue management, liked tracks.
+  - [x] **CRITICAL**: Enforce `Dispatchers.IO` / dedicated native thread executor for ALL JNI calls to prevent UI-Thread freeze (ANRs).
+- [x] Update `Track.kt` model to include `lyricsPath`, `source`, `key`.
+- [x] Create `HomeViewModel.kt` (manage catalog, recommendations, ingestion state).
+- [x] Create `LibraryViewModel.kt` (manage liked tracks, filter/sort state).
+- [x] Rewrite `SearchViewModel.kt` (handle local JNI search + online yt-dlp search).
 
 ### Screens
-- [ ] Rewrite `HomeScreen.kt` (Greeting, Quick Grid, "Made For You", "Your Library", pull-to-refresh).
-- [ ] Rewrite `SearchScreen.kt` (Search pill, Browse Category grid, local search results, download prompt).
-- [ ] Create `LibraryScreen.kt` (Filter chips, list/grid toggle, Liked Songs entry, track list).
-- [ ] Rewrite `AppNavGraph.kt` (integrate 4-tab bottom navigation).
-- [ ] Rewrite `MainActivity.kt` (full scaffold, `BottomNavBar`, `MiniPlayerBar`, NavHost, edge-to-edge).
-- [ ] Initialize `NativeBridge` database explicitly in `StreamifyApp.onCreate()`.
+- [x] Rewrite `HomeScreen.kt` (Greeting, Quick Grid, "Made For You", "Your Library", pull-to-refresh).
+- [x] Rewrite `SearchScreen.kt` (Search pill, Browse Category grid, local search results, download prompt).
+- [x] Create `LibraryScreen.kt` (Filter chips, list/grid toggle, Liked Songs entry, track list).
+- [x] Rewrite `AppNavGraph.kt` (integrate 4-tab bottom navigation).
+- [x] Rewrite `MainActivity.kt` (full scaffold, `BottomNavBar`, `MiniPlayerBar`, NavHost, edge-to-edge).
+- [x] Initialize `NativeBridge` database explicitly in `StreamifyApp.onCreate()`.
 
 ---
 
