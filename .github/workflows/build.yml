@@ -27,7 +27,26 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('**/*.gradle*') }}
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        id: gradle_build
+        run: ./gradlew assembleDebug > /tmp/build.log 2>&1
+        continue-on-error: true
+
+      - name: Upload Logs to build-logs branch
+        if: always()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin build-logs
+          git checkout build-logs
+          cp /tmp/build.log build-${{ github.run_id }}.log
+          git add build-${{ github.run_id }}.log
+          git commit -m "docs: add build log for run ${{ github.run_id }}"
+          git push origin build-logs
+
+      - name: Check Build Status
+        if: steps.gradle_build.outcome != 'success'
+        run: exit 1
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
