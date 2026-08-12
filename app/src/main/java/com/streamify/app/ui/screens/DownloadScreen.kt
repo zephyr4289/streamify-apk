@@ -53,7 +53,7 @@ fun DownloadScreen(
             LazyColumn(
                 contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
             ) {
-                items(tasks, key = { it.taskId }) { task ->
+                items(tasks, key = { it.id }) { task ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
