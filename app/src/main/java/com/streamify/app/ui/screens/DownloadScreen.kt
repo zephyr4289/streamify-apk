@@ -26,6 +26,8 @@ fun DownloadScreen(
 ) {
     val tasks by viewModel.downloadTasks.collectAsState()
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -68,16 +70,18 @@ fun DownloadScreen(
                                     style = StreamifyType.Caption,
                                     color = StreamifyColors.Primary
                                 )
-                                Spacer(modifier = Modifier.width(StreamifyDimens.SpaceSM))
-                                Text(
-                                    text = task.speed,
-                                    style = StreamifyType.Caption,
-                                    color = StreamifyColors.TextSub
-                                )
+                                if (task.speed.isNotBlank()) {
+                                    Spacer(modifier = Modifier.width(StreamifyDimens.SpaceSM))
+                                    Text(
+                                        text = task.speed,
+                                        style = StreamifyType.Caption,
+                                        color = StreamifyColors.TextSub
+                                    )
+                                }
                             }
                         }
 
-                        IconButton(onClick = { /* cancel worker */ }) {
+                        IconButton(onClick = { viewModel.cancelDownload(context, task.id) }) {
                             Icon(
                                 imageVector = Icons.Filled.Cancel,
                                 contentDescription = "Cancel",

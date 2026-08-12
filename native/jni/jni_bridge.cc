@@ -170,3 +170,36 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_streamify_app_data_NativeBridge_logSkipEvent(JNIEnv* env, jobject /* this */, jint fromTrackId, jint toTrackId, jint userId) {
     EventTracker::getInstance().logSkip(fromTrackId, toTrackId, userId);
 }
+
+#include "../ingest/AudioPipeline.h"
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_initAudioPipeline(JNIEnv* env, jobject /* this */, jstring modelPath) {
+    const char* path = env->GetStringUTFChars(modelPath, 0);
+    bool success = AudioPipeline::getInstance().init(path);
+    env->ReleaseStringUTFChars(modelPath, path);
+    return success;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_streamify_app_data_NativeBridge_processAudioFile(JNIEnv* env, jobject /* this */, jint trackId, jstring filePath) {
+    const char* path = env->GetStringUTFChars(filePath, 0);
+    std::vector<float> vec = AudioPipeline::getInstance().processAudio(path);
+    env->ReleaseStringUTFChars(filePath, path);
+
+    if (vec.empty()) return -1;
+
+    int offset = VectorStore::getInstance().addVector(vec);
+    if (offset >= 0 && trackId > 0) {
+        StreamifyDB::getInstance().updateTrackVectorOffset(trackId, offset);
+    }
+    return offset;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_updateTrackCoverArt(JNIEnv* env, jobject /* this */, jint trackId, jstring coverArtPath) {
+    const char* path = env->GetStringUTFChars(coverArtPath, 0);
+    bool res = StreamifyDB::getInstance().updateTrackCoverArt(trackId, path);
+    env->ReleaseStringUTFChars(coverArtPath, path);
+    return res;
+}

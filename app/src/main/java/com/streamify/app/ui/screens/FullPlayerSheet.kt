@@ -27,6 +27,9 @@ import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.util.DurationFormatter
 import kotlinx.coroutines.launch
 
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Subtitles
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullPlayerSheet(
@@ -43,7 +46,9 @@ fun FullPlayerSheet(
     onSeek: (Float) -> Unit,
     onShuffleToggle: () -> Unit,
     onRepeatToggle: () -> Unit,
-    onToggleLike: () -> Unit
+    onToggleLike: () -> Unit,
+    onQueueClick: (() -> Unit)? = null,
+    onLyricsClick: (() -> Unit)? = null
 ) {
     if (track == null) return
 
@@ -177,6 +182,30 @@ fun FullPlayerSheet(
                     onShuffleToggle = onShuffleToggle,
                     onRepeatToggle = onRepeatToggle
                 )
+
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+
+                // Bottom Action Bar (Queue & Lyrics)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { onQueueClick?.invoke() }) {
+                        Icon(
+                            imageVector = Icons.Filled.QueueMusic,
+                            contentDescription = "Up Next Queue",
+                            tint = StreamifyColors.TextSub
+                        )
+                    }
+                    IconButton(onClick = { onLyricsClick?.invoke() }) {
+                        Icon(
+                            imageVector = Icons.Filled.Subtitles,
+                            contentDescription = "Lyrics",
+                            tint = StreamifyColors.TextSub
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.weight(1f))
             }

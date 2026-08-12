@@ -53,9 +53,20 @@ fun AppNavGraph(
             )
         }
         composable("lyrics") {
+            val playerState = playerViewModel.playerState.collectAsState().value
+            val lyricsLines = remember(playerState.currentTrack) {
+                val path = playerState.currentTrack?.lyricsPath
+                if (!path.isNullOrBlank()) {
+                    val file = java.io.File(path)
+                    if (file.exists()) {
+                        com.streamify.app.data.models.LyricsData.parseLrc(file.readText()).lines
+                    } else emptyList()
+                } else emptyList()
+            }
+
             LyricsScreen(
-                lyrics = emptyList(), // TODO: Fetch lyrics from TrackRepository
-                currentPositionMs = playerViewModel.playerState.value.currentPosition,
+                lyrics = lyricsLines,
+                currentPositionMs = playerState.currentPosition,
                 onSeek = { ms -> playerViewModel.seekTo(ms) }
             )
         }

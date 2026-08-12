@@ -34,9 +34,8 @@ class HomeViewModel(private val repository: TrackRepository = TrackRepository())
                 val allTracks = repository.getAllTracks()
                 // If there are tracks, try to get recommendations for the first one as a mock "recent history" based recommendation
                 val recommendations = if (allTracks.isNotEmpty()) {
-                    // Try mapping the RecommendationNative to Track or fallback to random
-                    // Note: Since RecommendationNative only gives IDs, we would map it, but for UI mockup we'll just shuffle allTracks
-                    allTracks.shuffled().take(5)
+                    val aiRecs = repository.getRecommendations(allTracks.first().id, limit = 5)
+                    if (aiRecs.isNotEmpty()) aiRecs else allTracks.take(5)
                 } else {
                     emptyList()
                 }

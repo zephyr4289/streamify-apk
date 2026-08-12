@@ -34,11 +34,29 @@ def download_audio(url, output_path, callback_java):
         'progress_hooks': [DownloadProgressHook(callback_java)],
         'quiet': True,
         'no_warnings': True,
+        'writethumbnail': True,
     }
 
     try:
+        import requests
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            base, _ = os.path.splitext(filename)
+            mp3_path = base + ".mp3"
+            thumb_path = base + ".jpg"
+
+            # Download thumbnail image if missing or not written by postprocessor
+            if not os.path.exists(thumb_path) and info.get('thumbnail'):
+                try:
+                    resp = requests.get(info.get('thumbnail'), timeout=5)
+                    if resp.status_code == 200:
+                        with open(thumb_path, 'wb') as f:
+                            f.write(resp.content)
+                except Exception as ex:
+                    print(f"Thumbnail download failed: {ex}")
+
+            callback_java.onFinished(mp3_path if os.path.exists(mp3_path) else filename)
             return True
     except Exception as e:
         callback_java.onError(str(e))

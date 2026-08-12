@@ -20,6 +20,27 @@ class StreamifyApp : Application() {
         
         val dbPath = getDatabasePath("streamify.db").absolutePath
         NativeBridge.initDatabase(dbPath)
+
+        val vectorBinPath = java.io.File(filesDir, "vectors.bin").absolutePath
+        NativeBridge.initVectorStore(vectorBinPath)
+
+        // Copy ONNX model from assets to filesDir if needed
+        val modelFile = java.io.File(filesDir, "clap_int8.onnx")
+        if (!modelFile.exists()) {
+            try {
+                assets.open("models/clap_int8.onnx").use { input ->
+                    java.io.FileOutputStream(modelFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        if (modelFile.exists()) {
+            NativeBridge.initAudioPipeline(modelFile.absolutePath)
+        }
+
         createNotificationChannels()
     }
 

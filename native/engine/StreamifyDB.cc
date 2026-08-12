@@ -70,6 +70,14 @@ bool StreamifyDB::init(const std::string& db_path) {
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS user_transitions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            from_track_id INTEGER NOT NULL,
+            to_track_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL, -- 'play' or 'skip'
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     )";
 
     char* err = nullptr;
@@ -438,4 +446,96 @@ bool StreamifyDB::toggleUserLikedTrack(int user_id, int track_id, bool& out_is_l
         out_is_liked = true;
     }
     return true;
+}
+
+bool StreamifyDB::updateTrackVectorOffset(int track_id, int offset) {
+    sqlite3* db = getConnection();
+    if (!db) return false;
+    const char* sql = "UPDATE tracks SET vector_offset = ?, is_processed = 1 WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, offset);
+        sqlite3_bind_int(stmt, 2, track_id);
+        bool res = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return res;
+    }
+    return false;
+}
+
+bool StreamifyDB::updateTrackCoverArt(int track_id, const std::string& cover_art_path) {
+    sqlite3* db = getConnection();
+    if (!db) return false;
+    const char* sql = "UPDATE tracks SET cover_art_path = ? WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, cover_art_path.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, track_id);
+        bool res = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return res;
+    }
+    return false;
+}
+
+bool StreamifyDB::insertTransition(int user_id, int from_track_id, int to_track_id, const std::string& type) {
+    sqlite3* db = getConnection();
+    if (!db) return false;
+    const char* sql = "INSERT INTO user_transitions (user_id, from_track_id, to_track_id, event_type) VALUES (?, ?, ?, ?);";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, user_id);
+        sqlite3_bind_int(stmt, 2, from_track_id);
+        sqlite3_bind_int(stmt, 3, to_track_id);
+        sqlite3_bind_text(stmt, 4, type.c_str(), -1, SQLITE_TRANSIENT);
+        bool res = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return res;
+    }
+    return false;
+}
+
+float StreamifyDB::getTransitionProbability(int user_id, int from_track_id, int to_track_id) {
+    sqlite3* db = getConnection();
+    if (!db) return 0.0f;
+    
+    int transitionCount = 0;
+    int totalFromCount = 0;
+
+    const char* sqlCount = "SELECT COUNT(*) FROM user_transitions WHERE user_id = ? AND from_track_id = ? AND to_track_id = ? AND event_type = 'play';";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sqlCount, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, user_id);
+        sqlite3_bind_int(stmt, 2, from_track_id);
+        sqlite3_bind_int(stmt, 3, to_track_id);
+        if (sqlite3_step(stmt) == SQLITE_ROW) transitionCount = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+
+    const char* sqlTotal = "SELECT COUNT(*) FROM user_transitions WHERE user_id = ? AND from_track_id = ? AND event_type = 'play';";
+    if (sqlite3_prepare_v2(db, sqlTotal, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, user_id);
+        sqlite3_bind_int(stmt, 2, from_track_id);
+        if (sqlite3_step(stmt) == SQLITE_ROW) totalFromCount = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+
+    return (totalFromCount > 0) ? (static_cast<float>(transitionCount) / static_cast<float>(totalFromCount)) : 0.0f;
+}
+
+int StreamifyDB::getSkipCount(int user_id, int from_track_id, int to_track_id) {
+    sqlite3* db = getConnection();
+    if (!db) return 0;
+
+    int skipCount = 0;
+    const char* sql = "SELECT COUNT(*) FROM user_transitions WHERE user_id = ? AND from_track_id = ? AND to_track_id = ? AND event_type = 'skip';";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, user_id);
+        sqlite3_bind_int(stmt, 2, from_track_id);
+        sqlite3_bind_int(stmt, 3, to_track_id);
+        if (sqlite3_step(stmt) == SQLITE_ROW) skipCount = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+    return skipCount;
 }

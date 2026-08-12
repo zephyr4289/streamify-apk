@@ -23,8 +23,19 @@ class TrackRepository {
         NativeBridge.toggleLike(userId, trackId)
     }
 
-    suspend fun getRecommendations(trackId: Int, recentHistory: IntArray = intArrayOf(), userId: Int = 1, limit: Int = 10) = withContext(Dispatchers.IO) {
-        NativeBridge.getRecommendations(trackId, recentHistory, userId, limit)
+    suspend fun getRecommendations(trackId: Int, recentHistory: IntArray = intArrayOf(), userId: Int = 1, limit: Int = 10): List<Track> = withContext(Dispatchers.IO) {
+        val recs = NativeBridge.getRecommendations(trackId, recentHistory, userId, limit)
+        if (recs.isEmpty()) return@withContext emptyList()
+        val all = getAllTracks().associateBy { it.id }
+        recs.mapNotNull { rec -> all[rec.trackId] }
+    }
+
+    suspend fun processAudioFile(trackId: Int, filePath: String): Int = withContext(Dispatchers.IO) {
+        NativeBridge.processAudioFile(trackId, filePath)
+    }
+
+    suspend fun updateTrackCoverArt(trackId: Int, coverArtPath: String): Boolean = withContext(Dispatchers.IO) {
+        NativeBridge.updateTrackCoverArt(trackId, coverArtPath)
     }
 
     suspend fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int = 1) = withContext(Dispatchers.IO) {

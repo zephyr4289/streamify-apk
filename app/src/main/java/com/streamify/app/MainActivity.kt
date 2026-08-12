@@ -131,7 +131,15 @@ class MainActivity : ComponentActivity() {
                         },
                         onShuffleToggle = { playerViewModel.toggleShuffle() },
                         onRepeatToggle = { playerViewModel.toggleRepeat() },
-                        onToggleLike = { playerViewModel.toggleLike() }
+                        onToggleLike = { playerViewModel.toggleLike() },
+                        onQueueClick = {
+                            showFullPlayer = false
+                            navController.navigate("queue")
+                        },
+                        onLyricsClick = {
+                            showFullPlayer = false
+                            navController.navigate("lyrics")
+                        }
                     )
                 }
             }

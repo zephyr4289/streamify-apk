@@ -41,30 +41,42 @@ class DownloadWorker(
                 }
 
                 override fun onFinished(filepath: String) {
-                    // Inject metadata and run simulated AI extraction
+                    // Inject metadata and extract cover art path
                     val metadataResult = metadataModule.callAttr("inject_metadata", filepath, title, artist, album, null)
                     
                     var durationSec = 0
                     var bpm = 120.0f
+                    var coverArtPath = ""
                     try {
                         val list = metadataResult.asList()
                         if (list.size >= 2) {
                             durationSec = list[0].toInt()
                             bpm = list[1].toFloat()
                         }
+                        if (list.size >= 3) {
+                            coverArtPath = list[2].toString()
+                        }
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
                     
                     // Insert to database using JNI
-                    NativeBridge.insertTrack(
+                    val trackId = NativeBridge.insertTrack(
                         filepath = filepath,
                         title = title,
                         artist = artist,
                         album = album,
                         durationSec = durationSec,
                         bpm = bpm
-                    )
+                    ).toInt()
+
+                    if (trackId > 0) {
+                        if (coverArtPath.isNotBlank()) {
+                            NativeBridge.updateTrackCoverArt(trackId, coverArtPath)
+                        }
+                        // Run ONNX feature extraction & VectorStore embedding
+                        NativeBridge.processAudioFile(trackId, filepath)
+                    }
                 }
 
                 override fun onError(error: String) {

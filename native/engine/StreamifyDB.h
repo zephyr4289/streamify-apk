@@ -51,6 +51,15 @@ public:
     std::vector<StreamifyTrack> getUserLikedTracks(int user_id);
     bool toggleUserLikedTrack(int user_id, int track_id, bool& out_is_liked);
 
+    // Track metadata & vector updates
+    bool updateTrackVectorOffset(int track_id, int offset);
+    bool updateTrackCoverArt(int track_id, const std::string& cover_art_path);
+
+    // Behavioral Transition Methods
+    bool insertTransition(int user_id, int from_track_id, int to_track_id, const std::string& type);
+    float getTransitionProbability(int user_id, int from_track_id, int to_track_id);
+    int getSkipCount(int user_id, int from_track_id, int to_track_id);
+
 private:
     StreamifyDB() = default;
     ~StreamifyDB() = default;

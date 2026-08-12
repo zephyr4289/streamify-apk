@@ -39,16 +39,42 @@ class IngestionViewModel : ViewModel() {
             .build()
             
         val downloadRequest = OneTimeWorkRequestBuilder<com.streamify.app.worker.DownloadWorker>()
+            .addTag("download_worker")
             .setInputData(inputData)
             .setConstraints(constraints)
             .build()
             
         workManager.enqueue(downloadRequest)
         
-        // Add to local state
         val newTask = DownloadTask(id = downloadRequest.id, title = title)
         _downloadTasks.value = _downloadTasks.value + newTask
-        
-        // Note: In a real app we'd observe WorkManager LiveData here and update the list.
+
+        observeTaskProgress(context, downloadRequest.id)
+    }
+
+    private fun observeTaskProgress(context: Context, taskId: UUID) {
+        val workManager = WorkManager.getInstance(context)
+        workManager.getWorkInfoByIdLiveData(taskId).observeForever { workInfo ->
+            if (workInfo != null) {
+                val progressStr = workInfo.progress.getString("progress") ?: "Downloading..."
+                val speedStr = workInfo.progress.getString("speed") ?: ""
+                val stateStr = workInfo.state.name
+                
+                _downloadTasks.value = _downloadTasks.value.map { task ->
+                    if (task.id == taskId) {
+                        task.copy(
+                            progress = progressStr,
+                            speed = speedStr,
+                            state = stateStr
+                        )
+                    } else task
+                }
+            }
+        }
+    }
+
+    fun cancelDownload(context: Context, taskId: UUID) {
+        WorkManager.getInstance(context).cancelWorkById(taskId)
+        _downloadTasks.value = _downloadTasks.value.filterNot { it.id == taskId }
     }
 }

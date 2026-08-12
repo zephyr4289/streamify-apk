@@ -18,12 +18,20 @@ class IngestionWorker(
         try {
             val localFiles = MediaStoreScanner.scanLocalMusic(applicationContext)
             
-            // Native implementation would check which are already processed in the DB.
-            // For now, we simulate processing via JNI bridge.
             localFiles.forEachIndexed { index, file ->
-                // NativeBridge.processAudioFile(file.dataPath)
-                // We don't have processAudioFile mapped yet in NativeBridge but it's defined in implementation.md
-                // Simulating ingestion:
+                val trackId = NativeBridge.insertTrack(
+                    filepath = file.dataPath,
+                    title = file.title,
+                    artist = file.artist,
+                    album = "Local Storage",
+                    durationSec = (file.durationMs / 1000).toInt(),
+                    bpm = 120.0f
+                ).toInt()
+
+                if (trackId > 0) {
+                    NativeBridge.processAudioFile(trackId, file.dataPath)
+                }
+
                 val progress = (index + 1).toFloat() / localFiles.size.toFloat()
                 setProgress(androidx.work.workDataOf("PROGRESS" to progress))
             }
