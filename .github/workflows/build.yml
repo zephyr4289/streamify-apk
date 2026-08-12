@@ -42,26 +42,7 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle*') }}
 
       - name: Build Debug APK
-        run: |
-          ./gradlew assembleDebug --stacktrace > build.log 2>&1 || echo "BUILD_FAILED=true" >> $GITHUB_ENV
-
-      - name: Commit build log
-        if: always()
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin build-logs || git branch build-logs
-          git checkout build-logs || git checkout -b build-logs
-          cp build.log build-${{ github.run_number }}.log
-          git add build-${{ github.run_number }}.log
-          git commit -m "docs: add build log for run ${{ github.run_number }}"
-          git push origin build-logs
-
-      - name: Fail if build failed
-        run: |
-          if [ "$BUILD_FAILED" = "true" ]; then
-            exit 1
-          fi
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: Locate and Move APK
         run: |
