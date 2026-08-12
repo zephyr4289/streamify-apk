@@ -52,9 +52,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          ERROR_LOG=$(grep -A 2 -B 2 "e: " build.log | tail -n 50 || echo "Could not extract errors. See artifacts.")
           gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments \
             -f body="\`\`\`text
-          $(tail -n 60 build.log)
+          $ERROR_LOG
           \`\`\`"
           exit 1
 
