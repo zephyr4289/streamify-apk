@@ -1249,6 +1249,19 @@ class MainActivity : ComponentActivity() {
 
 **Commit**: `feat(ui): animations, polish, edge-to-edge, permissions — production ready`
 
+The JNI UI-Thread Freeze Risk
+Your spec assumes direct execution between Kotlin ViewModels and the completed C++ native bridge (libstreamify_core.so).
+The Flaw: If any Compose state read or ViewModel function invokes NativeBridge JNI calls (SQLite query, 512-D vector cosine similarity check, or RecommendEngine invocation) on Dispatchers.Main, you will cause severe frame drops and Android ANRs.
+The Fix: The ViewModel state architecture must enforce explicit off-thread execution via a custom CoroutineDispatcher (e.g., Dispatchers.IO or a single-threaded native executor) for every JNI wrapper in TrackRepository. The UI state layer must consume read-only StateFlow primitives.
+2. Gesture Collisions: MiniPlayer vs. BottomSheet
+Placing a floating MiniPlayerBar with horizontal swipe actions (e.g., swipe-to-skip) directly above a BottomNavBar while anchoring a FullPlayerSheet drag gesture creates severe touch intercept collisions in Jetpack Compose.
+The Flaw: Standard nested scrolling and drag modifiers in Compose routinely capture pointer input from child components, freezing the horizontal swipe gesture on the mini player or prematurely launching the player sheet during bottom nav taps.
+The Fix: Isolate touch targets explicitly using pointerInput with detectHorizontalDragGestures on the mini player, and control the ModalBottomSheetState programmatically via explicit drag-distance thresholds rather than relying on default bottom sheet drag handles.
+3. Dynamic Palette Luminance Safety
+Section 2 mentions PaletteExtractor.kt, but your color specification relies heavily on hardcoded dark values (#0F0F0F, #121212).
+The Flaw: Extracting dominant colors directly from raw album art for player backgrounds often produces low-contrast pairings (e.g., bright white or high-saturation yellow covers), rendering white typography (#FFFFFF) unreadable.
+The Fix: Implement luminance clamping and dark-tone transformation in PaletteExtractor. If the extracted vibrant/dominant color's luminance exceeds 0.35, automatically blend it toward #121212 or apply a programmatic dark scrim before injecting it into Compose Brush.verticalGradient.
+
 ---
 
 ## 11. File Manifest
@@ -1326,7 +1339,7 @@ UPDATE (targeted edits only):
   app/src/main/java/com/streamify/app/ui/theme/Theme.kt       # Add shape system, status bar config
   app/src/main/java/com/streamify/app/data/TrackRepository.kt # Add recommendation + queue methods
   app/src/main/java/com/streamify/app/data/models/Track.kt    # Add lyricsPath, source, key fields
-  app/src/main/java/com/streamify/app/service/PlaybackService.kt  # Wire to ViewModel
+  app/src/main/java/com/streamify/app/service/PlaybackService.kt  # Wire to ViewModel  
   app/src/main/java/com/streamify/app/service/DownloadService.kt  # Proper foreground service
   app/src/main/AndroidManifest.xml                             # Add services, permissions
   app/src/main/res/values/themes.xml                           # Dark theme, black window bg
