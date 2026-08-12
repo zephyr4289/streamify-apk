@@ -44,16 +44,18 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log || (tail -n 100 build.log && exit 1)
 
-      - name: Prepare APK for Release
+      - name: Locate APK File
+        id: locate_apk
         run: |
-          find app/build/outputs/apk -name "*.apk" -exec cp {} ./streamify-app.apk \;
-          ls -la streamify-app.apk > prepare.log 2>&1 || true
+          APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+          echo "Found APK at: $APK_PATH"
+          echo "APK_PATH=$APK_PATH" >> $GITHUB_ENV
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Streamify-Debug-APK
-          path: streamify-app.apk
+          path: ${{ env.APK_PATH }}
 
       - name: Create Build Release
         uses: softprops/action-gh-release@v2
@@ -62,7 +64,7 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Streamify Build ${{ github.run_number }}
           prerelease: true
-          files: streamify-app.apk
+          files: ${{ env.APK_PATH }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -74,20 +76,7 @@ jobs:
           name: Streamify v1.0.0 (Latest Build)
           body: "Latest automated build containing all AI vector recommendation engines, Python download pipelines, and Spotify UI."
           prerelease: false
-          files: streamify-app.apk
+          files: ${{ env.APK_PATH }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Logs to build-logs branch
-        if: always()
-        run: |
-          git clone --branch build-logs https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git logs-repo || true
-          cp build.log logs-repo/build-${{ github.run_id }}.log || true
-          cp prepare.log logs-repo/prepare-${{ github.run_id }}.log || true
-          cd logs-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "docs: add build log for run ${{ github.run_id }}" || true
-          git push origin build-logs || true
 
