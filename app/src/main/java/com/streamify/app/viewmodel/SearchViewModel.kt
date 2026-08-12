@@ -176,4 +176,77 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             }
         }
     }
+
+    fun importSpotifyPlaylist(
+        url: String,
+        ingestionViewModel: com.streamify.app.viewmodel.IngestionViewModel,
+        context: android.content.Context
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Resolving Spotify link...", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                
+                val py = Python.getInstance()
+                val spotifyModule = py.getModule("download_engine.spotify")
+                val resultJson = spotifyModule.callAttr("fetch_spotify_metadata_from_url", url).toString()
+                
+                val jsonArray = org.json.JSONArray(resultJson)
+                val newPlaylistId = java.util.UUID.randomUUID().toString()
+                val playlistName = "Imported Spotify Playlist"
+                val trackIds = mutableListOf<Int>()
+                
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val title = obj.optString("title", "Unknown")
+                    val artist = obj.optString("artist", "Unknown")
+                    val album = obj.optString("album", "Spotify")
+                    val coverUrl = obj.optString("cover_url", "")
+                    
+                    // Generate a pseudo ID
+                    val pseudoId = -((title + artist).hashCode())
+                    trackIds.add(pseudoId)
+                    
+                    val searchString = "ytsearch1:$title $artist"
+                    
+                    // Fire and forget background download using ytsearch
+                    withContext(Dispatchers.Main) {
+                        ingestionViewModel.enqueueDownload(
+                            context = context,
+                            url = searchString,
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            quality = "256"
+                        )
+                    }
+                }
+                
+                if (trackIds.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        val repo = com.streamify.app.data.PlaylistRepository
+                        val p = com.streamify.app.data.Playlist(
+                            id = newPlaylistId,
+                            name = playlistName,
+                            description = "Imported from Spotify ($url)",
+                            trackIds = trackIds,
+                            createdAt = System.currentTimeMillis()
+                        )
+                        repo.createPlaylist(p)
+                        android.widget.Toast.makeText(context, "Imported ${trackIds.size} tracks. Check Downloads tab.", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(context, "Failed to resolve Spotify link.", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Error importing playlist.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 }

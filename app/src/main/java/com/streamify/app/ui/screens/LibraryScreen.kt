@@ -40,6 +40,9 @@ fun LibraryScreen(
     var selectedFilter by remember { mutableStateOf(0) } // 0: All, 1: Liked, 2: Downloads, 3: Folders
     var selectedFolder by remember { mutableStateOf<String?>(null) }
     
+    var showSpotifyImportDialog by remember { mutableStateOf(false) }
+    var spotifyUrlInput by remember { mutableStateOf("") }
+    
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(context) {
         ingestionViewModel.observeDownloads(context)
@@ -55,6 +58,43 @@ fun LibraryScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         viewModel.loadLibrary()
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    
+    if (showSpotifyImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showSpotifyImportDialog = false },
+            title = { Text("Import Spotify Playlist", color = StreamifyColors.TextMain) },
+            text = {
+                OutlinedTextField(
+                    value = spotifyUrlInput,
+                    onValueChange = { spotifyUrlInput = it },
+                    label = { Text("Spotify URL") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = StreamifyColors.TextMain,
+                        unfocusedTextColor = StreamifyColors.TextSub,
+                        focusedBorderColor = StreamifyColors.Primary,
+                        cursorColor = StreamifyColors.Primary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val searchViewModel = androidx.lifecycle.ViewModelProvider(context as androidx.lifecycle.ViewModelStoreOwner)[com.streamify.app.viewmodel.SearchViewModel::class.java]
+                    searchViewModel.importSpotifyPlaylist(spotifyUrlInput, ingestionViewModel, context)
+                    showSpotifyImportDialog = false
+                    spotifyUrlInput = ""
+                }) {
+                    Text("Import", color = StreamifyColors.Primary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSpotifyImportDialog = false }) {
+                    Text("Cancel", color = StreamifyColors.TextSub)
+                }
+            },
+            containerColor = StreamifyColors.BgCard
+        )
     }
 
     Column(
@@ -81,6 +121,9 @@ fun LibraryScreen(
                 )
             }
             Row {
+                IconButton(onClick = { showSpotifyImportDialog = true }) {
+                    Icon(androidx.compose.material.icons.Icons.Filled.Download, contentDescription = "Import Spotify", tint = StreamifyColors.TextMain)
+                }
                 IconButton(onClick = { enqueueMediaScan(context) }) {
                     Icon(androidx.compose.material.icons.Icons.Filled.Sync, contentDescription = "Rescan Storage", tint = StreamifyColors.TextMain)
                 }
