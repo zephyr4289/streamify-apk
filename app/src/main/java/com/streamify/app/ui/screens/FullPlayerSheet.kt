@@ -125,15 +125,15 @@ fun FullPlayerSheet(
                                 color = StreamifyColors.TextSub
                             )
                             Spacer(modifier = Modifier.width(12.dp))
-                            // AI Extraction Badge
+                            // Neural Engine Extraction Badge
                             Box(
                                 modifier = Modifier
                                     .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                                    .background(StreamifyColors.Primary.copy(alpha = 0.15f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .background(StreamifyColors.Primary.copy(alpha = 0.2f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    text = "${track.bpm.toInt()} BPM • ${track.key}",
+                                    text = "✨ AI: ${track.bpm.toInt()} BPM • ${track.key}",
                                     style = StreamifyType.Caption,
                                     color = StreamifyColors.Primary
                                 )

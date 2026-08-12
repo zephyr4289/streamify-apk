@@ -112,7 +112,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository(
         positionPollingJob = viewModelScope.launch {
             while (true) {
                 controller?.let {
-                    _playerState.value = _playerState.value.copy(currentPosition = it.currentPosition)
+                    val actualDuration = if (it.duration > 0) it.duration else _playerState.value.duration
+                    _playerState.value = _playerState.value.copy(
+                        currentPosition = it.currentPosition,
+                        duration = actualDuration
+                    )
                 }
                 delay(1000)
             }

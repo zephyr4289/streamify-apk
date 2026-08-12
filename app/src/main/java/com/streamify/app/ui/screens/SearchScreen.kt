@@ -168,11 +168,10 @@ fun SearchScreen(
                             Text("YouTube Results", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
                         }
                         items(state.onlineResults) { onlineTrack ->
-                            // Use TrackListItem as a generic row for now by mocking a Track
                             val mockTrack = com.streamify.app.data.models.Track(
                                 id = 0, title = onlineTrack.title, artist = onlineTrack.uploader,
                                 album = "Online", durationSec = onlineTrack.duration,
-                                filepath = "", coverArtPath = null,
+                                filepath = "", coverArtPath = onlineTrack.thumbnail.takeIf { it.isNotBlank() },
                                 bpm = 0f, key = "", lyricsPath = null, source = "online"
                             )
                             TrackListItem(

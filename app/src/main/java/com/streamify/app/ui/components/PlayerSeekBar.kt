@@ -32,7 +32,7 @@ fun PlayerSeekBar(
             .height(StreamifyDimens.SpaceXL)
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onPress = { offset ->
+                    onTap = { offset ->
                         val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
                         onSeek(newProgress)
                     }

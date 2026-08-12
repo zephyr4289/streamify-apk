@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+
 data class DownloadTask(
     val id: UUID,
     val title: String,
@@ -22,9 +25,29 @@ data class DownloadTask(
     val state: String = "Queued"
 )
 
-class IngestionViewModel : ViewModel() {
+class IngestionViewModel(application: Application) : AndroidViewModel(application) {
     private val _downloadTasks = MutableStateFlow<List<DownloadTask>>(emptyList())
     val downloadTasks: StateFlow<List<DownloadTask>> = _downloadTasks.asStateFlow()
+
+    init {
+        val workManager = WorkManager.getInstance(application)
+        val liveData = workManager.getWorkInfosByTagLiveData("download_worker")
+        liveData.observeForever { workInfos ->
+            val tasks = workInfos.filter { !it.state.isFinished }.map { workInfo ->
+                val progressStr = workInfo.progress.getString("progress") ?: "Downloading..."
+                val speedStr = workInfo.progress.getString("speed") ?: ""
+                val title = workInfo.tags.firstOrNull { it.startsWith("TITLE:") }?.removePrefix("TITLE:") ?: "Unknown"
+                DownloadTask(
+                    id = workInfo.id,
+                    title = title,
+                    progress = progressStr,
+                    speed = speedStr,
+                    state = workInfo.state.name
+                )
+            }
+            _downloadTasks.value = tasks
+        }
+    }
 
     fun enqueueDownload(context: Context, url: String, title: String, artist: String, album: String) {
         val workManager = WorkManager.getInstance(context)
@@ -42,41 +65,15 @@ class IngestionViewModel : ViewModel() {
             
         val downloadRequest = OneTimeWorkRequestBuilder<com.streamify.app.worker.DownloadWorker>()
             .addTag("download_worker")
+            .addTag("TITLE:$title")
             .setInputData(inputData)
             .setConstraints(constraints)
             .build()
             
         workManager.enqueue(downloadRequest)
-        
-        val newTask = DownloadTask(id = downloadRequest.id, title = title)
-        _downloadTasks.value = _downloadTasks.value + newTask
-
-        observeTaskProgress(context, downloadRequest.id)
-    }
-
-    private fun observeTaskProgress(context: Context, taskId: UUID) {
-        val workManager = WorkManager.getInstance(context)
-        workManager.getWorkInfoByIdLiveData(taskId).observeForever(Observer<WorkInfo> { workInfo ->
-            if (workInfo != null) {
-                val progressStr = workInfo.progress.getString("progress") ?: "Downloading..."
-                val speedStr = workInfo.progress.getString("speed") ?: ""
-                val stateStr = workInfo.state.name
-                
-                _downloadTasks.value = _downloadTasks.value.map { task ->
-                    if (task.id == taskId) {
-                        task.copy(
-                            progress = progressStr,
-                            speed = speedStr,
-                            state = stateStr
-                        )
-                    } else task
-                }
-            }
-        })
     }
 
     fun cancelDownload(context: Context, taskId: UUID) {
         WorkManager.getInstance(context).cancelWorkById(taskId)
-        _downloadTasks.value = _downloadTasks.value.filterNot { it.id == taskId }
     }
 }

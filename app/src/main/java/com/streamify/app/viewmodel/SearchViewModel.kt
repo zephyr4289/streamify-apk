@@ -16,7 +16,8 @@ data class OnlineSearchResult(
     val title: String,
     val uploader: String,
     val url: String,
-    val duration: Int
+    val duration: Int,
+    val thumbnail: String
 )
 
 sealed class SearchUiState {
@@ -68,7 +69,8 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository(
                                 title = obj.optString("title", "Unknown"),
                                 uploader = obj.optString("uploader", "Unknown"),
                                 url = obj.optString("url", ""),
-                                duration = obj.optInt("duration", 0)
+                                duration = obj.optInt("duration", 0),
+                                thumbnail = obj.optString("thumbnail", "")
                             )
                         )
                     }

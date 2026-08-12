@@ -18,12 +18,14 @@ def search_youtube(query, max_results=20):
                 entries = []
                 for entry in result['entries']:
                     if entry:
+                        video_id = entry.get('id', '')
                         entries.append({
-                            'id': entry.get('id', ''),
+                            'id': video_id,
                             'title': entry.get('title', ''),
                             'uploader': entry.get('uploader', ''),
                             'duration': entry.get('duration', 0),
-                            'url': entry.get('url', f"https://www.youtube.com/watch?v={entry.get('id', '')}")
+                            'url': entry.get('url', f"https://www.youtube.com/watch?v={video_id}"),
+                            'thumbnail': entry.get('thumbnail', f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg") if video_id else ''
                         })
                 return json.dumps(entries)
             return "[]"

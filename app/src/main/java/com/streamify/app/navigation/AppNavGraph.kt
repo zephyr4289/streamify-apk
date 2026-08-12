@@ -58,7 +58,11 @@ fun AppNavGraph(
         composable("lyrics") {
             val playerState = playerViewModel.playerState.collectAsState().value
             val lyricsLines = remember(playerState.currentTrack) {
-                val path = playerState.currentTrack?.lyricsPath
+                val dbPath = playerState.currentTrack?.lyricsPath
+                val path = if (dbPath.isNullOrBlank()) {
+                    playerState.currentTrack?.filepath?.replace(".mp3", ".lrc")
+                } else dbPath
+                
                 if (path != null && path.isNotBlank()) {
                     val file = java.io.File(path)
                     if (file.exists()) {
