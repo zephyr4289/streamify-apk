@@ -34,7 +34,7 @@ fun LibraryScreen(
     val uiState by viewModel.uiState.collectAsState()
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
     
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {

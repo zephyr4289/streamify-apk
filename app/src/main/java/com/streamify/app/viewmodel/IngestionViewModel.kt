@@ -32,7 +32,7 @@ class IngestionViewModel(application: Application) : AndroidViewModel(applicatio
     init {
         val workManager = WorkManager.getInstance(application)
         val liveData = workManager.getWorkInfosByTagLiveData("download_worker")
-        liveData.observeForever { workInfos ->
+        liveData.observeForever(Observer { workInfos ->
             val tasks = workInfos.filter { !it.state.isFinished }.map { workInfo ->
                 val progressStr = workInfo.progress.getString("progress") ?: "Downloading..."
                 val speedStr = workInfo.progress.getString("speed") ?: ""
@@ -46,7 +46,7 @@ class IngestionViewModel(application: Application) : AndroidViewModel(applicatio
                 )
             }
             _downloadTasks.value = tasks
-        }
+        })
     }
 
     fun enqueueDownload(context: Context, url: String, title: String, artist: String, album: String) {
