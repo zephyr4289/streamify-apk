@@ -49,6 +49,8 @@ object StreamifyDimens {
     val SeekBarHeight     = 4.dp      // Seekbar track thickness
     val SeekBarThumb      = 12.dp     // Seekbar thumb diameter
     val ProgressLineH     = 2.dp      // Mini player progress line height
+    val DividerThickness  = 1.dp      // Standard divider thickness
+    val PlayerBarHeight   = 72.dp     // MiniPlayerBar height + margin
 
     // Bottom Sheet
     val SheetPeekHeight   = 0.dp

@@ -26,7 +26,7 @@ import com.streamify.app.viewmodel.LibraryViewModel
 @Composable
 fun LibraryScreen(
     viewModel: LibraryViewModel = viewModel(),
-    onTrackClick: (Int) -> Unit
+    onTrackClick: (Int, List<com.streamify.app.data.models.Track>) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -114,7 +114,7 @@ fun LibraryScreen(
                         items(state.likedTracks) { track ->
                             TrackListItem(
                                 track = track,
-                                onClick = { onTrackClick(track.id) },
+                                onClick = { onTrackClick(track.id, (uiState as? LibraryUiState.Success)?.likedTracks ?: emptyList()) },
                                 onOptionsClick = { /* Handle options */ }
                             )
                         }

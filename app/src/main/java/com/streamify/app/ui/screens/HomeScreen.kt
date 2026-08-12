@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -14,10 +13,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.RecentPlayCard
 import com.streamify.app.ui.components.TrackCard
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
+import com.streamify.app.ui.theme.StreamifyShapes
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.util.TimeGreeting
 import com.streamify.app.viewmodel.HomeUiState
@@ -26,7 +27,7 @@ import com.streamify.app.viewmodel.HomeViewModel
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = viewModel(),
-    onTrackClick: (Int) -> Unit
+    onTrackClick: (Int, List<Track>) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -105,7 +106,7 @@ fun HomeScreen(
                                         RecentPlayCard(
                                             title = track.title,
                                             imageUrl = track.coverArtPath,
-                                            onClick = { onTrackClick(track.id) },
+                                            onClick = { onTrackClick(track.id, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) },
                                             modifier = Modifier.weight(1f)
                                         )
                                     }
@@ -133,7 +134,7 @@ fun HomeScreen(
                                 items(state.recommendations) { track ->
                                     TrackCard(
                                         track = track,
-                                        onClick = { onTrackClick(track.id) }
+                                        onClick = { onTrackClick(track.id, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) }
                                     )
                                 }
                             }
@@ -156,7 +157,7 @@ fun HomeScreen(
                                 items(state.allTracks) { track ->
                                     TrackCard(
                                         track = track,
-                                        onClick = { onTrackClick(track.id) }
+                                        onClick = { onTrackClick(track.id, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) }
                                     )
                                 }
                             }

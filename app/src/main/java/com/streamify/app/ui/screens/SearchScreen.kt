@@ -30,7 +30,7 @@ import com.streamify.app.viewmodel.SearchViewModel
 @Composable
 fun SearchScreen(
     viewModel: SearchViewModel = viewModel(),
-    onTrackClick: (Int) -> Unit
+    onTrackClick: (Int, List<com.streamify.app.data.models.Track>) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var query by remember { mutableStateOf("") }
@@ -143,7 +143,7 @@ fun SearchScreen(
                         items(state.localResults) { track ->
                             TrackListItem(
                                 track = track,
-                                onClick = { onTrackClick(track.id) },
+                                onClick = { onTrackClick(track.id, (uiState as? SearchUiState.Success)?.localResults ?: emptyList()) },
                                 onOptionsClick = { /* Handle options */ }
                             )
                         }
