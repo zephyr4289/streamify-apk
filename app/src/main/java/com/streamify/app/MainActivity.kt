@@ -23,10 +23,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Initialize Database explicitely
-        val dbPath = getDatabasePath("streamify.db").absolutePath
-        NativeBridge.initDatabase(dbPath)
-
         setContent {
             StreamifyTheme {
                 val navController = rememberNavController()

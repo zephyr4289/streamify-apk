@@ -12,17 +12,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.ui.theme.StreamifyColors
 import kotlinx.coroutines.launch
 
-data class LyricLine(
-    val timestampMs: Long,
-    val text: String
-)
-
 @Composable
 fun LyricsScreen(
-    lyrics: List<LyricLine>,
+    lyrics: List<LyricsLine>,
     currentPositionMs: Long,
     onSeek: (Long) -> Unit
 ) {
@@ -33,7 +29,7 @@ fun LyricsScreen(
     var activeIndex by remember { mutableStateOf(-1) }
     
     LaunchedEffect(currentPositionMs, lyrics) {
-        val index = lyrics.indexOfLast { it.timestampMs <= currentPositionMs }
+        val index = lyrics.indexOfLast { it.timeMs <= currentPositionMs }
         if (index != activeIndex && index >= 0) {
             activeIndex = index
             // Auto-scroll to center the active line
@@ -59,7 +55,7 @@ fun LyricsScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 32.dp)
+                contentPadding = PaddingValues(vertical = 32.dp, bottom = 120.dp) // Padding for player bar
             ) {
                 itemsIndexed(lyrics) { index, line ->
                     val isActive = index == activeIndex
@@ -82,7 +78,7 @@ fun LyricsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 12.dp)
-                            .clickable { onSeek(line.timestampMs) }
+                            .clickable { onSeek(line.timeMs) }
                     )
                 }
             }

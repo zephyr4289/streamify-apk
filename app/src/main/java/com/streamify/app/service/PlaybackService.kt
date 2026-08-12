@@ -15,15 +15,17 @@ class PlaybackService : MediaSessionService() {
         val exoPlayer = ExoPlayer.Builder(this)
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .setUsage(C.USAGE_MEDIA)
-                    .build(), true
+                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                .setUsage(C.USAGE_MEDIA)
+                .build(), true
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
         
         player = exoPlayer
-        mediaSession = MediaSession.Builder(this, exoPlayer).build()
+        
+        mediaSession = MediaSession.Builder(this, exoPlayer)
+            .build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {

@@ -75,22 +75,22 @@
 ## 🎵 Phase 4: Player System
 
 ### ExoPlayer & ViewModel
-- [ ] Rewrite `PlayerViewModel.kt` for full `ExoPlayer` integration (position polling, state management, queue, AI logging).
-- [ ] Update `PlaybackService.kt` to bind correctly to `PlayerViewModel` (MediaSession, audio focus, notification).
+- [x] Rewrite `PlayerViewModel.kt` for full `ExoPlayer` integration (position polling, state management, queue, AI logging).
+- [x] Update `PlaybackService.kt` to bind correctly to `PlayerViewModel` (MediaSession, audio focus, notification).
 
 ### Player UI Components
-- [ ] Create `PlayerSeekBar.kt` (custom Canvas-based seekbar, thin track, white thumb on touch).
-- [ ] Create `PlayerControls.kt` (Shuffle, Previous, Play [64dp animated circle], Next, Repeat).
-- [ ] Create `PlayerBackground.kt` (radial gradient utilizing `PaletteExtractor`).
+- [x] Create `PlayerSeekBar.kt` (custom Canvas-based seekbar, thin track, white thumb on touch).
+- [x] Create `PlayerControls.kt` (Shuffle, Previous, Play [64dp animated circle], Next, Repeat).
+- [x] Create `PlayerBackground.kt` (radial gradient utilizing `PaletteExtractor`).
 
 ### Screens
-- [ ] Rewrite `MiniPlayerBar.kt` (40dp art, MarqueeText, Play/Heart, 2dp progress line).
-  - [ ] **CRITICAL**: Isolate touch targets using `pointerInput(detectHorizontalDragGestures)` to prevent BottomSheet gesture collisions.
-- [ ] Create `FullPlayerSheet.kt` (`ModalBottomSheet` with drag handle, Crossfade album art, controls).
-  - [ ] **CRITICAL**: Control `ModalBottomSheetState` programmatically with explicit drag-distance thresholds.
-- [ ] Create `QueueScreen.kt` (drag-to-reorder, swipe-to-remove, "Now Playing" highlight).
-- [ ] Create `LyricsData.kt` (LRC parser model).
-- [ ] Rewrite `LyricsScreen.kt` (Blurred album art bg, active line highlight, auto-scroll, tap-to-seek).
+- [x] Rewrite `MiniPlayerBar.kt` (40dp art, MarqueeText, Play/Heart, 2dp progress line).
+  - [x] **CRITICAL**: Isolate touch targets using `pointerInput(detectHorizontalDragGestures)` to prevent BottomSheet gesture collisions.
+- [x] Create `FullPlayerSheet.kt` (`ModalBottomSheet` with drag handle, Crossfade album art, controls).
+  - [x] **CRITICAL**: Control `ModalBottomSheetState` programmatically with explicit drag-distance thresholds.
+- [x] Create `QueueScreen.kt` (drag-to-reorder, swipe-to-remove, "Now Playing" highlight).
+- [x] Create `LyricsData.kt` (LRC parser model).
+- [x] Rewrite `LyricsScreen.kt` (Blurred album art bg, active line highlight, auto-scroll, tap-to-seek).
 
 ---
 
