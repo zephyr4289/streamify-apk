@@ -1,6 +1,9 @@
 package com.streamify.app.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -56,7 +59,7 @@ fun AppNavGraph(
             val playerState = playerViewModel.playerState.collectAsState().value
             val lyricsLines = remember(playerState.currentTrack) {
                 val path = playerState.currentTrack?.lyricsPath
-                if (!path.isNullOrBlank()) {
+                if (path != null && path.isNotBlank()) {
                     val file = java.io.File(path)
                     if (file.exists()) {
                         com.streamify.app.data.models.LyricsData.parseLrc(file.readText()).lines
