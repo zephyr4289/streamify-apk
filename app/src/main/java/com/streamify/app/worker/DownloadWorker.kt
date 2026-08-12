@@ -53,7 +53,12 @@ class DownloadWorker(
     }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        setForeground(getForegroundInfo())
+        try {
+            setForeground(getForegroundInfo())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         val url = inputData.getString("url") ?: return@withContext Result.failure()
         val title = inputData.getString("title") ?: "Unknown"
         val artist = inputData.getString("artist") ?: "Unknown"
@@ -78,23 +83,32 @@ class DownloadWorker(
                 }
 
                 override fun onFinished(filepath: String) {
+                    val file = File(filepath)
+                    if (!file.exists()) return
+
                     // Inject metadata and extract cover art path
-                    val metadataResult = metadataModule.callAttr("inject_metadata", filepath, title, artist, album, null)
+                    val metadataResult = try {
+                        metadataModule.callAttr("inject_metadata", filepath, title, artist, album, null)
+                    } catch (e: Exception) {
+                        null
+                    }
                     
                     var durationSec = 0
                     var bpm = 120.0f
                     var coverArtPath = ""
-                    try {
-                        val list = metadataResult.asList()
-                        if (list.size >= 2) {
-                            durationSec = list[0].toInt()
-                            bpm = list[1].toFloat()
+                    if (metadataResult != null) {
+                        try {
+                            val list = metadataResult.asList()
+                            if (list.size >= 2) {
+                                durationSec = list[0].toInt()
+                                bpm = list[1].toFloat()
+                            }
+                            if (list.size >= 3) {
+                                coverArtPath = list[2].toString()
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
                         }
-                        if (list.size >= 3) {
-                            coverArtPath = list[2].toString()
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
                     }
                     
                     // Insert to database using JNI
@@ -112,7 +126,11 @@ class DownloadWorker(
                             NativeBridge.updateTrackCoverArt(trackId, coverArtPath)
                         }
                         // Run ONNX feature extraction & VectorStore embedding
-                        NativeBridge.processAudioFile(trackId, filepath)
+                        try {
+                            NativeBridge.processAudioFile(trackId, filepath)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
                 }
 

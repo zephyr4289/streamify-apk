@@ -17,10 +17,11 @@ class DownloadProgressHook:
                 self.callback_java.onProgress(percent_str, speed_str, eta_str)
             except Exception as e:
                 print(f"Error in python hook: {e}")
-        elif d['status'] == 'finished':
-            self.callback_java.onFinished(d['filename'])
         elif d['status'] == 'error':
-            self.callback_java.onError(str(d.get('error', 'Unknown error')))
+            try:
+                self.callback_java.onError(str(d.get('error', 'Unknown error')))
+            except Exception as e:
+                print(f"Error in python hook: {e}")
 
 def download_audio(url, output_path, callback_java):
     ydl_opts = {
