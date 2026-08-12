@@ -24,9 +24,10 @@ import com.streamify.app.viewmodel.IngestionViewModel
 fun DownloadScreen(
     viewModel: IngestionViewModel = viewModel()
 ) {
-    val tasks by viewModel.downloadTasks.collectAsState()
-
     val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(context) {
+        viewModel.observeDownloads(context)
+    }
 
     Column(
         modifier = Modifier

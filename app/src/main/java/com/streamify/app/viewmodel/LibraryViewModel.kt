@@ -18,21 +18,25 @@ sealed class LibraryUiState {
     data class Error(val message: String) : LibraryUiState()
 }
 
-class LibraryViewModel(private val repository: TrackRepository = TrackRepository()) : ViewModel() {
+class LibraryViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            repository.allTracks.collect { tracks ->
+                val likedTracks = tracks.filter { it.isLiked }
+                _uiState.value = LibraryUiState.Success(tracks = tracks, likedTracks = likedTracks)
+            }
+        }
         loadLibrary()
     }
 
     fun loadLibrary() {
         viewModelScope.launch {
             try {
-                val allTracks = repository.getAllTracks()
-                val likedTracks = allTracks.filter { it.isLiked }
-                _uiState.value = LibraryUiState.Success(tracks = allTracks, likedTracks = likedTracks)
+                repository.refresh()
             } catch (e: Exception) {
                 _uiState.value = LibraryUiState.Error(e.message ?: "Failed to load library")
             }

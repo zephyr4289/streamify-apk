@@ -15,7 +15,7 @@ sealed class HomeUiState {
     data class Error(val message: String) : HomeUiState()
 }
 
-class HomeViewModel(private val repository: TrackRepository = TrackRepository()) : ViewModel() {
+class HomeViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -24,6 +24,22 @@ class HomeViewModel(private val repository: TrackRepository = TrackRepository())
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            repository.allTracks.collect { allTracks ->
+                val recommendations = if (allTracks.isNotEmpty()) {
+                    val aiRecs = try { repository.getRecommendations(allTracks.first().id, limit = 5) } catch (e: Exception) { emptyList() }
+                    if (aiRecs.isNotEmpty()) aiRecs else allTracks.take(5)
+                } else {
+                    emptyList()
+                }
+                val recent = allTracks.takeLast(6)
+                _uiState.value = HomeUiState.Success(
+                    recommendations = recommendations,
+                    recent = recent,
+                    allTracks = allTracks
+                )
+            }
+        }
         loadData()
     }
 
@@ -31,22 +47,7 @@ class HomeViewModel(private val repository: TrackRepository = TrackRepository())
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
-                val allTracks = repository.getAllTracks()
-                // If there are tracks, try to get recommendations for the first one as a mock "recent history" based recommendation
-                val recommendations = if (allTracks.isNotEmpty()) {
-                    val aiRecs = repository.getRecommendations(allTracks.first().id, limit = 5)
-                    if (aiRecs.isNotEmpty()) aiRecs else allTracks.take(5)
-                } else {
-                    emptyList()
-                }
-                
-                val recent = allTracks.takeLast(6)
-
-                _uiState.value = HomeUiState.Success(
-                    recommendations = recommendations,
-                    recent = recent,
-                    allTracks = allTracks
-                )
+                repository.refresh()
             } catch (e: Exception) {
                 _uiState.value = HomeUiState.Error(e.message ?: "Failed to load home data")
             } finally {

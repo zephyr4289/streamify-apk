@@ -1,8 +1,8 @@
 package com.streamify.app.viewmodel
 
 import android.content.Context
-import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.NetworkType
@@ -12,10 +12,8 @@ import androidx.work.WorkManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.util.UUID
-
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
 
 data class DownloadTask(
     val id: UUID,
@@ -25,31 +23,38 @@ data class DownloadTask(
     val state: String = "Queued"
 )
 
-class IngestionViewModel(application: Application) : AndroidViewModel(application) {
+class IngestionViewModel : ViewModel() {
     private val _downloadTasks = MutableStateFlow<List<DownloadTask>>(emptyList())
     val downloadTasks: StateFlow<List<DownloadTask>> = _downloadTasks.asStateFlow()
 
-    init {
-        val workManager = WorkManager.getInstance(application)
-        val liveData = workManager.getWorkInfosByTagLiveData("download_worker")
-        liveData.observeForever(Observer { workInfos ->
-            val tasks = workInfos.filter { !it.state.isFinished }.map { workInfo ->
-                val progressStr = workInfo.progress.getString("progress") ?: "Downloading..."
-                val speedStr = workInfo.progress.getString("speed") ?: ""
-                val title = workInfo.tags.firstOrNull { it.startsWith("TITLE:") }?.removePrefix("TITLE:") ?: "Unknown"
-                DownloadTask(
-                    id = workInfo.id,
-                    title = title,
-                    progress = progressStr,
-                    speed = speedStr,
-                    state = workInfo.state.name
-                )
+    private var isObserving = false
+
+    fun observeDownloads(context: Context) {
+        if (isObserving) return
+        isObserving = true
+
+        val workManager = WorkManager.getInstance(context.applicationContext)
+        viewModelScope.launch {
+            workManager.getWorkInfosByTagFlow("download_worker").collect { workInfos ->
+                val tasks = workInfos.filter { !it.state.isFinished }.map { workInfo ->
+                    val progressStr = workInfo.progress.getString("progress") ?: "Downloading..."
+                    val speedStr = workInfo.progress.getString("speed") ?: ""
+                    val title = workInfo.tags.firstOrNull { it.startsWith("TITLE:") }?.removePrefix("TITLE:") ?: "Unknown"
+                    DownloadTask(
+                        id = workInfo.id,
+                        title = title,
+                        progress = progressStr,
+                        speed = speedStr,
+                        state = workInfo.state.name
+                    )
+                }
+                _downloadTasks.value = tasks
             }
-            _downloadTasks.value = tasks
-        })
+        }
     }
 
     fun enqueueDownload(context: Context, url: String, title: String, artist: String, album: String, quality: String = "320") {
+        observeDownloads(context)
         val workManager = WorkManager.getInstance(context)
         
         val inputData = Data.Builder()
@@ -78,3 +83,4 @@ class IngestionViewModel(application: Application) : AndroidViewModel(applicatio
         WorkManager.getInstance(context).cancelWorkById(taskId)
     }
 }
+

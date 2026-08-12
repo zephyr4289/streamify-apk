@@ -32,7 +32,7 @@ data class PlayerState(
     val isRepeatActive: Boolean = false
 )
 
-class PlayerViewModel(private val repository: TrackRepository = TrackRepository()) : ViewModel() {
+class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
@@ -187,11 +187,19 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository(
             val track = trackToToggle ?: _playerState.value.currentTrack ?: return@launch
             repository.toggleLike(track.id)
             
-            // If the toggled track is the currently playing one, update the player state optimistically
-            if (_playerState.value.currentTrack?.id == track.id) {
-                val updatedTrack = track.copy(isLiked = !track.isLiked)
-                _playerState.value = _playerState.value.copy(currentTrack = updatedTrack)
+            val updatedQueue = _playerState.value.queue.map { item ->
+                if (item.id == track.id) item.copy(isLiked = !item.isLiked) else item
             }
+            val updatedCurrent = if (_playerState.value.currentTrack?.id == track.id) {
+                _playerState.value.currentTrack?.copy(isLiked = !_playerState.value.currentTrack!!.isLiked)
+            } else {
+                _playerState.value.currentTrack
+            }
+            
+            _playerState.value = _playerState.value.copy(
+                queue = updatedQueue,
+                currentTrack = updatedCurrent
+            )
         }
     }
 

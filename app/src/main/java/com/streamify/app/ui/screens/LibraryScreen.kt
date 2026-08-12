@@ -38,8 +38,13 @@ fun LibraryScreen(
     
     var selectedFilter by remember { mutableStateOf(0) } // 0: All, 1: Liked, 2: Downloads
     
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(context) {
+        ingestionViewModel.observeDownloads(context)
+    }
+    
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner, downloadTasks) {
+    DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 viewModel.loadLibrary()

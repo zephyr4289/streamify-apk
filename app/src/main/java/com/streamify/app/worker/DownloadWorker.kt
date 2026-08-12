@@ -7,6 +7,7 @@ import androidx.work.workDataOf
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
 import com.streamify.app.data.NativeBridge
+import com.streamify.app.data.TrackRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -17,6 +18,7 @@ import android.app.NotificationManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
+import androidx.work.ListenableWorker.Result
 
 class DownloadWorker(
     appContext: Context,
@@ -78,7 +80,8 @@ class DownloadWorker(
             val coreModule = py.getModule("download_engine.core")
             val metadataModule = py.getModule("download_engine.metadata")
             
-            // Define Java callback for python progress hooks
+            var completedFilePath: String? = null
+
             val callback = object : DownloadCallback {
                 override fun onProgress(percent: String, speed: String, eta: String) {
                     setProgressAsync(workDataOf(
@@ -89,55 +92,7 @@ class DownloadWorker(
                 }
 
                 override fun onFinished(filepath: String) {
-                    val file = File(filepath)
-                    if (!file.exists()) return
-
-                    // Inject metadata and extract cover art path
-                    val metadataResult = try {
-                        metadataModule.callAttr("inject_metadata", filepath, title, artist, album, null)
-                    } catch (e: Exception) {
-                        null
-                    }
-                    
-                    var durationSec = 0
-                    var bpm = 120.0f
-                    var coverArtPath = ""
-                    if (metadataResult != null) {
-                        try {
-                            val list = metadataResult.asList()
-                            if (list.size >= 2) {
-                                durationSec = list[0].toInt()
-                                bpm = list[1].toFloat()
-                            }
-                            if (list.size >= 3) {
-                                coverArtPath = list[2].toString()
-                            }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }
-                    
-                    // Insert to database using JNI
-                    val trackId = NativeBridge.insertTrack(
-                        filepath = filepath,
-                        title = title,
-                        artist = artist,
-                        album = album,
-                        durationSec = durationSec,
-                        bpm = bpm
-                    ).toInt()
-
-                    if (trackId > 0) {
-                        if (coverArtPath.isNotBlank()) {
-                            NativeBridge.updateTrackCoverArt(trackId, coverArtPath)
-                        }
-                        // Run ONNX feature extraction & VectorStore embedding
-                        try {
-                            NativeBridge.processAudioFile(trackId, filepath)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }
+                    completedFilePath = filepath
                 }
 
                 override fun onError(error: String) {
@@ -147,7 +102,62 @@ class DownloadWorker(
 
             val success = coreModule.callAttr("download_audio", url, outputDir.absolutePath, callback, quality).toBoolean()
             
-            if (success) {
+            val targetPath = completedFilePath ?: outputDir.listFiles()?.firstOrNull { it.name.endsWith(".mp3") || it.name.endsWith(".m4a") }?.absolutePath
+
+            if (success && targetPath != null && File(targetPath).exists()) {
+                // Inject metadata and extract cover art & lyrics path
+                val metadataResult = try {
+                    metadataModule.callAttr("inject_metadata", targetPath, title, artist, album, null)
+                } catch (e: Exception) {
+                    null
+                }
+                
+                var durationSec = 0
+                var bpm = 120.0f
+                var coverArtPath = ""
+                var lyricsPath = ""
+                if (metadataResult != null) {
+                    try {
+                        val list = metadataResult.asList()
+                        if (list.size >= 2) {
+                            durationSec = list[0].toInt()
+                            bpm = list[1].toFloat()
+                        }
+                        if (list.size >= 3) {
+                            coverArtPath = list[2].toString()
+                        }
+                        if (list.size >= 4) {
+                            lyricsPath = list[3].toString()
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                
+                // Insert to database using JNI on Dispatchers.IO
+                val trackId = NativeBridge.insertTrack(
+                    filepath = targetPath,
+                    title = title,
+                    artist = artist,
+                    album = album,
+                    durationSec = durationSec,
+                    bpm = bpm
+                ).toInt()
+
+                if (trackId > 0) {
+                    if (coverArtPath.isNotBlank()) {
+                        NativeBridge.updateTrackCoverArt(trackId, coverArtPath)
+                    }
+                    // Run ONNX feature extraction & VectorStore embedding
+                    try {
+                        NativeBridge.processAudioFile(trackId, targetPath)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    // Refresh repository flow so all UI screens update automatically
+                    TrackRepository.refresh()
+                }
+
                 Result.success()
             } else {
                 Result.failure()
@@ -164,3 +174,4 @@ interface DownloadCallback {
     fun onFinished(filepath: String)
     fun onError(error: String)
 }
+
