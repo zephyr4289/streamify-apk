@@ -123,4 +123,57 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             )
         }
     }
+
+    fun playOnlineTrack(
+        onlineTrack: OnlineSearchResult,
+        playerViewModel: com.streamify.app.viewmodel.PlayerViewModel,
+        ingestionViewModel: com.streamify.app.viewmodel.IngestionViewModel,
+        context: android.content.Context
+    ) {
+        viewModelScope.launch {
+            // 1. Instantly fire off the background download (Plan A)
+            ingestionViewModel.enqueueDownload(
+                context = context,
+                url = onlineTrack.url,
+                title = onlineTrack.title,
+                artist = onlineTrack.uploader,
+                album = "Downloads",
+                quality = "256" // Default quality for seamless experience
+            )
+
+            // 2. Fetch the direct stream URL
+            val streamUrl = withContext(Dispatchers.IO) {
+                try {
+                    val py = Python.getInstance()
+                    val searchModule = py.getModule("download_engine.search")
+                    searchModule.callAttr("get_stream_url", onlineTrack.url).toString()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    ""
+                }
+            }
+
+            if (streamUrl.isNotBlank()) {
+                // 3. Construct a transient track and stream it immediately
+                val transientTrack = Track(
+                    id = -(onlineTrack.url.hashCode()), // Negative ID for transient online tracks
+                    title = onlineTrack.title,
+                    artist = onlineTrack.uploader,
+                    album = "Online Stream",
+                    durationSec = onlineTrack.duration,
+                    filepath = streamUrl,
+                    coverArtPath = onlineTrack.thumbnail,
+                    bpm = 0f,
+                    key = "",
+                    lyricsPath = null,
+                    source = "online_stream"
+                )
+                playerViewModel.playTrack(transientTrack, listOf(transientTrack))
+            } else {
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Failed to extract stream. Falling back to background download.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 }

@@ -47,51 +47,7 @@ fun SearchScreen(
     var pendingDownloadTrack by remember { mutableStateOf<com.streamify.app.viewmodel.OnlineSearchResult?>(null) }
     var selectedOptionsTrack by remember { mutableStateOf<com.streamify.app.data.models.Track?>(null) }
 
-    if (pendingDownloadTrack != null) {
-        val targetTrack = pendingDownloadTrack!!
-        AlertDialog(
-            onDismissRequest = { pendingDownloadTrack = null },
-            title = { Text("Select Audio Quality", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain) },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(targetTrack.title, style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub, maxLines = 1)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    listOf(
-                        "320" to "320 kbps (Very High Quality)",
-                        "256" to "256 kbps (High Quality)",
-                        "192" to "192 kbps (Standard Quality)",
-                        "128" to "128 kbps (Data Saver)"
-                    ).forEach { (qualityVal, label) ->
-                        Button(
-                            onClick = {
-                                ingestionViewModel.enqueueDownload(
-                                    context = context,
-                                    url = targetTrack.url,
-                                    title = targetTrack.title,
-                                    artist = targetTrack.uploader,
-                                    album = "Downloads",
-                                    quality = qualityVal
-                                )
-                                pendingDownloadTrack = null
-                                Toast.makeText(context, "Downloading at ${qualityVal}kbps", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.BgCard)
-                        ) {
-                            Text(label, color = StreamifyColors.TextMain, style = StreamifyType.BodyMedium)
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { pendingDownloadTrack = null }) {
-                    Text("Cancel", color = StreamifyColors.Primary)
-                }
-            },
-            containerColor = StreamifyColors.BgSurface
-        )
-    }
+    // Dialog removed for instant stream
 
     // Mock Categories
     val categories = listOf(
@@ -266,7 +222,7 @@ fun SearchScreen(
                         item {
                             Text("YouTube Results", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
                         }
-                        items(state.onlineResults, key = { it.id }) { onlineTrack ->
+                        items(state.onlineResults, key = { it.url }) { onlineTrack ->
                             val mockTrack = com.streamify.app.data.models.Track(
                                 id = 0, title = onlineTrack.title, artist = onlineTrack.uploader,
                                 album = "Online", durationSec = onlineTrack.duration,
@@ -276,7 +232,8 @@ fun SearchScreen(
                             TrackListItem(
                                 track = mockTrack,
                                 onClick = { 
-                                    pendingDownloadTrack = onlineTrack
+                                    Toast.makeText(context, "Starting Stream & Background Download...", Toast.LENGTH_SHORT).show()
+                                    viewModel.playOnlineTrack(onlineTrack, playerViewModel, ingestionViewModel, context)
                                 },
                                 onOptionsClick = { selectedOptionsTrack = mockTrack }
                             )

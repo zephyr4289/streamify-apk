@@ -32,3 +32,22 @@ def search_youtube(query, max_results=20):
     except Exception as e:
         print(f"Search error: {e}")
         return "[]"
+
+def get_stream_url(url):
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'quiet': True,
+        'no_warnings': True,
+        'ignoreerrors': True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info and 'url' in info:
+                return info['url']
+            elif info and 'entries' in info and len(info['entries']) > 0:
+                return info['entries'][0]['url']
+        return ""
+    except Exception as e:
+        print(f"Stream URL error: {e}")
+        return ""
