@@ -17,8 +17,19 @@ AudioPipeline& AudioPipeline::getInstance() {
 
 AudioPipeline::AudioPipeline() : env_(ORT_LOGGING_LEVEL_WARNING, "AudioPipeline") {}
 
+AudioPipeline::~AudioPipeline() {
+    if (session_) {
+        delete session_;
+        session_ = nullptr;
+    }
+}
+
 bool AudioPipeline::init(const std::string& onnx_model_path) {
     try {
+        if (session_) {
+            delete session_;
+            session_ = nullptr;
+        }
         Ort::SessionOptions session_options;
         session_options.SetIntraOpNumThreads(1);
         session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);

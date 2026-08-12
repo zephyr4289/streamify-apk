@@ -17,6 +17,7 @@ data class TrackNative(
     val downloadQuality: String
 )
 
+@androidx.compose.runtime.Stable
 data class Track(
     val id: Int,
     val filepath: String,

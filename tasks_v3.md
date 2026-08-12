@@ -143,32 +143,32 @@
 
 ## ✨ Phase 6: Micro-Animations & Motion Engineering
 
-- [ ] **Task 6.1: Spring Physics Card Press Effects (`CardPressEffect.kt`)**
-  - [ ] Add tactile haptic feedback on card touch down
-  - [ ] Integrate subtle elevation drop during pressed state
+- [x] **Task 6.1: Spring Physics Card Press Effects (`CardPressEffect.kt`)**
+  - [x] Add tactile haptic feedback on card touch down
+  - [x] Integrate subtle elevation drop during pressed state
 
-- [ ] **Task 6.2: Component Animations**
-  - [ ] Animated icon morphing for Play/Pause button state transition
-  - [ ] Heart icon particle burst animation on like toggle
-  - [ ] Shimmer loading animation width fix (`fillMaxWidth()`)
-  - [ ] Smooth expand/collapse spring physics on player sheet gesture
+- [x] **Task 6.2: Component Animations**
+  - [x] Animated icon morphing for Play/Pause button state transition
+  - [x] Heart icon particle burst animation on like toggle
+  - [x] Shimmer loading animation width fix (`fillMaxWidth()`)
+  - [x] Smooth expand/collapse spring physics on player sheet gesture
 
 ---
 
 ## ⚡ Phase 7: Native C++ & System Performance Hardening
 
-- [ ] **Task 7.1: C++ Engine Bug Fixes & Leaks**
-  - [ ] Add explicit `delete session_` in `AudioPipeline.cc` destructor
-  - [ ] Fix thread-local `sqlite3*` handle cleanup in `StreamifyDB.cc`
-  - [ ] Replace `std::cout`/`std::cerr` with `__android_log_print` across all native code
-  - [ ] Fix AVX dot-product mask logic in `VectorStore.cc` for x86/x86_64 architecture compatibility
-  - [ ] Create missing SQL database indexes (`idx_tracks_filepath`, `idx_tracks_title`, `idx_transitions_user`)
+- [x] **Task 7.1: C++ Engine Bug Fixes & Leaks**
+  - [x] Add explicit `delete session_` in `AudioPipeline.cc` destructor
+  - [x] Fix thread-local `sqlite3*` handle cleanup in `StreamifyDB.cc`
+  - [x] Replace `std::cout`/`std::cerr` with `__android_log_print` across all native code
+  - [x] Fix AVX dot-product mask logic in `VectorStore.cc` for x86/x86_64 architecture compatibility
+  - [x] Create missing SQL database indexes (`idx_tracks_filepath`, `idx_tracks_title`, `idx_transitions_user`)
 
-- [ ] **Task 7.2: Compose Recomposition & Memory Optimization**
-  - [ ] Annotate `Track` data model with `@Stable`
-  - [ ] Add explicit stable keys (`key = { it.id }`) in all `LazyColumn` and `LazyRow` items
-  - [ ] Defer seekbar progress reading to canvas `DrawScope`
-  - [ ] Configure bitmap memory caching for Coil image loader in `StreamifyApp`
+- [x] **Task 7.2: Compose Recomposition & Memory Optimization**
+  - [x] Annotate `Track` data model with `@Stable`
+  - [x] Add explicit stable keys (`key = { it.id }`) in all `LazyColumn` and `LazyRow` items
+  - [x] Defer seekbar progress reading to canvas `DrawScope`
+  - [x] Configure bitmap memory caching for Coil image loader in `StreamifyApp`
 
 ---
 

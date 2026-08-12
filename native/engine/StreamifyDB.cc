@@ -78,6 +78,11 @@ bool StreamifyDB::init(const std::string& db_path) {
             event_type TEXT NOT NULL, -- 'play' or 'skip'
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE INDEX IF NOT EXISTS idx_tracks_filepath ON tracks(filepath);
+        CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title);
+        CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
+        CREATE INDEX IF NOT EXISTS idx_tracks_vector_offset ON tracks(vector_offset);
+        CREATE INDEX IF NOT EXISTS idx_transitions_user ON user_transitions(user_id, from_track_id, event_type);
     )";
 
     char* err = nullptr;

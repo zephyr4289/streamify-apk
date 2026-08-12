@@ -22,7 +22,7 @@ public:
 
 private:
     AudioPipeline();
-    ~AudioPipeline() = default;
+    ~AudioPipeline();
     AudioPipeline(const AudioPipeline&) = delete;
     AudioPipeline& operator=(const AudioPipeline&) = delete;
 
