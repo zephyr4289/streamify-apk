@@ -30,7 +30,7 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle*') }}
       - name: Build Debug APK
         id: gradle_build
-        run: ./gradlew assembleDebug > /tmp/build.log 2>&1
+        run: ./gradlew assembleDebug 2>&1 | tee /tmp/build.log
         continue-on-error: true
 
       - name: Upload Logs to build-logs branch
@@ -49,11 +49,18 @@ jobs:
         if: steps.gradle_build.outcome != 'success'
         run: exit 1
 
-      - name: Create Nightly Release
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: Streamify-Debug-APK
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: nightly
-          name: Nightly Build
+          tag_name: build-${{ github.run_number }}
+          name: Streamify Build ${{ github.run_number }}
           prerelease: true
           files: app/build/outputs/apk/debug/*.apk
