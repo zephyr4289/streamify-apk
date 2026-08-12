@@ -59,6 +59,8 @@ jobs:
           prerelease: true
           files: |
             app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Latest Release
         uses: softprops/action-gh-release@v2
@@ -70,4 +72,6 @@ jobs:
           prerelease: false
           files: |
             app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
