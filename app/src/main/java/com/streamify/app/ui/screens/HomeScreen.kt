@@ -29,7 +29,8 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel(),
     playerViewModel: com.streamify.app.viewmodel.PlayerViewModel,
     dominantColor: androidx.compose.ui.graphics.Color = StreamifyColors.BgBase,
-    onTrackClick: (Int, List<Track>) -> Unit
+    onTrackClick: (Int, List<Track>) -> Unit,
+    onSettingsClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -67,11 +68,24 @@ fun HomeScreen(
         ) {
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceGiant)) // Status bar + padding
 
-        Text(
-            text = TimeGreeting.getGreeting(),
-            style = StreamifyType.HeadlineLarge,
-            color = StreamifyColors.TextMain
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = TimeGreeting.getGreeting(),
+                style = StreamifyType.HeadlineLarge,
+                color = StreamifyColors.TextMain
+            )
+            androidx.compose.material3.IconButton(onClick = onSettingsClick) {
+                androidx.compose.material3.Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Filled.Settings,
+                    contentDescription = "Settings",
+                    tint = StreamifyColors.TextMain
+                )
+            }
+        }
         
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXL))
 

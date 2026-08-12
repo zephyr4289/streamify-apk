@@ -35,6 +35,7 @@ fun ContextMenuSheet(
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showEditDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -126,7 +127,63 @@ fun ContextMenuSheet(
                     onDismissRequest()
                 }
             )
+            ContextActionItem(
+                icon = androidx.compose.material.icons.Icons.Filled.Edit,
+                text = "Edit Info",
+                onClick = {
+                    showEditDialog = true
+                }
+            )
         }
+    }
+
+    if (showEditDialog) {
+        var editTitle by remember { androidx.compose.runtime.mutableStateOf(track.title) }
+        var editArtist by remember { androidx.compose.runtime.mutableStateOf(track.artist) }
+        var editAlbum by remember { androidx.compose.runtime.mutableStateOf(track.album) }
+        val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
+        AlertDialog(
+            onDismissRequest = { showEditDialog = false },
+            title = { Text("Edit Info", color = StreamifyColors.TextMain) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextField(
+                        value = editTitle,
+                        onValueChange = { editTitle = it },
+                        label = { Text("Title") },
+                        colors = TextFieldDefaults.colors(focusedContainerColor = StreamifyColors.BgElevated, unfocusedContainerColor = StreamifyColors.BgElevated)
+                    )
+                    TextField(
+                        value = editArtist,
+                        onValueChange = { editArtist = it },
+                        label = { Text("Artist") },
+                        colors = TextFieldDefaults.colors(focusedContainerColor = StreamifyColors.BgElevated, unfocusedContainerColor = StreamifyColors.BgElevated)
+                    )
+                    TextField(
+                        value = editAlbum,
+                        onValueChange = { editAlbum = it },
+                        label = { Text("Album") },
+                        colors = TextFieldDefaults.colors(focusedContainerColor = StreamifyColors.BgElevated, unfocusedContainerColor = StreamifyColors.BgElevated)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        coroutineScope.kotlinx.coroutines.launch {
+                            com.streamify.app.data.TrackRepository.updateTrackMetadata(track.id, editTitle, editArtist, editAlbum)
+                            showEditDialog = false
+                            onDismissRequest()
+                        }
+                    }
+                ) { Text("Save", color = StreamifyColors.Primary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditDialog = false }) { Text("Cancel", color = StreamifyColors.TextSub) }
+            },
+            containerColor = StreamifyColors.BgCard
+        )
     }
 }
 

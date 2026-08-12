@@ -68,6 +68,12 @@ object TrackRepository {
         result
     }
 
+    suspend fun updateTrackMetadata(trackId: Int, title: String, artist: String, album: String): Boolean = withContext(Dispatchers.IO) {
+        val result = NativeBridge.updateTrackMetadata(trackId, title, artist, album)
+        refresh()
+        result
+    }
+
     suspend fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int = 1) = withContext(Dispatchers.IO) {
         NativeBridge.logPlayEvent(fromTrackId, toTrackId, userId)
     }

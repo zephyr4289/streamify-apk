@@ -54,6 +54,7 @@ public:
     // Track metadata & vector updates
     bool updateTrackVectorOffset(int track_id, int offset);
     bool updateTrackCoverArt(int track_id, const std::string& cover_art_path);
+    bool updateTrackMetadata(int track_id, const std::string& title, const std::string& artist, const std::string& album);
 
     // Behavioral Transition Methods
     bool insertTransition(int user_id, int from_track_id, int to_track_id, const std::string& type);

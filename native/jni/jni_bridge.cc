@@ -203,3 +203,18 @@ Java_com_streamify_app_data_NativeBridge_updateTrackCoverArt(JNIEnv* env, jobjec
     env->ReleaseStringUTFChars(coverArtPath, path);
     return res;
 }
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_updateTrackMetadata(JNIEnv* env, jobject /* this */, jint trackId, jstring title, jstring artist, jstring album) {
+    const char* cTitle = env->GetStringUTFChars(title, 0);
+    const char* cArtist = env->GetStringUTFChars(artist, 0);
+    const char* cAlbum = env->GetStringUTFChars(album, 0);
+    
+    bool res = StreamifyDB::getInstance().updateTrackMetadata(trackId, cTitle, cArtist, cAlbum);
+    
+    env->ReleaseStringUTFChars(title, cTitle);
+    env->ReleaseStringUTFChars(artist, cArtist);
+    env->ReleaseStringUTFChars(album, cAlbum);
+    
+    return res;
+}

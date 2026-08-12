@@ -483,6 +483,23 @@ bool StreamifyDB::updateTrackCoverArt(int track_id, const std::string& cover_art
     return false;
 }
 
+bool StreamifyDB::updateTrackMetadata(int track_id, const std::string& title, const std::string& artist, const std::string& album) {
+    sqlite3* db = getConnection();
+    if (!db) return false;
+    const char* sql = "UPDATE tracks SET title = ?, artist = ?, album = ? WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, title.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, artist.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, album.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 4, track_id);
+        bool res = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return res;
+    }
+    return false;
+}
+
 bool StreamifyDB::insertTransition(int user_id, int from_track_id, int to_track_id, const std::string& type) {
     sqlite3* db = getConnection();
     if (!db) return false;

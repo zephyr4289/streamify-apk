@@ -56,10 +56,17 @@ fun QueueScreen(
             modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD)
         )
 
-        LazyColumn(
+        com.streamify.app.ui.components.ReorderableList(
+            items = upNext,
+            onMove = { from, to -> playerViewModel.reorderQueue(from, to) },
             contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
-        ) {
-            itemsIndexed(upNext) { _, track ->
+        ) { index, track, isDragging ->
+            val elevation = if (isDragging) 8.dp else 0.dp
+            androidx.compose.material3.Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = if (isDragging) StreamifyColors.BgCard else androidx.compose.ui.graphics.Color.Transparent,
+                shadowElevation = elevation
+            ) {
                 TrackListItem(
                     track = track,
                     isPlaying = false,

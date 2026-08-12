@@ -31,6 +31,9 @@ fun AppNavGraph(
                 onTrackClick = { id, list ->
                     val track = list.find { it.id == id }
                     if (track != null) playerViewModel.playTrack(track, list)
+                },
+                onSettingsClick = {
+                    navController.navigate("settings")
                 }
             )
         }
@@ -87,6 +90,12 @@ fun AppNavGraph(
         }
         composable("downloads") {
             DownloadScreen()
+        }
+        composable("settings") {
+            SettingsScreen(
+                playerViewModel = playerViewModel,
+                onBack = { navController.popBackStack() }
+            )
         }
     }
 }

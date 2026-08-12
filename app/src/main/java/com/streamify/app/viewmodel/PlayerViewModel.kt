@@ -29,7 +29,9 @@ data class PlayerState(
     val currentPosition: Long = 0,
     val duration: Long = 0,
     val isShuffleActive: Boolean = false,
-    val isRepeatActive: Boolean = false
+    val isRepeatActive: Boolean = false,
+    val sleepTimerMinutesLeft: Int? = null,
+    val sleepTimerEndTrack: Boolean = false
 )
 
 class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
@@ -40,6 +42,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var controller: MediaController? = null
     
     private var positionPollingJob: Job? = null
+    private var sleepTimerJob: Job? = null
     private var lastPlayedTrackId: Int? = null
 
     fun initialize(context: Context) {
@@ -79,6 +82,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     }
                 }
                 lastPlayedTrackId = newTrackId
+                
+                if (_playerState.value.sleepTimerEndTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                    ctrl.pause()
+                    _playerState.value = _playerState.value.copy(sleepTimerEndTrack = false, sleepTimerMinutesLeft = null)
+                }
             }
             
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -209,6 +217,44 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             _playerState.value = _playerState.value.copy(
                 queue = currentQueue + track
             )
+        }
+    }
+
+    fun setSleepTimer(minutes: Int?, endOfTrack: Boolean = false) {
+        sleepTimerJob?.cancel()
+        _playerState.value = _playerState.value.copy(
+            sleepTimerMinutesLeft = minutes,
+            sleepTimerEndTrack = endOfTrack
+        )
+        if (minutes != null) {
+            sleepTimerJob = viewModelScope.launch {
+                var remaining = minutes
+                while (remaining > 0) {
+                    delay(60000L) // 1 minute
+                    remaining--
+                    _playerState.value = _playerState.value.copy(sleepTimerMinutesLeft = remaining)
+                }
+                controller?.pause()
+                _playerState.value = _playerState.value.copy(sleepTimerMinutesLeft = null, sleepTimerEndTrack = false)
+            }
+        }
+    }
+
+    fun reorderQueue(fromIndex: Int, toIndex: Int) {
+        val currentQueue = _playerState.value.queue.toMutableList()
+        if (fromIndex in currentQueue.indices && toIndex in currentQueue.indices) {
+            val item = currentQueue.removeAt(fromIndex)
+            currentQueue.add(toIndex, item)
+            _playerState.value = _playerState.value.copy(queue = currentQueue)
+            
+            // Re-sync media items in controller
+            val mediaItems = currentQueue.map { t ->
+                MediaItem.Builder()
+                    .setMediaId(t.id.toString())
+                    .setUri(t.filepath)
+                    .build()
+            }
+            controller?.setMediaItems(mediaItems)
         }
     }
 

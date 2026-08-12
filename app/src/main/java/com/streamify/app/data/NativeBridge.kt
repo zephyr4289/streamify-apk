@@ -22,6 +22,7 @@ object NativeBridge {
     external fun initAudioPipeline(modelPath: String): Boolean
     external fun processAudioFile(trackId: Int, filePath: String): Int
     external fun updateTrackCoverArt(trackId: Int, coverArtPath: String): Boolean
+    external fun updateTrackMetadata(trackId: Int, title: String, artist: String, album: String): Boolean
     external fun searchSimilarTracks(trackId: Int, topK: Int): IntArray
     external fun getRecommendations(trackId: Int, recentHistory: IntArray, userId: Int, limit: Int): Array<RecommendationNative>
 
