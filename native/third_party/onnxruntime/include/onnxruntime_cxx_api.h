@@ -28,10 +28,15 @@ public:
     void SetGraphOptimizationLevel(GraphOptimizationLevel) {}
 };
 
+class MemoryInfo {
+public:
+    static MemoryInfo CreateCpu(int, int) { return MemoryInfo(); }
+};
+
 class Value {
 public:
     template <typename T>
-    static Value CreateTensor(int, T*, size_t, const int64_t*, size_t) {
+    static Value CreateTensor(MemoryInfo&, T*, size_t, const int64_t*, size_t) {
         return Value();
     }
     
@@ -40,11 +45,6 @@ public:
         static T dummy[512] = {0};
         return dummy;
     }
-};
-
-class MemoryInfo {
-public:
-    static int CreateCpu(int, int) { return 0; }
 };
 
 struct RunOptions {
