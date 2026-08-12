@@ -85,8 +85,8 @@ fun AppNavGraph(
                 onSeek = { ms -> playerViewModel.seekTo(ms) }
             )
         }
-        composable("player") {
-            PlayerScreen(track = null) { navController.popBackStack() }
+        composable("downloads") {
+            DownloadScreen()
         }
     }
 }

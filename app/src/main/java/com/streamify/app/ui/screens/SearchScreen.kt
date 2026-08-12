@@ -136,8 +136,8 @@ fun SearchScreen(
                 unfocusedContainerColor = StreamifyColors.BgSearchBar,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
-                focusedTextColor = StreamifyColors.TextOnSearch,
-                unfocusedTextColor = StreamifyColors.TextOnSearch
+                focusedTextColor = StreamifyColors.TextMain,
+                unfocusedTextColor = StreamifyColors.TextMain
             ),
             shape = StreamifyShapes.SearchBarShape,
             modifier = Modifier

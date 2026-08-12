@@ -204,6 +204,7 @@ class MainActivity : ComponentActivity() {
                                     BottomTab.HOME -> "home"
                                     BottomTab.SEARCH -> "search"
                                     BottomTab.LIBRARY -> "library"
+                                    BottomTab.DOWNLOADS -> "downloads"
                                 }
                                 navController.navigate(route) {
                                     popUpTo(navController.graph.startDestinationId) { saveState = true }

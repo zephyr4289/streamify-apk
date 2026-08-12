@@ -27,7 +27,7 @@ import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
 
-enum class BottomTab { HOME, SEARCH, LIBRARY }
+enum class BottomTab { HOME, SEARCH, LIBRARY, DOWNLOADS }
 
 @Composable
 fun BottomNavBar(
@@ -77,6 +77,14 @@ fun BottomNavBar(
                 unselectedIcon = Icons.Outlined.LibraryMusic,
                 isSelected = currentTab == BottomTab.LIBRARY,
                 onSelect = { onTabSelected(BottomTab.LIBRARY) }
+            )
+            NavItem(
+                tab = BottomTab.DOWNLOADS,
+                label = "Downloads",
+                selectedIcon = Icons.Filled.Download,
+                unselectedIcon = Icons.Outlined.Download,
+                isSelected = currentTab == BottomTab.DOWNLOADS,
+                onSelect = { onTabSelected(BottomTab.DOWNLOADS) }
             )
         }
     }

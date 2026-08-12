@@ -76,33 +76,33 @@
 
 ## 📱 Phase 4: Frontend Reconstruction (Screen-by-Screen Polish)
 
-- [ ] **Task 4.1: `HomeScreen.kt` Overhaul**
-  - [ ] Remove redundant `init { loadData() }` in `HomeViewModel` to prevent double-loading
-  - [ ] Refactor nested scrollables to clean flat list structure with `stickyHeader`
-  - [ ] Integrate Material 3 `PullToRefreshContainer`
-  - [ ] Implement smooth dominant color gradient header
-  - [ ] Build "Recently Played" 2x3 grid with active track indicators
+- [x] **Task 4.1: `HomeScreen.kt` Overhaul**
+  - [x] Remove redundant `init { loadData() }` in `HomeViewModel` to prevent double-loading
+  - [x] Refactor nested scrollables to clean flat list structure with `stickyHeader`
+  - [x] Integrate Material 3 `PullToRefreshContainer`
+  - [x] Implement smooth dominant color gradient header
+  - [x] Build "Recently Played" 2x3 grid with active track indicators
 
-- [ ] **Task 4.2: `SearchScreen.kt` Overhaul**
-  - [ ] Style dark search input bar with clean placeholder & clear button
-  - [ ] Add animated progress line indicator during active Chaquopy search execution
-  - [ ] Add quality picker chip selector (320kbps / 192kbps / 128kbps) with haptic feedback
-  - [ ] Show animated success Snackbar on download completion + auto-refresh library
+- [x] **Task 4.2: `SearchScreen.kt` Overhaul**
+  - [x] Style dark search input bar with clean placeholder & clear button
+  - [x] Add animated progress line indicator during active Chaquopy search execution
+  - [x] Add quality picker chip selector (320kbps / 192kbps / 128kbps) with haptic feedback
+  - [x] Show animated success Snackbar on download completion + auto-refresh library
 
-- [ ] **Task 4.3: `LibraryScreen.kt` Overhaul**
-  - [ ] Fix `DisposableEffect` key observer leak
-  - [ ] Show total track count & aggregate duration ("142 songs • 8 hrs 15 mins")
-  - [ ] Add sorting dropdown (By Title, By Artist, By Date Added, By Duration)
-  - [ ] Add layout toggle (Compact List vs Grid View)
-  - [ ] Implement dedicated "Liked Songs" hero header item with Spotify purple gradient accent
-  - [ ] Add swipe-left action on items to enqueue track
+- [x] **Task 4.3: `LibraryScreen.kt` Overhaul**
+  - [x] Fix `DisposableEffect` key observer leak
+  - [x] Show total track count & aggregate duration ("142 songs • 8 hrs 15 mins")
+  - [x] Add sorting dropdown (By Title, By Artist, By Date Added, By Duration)
+  - [x] Add layout toggle (Compact List vs Grid View)
+  - [x] Implement dedicated "Liked Songs" hero header item with Spotify purple gradient accent
+  - [x] Add swipe-left action on items to enqueue track
 
-- [ ] **Task 4.4: Navigation & Route Repair (`AppNavGraph.kt`)**
-  - [ ] Add `composable("download")` route or integrate active transfers drawer
-  - [ ] Add Downloads tab item to `BottomNavBar.kt` with tab indicator
-  - [ ] Remove broken/dead `"player"` route
-  - [ ] Implement custom slide + fade page transition animations across all routes
-  - [ ] Fix bottom bar back navigation stack behavior
+- [x] **Task 4.4: Navigation & Route Repair (`AppNavGraph.kt`)**
+  - [x] Add `composable("download")` route or integrate active transfers drawer
+  - [x] Add Downloads tab item to `BottomNavBar.kt` with tab indicator
+  - [x] Remove broken/dead `"player"` route
+  - [x] Implement custom slide + fade page transition animations across all routes
+  - [x] Fix bottom bar back navigation stack behavior
 
 ---
 
