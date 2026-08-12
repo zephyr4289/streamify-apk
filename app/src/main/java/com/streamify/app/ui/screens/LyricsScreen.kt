@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.graphicsLayer
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.ui.theme.StreamifyColors
 import kotlinx.coroutines.launch
@@ -127,10 +128,10 @@ fun LyricsScreen(
                         style = androidx.compose.ui.text.TextStyle(brush = brush),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .androidx.compose.ui.graphics.graphicsLayer {
-                                scaleX = animatedScale
-                                scaleY = animatedScale
-                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                            .graphicsLayer {
+                                this.scaleX = animatedScale
+                                this.scaleY = animatedScale
+                                this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
                             }
                             .clickable(
                                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },

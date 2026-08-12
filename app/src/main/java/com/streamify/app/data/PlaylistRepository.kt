@@ -89,6 +89,11 @@ object PlaylistRepository {
         savePlaylists()
     }
 
+    fun addPlaylist(playlist: Playlist) {
+        _playlists.value = _playlists.value + playlist
+        savePlaylists()
+    }
+
     fun deletePlaylist(id: String) {
         _playlists.value = _playlists.value.filter { it.id != id }
         savePlaylists()

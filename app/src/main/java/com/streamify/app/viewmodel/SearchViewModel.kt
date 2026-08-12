@@ -230,10 +230,9 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             id = newPlaylistId,
                             name = playlistName,
                             description = "Imported from Spotify ($url)",
-                            trackIds = trackIds,
-                            createdAt = System.currentTimeMillis()
+                            trackIds = trackIds
                         )
-                        repo.createPlaylist(p)
+                        repo.addPlaylist(p)
                         android.widget.Toast.makeText(context, "Imported ${trackIds.size} tracks. Check Downloads tab.", android.widget.Toast.LENGTH_LONG).show()
                     }
                 } else {
@@ -337,10 +336,9 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             id = newPlaylistId,
                             name = playlistName,
                             description = "Imported from local file",
-                            trackIds = trackIds,
-                            createdAt = System.currentTimeMillis()
+                            trackIds = trackIds
                         )
-                        repo.createPlaylist(p)
+                        repo.addPlaylist(p)
                         android.widget.Toast.makeText(context, "Imported ${trackIds.size} tracks. Check Downloads tab.", android.widget.Toast.LENGTH_LONG).show()
                     }
                 }

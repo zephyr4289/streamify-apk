@@ -9,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,7 +83,7 @@ fun EqualizerScreen(onBack: () -> Unit) {
             ) {
                 bands.forEachIndexed { index, band ->
                     Column(
-                        horizontalAlignment = Alignment.CenterVertically,
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.weight(1f)
                     ) {
                         Text("${band.centerFreqHz}", color = StreamifyColors.TextSub, fontSize = 12.sp)
@@ -94,9 +95,9 @@ fun EqualizerScreen(onBack: () -> Unit) {
                             valueRange = EqualizerManager.minEqLevel.toFloat()..EqualizerManager.maxEqLevel.toFloat(),
                             modifier = Modifier
                                 .weight(1f)
-                                .androidx.compose.ui.graphics.graphicsLayer {
-                                    rotationZ = 270f
-                                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
+                                .graphicsLayer {
+                                    this.rotationZ = 270f
+                                    this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
                                 },
                             colors = SliderDefaults.colors(
                                 thumbColor = StreamifyColors.Primary,

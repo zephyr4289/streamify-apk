@@ -2,6 +2,8 @@ package com.streamify.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -80,7 +82,7 @@ fun HomeScreen(
             )
             androidx.compose.material3.IconButton(onClick = onSettingsClick) {
                 androidx.compose.material3.Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Filled.Settings,
+                    imageVector = Icons.Filled.Settings,
                     contentDescription = "Settings",
                     tint = StreamifyColors.TextMain
                 )

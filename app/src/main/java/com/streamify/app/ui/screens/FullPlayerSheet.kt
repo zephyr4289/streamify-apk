@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -30,6 +31,8 @@ import kotlinx.coroutines.launch
 
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Star
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,7 +104,7 @@ fun FullPlayerSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(1f)
-                            .androidx.compose.ui.draw.shadow(
+                            .shadow(
                                 elevation = 24.dp,
                                 shape = StreamifyShapes.CardShape,
                                 spotColor = dominantColor
@@ -119,7 +122,7 @@ fun FullPlayerSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Filled.Computer,
+                        imageVector = Icons.Filled.Info,
                         contentDescription = "Device",
                         tint = StreamifyColors.Primary,
                         modifier = Modifier.size(16.dp)
@@ -231,7 +234,7 @@ fun FullPlayerSheet(
                     }
                     IconButton(onClick = { onAutoPlayToggle?.invoke() }) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Filled.AutoAwesome,
+                            imageVector = Icons.Filled.Star,
                             contentDescription = "Neural Infinity Radio",
                             tint = if (isAutoPlayEnabled) StreamifyColors.Primary else StreamifyColors.TextSub
                         )

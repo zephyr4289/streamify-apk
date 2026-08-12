@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.ContextMenuSheet
 import com.streamify.app.ui.components.TrackListItem

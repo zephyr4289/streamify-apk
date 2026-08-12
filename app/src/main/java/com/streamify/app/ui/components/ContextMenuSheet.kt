@@ -10,6 +10,14 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -185,9 +193,9 @@ fun ContextMenuSheet(
         )
     }
 
-    var showPlaylistDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    var showCreatePlaylistDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    val playlists by com.streamify.app.data.PlaylistRepository.playlists.androidx.compose.runtime.collectAsState()
+    var showPlaylistDialog by remember { mutableStateOf(false) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    val playlists by com.streamify.app.data.PlaylistRepository.playlists.collectAsState()
 
     if (showPlaylistDialog) {
         AlertDialog(
@@ -207,8 +215,8 @@ fun ContextMenuSheet(
                     if (playlists.isEmpty()) {
                         Text("No playlists yet.", color = StreamifyColors.TextSub)
                     } else {
-                        androidx.compose.foundation.lazy.LazyColumn {
-                            androidx.compose.foundation.lazy.items(playlists) { playlist ->
+                        LazyColumn {
+                            items(playlists) { playlist ->
                                 Text(
                                     text = playlist.name,
                                     color = StreamifyColors.TextMain,
