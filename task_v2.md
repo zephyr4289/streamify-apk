@@ -114,19 +114,19 @@
 ## ✨ Phase 6: Animations, Polish & Production Readiness
 
 ### Micro-Interactions
-- [ ] Create `CardPressEffect.kt` (0.95 scale-down with high stiffness spring on press).
-- [ ] Create `HeartBurstEffect.kt` (1.0 -> 1.3 -> 1.0 keyframe scale + color transition).
-- [ ] Create `PlayerTransition.kt` (spring animation spec for mini <-> full player).
-- [ ] Integrate Shimmer placeholder into all initial data loading states.
-- [ ] Integrate `PullToRefreshIndicator` into HomeScreen.
-- [ ] Implement `Crossfade` (300ms) for track album art changes in the full player.
+- [x] Create `CardPressEffect.kt` (0.95 scale-down with high stiffness spring on press).
+- [x] Create `HeartBurstEffect.kt` (1.0 -> 1.3 -> 1.0 keyframe scale + color transition).
+- [x] Create `PlayerTransition.kt` (spring animation spec for mini <-> full player).
+- [x] Integrate Shimmer placeholder into all initial data loading states.
+- [x] Integrate `PullToRefreshIndicator` into HomeScreen.
+- [x] Implement `Crossfade` (300ms) for track album art changes in the full player.
 
 ### Haptics & Feedback
-- [ ] Add haptic feedback to Heart toggle, queue reorder, pull-to-refresh snap.
-- [ ] Implement Snackbar system anchored above the `MiniPlayerBar` (e.g., "Added to Liked Songs").
+- [x] Add haptic feedback to Heart toggle, queue reorder, pull-to-refresh snap.
+- [x] Implement Snackbar system anchored above the `MiniPlayerBar` (e.g., "Added to Liked Songs").
 
 ### System Integration
-- [ ] Finalize edge-to-edge layout (transparent status bar, navigation bar padding).
-- [ ] Create Notification Channels (`streamify_playback`, `streamify_download`) in `StreamifyApp.onCreate()`.
-- [ ] Wire runtime permission flow on first launch with rationale dialog.
-- [ ] Verify missing AndroidManifest.xml declarations (`FOREGROUND_SERVICE_DATA_SYNC`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `<uses-permission>`, etc.).
+- [x] Finalize edge-to-edge layout (transparent status bar, navigation bar padding).
+- [x] Create Notification Channels (`streamify_playback`, `streamify_download`) in `StreamifyApp.onCreate()`.
+- [x] Wire runtime permission flow on first launch with rationale dialog.
+- [x] Verify missing AndroidManifest.xml declarations (`FOREGROUND_SERVICE_DATA_SYNC`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `<uses-permission>`, etc.).

@@ -48,8 +48,39 @@ fun HomeScreen(
 
         when (val state = uiState) {
             is HomeUiState.Loading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = StreamifyColors.Primary)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Shimmer Recent Grid
+                    Column(verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceSM)) {
+                        repeat(3) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceSM)) {
+                                com.streamify.app.ui.components.ShimmerPlaceholder(
+                                    modifier = Modifier.weight(1f).height(56.dp),
+                                    shape = com.streamify.app.ui.theme.StreamifyShapes.CardShape
+                                )
+                                com.streamify.app.ui.components.ShimmerPlaceholder(
+                                    modifier = Modifier.weight(1f).height(56.dp),
+                                    shape = com.streamify.app.ui.theme.StreamifyShapes.CardShape
+                                )
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXL))
+                    
+                    com.streamify.app.ui.components.ShimmerPlaceholder(
+                        modifier = Modifier.width(150.dp).height(32.dp),
+                        shape = com.streamify.app.ui.theme.StreamifyShapes.CardShape
+                    )
+                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+                    
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)) {
+                        items(3) {
+                            com.streamify.app.ui.components.ShimmerPlaceholder(
+                                modifier = Modifier.width(160.dp).height(200.dp),
+                                shape = com.streamify.app.ui.theme.StreamifyShapes.CardShape
+                            )
+                        }
+                    }
                 }
             }
             is HomeUiState.Error -> {

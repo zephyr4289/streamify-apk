@@ -19,11 +19,30 @@ import com.streamify.app.ui.components.BottomNavBar
 import com.streamify.app.ui.components.BottomTab
 import com.streamify.app.ui.theme.StreamifyTheme
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import com.streamify.app.util.PermissionHelper
+
+import androidx.activity.enableEdgeToEdge
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         
         setContent {
+            val permissionLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestMultiplePermissions()
+            ) { permissions ->
+                // Handle permission granted/rejected if needed
+            }
+
+            LaunchedEffect(Unit) {
+                if (!PermissionHelper.hasPermissions(this@MainActivity)) {
+                    permissionLauncher.launch(PermissionHelper.REQUIRED_PERMISSIONS)
+                }
+            }
             StreamifyTheme {
                 val navController = rememberNavController()
                 var currentTab by remember { mutableStateOf(BottomTab.HOME) }
