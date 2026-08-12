@@ -1,0 +1,253 @@
+openjdk version "17.0.19" 2026-04-21
+OpenJDK Runtime Environment Temurin-17.0.19+10 (build 17.0.19+10)
+OpenJDK 64-Bit Server VM Temurin-17.0.19+10 (build 17.0.19+10, mixed mode, sharing)
+Downloading https://services.gradle.org/distributions/gradle-8.7-bin.zip
+...............................................................................................................................
+Unzipping /home/runner/.gradle/wrapper/dists/gradle-8.7-bin/bhs2wmbdwecv87pi65oeuq5iu/gradle-8.7-bin.zip to /home/runner/.gradle/wrapper/dists/gradle-8.7-bin/bhs2wmbdwecv87pi65oeuq5iu
+Set executable permissions for: /home/runner/.gradle/wrapper/dists/gradle-8.7-bin/bhs2wmbdwecv87pi65oeuq5iu/gradle-8.7/bin/gradle
+
+Welcome to Gradle 8.7!
+
+Here are the highlights of this release:
+ - Compiling and testing with Java 22
+ - Cacheable Groovy script compilation
+ - New methods in lazy collection properties
+
+For more details see https://docs.gradle.org/8.7/release-notes.html
+
+Starting a Gradle Daemon (subsequent builds will be faster)
+
+> Configure project :app
+Warning: Python version 3.11 may have fewer packages available. If you experience problems, try switching to version 3.8.
+This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+Checking the license for package NDK (Side by side) 25.1.8937393 in /usr/local/lib/android/sdk/licenses
+License for package NDK (Side by side) 25.1.8937393 accepted.
+Preparing "Install NDK (Side by side) 25.1.8937393 v.25.1.8937393".
+"Install NDK (Side by side) 25.1.8937393 v.25.1.8937393" ready.
+Installing NDK (Side by side) 25.1.8937393 in /usr/local/lib/android/sdk/ndk/25.1.8937393
+"Install NDK (Side by side) 25.1.8937393 v.25.1.8937393" complete.
+"Install NDK (Side by side) 25.1.8937393 v.25.1.8937393" finished.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:generateDebugResValues
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:mergeDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:parseDebugLocalResources
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:extractDebugPythonBuildPackages
+
+> Task :app:generateDebugPythonRequirements
+Chaquopy: Installing for arm64-v8a
+Looking in indexes: https://pypi.org/simple, https://chaquo.com/pypi-13.1
+Collecting yt-dlp
+  Downloading yt_dlp-2026.7.4-py3-none-any.whl (3.2 MB)
+Collecting mutagen
+  Downloading mutagen-1.48.1-py3-none-any.whl (195 kB)
+Collecting requests
+  Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+Collecting idna<4,>=2.5
+  Downloading idna-3.18-py3-none-any.whl (65 kB)
+Collecting charset_normalizer<4,>=2
+  Downloading charset_normalizer-3.4.9-py3-none-any.whl (64 kB)
+Collecting urllib3<3,>=1.26
+  Downloading urllib3-2.7.0-py3-none-any.whl (131 kB)
+Collecting certifi>=2023.5.7
+  Downloading certifi-2026.7.22-py3-none-any.whl (136 kB)
+Installing collected packages: yt-dlp, mutagen, idna, charset-normalizer, urllib3, certifi, requests
+Successfully installed certifi-2026.7.22 charset-normalizer-3.4.9 idna-3.18 mutagen-1.48.1 requests-2.34.2 urllib3-2.7.0 yt-dlp-2026.7.4
+Chaquopy: Installing for armeabi-v7a
+Warning: Failed to compile to .pyc format: buildPython version 3.12.3 is incompatible. See https://chaquo.com/chaquopy/doc/current/android.html#android-bytecode.
+
+> Task :app:mergeDebugPythonSources
+Warning: Failed to compile to .pyc format: buildPython version 3.12.3 is incompatible. See https://chaquo.com/chaquopy/doc/current/android.html#android-bytecode.
+
+> Task :app:generateDebugPythonProxies
+> Task :app:javaPreCompileDebug
+> Task :app:mergeDebugShaders
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:generateDebugPythonMiscAssets
+> Task :app:generateDebugPythonRequirementsAssets
+> Task :app:generateDebugPythonSourceAssets
+> Task :app:generateDebugPythonBuildAssets
+> Task :app:mergeDebugAssets
+> Task :app:compressDebugAssets
+> Task :app:checkDebugDuplicateClasses
+> Task :app:desugarDebugFileDependencies
+
+> Task :app:configureCMakeDebug[arm64-v8a]
+Checking the license for package CMake 3.22.1 in /usr/local/lib/android/sdk/licenses
+License for package CMake 3.22.1 accepted.
+Preparing "Install CMake 3.22.1 v.3.22.1".
+"Install CMake 3.22.1 v.3.22.1" ready.
+Installing CMake 3.22.1 in /usr/local/lib/android/sdk/cmake/3.22.1
+"Install CMake 3.22.1 v.3.22.1" complete.
+"Install CMake 3.22.1 v.3.22.1" finished.
+
+> Task :app:processDebugManifestForPackage
+> Task :app:mergeExtDexDebug
+> Task :app:mergeLibDexDebug
+> Task :app:processDebugResources
+
+> Task :app:buildCMakeDebug[arm64-v8a]
+C/C++: ninja: Entering directory `/home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a'
+C/C++: /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dstreamify_core_EXPORTS -I/home/runner/work/streamify-apk/streamify-apk/native/dsp/kissfft -I/home/runner/work/streamify-apk/streamify-apk/native/third_party/onnxruntime/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O3 -flto -fno-limit-debug-info  -fPIC -MD -MT CMakeFiles/streamify_core.dir/ingest/AudioPipeline.cc.o -MF CMakeFiles/streamify_core.dir/ingest/AudioPipeline.cc.o.d -o CMakeFiles/streamify_core.dir/ingest/AudioPipeline.cc.o -c /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc
+C/C++: In file included from /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:1:
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.h:29:5: error: use of undeclared identifier 'Ort'
+C/C++:     Ort::Env env_;
+C/C++:     ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.h:30:5: error: use of undeclared identifier 'Ort'
+C/C++:     Ort::Session* session_{nullptr};
+C/C++:     ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:14:39: error: use of undeclared identifier 'ORT_LOGGING_LEVEL_WARNING'; did you mean 'MA_LOG_LEVEL_WARNING'?
+C/C++: AudioPipeline::AudioPipeline() : env_(ORT_LOGGING_LEVEL_WARNING, "AudioPipeline") {}
+C/C++:                                       ^~~~~~~~~~~~~~~~~~~~~~~~~
+C/C++:                                       MA_LOG_LEVEL_WARNING
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/miniaudio.h:4096:5: note: 'MA_LOG_LEVEL_WARNING' declared here
+C/C++:     MA_LOG_LEVEL_WARNING = 2,
+C/C++:     ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:18:9: error: use of undeclared identifier 'Ort'
+C/C++:         Ort::SessionOptions session_options;
+C/C++:         ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:20:51: error: use of undeclared identifier 'GraphOptimizationLevel'
+C/C++:         session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+C/C++:                                                   ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:22:24: error: use of undeclared identifier 'Ort'
+C/C++:         session_ = new Ort::Session(env_, onnx_model_path.c_str(), session_options);
+C/C++:                        ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:39:30: error: no matching function for call to 'ma_decoder_get_length_in_pcm_frames'
+C/C++:     ma_uint64 total_frames = ma_decoder_get_length_in_pcm_frames(&decoder);
+C/C++:                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/miniaudio.h:67626:18: note: candidate function not viable: requires 2 arguments, but 1 was provided
+C/C++: MA_API ma_result ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pLength)
+C/C++:                  ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:128:9: error: use of undeclared identifier 'Ort'
+C/C++:         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+C/C++:         ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:128:39: error: use of undeclared identifier 'Ort'
+C/C++:         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+C/C++:                                       ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:128:66: error: use of undeclared identifier 'OrtArenaAllocator'
+C/C++:         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+C/C++:                                                                  ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:128:85: error: use of undeclared identifier 'OrtMemTypeDefault'
+C/C++:         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+C/C++:                                                                                     ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:132:9: error: use of undeclared identifier 'Ort'
+C/C++:         Ort::Value input_tensor_ort = Ort::Value::CreateTensor<float>(
+C/C++:         ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:132:39: error: use of undeclared identifier 'Ort'
+C/C++:         Ort::Value input_tensor_ort = Ort::Value::CreateTensor<float>(
+C/C++:                                       ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:132:69: error: expected '(' for function-style cast or type construction
+C/C++:         Ort::Value input_tensor_ort = Ort::Value::CreateTensor<float>(
+C/C++:                                                                ~~~~~^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:137:13: error: use of undeclared identifier 'Ort'
+C/C++:             Ort::RunOptions{nullptr}, input_names, &input_tensor_ort, 1, output_names, 1);
+C/C++:             ^
+C/C++: 15 errors generated.
+
+> Task :app:buildCMakeDebug[arm64-v8a] FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:buildCMakeDebug[arm64-v8a]'.
+> com.android.ide.common.process.ProcessException: ninja: Entering directory `/home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a'
+  [1/10] Building CXX object CMakeFiles/streamify_core.dir/jni/jni_bridge.cc.o
+  [2/10] Building CXX object CMakeFiles/streamify_core.dir/engine/EventTracker.cc.o
+  [3/10] Building C object CMakeFiles/streamify_core.dir/dsp/kissfft/kiss_fft.c.o
+  [4/10] Building C object CMakeFiles/streamify_core.dir/dsp/kissfft/kiss_fftr.c.o
+  [5/10] Building CXX object CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o
+  [6/10] Building CXX object CMakeFiles/streamify_core.dir/engine/StreamifyDB.cc.o
+  [7/10] Building CXX object CMakeFiles/streamify_core.dir/engine/VectorStore.cc.o
+  [8/10] Building CXX object CMakeFiles/streamify_core.dir/ingest/AudioPipeline.cc.o
+  FAILED: CMakeFiles/streamify_core.dir/ingest/AudioPipeline.cc.o 
+  /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dstreamify_core_EXPORTS -I/home/runner/work/streamify-apk/streamify-apk/native/dsp/kissfft -I/home/runner/work/streamify-apk/streamify-apk/native/third_party/onnxruntime/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O3 -flto -fno-limit-debug-info  -fPIC -MD -MT CMakeFiles/streamify_core.dir/ingest/AudioPipeline.cc.o -MF CMakeFiles/streamify_core.dir/ingest/AudioPipeline.cc.o.d -o CMakeFiles/streamify_core.dir/ingest/AudioPipeline.cc.o -c /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc
+  In file included from /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:1:
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.h:29:5: error: use of undeclared identifier 'Ort'
+      Ort::Env env_;
+      ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.h:30:5: error: use of undeclared identifier 'Ort'
+      Ort::Session* session_{nullptr};
+      ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:14:39: error: use of undeclared identifier 'ORT_LOGGING_LEVEL_WARNING'; did you mean 'MA_LOG_LEVEL_WARNING'?
+  AudioPipeline::AudioPipeline() : env_(ORT_LOGGING_LEVEL_WARNING, "AudioPipeline") {}
+                                        ^~~~~~~~~~~~~~~~~~~~~~~~~
+                                        MA_LOG_LEVEL_WARNING
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/miniaudio.h:4096:5: note: 'MA_LOG_LEVEL_WARNING' declared here
+      MA_LOG_LEVEL_WARNING = 2,
+      ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:18:9: error: use of undeclared identifier 'Ort'
+          Ort::SessionOptions session_options;
+          ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:20:51: error: use of undeclared identifier 'GraphOptimizationLevel'
+          session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+                                                    ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:22:24: error: use of undeclared identifier 'Ort'
+          session_ = new Ort::Session(env_, onnx_model_path.c_str(), session_options);
+                         ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:39:30: error: no matching function for call to 'ma_decoder_get_length_in_pcm_frames'
+      ma_uint64 total_frames = ma_decoder_get_length_in_pcm_frames(&decoder);
+                               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/miniaudio.h:67626:18: note: candidate function not viable: requires 2 arguments, but 1 was provided
+  MA_API ma_result ma_decoder_get_length_in_pcm_frames(ma_decoder* pDecoder, ma_uint64* pLength)
+                   ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:128:9: error: use of undeclared identifier 'Ort'
+          Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+          ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:128:39: error: use of undeclared identifier 'Ort'
+          Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+                                        ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:128:66: error: use of undeclared identifier 'OrtArenaAllocator'
+          Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+                                                                   ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:128:85: error: use of undeclared identifier 'OrtMemTypeDefault'
+          Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+                                                                                      ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:132:9: error: use of undeclared identifier 'Ort'
+          Ort::Value input_tensor_ort = Ort::Value::CreateTensor<float>(
+          ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:132:39: error: use of undeclared identifier 'Ort'
+          Ort::Value input_tensor_ort = Ort::Value::CreateTensor<float>(
+                                        ^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:132:69: error: expected '(' for function-style cast or type construction
+          Ort::Value input_tensor_ort = Ort::Value::CreateTensor<float>(
+                                                                 ~~~~~^
+  /home/runner/work/streamify-apk/streamify-apk/native/ingest/AudioPipeline.cc:137:13: error: use of undeclared identifier 'Ort'
+              Ort::RunOptions{nullptr}, input_names, &input_tensor_ort, 1, output_names, 1);
+              ^
+  15 errors generated.
+  [9/10] Building C object CMakeFiles/streamify_core.dir/third_party/sqlite3/sqlite3.c.o
+  ninja: build stopped: subcommand failed.
+  
+  C++ build system [build] failed while executing:
+      /usr/local/lib/android/sdk/cmake/3.22.1/bin/ninja \
+        -C \
+        /home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a \
+        streamify_core
+    from /home/runner/work/streamify-apk/streamify-apk/app
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.7/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 2m 23s
+31 actionable tasks: 31 executed
