@@ -56,21 +56,21 @@
 
 ## 🎨 Phase 3: Spotify-Exact Typography, Theme & Design System
 
-- [ ] **Task 3.1: Typography & Font Family Upgrade**
-  - [ ] Add Inter font family (Regular, Medium, SemiBold, Bold, ExtraBold) to `res/font/`
-  - [ ] Update `Type.kt` to pair Inter (headings) with Poppins / Plus Jakarta Sans (body)
-  - [ ] Remove hardcoded colors inside `TextStyle` definitions (e.g. `PlayerArtist`, `SeekbarTime`)
-  - [ ] Fine-tune letter spacing and kerning metrics across Display, Headline, Title, and Body tokens
+- [x] **Task 3.1: Typography & Font Family Upgrade**
+  - [x] Add Inter font family (Regular, Medium, SemiBold, Bold, ExtraBold) to `res/font/`
+  - [x] Update `Type.kt` to pair Inter (headings) with Poppins / Plus Jakarta Sans (body)
+  - [x] Remove hardcoded colors inside `TextStyle` definitions (e.g. `PlayerArtist`, `SeekbarTime`)
+  - [x] Fine-tune letter spacing and kerning metrics across Display, Headline, Title, and Body tokens
 
-- [ ] **Task 3.2: Color Token Corrections**
-  - [ ] Change `BgSearchBar` from white `#FFFFFF` to Spotify dark `#2A2A2A`
-  - [ ] Change `TextOnSearch` from `#000000` to `#B3B3B3`
-  - [ ] Adjust `TextSub` to `#A7A7A7`
-  - [ ] Add `BgMiniPlayer = Color(0xFF282828)` token
+- [x] **Task 3.2: Color Token Corrections**
+  - [x] Change `BgSearchBar` from white `#FFFFFF` to Spotify dark `#2A2A2A`
+  - [x] Change `TextOnSearch` from `#000000` to `#B3B3B3`
+  - [x] Adjust `TextSub` to `#A7A7A7`
+  - [x] Add `BgMiniPlayer = Color(0xFF282828)` token
 
-- [ ] **Task 3.3: System Bar & Visual Polish**
-  - [ ] Configure transparent status bar and dark navigation bar matching `#000000`
-  - [ ] Ensure edge-to-edge layout padding across all device screen aspect ratios
+- [x] **Task 3.3: System Bar & Visual Polish**
+  - [x] Configure transparent status bar and dark navigation bar matching `#000000`
+  - [x] Ensure edge-to-edge layout padding across all device screen aspect ratios
 
 ---
 

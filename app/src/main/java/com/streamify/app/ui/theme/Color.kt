@@ -9,8 +9,9 @@ object StreamifyColors {
     val BgCard         = Color(0xFF181818)     // Card/container backgrounds
     val BgCardHover    = Color(0xFF282828)     // Elevated surfaces, pressed cards
     val BgElevated     = Color(0xFF282828)     // Mini player, dialogs, bottom sheets
+    val BgMiniPlayer   = Color(0xFF282828)     // Mini player bar container
     val BgPlayer       = Color(0xFF0F0F0F)     // Full player background base
-    val BgSearchBar    = Color(0xFFFFFFFF)     // Search input (white on dark)
+    val BgSearchBar    = Color(0xFF2A2A2A)     // Dark search bar input (Spotify exact)
 
     // Brand
     val Primary        = Color(0xFF1DB954)     // Spotify Green — CTAs, active states
@@ -19,9 +20,9 @@ object StreamifyColors {
 
     // Text
     val TextMain       = Color(0xFFFFFFFF)     // Primary text — titles, active lyrics
-    val TextSub        = Color(0xFFB3B3B3)     // Secondary text — artist names, metadata
+    val TextSub        = Color(0xFFA7A7A7)     // Secondary text — artist names, metadata
     val TextDimmed     = Color(0xFF6A6A6A)     // Tertiary — timestamps, inactive elements
-    val TextOnSearch   = Color(0xFF000000)     // Black text on white search bar
+    val TextOnSearch   = Color(0xFFB3B3B3)     // Light gray text on dark search bar
 
     // Borders & Dividers
     val Border         = Color(0xFF242424)     // Subtle dividers
