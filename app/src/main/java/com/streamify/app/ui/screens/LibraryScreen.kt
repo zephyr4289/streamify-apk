@@ -44,6 +44,17 @@ fun LibraryScreen(
     var spotifyUrlInput by remember { mutableStateOf("") }
     
     val context = androidx.compose.ui.platform.LocalContext.current
+    val searchViewModel = androidx.lifecycle.ViewModelProvider(context as androidx.lifecycle.ViewModelStoreOwner)[com.streamify.app.viewmodel.SearchViewModel::class.java]
+    
+    val jsonFilePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            searchViewModel.importLocalPlaylistJson(uri, ingestionViewModel, context)
+            showSpotifyImportDialog = false
+        }
+    }
+    
     LaunchedEffect(context) {
         ingestionViewModel.observeDownloads(context)
     }
@@ -63,20 +74,32 @@ fun LibraryScreen(
     if (showSpotifyImportDialog) {
         AlertDialog(
             onDismissRequest = { showSpotifyImportDialog = false },
-            title = { Text("Import Spotify Playlist", color = StreamifyColors.TextMain) },
+            title = { Text("Import Playlist", color = StreamifyColors.TextMain) },
             text = {
-                OutlinedTextField(
-                    value = spotifyUrlInput,
-                    onValueChange = { spotifyUrlInput = it },
-                    label = { Text("Spotify URL") },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = StreamifyColors.TextMain,
-                        unfocusedTextColor = StreamifyColors.TextSub,
-                        focusedBorderColor = StreamifyColors.Primary,
-                        cursorColor = StreamifyColors.Primary
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    OutlinedTextField(
+                        value = spotifyUrlInput,
+                        onValueChange = { spotifyUrlInput = it },
+                        label = { Text("Spotify URL") },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = StreamifyColors.TextMain,
+                            unfocusedTextColor = StreamifyColors.TextSub,
+                            focusedBorderColor = StreamifyColors.Primary,
+                            cursorColor = StreamifyColors.Primary
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Divider(color = StreamifyColors.BgCard)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedButton(
+                        onClick = { jsonFilePickerLauncher.launch("application/json") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = StreamifyColors.Primary)
+                    ) {
+                        Text("Import Local JSON File")
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {

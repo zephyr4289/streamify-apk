@@ -249,4 +249,107 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             }
         }
     }
+
+    fun importLocalPlaylistJson(
+        uri: android.net.Uri,
+        ingestionViewModel: com.streamify.app.viewmodel.IngestionViewModel,
+        context: android.content.Context
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Reading local playlist...", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val jsonString = inputStream?.bufferedReader().use { it?.readText() } ?: return@launch
+                
+                var jsonArray = org.json.JSONArray()
+                try {
+                    jsonArray = org.json.JSONArray(jsonString)
+                } catch (e: Exception) {
+                    val jsonObj = org.json.JSONObject(jsonString)
+                    val keys = listOf("items", "tracks", "playlist", "songs", "data")
+                    for (k in keys) {
+                        if (jsonObj.has(k)) {
+                            val arr = jsonObj.optJSONArray(k)
+                            if (arr != null) {
+                                jsonArray = arr
+                                break
+                            }
+                        }
+                    }
+                }
+                
+                val newPlaylistId = java.util.UUID.randomUUID().toString()
+                var playlistName = "Imported Local JSON"
+                val documentFile = androidx.documentfile.provider.DocumentFile.fromSingleUri(context, uri)
+                if (documentFile != null && documentFile.name != null) {
+                    playlistName = documentFile.name!!.removeSuffix(".json")
+                }
+                
+                val trackIds = mutableListOf<Int>()
+                
+                for (i in 0 until jsonArray.length()) {
+                    val item = jsonArray.optJSONObject(i) ?: continue
+                    val tObj = item.optJSONObject("track") ?: item
+                    
+                    val title = tObj.optString("title", tObj.optString("name", "Unknown"))
+                    val albumObj = tObj.optJSONObject("album")
+                    val album = albumObj?.optString("name") ?: tObj.optString("album", "Local Import")
+                    
+                    var artistStr = "Unknown"
+                    if (tObj.has("artists")) {
+                        val artistsArr = tObj.optJSONArray("artists")
+                        if (artistsArr != null && artistsArr.length() > 0) {
+                            val artistsList = mutableListOf<String>()
+                            for (j in 0 until artistsArr.length()) {
+                                val a = artistsArr.optJSONObject(j)
+                                if (a != null) artistsList.add(a.optString("name", ""))
+                            }
+                            artistStr = artistsList.joinToString(", ")
+                        }
+                    } else if (tObj.has("artist")) {
+                        artistStr = tObj.optString("artist")
+                    }
+                    
+                    if (title.isBlank()) continue
+                    
+                    val pseudoId = -((title + artistStr).hashCode())
+                    trackIds.add(pseudoId)
+                    val searchString = "ytsearch1:$title $artistStr"
+                    
+                    withContext(Dispatchers.Main) {
+                        ingestionViewModel.enqueueDownload(
+                            context = context,
+                            url = searchString,
+                            title = title,
+                            artist = artistStr,
+                            album = album,
+                            quality = "256"
+                        )
+                    }
+                }
+                
+                if (trackIds.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        val repo = com.streamify.app.data.PlaylistRepository
+                        val p = com.streamify.app.data.Playlist(
+                            id = newPlaylistId,
+                            name = playlistName,
+                            description = "Imported from local file",
+                            trackIds = trackIds,
+                            createdAt = System.currentTimeMillis()
+                        )
+                        repo.createPlaylist(p)
+                        android.widget.Toast.makeText(context, "Imported ${trackIds.size} tracks. Check Downloads tab.", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Failed to parse JSON playlist.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 }
