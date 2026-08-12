@@ -44,8 +44,54 @@ fun SearchScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var query by remember { mutableStateOf("") }
-    val context = LocalContext.current
+    var pendingDownloadTrack by remember { mutableStateOf<com.streamify.app.data.models.SearchTrack?>(null) }
     var selectedOptionsTrack by remember { mutableStateOf<com.streamify.app.data.models.Track?>(null) }
+
+    if (pendingDownloadTrack != null) {
+        val targetTrack = pendingDownloadTrack!!
+        AlertDialog(
+            onDismissRequest = { pendingDownloadTrack = null },
+            title = { Text("Select Audio Quality", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(targetTrack.title, style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub, maxLines = 1)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    listOf(
+                        "320" to "320 kbps (Very High Quality)",
+                        "256" to "256 kbps (High Quality)",
+                        "192" to "192 kbps (Standard Quality)",
+                        "128" to "128 kbps (Data Saver)"
+                    ).forEach { (qualityVal, label) ->
+                        Button(
+                            onClick = {
+                                ingestionViewModel.enqueueDownload(
+                                    context = context,
+                                    url = targetTrack.url,
+                                    title = targetTrack.title,
+                                    artist = targetTrack.uploader,
+                                    album = "Downloads",
+                                    quality = qualityVal
+                                )
+                                pendingDownloadTrack = null
+                                Toast.makeText(context, "Downloading at ${qualityVal}kbps", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.BgCard)
+                        ) {
+                            Text(label, color = StreamifyColors.TextMain, style = StreamifyType.BodyMedium)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { pendingDownloadTrack = null }) {
+                    Text("Cancel", color = StreamifyColors.Primary)
+                }
+            },
+            containerColor = StreamifyColors.BgSurface
+        )
+    }
 
     // Mock Categories
     val categories = listOf(
@@ -177,14 +223,7 @@ fun SearchScreen(
                             TrackListItem(
                                 track = mockTrack,
                                 onClick = { 
-                                    ingestionViewModel.enqueueDownload(
-                                        context = context,
-                                        url = onlineTrack.url,
-                                        title = onlineTrack.title,
-                                        artist = onlineTrack.uploader,
-                                        album = "Downloads"
-                                    )
-                                    Toast.makeText(context, "Added to Download Queue", Toast.LENGTH_SHORT).show()
+                                    pendingDownloadTrack = onlineTrack
                                 },
                                 onOptionsClick = { selectedOptionsTrack = mockTrack }
                             )

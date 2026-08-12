@@ -8,7 +8,10 @@ import kotlinx.coroutines.withContext
 class TrackRepository {
     
     suspend fun getAllTracks(): List<Track> = withContext(Dispatchers.IO) {
-        NativeBridge.getAllTracks().map { it.toTrack() }
+        val likedIds = NativeBridge.getLikedTracks(1).map { it.id }.toSet()
+        NativeBridge.getAllTracks().map { native ->
+            native.toTrack().copy(isLiked = likedIds.contains(native.id))
+        }
     }
     
     suspend fun searchTracks(query: String): List<Track> = withContext(Dispatchers.IO) {

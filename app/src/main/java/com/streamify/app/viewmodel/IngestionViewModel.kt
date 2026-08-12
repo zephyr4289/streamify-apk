@@ -49,7 +49,7 @@ class IngestionViewModel(application: Application) : AndroidViewModel(applicatio
         })
     }
 
-    fun enqueueDownload(context: Context, url: String, title: String, artist: String, album: String) {
+    fun enqueueDownload(context: Context, url: String, title: String, artist: String, album: String, quality: String = "320") {
         val workManager = WorkManager.getInstance(context)
         
         val inputData = Data.Builder()
@@ -57,6 +57,7 @@ class IngestionViewModel(application: Application) : AndroidViewModel(applicatio
             .putString("title", title)
             .putString("artist", artist)
             .putString("album", album)
+            .putString("quality", quality)
             .build()
             
         val constraints = Constraints.Builder()

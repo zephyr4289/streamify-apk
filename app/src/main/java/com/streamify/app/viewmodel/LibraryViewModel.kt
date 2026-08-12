@@ -11,7 +11,10 @@ import kotlinx.coroutines.launch
 
 sealed class LibraryUiState {
     object Loading : LibraryUiState()
-    data class Success(val likedTracks: List<Track>) : LibraryUiState()
+    data class Success(
+        val tracks: List<Track>,
+        val likedTracks: List<Track>
+    ) : LibraryUiState()
     data class Error(val message: String) : LibraryUiState()
 }
 
@@ -27,8 +30,9 @@ class LibraryViewModel(private val repository: TrackRepository = TrackRepository
     fun loadLibrary() {
         viewModelScope.launch {
             try {
-                val likedTracks = repository.getLikedTracks()
-                _uiState.value = LibraryUiState.Success(likedTracks)
+                val allTracks = repository.getAllTracks()
+                val likedTracks = allTracks.filter { it.isLiked }
+                _uiState.value = LibraryUiState.Success(tracks = allTracks, likedTracks = likedTracks)
             } catch (e: Exception) {
                 _uiState.value = LibraryUiState.Error(e.message ?: "Failed to load library")
             }

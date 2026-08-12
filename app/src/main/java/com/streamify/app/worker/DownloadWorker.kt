@@ -64,7 +64,13 @@ class DownloadWorker(
         val artist = inputData.getString("artist") ?: "Unknown"
         val album = inputData.getString("album") ?: "Unknown"
         
-        val outputDir = File(applicationContext.getExternalFilesDir(null), "music")
+        val quality = inputData.getString("quality") ?: "320"
+        
+        val musicDir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC), "Streamify")
+        if (!musicDir.exists()) {
+            try { musicDir.mkdirs() } catch (e: Exception) { e.printStackTrace() }
+        }
+        val outputDir = if (musicDir.exists()) musicDir else File(applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC), "Downloads")
         if (!outputDir.exists()) outputDir.mkdirs()
 
         try {
@@ -139,7 +145,7 @@ class DownloadWorker(
                 }
             }
 
-            val success = coreModule.callAttr("download_audio", url, outputDir.absolutePath, callback).toBoolean()
+            val success = coreModule.callAttr("download_audio", url, outputDir.absolutePath, callback, quality).toBoolean()
             
             if (success) {
                 Result.success()

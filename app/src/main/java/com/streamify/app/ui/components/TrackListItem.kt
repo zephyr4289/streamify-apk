@@ -54,14 +54,32 @@ fun TrackListItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXS))
-            Text(
-                text = track.artist,
-                style = StreamifyType.BodyMedium,
-                color = StreamifyColors.TextSub,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = track.artist,
+                    style = StreamifyType.BodyMedium,
+                    color = StreamifyColors.TextSub,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (track.isProcessed) {
+                    Spacer(modifier = Modifier.width(StreamifyDimens.SpaceXS))
+                    androidx.compose.material3.Surface(
+                        color = StreamifyColors.Primary.copy(alpha = 0.2f),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "AI ⚡",
+                            style = StreamifyType.Caption,
+                            color = StreamifyColors.Primary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+            }
         }
         
         IconButton(onClick = onOptionsClick) {

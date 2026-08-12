@@ -36,14 +36,17 @@ fun LibraryScreen(
     val downloadTasks by ingestionViewModel.downloadTasks.collectAsState()
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
     
+    var selectedFilter by remember { mutableStateOf(0) } // 0: All, 1: Liked, 2: Downloads
+    
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner, downloadTasks) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 viewModel.loadLibrary()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+        viewModel.loadLibrary()
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
@@ -63,7 +66,6 @@ fun LibraryScreen(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Profile Avatar could go here
                 Spacer(modifier = Modifier.width(StreamifyDimens.SpaceSM))
                 Text(
                     text = "Your Library",
@@ -83,22 +85,37 @@ fun LibraryScreen(
         
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
 
-        // Filter Chips (Mock)
+        // Filter Chips
         Row(
             modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceLG),
             horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceSM)
         ) {
             FilterChip(
-                selected = false,
-                onClick = { },
-                label = { Text("Playlists", color = StreamifyColors.TextMain) },
-                colors = FilterChipDefaults.filterChipColors(containerColor = StreamifyColors.BgCard)
+                selected = selectedFilter == 0,
+                onClick = { selectedFilter = 0 },
+                label = { Text("All Songs", color = if (selectedFilter == 0) StreamifyColors.BgBase else StreamifyColors.TextMain) },
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = StreamifyColors.BgCard,
+                    selectedContainerColor = StreamifyColors.Primary
+                )
             )
             FilterChip(
-                selected = false,
-                onClick = { },
-                label = { Text("Artists", color = StreamifyColors.TextMain) },
-                colors = FilterChipDefaults.filterChipColors(containerColor = StreamifyColors.BgCard)
+                selected = selectedFilter == 1,
+                onClick = { selectedFilter = 1 },
+                label = { Text("Liked", color = if (selectedFilter == 1) StreamifyColors.BgBase else StreamifyColors.TextMain) },
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = StreamifyColors.BgCard,
+                    selectedContainerColor = StreamifyColors.Primary
+                )
+            )
+            FilterChip(
+                selected = selectedFilter == 2,
+                onClick = { selectedFilter = 2 },
+                label = { Text("Downloads", color = if (selectedFilter == 2) StreamifyColors.BgBase else StreamifyColors.TextMain) },
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = StreamifyColors.BgCard,
+                    selectedContainerColor = StreamifyColors.Primary
+                )
             )
         }
         
@@ -140,19 +157,25 @@ fun LibraryScreen(
                 )
             }
             is LibraryUiState.Success -> {
-                if (state.likedTracks.isEmpty()) {
+                val displayTracks = when (selectedFilter) {
+                    1 -> state.likedTracks
+                    2 -> state.tracks.filter { it.filepath.isNotBlank() }
+                    else -> state.tracks
+                }
+                
+                if (displayTracks.isEmpty()) {
                     EmptyStateView(
-                        title = "Nothing to see here",
-                        subtitle = "Tracks you like will appear here",
+                        title = "No songs found",
+                        subtitle = if (selectedFilter == 1) "Tracks you like will appear here" else "Downloaded or ingested songs will appear here",
                     )
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
                     ) {
-                        items(state.likedTracks) { track ->
+                        items(displayTracks) { track ->
                             TrackListItem(
                                 track = track,
-                                onClick = { onTrackClick(track.id, (uiState as? LibraryUiState.Success)?.likedTracks ?: emptyList()) },
+                                onClick = { onTrackClick(track.id, displayTracks) },
                                 onOptionsClick = { selectedOptionsTrack = track }
                             )
                         }
