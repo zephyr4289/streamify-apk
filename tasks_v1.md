@@ -60,12 +60,11 @@ This checklist tracks the implementation progress of the Streamify Android App b
 - [x] Commit & Push (Phase 4 complete).
 
 ## Phase 5: Device Music Discovery
-- [ ] Implement `MediaStoreScanner.kt` to query `/sdcard/Music` and `/Downloads`.
-- [ ] Implement `IngestionWorker.kt` (WorkManager) for background processing.
-- [ ] Feed discovered files to C++ `AudioPipeline` for vector generation.
-- [ ] Build UI: `ProcessingStatusCard.kt` in `HomeScreen` to observe ingestion state.
-- [ ] Verify existing device files are ingested and saved to DB.
-- [ ] Commit & Push (Phase 5 complete).
+- [x] Implement `MediaStoreScanner.kt` to query `/sdcard/Music` and `/Downloads`.
+- [x] Create `IngestionWorker.kt` (WorkManager) for background extraction.
+- [x] Implement `ProcessingStatusCard.kt` and `IngestionViewModel.kt` for UI status.
+- [x] Verify existing device files are ingested and saved to DB.
+- [x] Commit & Push (Phase 5 complete).
 
 ## Phase 6: Lyrics, Polish & Release
 - [ ] Port Metadata Clients: Create C++ `LyricsClient.cc` and `CoverArtClient.cc` (or Kotlin equivalents).
