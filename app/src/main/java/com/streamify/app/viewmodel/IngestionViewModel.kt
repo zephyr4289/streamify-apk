@@ -53,16 +53,19 @@ class IngestionViewModel : ViewModel() {
         }
     }
 
-    fun enqueueDownload(context: Context, url: String, title: String, artist: String, album: String, quality: String = "320") {
+    fun enqueueDownload(context: Context, url: String, title: String, artist: String, album: String, quality: String? = null) {
         observeDownloads(context)
         val workManager = WorkManager.getInstance(context)
         
+        val savedQuality = quality ?: context.getSharedPreferences("audio_settings", Context.MODE_PRIVATE)
+            .getString("download_quality", "320") ?: "320"
+
         val inputData = Data.Builder()
             .putString("url", url)
             .putString("title", title)
             .putString("artist", artist)
             .putString("album", album)
-            .putString("quality", quality)
+            .putString("quality", savedQuality)
             .build()
             
         val constraints = Constraints.Builder()

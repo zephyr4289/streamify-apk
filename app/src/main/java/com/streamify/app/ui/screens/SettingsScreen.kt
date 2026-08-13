@@ -25,6 +25,9 @@ fun SettingsScreen(
     onNavigateToEq: () -> Unit = {}
 ) {
     val playerState by playerViewModel.playerState.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val audioPrefs = remember { context.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE) }
+    var selectedQuality by remember { mutableStateOf(audioPrefs.getString("download_quality", "320") ?: "320") }
     var crossfadeValue by remember { mutableStateOf(CrossfadeAudioProcessor.crossfadeDurationMs / 1000f) }
 
     Column(
@@ -61,7 +64,71 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceXL)
         ) {
             item {
-                Text("Audio Quality & Effects", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
+                Text("Audio Quality", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+                
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Streaming & Download Bitrate",
+                            style = StreamifyType.BodyMedium,
+                            color = StreamifyColors.TextMain
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Higher quality produces richer sound clarity but uses more storage space.",
+                            style = StreamifyType.Caption,
+                            color = StreamifyColors.TextSub
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val qualityOptions = listOf(
+                            Pair("128", "Low (128 kbps) - Fast download, low data"),
+                            Pair("192", "Normal (192 kbps) - Standard quality"),
+                            Pair("256", "High (256 kbps) - High fidelity audio"),
+                            Pair("320", "Extreme (320 kbps) - Maximum audio clarity (Default)")
+                        )
+
+                        qualityOptions.forEach { (kbps, label) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .androidx.compose.foundation.clickable {
+                                        selectedQuality = kbps
+                                        audioPrefs.edit().putString("download_quality", kbps).apply()
+                                    }
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = StreamifyType.BodyMedium,
+                                    color = if (selectedQuality == kbps) StreamifyColors.Primary else StreamifyColors.TextMain,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                RadioButton(
+                                    selected = (selectedQuality == kbps),
+                                    onClick = {
+                                        selectedQuality = kbps
+                                        audioPrefs.edit().putString("download_quality", kbps).apply()
+                                    },
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = StreamifyColors.Primary,
+                                        unselectedColor = StreamifyColors.TextSub
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Text("Audio Effects", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
                 
                 Card(

@@ -134,14 +134,17 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         context: android.content.Context
     ) {
         viewModelScope.launch {
+            val savedQuality = context.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
+                .getString("download_quality", "320") ?: "320"
+
             // 1. Instantly fire off the background download (Plan A)
             ingestionViewModel.enqueueDownload(
                 context = context,
                 url = onlineTrack.url,
                 title = onlineTrack.title,
                 artist = onlineTrack.uploader,
-                album = "Downloads",
-                quality = "256" // Default quality for seamless experience
+                album = "Streamify",
+                quality = savedQuality
             )
 
             // 2. Fetch the direct stream URL
@@ -200,6 +203,9 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 val playlistName = "Imported Spotify Playlist"
                 val trackIds = mutableListOf<Int>()
                 
+                val savedQuality = context.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
+                    .getString("download_quality", "320") ?: "320"
+                    
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.getJSONObject(i)
                     val title = obj.optString("title", "Unknown")
@@ -221,7 +227,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             title = title,
                             artist = artist,
                             album = album,
-                            quality = "256"
+                            quality = savedQuality
                         )
                     }
                 }
