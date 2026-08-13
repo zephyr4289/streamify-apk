@@ -191,11 +191,14 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
         
         // Find in queue
-        val track = _playerState.value.queue.find { it.id.toString() == mediaItem.mediaId }
+        val track = _playerState.value.queue.find { 
+            it.id.toString() == mediaItem.mediaId || it.filepath == mediaItem.mediaId
+        } ?: _playerState.value.queue.firstOrNull()
+
         if (track != null) {
             _playerState.value = _playerState.value.copy(
                 currentTrack = track,
-                duration = track.durationSec * 1000L
+                duration = if (track.durationSec > 0) track.durationSec * 1000L else _playerState.value.duration
             )
         }
     }
@@ -224,15 +227,31 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         _playerState.value = _playerState.value.copy(queue = queue)
         
         val mediaItems = queue.map { t ->
+            val uri = if (t.filepath.startsWith("http://") || t.filepath.startsWith("https://")) {
+                android.net.Uri.parse(t.filepath)
+            } else if (t.filepath.startsWith("file://")) {
+                android.net.Uri.parse(t.filepath)
+            } else if (t.filepath.isNotBlank()) {
+                android.net.Uri.fromFile(java.io.File(t.filepath))
+            } else {
+                android.net.Uri.EMPTY
+            }
+
             MediaItem.Builder()
-                .setMediaId(t.id.toString())
-                .setUri(t.filepath)
+                .setMediaId(if (t.id != 0) t.id.toString() else t.filepath)
+                .setUri(uri)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setTitle(t.title)
                         .setArtist(t.artist)
                         .setAlbumTitle(t.album)
-                        .setArtworkUri(android.net.Uri.parse(t.coverArtPath ?: ""))
+                        .setArtworkUri(if (!t.coverArtPath.isNullOrBlank()) {
+                            if (t.coverArtPath.startsWith("http") || t.coverArtPath.startsWith("file")) {
+                                android.net.Uri.parse(t.coverArtPath)
+                            } else {
+                                android.net.Uri.fromFile(java.io.File(t.coverArtPath))
+                            }
+                        } else null)
                         .build()
                 )
                 .build()
@@ -240,7 +259,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         
         controller?.apply {
             setMediaItems(mediaItems)
-            val startIndex = queue.indexOfFirst { it.id == track.id }.takeIf { it >= 0 } ?: 0
+            val startIndex = queue.indexOfFirst { 
+                (it.id != 0 && it.id == track.id) || (it.filepath.isNotBlank() && it.filepath == track.filepath) || it.title == track.title 
+            }.takeIf { it >= 0 } ?: 0
             seekTo(startIndex, C.TIME_UNSET)
             prepare()
             play()
