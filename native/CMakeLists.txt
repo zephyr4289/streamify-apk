@@ -22,11 +22,9 @@ add_library(streamify_core SHARED
 
 target_include_directories(streamify_core PRIVATE 
     dsp/kissfft
-    third_party/onnxruntime/include
 )
 
 target_link_libraries(streamify_core
     android
     log
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/onnxruntime/lib/arm64-v8a/libonnxruntime.so
 )

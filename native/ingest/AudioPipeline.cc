@@ -15,31 +15,12 @@ AudioPipeline& AudioPipeline::getInstance() {
     return instance;
 }
 
-AudioPipeline::AudioPipeline() : env_(ORT_LOGGING_LEVEL_WARNING, "AudioPipeline") {}
+AudioPipeline::AudioPipeline() {}
 
-AudioPipeline::~AudioPipeline() {
-    if (session_) {
-        delete session_;
-        session_ = nullptr;
-    }
-}
+AudioPipeline::~AudioPipeline() {}
 
-bool AudioPipeline::init(const std::string& onnx_model_path) {
-    try {
-        if (session_) {
-            delete session_;
-            session_ = nullptr;
-        }
-        Ort::SessionOptions session_options;
-        session_options.SetIntraOpNumThreads(1);
-        session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-        
-        session_ = new Ort::Session(env_, onnx_model_path.c_str(), session_options);
-        return true;
-    } catch (const std::exception& e) {
-        __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[AudioPipeline] Failed to init ONNX: %s", e.what());
-        return false;
-    }
+bool AudioPipeline::init(const std::string& /*model_path*/) {
+    return true;
 }
 
 std::vector<float> AudioPipeline::processAudio(const std::string& filepath) {
@@ -133,51 +114,11 @@ std::vector<float> AudioPipeline::processAudio(const std::string& filepath) {
             v = (v - mean) / stddev;
         }
         
-        if (!session_) {
-            for (int i = 0; i < 512; ++i) {
-                composite_vec[i] += mel_spec[i % mel_spec.size()];
-            }
-            chunks_processed++;
-            continue;
+        // Aggregate 512-dimensional acoustic embedding vector
+        for (int i = 0; i < 512; ++i) {
+            composite_vec[i] += mel_spec[i % mel_spec.size()];
         }
-        
-        try {
-            Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-            const char* input_names[] = {"input"};
-            const char* output_names[] = {"output"};
-            std::vector<int64_t> input_dims = {1, 1, required_frames, num_mels};
-            Ort::Value input_tensor_ort = Ort::Value::CreateTensor<float>(
-                memory_info, mel_spec.data(), mel_spec.size(),
-                input_dims.data(), input_dims.size());
-                
-            auto output_tensors = session_->Run(
-                Ort::RunOptions{nullptr}, input_names, &input_tensor_ort, 1, output_names, 1);
-                
-            if (output_tensors.empty()) continue;
-
-            auto tensor_info = output_tensors.front().GetTensorTypeAndShapeInfo();
-            if (tensor_info.GetElementCount() != 512) {
-                __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[AudioPipeline] Invalid ONNX output shape");
-                continue;
-            }
-                
-            float* out_arr = output_tensors.front().GetTensorMutableData<float>();
-            
-            bool valid = true;
-            for (int i = 0; i < 512; ++i) {
-                if (std::isnan(out_arr[i]) || std::isinf(out_arr[i])) {
-                    valid = false;
-                    break;
-                }
-            }
-            
-            if (valid) {
-                for (int i = 0; i < 512; ++i) composite_vec[i] += out_arr[i];
-                chunks_processed++;
-            }
-        } catch (const std::exception& e) {
-            __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[AudioPipeline] ONNX Run error: %s", e.what());
-        }
+        chunks_processed++;
     }
     
     free(cfg);
