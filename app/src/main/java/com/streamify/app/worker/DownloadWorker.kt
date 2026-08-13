@@ -205,7 +205,6 @@ class DownloadWorker(
                         ).show()
                     }
                 }
-                }
 
                 Result.success()
             } else {

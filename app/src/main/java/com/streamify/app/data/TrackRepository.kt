@@ -48,7 +48,7 @@ object TrackRepository {
         val trackObj = track ?: _allTracks.value.find { it.id == trackId }
 
         // Guarantee DB row exists before adding to user_liked_songs
-        if (targetId <= 0 || NativeBridge.getTrackById(targetId) == null) {
+        if (targetId <= 0 || _allTracks.value.none { it.id == targetId }) {
             if (trackObj != null) {
                 val path = trackObj.filepath.ifBlank { "online://${(trackObj.title + trackObj.artist).hashCode()}" }
                 val insertedId = NativeBridge.insertTrack(
