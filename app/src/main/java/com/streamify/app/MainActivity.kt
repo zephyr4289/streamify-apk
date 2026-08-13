@@ -101,6 +101,8 @@ class MainActivity : ComponentActivity() {
                 }
 
                 LaunchedEffect(Unit) {
+                    val prefs = getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
+                    com.streamify.app.service.CrossfadeAudioProcessor.crossfadeDurationMs = (prefs.getFloat("crossfade_val", 0f) * 1000).toLong()
                     playerViewModel.initialize(this@MainActivity)
                     com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
                 }

@@ -12,11 +12,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.viewmodel.PlayerViewModel
 import com.streamify.app.service.CrossfadeAudioProcessor
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title.uppercase(),
+        style = StreamifyType.LabelSmall.copy(letterSpacing = 1.2.sp),
+        color = StreamifyColors.Primary,
+        modifier = Modifier.padding(bottom = StreamifyDimens.SpaceSM)
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,7 +76,7 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceXL)
         ) {
             item {
-                Text("Audio Quality", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
+                SectionHeader("Audio Quality")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
                 
                 Card(
@@ -129,7 +140,7 @@ fun SettingsScreen(
             }
 
             item {
-                Text("Audio Effects", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
+                SectionHeader("Audio Effects")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
                 
                 Card(
@@ -152,7 +163,7 @@ fun SettingsScreen(
             }
 
             item {
-                Text("Playback", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
+                SectionHeader("Playback")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
                 
                 Card(
@@ -169,6 +180,7 @@ fun SettingsScreen(
                             onValueChange = { 
                                 crossfadeValue = it
                                 CrossfadeAudioProcessor.crossfadeDurationMs = (it * 1000).toLong()
+                                audioPrefs.edit().putFloat("crossfade_val", it).apply()
                             },
                             valueRange = 0f..12f,
                             steps = 11,
@@ -184,7 +196,7 @@ fun SettingsScreen(
             }
 
             item {
-                Text("Sleep Timer", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
+                SectionHeader("Sleep Timer")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
                 
                 Card(
@@ -221,6 +233,51 @@ fun SettingsScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+            item {
+                SectionHeader("Storage")
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+                
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { /* Clear cache */ },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Clear cache", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                Text("Free up storage space", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                            }
+                            Text("142 MB", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                        }
+                    }
+                }
+            }
+
+            item {
+                SectionHeader("About")
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+                
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Version", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                            Text("4.0.0 (Engineering Marvel)", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Third-party software", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
                     }
                 }
             }

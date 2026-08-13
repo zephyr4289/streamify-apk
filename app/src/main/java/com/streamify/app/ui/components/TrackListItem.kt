@@ -34,13 +34,28 @@ fun TrackListItem(
             .padding(horizontal = StreamifyDimens.SpaceLG),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TrackCoverArt(
-            coverArtPath = track.coverArtPath,
-            title = track.title,
-            artist = track.artist,
+        Box(
             modifier = Modifier.size(StreamifyDimens.TrackRowArt),
-            shape = StreamifyShapes.MiniPlayerShape
-        )
+            contentAlignment = Alignment.Center
+        ) {
+            TrackCoverArt(
+                coverArtPath = track.coverArtPath,
+                title = track.title,
+                artist = track.artist,
+                modifier = Modifier.fillMaxSize(),
+                shape = StreamifyShapes.MiniPlayerShape
+            )
+            if (isPlaying) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(StreamifyColors.BgBase.copy(alpha = 0.6f), StreamifyShapes.MiniPlayerShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    NowPlayingIndicator()
+                }
+            }
+        }
         Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
         
         Column(modifier = Modifier.weight(1f)) {

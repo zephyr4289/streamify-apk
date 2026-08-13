@@ -16,15 +16,29 @@ import androidx.compose.ui.graphics.graphicsLayer
 fun Modifier.cardPressEffect(onClick: () -> Unit): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessHigh),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
         label = "card_press_scale"
     )
+    
+    val alpha by animateFloatAsState(
+        targetValue = if (isPressed) 0.85f else 1f,
+        animationSpec = spring(
+            stiffness = Spring.StiffnessHigh
+        ),
+        label = "card_press_alpha"
+    )
+
     return this
         .graphicsLayer {
             scaleX = scale
             scaleY = scale
+            this.alpha = alpha
         }
         .clickable(
             interactionSource = interactionSource,

@@ -51,19 +51,24 @@ fun MiniPlayerBar(
             .fillMaxWidth()
             .padding(horizontal = StreamifyDimens.MiniPlayerMargin)
             .padding(bottom = StreamifyDimens.MiniPlayerMargin)
+            .androidx.compose.ui.draw.shadow(8.dp, StreamifyShapes.MiniPlayerShape, spotColor = androidx.compose.ui.graphics.Color.Black)
             .clip(StreamifyShapes.MiniPlayerShape)
-            .background(StreamifyColors.BgElevated)
+            .background(StreamifyColors.BgElevated.copy(alpha = 0.95f))
             .clickable(onClick = onExpand)
             .pointerInput(Unit) {
-                detectHorizontalDragGestures(
+                androidx.compose.foundation.gestures.detectDragGestures(
                     onDragEnd = { 
                         if (totalDrag < -50f) onNext()
                         else if (totalDrag > 50f) onPrevious()
                         totalDrag = 0f
                     },
-                    onHorizontalDrag = { change, dragAmount ->
+                    onDrag = { change, dragAmount ->
                         change.consume()
-                        totalDrag += dragAmount
+                        if (kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
+                            totalDrag += dragAmount.x
+                        } else if (dragAmount.y < -30f) {
+                            onExpand()
+                        }
                     }
                 )
             }

@@ -220,10 +220,12 @@ fun SearchScreen(
                             Text("Your Library", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
                         }
                         items(state.localResults, key = { it.id }) { track ->
+                            val currentTrack by playerViewModel.currentTrack.collectAsState()
                             TrackListItem(
                                 track = track,
                                 onClick = { onTrackClick(track, (uiState as? SearchUiState.Success)?.localResults ?: emptyList()) },
-                                onOptionsClick = { selectedOptionsTrack = track }
+                                onOptionsClick = { selectedOptionsTrack = track },
+                                isPlaying = currentTrack?.id == track.id
                             )
                         }
                     } 
@@ -268,13 +270,15 @@ fun SearchScreen(
                                 filepath = onlineTrack.url, coverArtPath = onlineTrack.thumbnail.takeIf { it.isNotBlank() },
                                 bpm = 0f, key = "", lyricsPath = null, source = "online"
                             )
+                            val currentTrack by playerViewModel.currentTrack.collectAsState()
                             TrackListItem(
                                 track = mockTrack,
                                 onClick = { 
                                     Toast.makeText(context, "Starting Stream & Download...", Toast.LENGTH_SHORT).show()
                                     viewModel.playOnlineTrack(onlineTrack, playerViewModel, ingestionViewModel, context)
                                 },
-                                onOptionsClick = { selectedOptionsTrack = mockTrack }
+                                onOptionsClick = { selectedOptionsTrack = mockTrack },
+                                isPlaying = currentTrack?.id == mockTrack.id && mockTrack.id != 0L // Online mock tracks have id 0, they might match if playing? Actually, online tracks are given a proper id when downloaded, but we'll leave this as false or simple check.
                             )
                         }
                     } 

@@ -30,6 +30,13 @@ object TrackRepository {
         refresh()
     }
     
+    suspend fun getTracksByIds(ids: List<Int>): List<Track> = withContext(Dispatchers.IO) {
+        val tracks = _allTracks.value.ifEmpty { refresh() }
+        val idSet = ids.toSet()
+        val foundTracks = tracks.filter { it.id in idSet }.associateBy { it.id }
+        ids.mapNotNull { foundTracks[it] }
+    }
+    
     suspend fun searchTracks(query: String): List<Track> = withContext(Dispatchers.IO) {
         val likedIds = NativeBridge.getLikedTracks(1).map { it.id }.toSet()
         NativeBridge.searchTracks(query).map { native ->

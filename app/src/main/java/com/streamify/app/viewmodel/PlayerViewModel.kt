@@ -54,11 +54,50 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
         controllerFuture?.addListener({
             controller = controllerFuture?.get()
-            setupController()
+            setupController(context)
+            restorePlayerState(context)
         }, MoreExecutors.directExecutor())
     }
 
-    private fun setupController() {
+    fun savePlayerState(context: Context) {
+        val prefs = context.getSharedPreferences("player_state", Context.MODE_PRIVATE)
+        val state = _playerState.value
+        if (state.queue.isNotEmpty()) {
+            val queueIds = state.queue.map { it.id }.joinToString(",")
+            val currentId = state.currentTrack?.id ?: -1
+            prefs.edit()
+                .putString("saved_queue", queueIds)
+                .putInt("saved_current_id", currentId)
+                .putLong("saved_position", state.currentPosition)
+                .apply()
+        }
+    }
+
+    private fun restorePlayerState(context: Context) {
+        val prefs = context.getSharedPreferences("player_state", Context.MODE_PRIVATE)
+        val queueStr = prefs.getString("saved_queue", "") ?: ""
+        if (queueStr.isNotEmpty()) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val ids = queueStr.split(",").mapNotNull { it.toIntOrNull() }
+                if (ids.isNotEmpty()) {
+                    val tracks = repository.getTracksByIds(ids)
+                    if (tracks.isNotEmpty()) {
+                        val currentId = prefs.getInt("saved_current_id", -1)
+                        val currentTrack = tracks.find { it.id == currentId } ?: tracks.first()
+                        val position = prefs.getLong("saved_position", 0L)
+                        
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            playTrack(currentTrack, tracks)
+                            controller?.seekTo(position)
+                            controller?.pause()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun setupController(context: Context) {
         val ctrl = controller ?: return
         
         ctrl.addListener(object : Player.Listener {
@@ -84,6 +123,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     }
                 }
                 lastPlayedTrackId = newTrackId
+                savePlayerState(context)
                 
                 // Auto-Fetch Lyrics if missing using Chaquopy robust engine
                 val currentT = _playerState.value.currentTrack

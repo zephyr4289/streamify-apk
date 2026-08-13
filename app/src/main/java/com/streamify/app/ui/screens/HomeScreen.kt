@@ -35,9 +35,11 @@ import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.util.TimeGreeting
 import com.streamify.app.viewmodel.HomeUiState
 import com.streamify.app.viewmodel.HomeViewModel
+import com.streamify.app.viewmodel.PlayerViewModel
 
 @Composable
 fun HomeScreen(
+    playerViewModel: PlayerViewModel,
     viewModel: HomeViewModel = viewModel(),
     dominantColor: Color = StreamifyColors.BgBase,
     onTrackClick: (Track, List<Track>) -> Unit,
@@ -45,6 +47,7 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
+    val currentTrack by playerViewModel.currentTrack.collectAsState()
 
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
@@ -168,7 +171,8 @@ fun HomeScreen(
                                             RecentPlayCard(
                                                 title = track.title,
                                                 imageUrl = track.coverArtPath,
-                                                onClick = { onTrackClick(track, state.allTracks) }
+                                                onClick = { onTrackClick(track, state.allTracks) },
+                                                isPlaying = currentTrack?.id == track.id
                                             )
                                         }
                                     }

@@ -369,11 +369,13 @@ fun LibraryScreen(
                             LazyColumn(
                                 contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
                             ) {
+                                val currentTrack by playerViewModel.currentTrack.collectAsState()
                                 items(displayTracks, key = { it.id }) { track ->
                                     TrackListItem(
                                         track = track,
                                         onClick = { onTrackClick(track, displayTracks) },
-                                        onOptionsClick = { selectedOptionsTrack = track }
+                                        onOptionsClick = { selectedOptionsTrack = track },
+                                        isPlaying = currentTrack?.id == track.id
                                     )
                                 }
                             }

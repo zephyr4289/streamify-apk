@@ -19,7 +19,8 @@ fun RecentPlayCard(
     title: String,
     imageUrl: String?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isPlaying: Boolean = false
 ) {
     Row(
         modifier = modifier
@@ -29,18 +30,33 @@ fun RecentPlayCard(
             .cardPressEffect(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TrackCoverArt(
-            coverArtPath = imageUrl,
-            title = title,
-            artist = "",
+        Box(
             modifier = Modifier.size(StreamifyDimens.RecentCardArt),
-            shape = StreamifyShapes.CardShape
-        )
+            contentAlignment = Alignment.Center
+        ) {
+            TrackCoverArt(
+                coverArtPath = imageUrl,
+                title = title,
+                artist = "",
+                modifier = Modifier.fillMaxSize(),
+                shape = StreamifyShapes.CardShape
+            )
+            if (isPlaying) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(StreamifyColors.BgBase.copy(alpha = 0.6f), StreamifyShapes.CardShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    NowPlayingIndicator()
+                }
+            }
+        }
         Spacer(modifier = Modifier.width(StreamifyDimens.SpaceSM))
         Text(
             text = title,
             style = StreamifyType.TitleSmall,
-            color = StreamifyColors.TextMain,
+            color = if (isPlaying) StreamifyColors.Primary else StreamifyColors.TextMain,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(end = StreamifyDimens.SpaceSM)

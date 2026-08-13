@@ -13,6 +13,12 @@ import com.streamify.app.data.models.Track
 import com.streamify.app.ui.screens.*
 import com.streamify.app.viewmodel.PlayerViewModel
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+
 @Composable
 fun AppNavGraph(
     navController: NavHostController,
@@ -22,7 +28,31 @@ fun AppNavGraph(
     NavHost(
         navController = navController,
         startDestination = "home",
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        enterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = tween(400)
+            ) + fadeIn(animationSpec = tween(400))
+        },
+        exitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { -it / 2 },
+                animationSpec = tween(400)
+            ) + fadeOut(animationSpec = tween(400))
+        },
+        popEnterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { -it / 2 },
+                animationSpec = tween(400)
+            ) + fadeIn(animationSpec = tween(400))
+        },
+        popExitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { it },
+                animationSpec = tween(400)
+            ) + fadeOut(animationSpec = tween(400))
+        }
     ) {
         composable("home") {
             HomeScreen(
@@ -63,7 +93,33 @@ fun AppNavGraph(
                 }
             )
         }
-        composable("lyrics") {
+        composable(
+            "lyrics",
+            enterTransition = {
+                androidx.compose.animation.slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = tween(400)
+                ) + fadeIn(animationSpec = tween(400))
+            },
+            exitTransition = {
+                androidx.compose.animation.slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(400)
+                ) + fadeOut(animationSpec = tween(400))
+            },
+            popEnterTransition = {
+                androidx.compose.animation.slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = tween(400)
+                ) + fadeIn(animationSpec = tween(400))
+            },
+            popExitTransition = {
+                androidx.compose.animation.slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(400)
+                ) + fadeOut(animationSpec = tween(400))
+            }
+        ) {
             val playerState = playerViewModel.playerState.collectAsState().value
             val lyricsLines = remember(playerState.currentTrack) {
                 val dbPath = playerState.currentTrack?.lyricsPath
