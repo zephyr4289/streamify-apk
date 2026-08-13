@@ -61,6 +61,9 @@ object TrackRepository {
                 ).toInt()
                 if (insertedId > 0) {
                     targetId = insertedId
+                    if (!trackObj.coverArtPath.isNullOrBlank()) {
+                        NativeBridge.updateTrackCoverArt(insertedId, trackObj.coverArtPath!!)
+                    }
                 }
             }
         }

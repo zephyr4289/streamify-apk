@@ -144,6 +144,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                         durationSec = currentT.durationSec,
                                         bpm = currentT.bpm
                                     ).toInt()
+                                    if (validId > 0 && !currentT.coverArtPath.isNullOrBlank()) {
+                                        com.streamify.app.data.NativeBridge.updateTrackCoverArt(validId, currentT.coverArtPath!!)
+                                    }
                                 }
                                 if (validId > 0) {
                                     val recentHistory = currentQueue.takeLast(20).map { it.id }.toIntArray()

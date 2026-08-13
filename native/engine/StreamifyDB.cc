@@ -258,7 +258,12 @@ int StreamifyDB::insertTrack(const std::string& filepath, const std::string& tit
     sqlite3* db = getConnection();
     if (!db) return -1;
 
-    std::string source = (filepath.find("online://") == 0) ? "online" : "downloaded";
+    std::string source = "local";
+    if (filepath.rfind("http://", 0) == 0 || filepath.rfind("https://", 0) == 0 || filepath.rfind("online://", 0) == 0) {
+        source = "online";
+    } else if (album == "Streamify" || filepath.find("Streamify") != std::string::npos) {
+        source = "streamify_download";
+    }
 
     const char* sql = "INSERT INTO tracks (filepath, title, artist, album, duration_sec, bpm, source) VALUES (?, ?, ?, ?, ?, ?, ?) "
                       "ON CONFLICT(filepath) DO UPDATE SET title=excluded.title, artist=excluded.artist, album=excluded.album, duration_sec=excluded.duration_sec, bpm=excluded.bpm, source=excluded.source;";
