@@ -223,13 +223,14 @@ fun FullPlayerSheet(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Album Art
-                Crossfade(targetState = track.coverArtPath, label = "art_crossfade_portrait") { artPath ->
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Crossfade(targetState = track.coverArtPath, label = "art_crossfade_portrait") { artPath ->
                     TrackCoverArt(
                         coverArtPath = artPath,
                         title = track.title,
                         artist = track.artist,
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .fillMaxWidth(if (configuration.screenWidthDp > 600) 0.7f else 1f)
                             .aspectRatio(1f)
                             .shadow(
                                 elevation = 24.dp,
@@ -238,6 +239,7 @@ fun FullPlayerSheet(
                             ),
                         shape = StreamifyShapes.CardShape
                     )
+                }
                 }
 
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))

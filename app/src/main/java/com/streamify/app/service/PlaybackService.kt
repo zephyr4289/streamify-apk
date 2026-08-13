@@ -34,8 +34,10 @@ class PlaybackService : MediaSessionService() {
             .setConnectTimeoutMs(10000)
             .setReadTimeoutMs(10000)
 
+        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
+
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(httpDataSourceFactory)
+            .setDataSourceFactory(dataSourceFactory)
 
         val exoPlayer = ExoPlayer.Builder(this, renderersFactory, mediaSourceFactory)
             .setAudioAttributes(

@@ -86,7 +86,9 @@ class IngestionWorker(
                         retriever.setDataSource(file.dataPath)
                         val artBytes = retriever.embeddedPicture
                         if (artBytes != null && artBytes.isNotEmpty()) {
-                            val artFile = java.io.File(applicationContext.cacheDir, "art_${file.dataPath.hashCode()}.jpg")
+                            val coversDir = java.io.File(applicationContext.filesDir, "covers")
+                            if (!coversDir.exists()) coversDir.mkdirs()
+                            val artFile = java.io.File(coversDir, "art_${file.dataPath.hashCode()}.jpg")
                             artFile.writeBytes(artBytes)
                             NativeBridge.updateTrackCoverArt(trackId, artFile.absolutePath)
                         }

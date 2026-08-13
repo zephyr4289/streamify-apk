@@ -113,17 +113,21 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         )
                     }
                     results
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     e.printStackTrace()
                     emptyList<OnlineSearchResult>()
                 }
             }
 
-            _uiState.value = SearchUiState.Success(
-                localResults = localResults,
-                onlineResults = onlineResults,
-                isOnlineLoading = false
-            )
+            if (kotlinx.coroutines.isActive) {
+                _uiState.value = SearchUiState.Success(
+                    localResults = localResults,
+                    onlineResults = onlineResults,
+                    isOnlineLoading = false
+                )
+            }
         }
     }
 
