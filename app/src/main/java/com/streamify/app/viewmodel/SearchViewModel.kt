@@ -68,37 +68,54 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         prefs?.edit()?.remove("history")?.apply()
     }
 
+    private val searchCache = android.util.LruCache<String, List<OnlineSearchResult>>(100)
+    private var historyJob: kotlinx.coroutines.Job? = null
+
     fun search(query: String) {
         searchJob?.cancel()
+        historyJob?.cancel()
 
-        if (query.isBlank()) {
+        val cleanQuery = query.trim()
+
+        if (cleanQuery.isBlank()) {
             _uiState.value = SearchUiState.Idle
             return
         }
 
-        // Add to history after a short delay so typing doesn't spam history
-        searchJob = viewModelScope.launch {
+        historyJob = viewModelScope.launch {
             kotlinx.coroutines.delay(1000)
-            addQueryToHistory(query)
+            addQueryToHistory(cleanQuery)
         }
 
         searchJob = viewModelScope.launch {
             // 1. Instantaneous Local Search (Sub-millisecond JNI)
-            val localResults = repository.searchTracks(query)
+            val localResults = repository.searchTracks(cleanQuery)
+
+            // 2. Check In-Memory LRU Cache for Instant Online Results (0ms)
+            val cachedOnline = searchCache.get(cleanQuery.lowercase())
+            if (cachedOnline != null) {
+                _uiState.value = SearchUiState.Success(
+                    localResults = localResults,
+                    onlineResults = cachedOnline,
+                    isOnlineLoading = false
+                )
+                return@launch
+            }
+
             _uiState.value = SearchUiState.Success(
                 localResults = localResults,
                 onlineResults = emptyList(),
                 isOnlineLoading = true
             )
 
-            // 2. Debounce & Async Online Search (Chaquopy yt-dlp)
-            kotlinx.coroutines.delay(300)
+            // 3. Optimized Short Debounce & Fast Parallel Online Search
+            kotlinx.coroutines.delay(150)
             
             val onlineResults = withContext(Dispatchers.IO) {
                 try {
                     val py = Python.getInstance()
                     val searchModule = py.getModule("download_engine.search")
-                    val resultJson = searchModule.callAttr("search_youtube", query).toString()
+                    val resultJson = searchModule.callAttr("search_youtube", cleanQuery).toString()
                     val jsonArray = org.json.JSONArray(resultJson)
                     val results = mutableListOf<OnlineSearchResult>()
                     for (i in 0 until jsonArray.length()) {
@@ -112,6 +129,9 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                                 thumbnail = obj.optString("thumbnail", "")
                             )
                         )
+                    }
+                    if (results.isNotEmpty()) {
+                        searchCache.put(cleanQuery.lowercase(), results)
                     }
                     results
                 } catch (e: kotlinx.coroutines.CancellationException) {
