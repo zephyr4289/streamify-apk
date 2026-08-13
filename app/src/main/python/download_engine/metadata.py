@@ -6,22 +6,10 @@ from mutagen.mp4 import MP4, MP4Cover
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, USLT, ID3NoHeaderError
 import mutagen
 
+from download_engine.lyrics import fetch_lyrics
+
 def fetch_lrclib_lyrics(title, artist, duration_sec):
-    try:
-        clean_title = title.split("(feat.")[0].strip()
-        primary_artist = artist.split(",")[0].split(" feat.")[0].strip()
-        url = f"https://lrclib.net/api/get?track_name={urllib.parse.quote(clean_title)}&artist_name={urllib.parse.quote(primary_artist)}"
-        if duration_sec > 0:
-            url += f"&duration={duration_sec}"
-            
-        req = urllib.request.Request(url, headers={'User-Agent': 'Streamify'})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode())
-                return data.get("syncedLyrics") or data.get("plainLyrics")
-    except Exception:
-        pass
-    return None
+    return fetch_lyrics(title, artist, duration_sec)
 
 def inject_metadata(filepath, title, artist, album, cover_art_path=None):
     try:
