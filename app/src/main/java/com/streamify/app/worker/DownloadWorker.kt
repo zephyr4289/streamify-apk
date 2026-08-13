@@ -105,9 +105,9 @@ class DownloadWorker(
 
             val success = coreModule.callAttr("download_audio", url, outputDir.absolutePath, callback, quality).toBoolean()
             
-            val targetPath = completedFilePath ?: outputDir.listFiles()?.firstOrNull { 
+            val targetPath = completedFilePath ?: outputDir.listFiles()?.filter { 
                 it.name.endsWith(".mp3") || it.name.endsWith(".m4a") || it.name.endsWith(".webm") || it.name.endsWith(".opus")
-            }?.absolutePath
+            }?.maxByOrNull { it.lastModified() }?.absolutePath
 
             if (success && targetPath != null && File(targetPath).exists()) {
                 // Inject metadata and extract cover art & lyrics path

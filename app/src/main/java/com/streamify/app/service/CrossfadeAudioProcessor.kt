@@ -9,7 +9,7 @@ import kotlin.math.sqrt
 
 class CrossfadeAudioProcessor : AudioProcessor {
     companion object {
-        var crossfadeDurationMs = 5000L // Configurable 0s - 12s
+        var crossfadeDurationMs = 0L // Default 0s (Disabled for direct playback)
         private var trackABuffer: ShortArray? = null
         private var trackAWritePos = 0
         private var trackAReadPos = 0
@@ -27,7 +27,8 @@ class CrossfadeAudioProcessor : AudioProcessor {
     private var fadeFramesCurrent = 0
 
     override fun configure(inputAudioFormat: AudioFormat): AudioFormat {
-        if (inputAudioFormat.encoding != androidx.media3.common.C.ENCODING_PCM_16BIT) {
+        if (crossfadeDurationMs <= 0 || inputAudioFormat.encoding != androidx.media3.common.C.ENCODING_PCM_16BIT) {
+            isActive = false
             return AudioFormat.NOT_SET
         }
         this.inputAudioFormat = inputAudioFormat

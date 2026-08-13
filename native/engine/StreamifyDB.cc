@@ -245,7 +245,8 @@ int StreamifyDB::insertTrack(const std::string& filepath, const std::string& tit
     sqlite3* db = getConnection();
     if (!db) return -1;
 
-    const char* sql = "INSERT INTO tracks (filepath, title, artist, album, duration_sec, bpm) VALUES (?, ?, ?, ?, ?, ?);";
+    const char* sql = "INSERT INTO tracks (filepath, title, artist, album, duration_sec, bpm) VALUES (?, ?, ?, ?, ?, ?) "
+                      "ON CONFLICT(filepath) DO UPDATE SET title=excluded.title, artist=excluded.artist, album=excluded.album, duration_sec=excluded.duration_sec, bpm=excluded.bpm;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
 
@@ -258,11 +259,32 @@ int StreamifyDB::insertTrack(const std::string& filepath, const std::string& tit
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
         sqlite3_finalize(stmt);
-        return -1;
+        const char* sel_sql = "SELECT id FROM tracks WHERE filepath = ?;";
+        sqlite3_stmt* sel_stmt = nullptr;
+        int found_id = -1;
+        if (sqlite3_prepare_v2(db, sel_sql, -1, &sel_stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(sel_stmt, 1, filepath.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(sel_stmt) == SQLITE_ROW) {
+                found_id = sqlite3_column_int(sel_stmt, 0);
+            }
+            sqlite3_finalize(sel_stmt);
+        }
+        return found_id;
     }
 
     int id = sqlite3_last_insert_rowid(db);
     sqlite3_finalize(stmt);
+    if (id <= 0) {
+        const char* sel_sql = "SELECT id FROM tracks WHERE filepath = ?;";
+        sqlite3_stmt* sel_stmt = nullptr;
+        if (sqlite3_prepare_v2(db, sel_sql, -1, &sel_stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(sel_stmt, 1, filepath.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(sel_stmt) == SQLITE_ROW) {
+                id = sqlite3_column_int(sel_stmt, 0);
+            }
+            sqlite3_finalize(sel_stmt);
+        }
+    }
     return id;
 }
 
