@@ -2,9 +2,12 @@ package com.streamify.app.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Share
@@ -16,21 +19,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.streamify.app.data.PlaylistRepository
+import com.streamify.app.data.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyShapes
 import com.streamify.app.ui.theme.StreamifyType
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,7 +47,10 @@ fun ContextMenuSheet(
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var showEditDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var showPlaylistDialog by remember { mutableStateOf(false) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    val playlists by PlaylistRepository.playlists.collectAsState()
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -91,7 +98,7 @@ fun ContextMenuSheet(
                 }
             }
 
-            Divider(color = StreamifyColors.Divider, thickness = 1.dp)
+            HorizontalDivider(color = StreamifyColors.Divider, thickness = 1.dp)
 
             // Actions
             ContextActionItem(
@@ -122,7 +129,6 @@ fun ContextMenuSheet(
                 icon = Icons.Filled.Download,
                 text = "Download",
                 onClick = {
-                    // Navigate to download screen or trigger download service
                     onDismissRequest()
                 }
             )
@@ -130,12 +136,11 @@ fun ContextMenuSheet(
                 icon = Icons.Filled.Share,
                 text = "Share",
                 onClick = {
-                    // Trigger system share sheet
                     onDismissRequest()
                 }
             )
             ContextActionItem(
-                icon = androidx.compose.material.icons.Icons.Filled.Edit,
+                icon = Icons.Filled.Edit,
                 text = "Edit Info",
                 onClick = {
                     showEditDialog = true
@@ -145,10 +150,10 @@ fun ContextMenuSheet(
     }
 
     if (showEditDialog) {
-        var editTitle by remember { androidx.compose.runtime.mutableStateOf(track.title) }
-        var editArtist by remember { androidx.compose.runtime.mutableStateOf(track.artist) }
-        var editAlbum by remember { androidx.compose.runtime.mutableStateOf(track.album) }
-        val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+        var editTitle by remember { mutableStateOf(track.title) }
+        var editArtist by remember { mutableStateOf(track.artist) }
+        var editAlbum by remember { mutableStateOf(track.album) }
+        val coroutineScope = rememberCoroutineScope()
 
         AlertDialog(
             onDismissRequest = { showEditDialog = false },
@@ -178,8 +183,8 @@ fun ContextMenuSheet(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        coroutineScope.kotlinx.coroutines.launch {
-                            com.streamify.app.data.TrackRepository.updateTrackMetadata(track.id, editTitle, editArtist, editAlbum)
+                        coroutineScope.launch {
+                            TrackRepository.updateTrackMetadata(track.id, editTitle, editArtist, editAlbum)
                             showEditDialog = false
                             onDismissRequest()
                         }
@@ -192,10 +197,6 @@ fun ContextMenuSheet(
             containerColor = StreamifyColors.BgCard
         )
     }
-
-    var showPlaylistDialog by remember { mutableStateOf(false) }
-    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
-    val playlists by com.streamify.app.data.PlaylistRepository.playlists.collectAsState()
 
     if (showPlaylistDialog) {
         AlertDialog(
@@ -211,7 +212,7 @@ fun ContextMenuSheet(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Create New Playlist", color = StreamifyColors.Primary)
                     }
-                    Divider(color = StreamifyColors.Divider)
+                    HorizontalDivider(color = StreamifyColors.Divider)
                     if (playlists.isEmpty()) {
                         Text("No playlists yet.", color = StreamifyColors.TextSub)
                     } else {
@@ -223,7 +224,7 @@ fun ContextMenuSheet(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            com.streamify.app.data.PlaylistRepository.addTrackToPlaylist(playlist.id, track.id)
+                                            PlaylistRepository.addTrackToPlaylist(playlist.id, track.id)
                                             showPlaylistDialog = false
                                             onDismissRequest()
                                         }
@@ -242,7 +243,7 @@ fun ContextMenuSheet(
     }
 
     if (showCreatePlaylistDialog) {
-        var playlistName by remember { androidx.compose.runtime.mutableStateOf("") }
+        var playlistName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showCreatePlaylistDialog = false },
             title = { Text("New Playlist", color = StreamifyColors.TextMain) },
@@ -258,7 +259,7 @@ fun ContextMenuSheet(
                 TextButton(
                     onClick = {
                         if (playlistName.isNotBlank()) {
-                            com.streamify.app.data.PlaylistRepository.createPlaylist(playlistName)
+                            PlaylistRepository.createPlaylist(playlistName)
                             showCreatePlaylistDialog = false
                             showPlaylistDialog = true
                         }
@@ -304,3 +305,4 @@ private fun ContextActionItem(
         )
     }
 }
+
