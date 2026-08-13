@@ -148,31 +148,32 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                 if (validId > 0) {
                                     val recentHistory = currentQueue.takeLast(20).map { it.id }.toIntArray()
                                     val recs = repository.getRecommendations(validId, recentHistory, 1, 5)
-                                if (recs.isNotEmpty()) {
-                                    val newQueue = currentQueue.toMutableList()
-                                    val newMediaItems = mutableListOf<MediaItem>()
-                                    for (rec in recs) {
-                                        if (!newQueue.any { it.id == rec.id }) {
-                                            newQueue.add(rec)
-                                            newMediaItems.add(
-                                                MediaItem.Builder()
-                                                    .setMediaId(rec.id.toString())
-                                                    .setUri(rec.filepath)
-                                                    .setMediaMetadata(
-                                                        MediaMetadata.Builder()
-                                                            .setTitle(rec.title)
-                                                            .setArtist(rec.artist)
-                                                            .setAlbumTitle(rec.album)
-                                                            .setArtworkUri(android.net.Uri.parse(rec.coverArtPath ?: ""))
-                                                            .build()
-                                                    ).build()
-                                            )
+                                    if (recs.isNotEmpty()) {
+                                        val newQueue = currentQueue.toMutableList()
+                                        val newMediaItems = mutableListOf<MediaItem>()
+                                        for (rec in recs) {
+                                            if (!newQueue.any { it.id == rec.id }) {
+                                                newQueue.add(rec)
+                                                newMediaItems.add(
+                                                    MediaItem.Builder()
+                                                        .setMediaId(rec.id.toString())
+                                                        .setUri(rec.filepath)
+                                                        .setMediaMetadata(
+                                                            MediaMetadata.Builder()
+                                                                .setTitle(rec.title)
+                                                                .setArtist(rec.artist)
+                                                                .setAlbumTitle(rec.album)
+                                                                .setArtworkUri(android.net.Uri.parse(rec.coverArtPath ?: ""))
+                                                                .build()
+                                                        ).build()
+                                                )
+                                            }
                                         }
-                                    }
-                                    if (newMediaItems.isNotEmpty()) {
-                                        withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                            _playerState.value = _playerState.value.copy(queue = newQueue)
-                                            ctrl.addMediaItems(newMediaItems)
+                                        if (newMediaItems.isNotEmpty()) {
+                                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                _playerState.value = _playerState.value.copy(queue = newQueue)
+                                                ctrl.addMediaItems(newMediaItems)
+                                            }
                                         }
                                     }
                                 }
