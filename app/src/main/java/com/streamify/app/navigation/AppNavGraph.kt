@@ -28,9 +28,8 @@ fun AppNavGraph(
             HomeScreen(
                 playerViewModel = playerViewModel,
                 dominantColor = dominantColor,
-                onTrackClick = { id, list ->
-                    val track = list.find { it.id == id }
-                    if (track != null) playerViewModel.playTrack(track, list)
+                onTrackClick = { track, list ->
+                    playerViewModel.playTrack(track, list)
                 },
                 onSettingsClick = {
                     navController.navigate("settings")
@@ -40,18 +39,16 @@ fun AppNavGraph(
         composable("search") {
             SearchScreen(
                 playerViewModel = playerViewModel,
-                onTrackClick = { trackId, allTracks ->
-                    val track = allTracks.find { it.id == trackId }
-                    if (track != null) playerViewModel.playTrack(track, allTracks)
+                onTrackClick = { track, allTracks ->
+                    playerViewModel.playTrack(track, allTracks)
                 }
             )
         }
         composable("library") {
             LibraryScreen(
                 playerViewModel = playerViewModel,
-                onTrackClick = { trackId, allTracks ->
-                    val track = allTracks.find { it.id == trackId }
-                    if (track != null) playerViewModel.playTrack(track, allTracks)
+                onTrackClick = { track, allTracks ->
+                    playerViewModel.playTrack(track, allTracks)
                 }
             )
         }

@@ -40,7 +40,7 @@ fun SearchScreen(
     playerViewModel: PlayerViewModel,
     viewModel: SearchViewModel = viewModel(),
     ingestionViewModel: IngestionViewModel = viewModel(),
-    onTrackClick: (Int, List<com.streamify.app.data.models.Track>) -> Unit
+    onTrackClick: (com.streamify.app.data.models.Track, List<com.streamify.app.data.models.Track>) -> Unit
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
@@ -214,7 +214,7 @@ fun SearchScreen(
                         items(state.localResults, key = { it.id }) { track ->
                             TrackListItem(
                                 track = track,
-                                onClick = { onTrackClick(track.id, (uiState as? SearchUiState.Success)?.localResults ?: emptyList()) },
+                                onClick = { onTrackClick(track, (uiState as? SearchUiState.Success)?.localResults ?: emptyList()) },
                                 onOptionsClick = { selectedOptionsTrack = track }
                             )
                         }

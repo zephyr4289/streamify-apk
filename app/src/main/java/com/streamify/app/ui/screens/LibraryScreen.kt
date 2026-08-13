@@ -35,7 +35,7 @@ fun LibraryScreen(
     playerViewModel: PlayerViewModel,
     viewModel: LibraryViewModel = viewModel(),
     ingestionViewModel: com.streamify.app.viewmodel.IngestionViewModel = viewModel(),
-    onTrackClick: (Int, List<com.streamify.app.data.models.Track>) -> Unit
+    onTrackClick: (com.streamify.app.data.models.Track, List<com.streamify.app.data.models.Track>) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val downloadTasks by ingestionViewModel.downloadTasks.collectAsState()
@@ -385,7 +385,7 @@ fun LibraryScreen(
                                 items(displayTracks, key = { it.id }) { track ->
                                     TrackListItem(
                                         track = track,
-                                        onClick = { onTrackClick(track.id, displayTracks) },
+                                        onClick = { onTrackClick(track, displayTracks) },
                                         onOptionsClick = { selectedOptionsTrack = track }
                                     )
                                 }

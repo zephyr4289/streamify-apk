@@ -16,17 +16,12 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val renderersFactory = object : DefaultRenderersFactory(this) {
-            override fun buildAudioSink(
-                context: android.content.Context,
-                enableFloatOutput: Boolean,
-                enableAudioTrackPlaybackParams: Boolean
-            ): androidx.media3.exoplayer.audio.AudioSink {
-                return DefaultAudioSink.Builder(context)
-                    .setAudioProcessors(arrayOf(CrossfadeAudioProcessor()))
-                    .build()
-            }
-        }
+        val audioSink = DefaultAudioSink.Builder(this)
+            .setAudioProcessors(arrayOf(CrossfadeAudioProcessor()))
+            .build()
+
+        val renderersFactory = DefaultRenderersFactory(this)
+            .setAudioSink(audioSink)
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")

@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
                             .data(path)
                             .allowHardware(false)
                             .build()
-                        val result = (context.imageLoader.execute(request) as? coil.request.SuccessResult)?.drawable
+                        val result = (coil.Coil.imageLoader(context).execute(request) as? coil.request.SuccessResult)?.drawable
                         val bitmap = (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
                         if (bitmap != null) {
                             androidx.palette.graphics.Palette.from(bitmap).generate { palette ->

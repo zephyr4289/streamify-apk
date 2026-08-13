@@ -31,7 +31,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel(),
     playerViewModel: com.streamify.app.viewmodel.PlayerViewModel,
     dominantColor: androidx.compose.ui.graphics.Color = StreamifyColors.BgBase,
-    onTrackClick: (Int, List<Track>) -> Unit,
+    onTrackClick: (Track, List<Track>) -> Unit,
     onSettingsClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -150,7 +150,7 @@ fun HomeScreen(
                                         RecentPlayCard(
                                             title = track.title,
                                             imageUrl = track.coverArtPath,
-                                            onClick = { onTrackClick(track.id, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) },
+                                            onClick = { onTrackClick(track, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) },
                                             modifier = Modifier.weight(1f)
                                         )
                                     }
@@ -178,7 +178,7 @@ fun HomeScreen(
                                 items(state.recommendations, key = { it.id }) { track ->
                                     TrackCard(
                                         track = track,
-                                        onClick = { onTrackClick(track.id, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) }
+                                        onClick = { onTrackClick(track, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) }
                                     )
                                 }
                             }
@@ -201,7 +201,7 @@ fun HomeScreen(
                                 items(state.allTracks, key = { it.id }) { track ->
                                     TrackCard(
                                         track = track,
-                                        onClick = { onTrackClick(track.id, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) }
+                                        onClick = { onTrackClick(track, (uiState as? HomeUiState.Success)?.allTracks ?: emptyList()) }
                                     )
                                 }
                             }
