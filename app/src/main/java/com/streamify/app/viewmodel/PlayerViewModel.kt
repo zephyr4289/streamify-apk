@@ -146,7 +146,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                     ).toInt()
                                 }
                                 if (validId > 0) {
-                                    val recentHistory = currentQueue.takeLast(5).map { it.id }.toIntArray()
+                                    val recentHistory = currentQueue.takeLast(20).map { it.id }.toIntArray()
                                     val recs = repository.getRecommendations(validId, recentHistory, 1, 5)
                                 if (recs.isNotEmpty()) {
                                     val newQueue = currentQueue.toMutableList()

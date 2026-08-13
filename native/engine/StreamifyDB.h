@@ -60,6 +60,7 @@ public:
     bool insertTransition(int user_id, int from_track_id, int to_track_id, const std::string& type);
     float getTransitionProbability(int user_id, int from_track_id, int to_track_id);
     int getSkipCount(int user_id, int from_track_id, int to_track_id);
+    int getTrackTotalSkipCount(int user_id, int track_id);
 
 private:
     StreamifyDB() = default;

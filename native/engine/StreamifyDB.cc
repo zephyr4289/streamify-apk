@@ -583,3 +583,19 @@ int StreamifyDB::getSkipCount(int user_id, int from_track_id, int to_track_id) {
     }
     return skipCount;
 }
+
+int StreamifyDB::getTrackTotalSkipCount(int user_id, int track_id) {
+    sqlite3* db = getConnection();
+    if (!db) return 0;
+
+    int skipCount = 0;
+    const char* sql = "SELECT COUNT(*) FROM user_transitions WHERE user_id = ? AND to_track_id = ? AND event_type = 'skip';";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, user_id);
+        sqlite3_bind_int(stmt, 2, track_id);
+        if (sqlite3_step(stmt) == SQLITE_ROW) skipCount = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+    }
+    return skipCount;
+}

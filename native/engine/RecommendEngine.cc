@@ -4,6 +4,17 @@
 #include <unordered_set>
 #include <algorithm>
 #include <cmath>
+#include <cctype>
+
+static bool equalsIgnoreCase(const std::string& a, const std::string& b) {
+    if (a.length() != b.length()) return false;
+    for (size_t i = 0; i < a.length(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
 
 RecommendEngine& RecommendEngine::getInstance() {
     static RecommendEngine instance;
@@ -13,10 +24,25 @@ RecommendEngine& RecommendEngine::getInstance() {
 std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, const std::vector<int>& recentHistory, int limit) {
     auto& db = StreamifyDB::getInstance();
     auto curTrack = db.getTrackById(currentTrackId);
-    if (!curTrack) return {};
+    if (!curTrack) {
+        // Cold-start Fallback: If current track not found by ID, return top tracks in DB
+        auto allTracks = db.getAllTracks();
+        std::vector<Recommendation> fallback;
+        for (const auto& t : allTracks) {
+            if (t.id != currentTrackId) {
+                fallback.push_back({t.id, 1.0f});
+                if (fallback.size() >= static_cast<size_t>(limit)) break;
+            }
+        }
+        return fallback;
+    }
 
     std::unordered_set<int> excluded_tracks(recentHistory.begin(), recentHistory.end());
     excluded_tracks.insert(currentTrackId);
+
+    // Fetch user liked tracks for affinity boosting (user_id = 1)
+    std::vector<int> likedIdsVec = db.getUserLikedTrackIds(1);
+    std::unordered_set<int> liked_set(likedIdsVec.begin(), likedIdsVec.end());
 
     auto& vecStore = VectorStore::getInstance();
     int target_offset = curTrack->vector_offset;
@@ -25,8 +51,8 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
     if (!session_vec.empty()) {
         for (float& val : session_vec) val *= 0.70f;
         
-        float weights[] = {0.20f, 0.10f};
-        for (size_t h = 0; h < recentHistory.size() && h < 2; ++h) {
+        float weights[] = {0.15f, 0.10f, 0.05f};
+        for (size_t h = 0; h < recentHistory.size() && h < 3; ++h) {
             int hist_id = recentHistory[h];
             if (hist_id == currentTrackId) continue;
             auto histTrack = db.getTrackById(hist_id);
@@ -50,40 +76,83 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
     std::vector<SearchResult> nearestResults;
     if (!session_vec.empty()) {
         nearestResults = vecStore.searchNearest(session_vec, 100);
-    } else {
+    } else if (target_offset >= 0) {
         nearestResults = vecStore.searchNearest(target_offset, 100);
     }
 
-    // Skip/Transition DB queries for behavioral scores aren't available yet in StreamifyDB port. 
-    // We will stub them as 0, or we could add them to StreamifyDB.
-    // For now, let's keep it simple and just rank by similarity and BPM.
-    
     std::vector<Recommendation> candidates;
-    const float beta = 0.25f;
+    const float beta_bpm = 0.20f;
+    const float artist_boost = 0.25f;
+    const float liked_boost = 0.35f;
+    const float skip_penalty_factor = 0.15f;
 
-    for (const auto& res : nearestResults) {
-        // Need to find track by vector_offset. We don't have getTrackByVectorOffset yet.
-        // I will assume vector_offset == trackId to simplify, or write getTrackByVectorOffset.
-        // But for now, we'll assume vector_offset IS the trackId - 1 or something, wait: the DB has a vector_offset column.
-        // I'll add a helper to StreamifyDB:
-        auto candidateTrack = db.getTrackByVectorOffset(res.vector_offset);
-        if (!candidateTrack) continue;
+    std::unordered_set<int> candidate_ids_added;
 
-        int track_id = candidateTrack->id;
-        if (excluded_tracks.count(track_id) > 0) continue;
+    if (!nearestResults.empty()) {
+        for (const auto& res : nearestResults) {
+            auto candidateTrack = db.getTrackByVectorOffset(res.vector_offset);
+            if (!candidateTrack) continue;
 
-        float cosine_sim = res.similarity;
-        float bpm_score = 1.0f;
-        if (curTrack->bpm > 0 && candidateTrack->bpm > 0) {
-            float bpm_diff = std::abs(curTrack->bpm - candidateTrack->bpm);
-            float ratio = bpm_diff / curTrack->bpm;
-            bpm_score = std::max(0.0f, 1.0f - (ratio * 5.0f)); 
+            int track_id = candidateTrack->id;
+            if (excluded_tracks.count(track_id) > 0) continue;
+            if (candidate_ids_added.count(track_id) > 0) continue;
+
+            float cosine_sim = res.similarity;
+            
+            // BPM Tempo Match
+            float bpm_score = 1.0f;
+            if (curTrack->bpm > 0 && candidateTrack->bpm > 0) {
+                float bpm_diff = std::abs(curTrack->bpm - candidateTrack->bpm);
+                float ratio = bpm_diff / curTrack->bpm;
+                bpm_score = std::max(0.0f, 1.0f - (ratio * 5.0f)); 
+            }
+
+            // Artist Similarity Bonus
+            float a_boost = 0.0f;
+            if (!curTrack->artist.empty() && equalsIgnoreCase(curTrack->artist, candidateTrack->artist)) {
+                a_boost = artist_boost;
+            }
+
+            // Liked Song Affinity Boost
+            float l_boost = 0.0f;
+            if (liked_set.count(track_id) > 0) {
+                l_boost = liked_boost;
+            }
+
+            // Transition Probability Boost & Skip Penalty
+            float transition_prob = db.getTransitionProbability(1, currentTrackId, track_id);
+            int skip_count = db.getTrackTotalSkipCount(1, track_id);
+            float skip_penalty = std::min(1.0f, skip_count * skip_penalty_factor);
+
+            float final_score = cosine_sim + (beta_bpm * bpm_score) + a_boost + l_boost + (transition_prob * 0.30f) - skip_penalty;
+            candidates.push_back({track_id, final_score});
+            candidate_ids_added.insert(track_id);
         }
-
-        float final_score = cosine_sim + (beta * bpm_score);
-        candidates.push_back({track_id, final_score});
     }
 
+    // COLD-START / METADATA FALLBACK:
+    // If nearest vector results are empty or fewer than limit, pull remaining songs directly from DB
+    if (candidates.size() < static_cast<size_t>(limit)) {
+        auto allTracks = db.getAllTracks();
+        for (const auto& candidateTrack : allTracks) {
+            int track_id = candidateTrack.id;
+            if (excluded_tracks.count(track_id) > 0) continue;
+            if (candidate_ids_added.count(track_id) > 0) continue;
+
+            float base_score = 0.50f;
+            if (!curTrack->artist.empty() && equalsIgnoreCase(curTrack->artist, candidateTrack.artist)) {
+                base_score += artist_boost;
+            }
+            if (liked_set.count(track_id) > 0) {
+                base_score += liked_boost;
+            }
+
+            candidates.push_back({track_id, base_score});
+            candidate_ids_added.insert(track_id);
+        }
+    }
+
+    // Sort by final score descending
     std::sort(candidates.begin(), candidates.end(), [](const Recommendation& a, const Recommendation& b) {
         return a.score > b.score;
     });
