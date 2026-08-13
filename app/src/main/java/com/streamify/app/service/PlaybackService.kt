@@ -16,12 +16,17 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val audioSink = DefaultAudioSink.Builder(this)
-            .setAudioProcessors(arrayOf(CrossfadeAudioProcessor()))
-            .build()
-
-        val renderersFactory = DefaultRenderersFactory(this)
-            .setAudioSink(audioSink)
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: android.content.Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): androidx.media3.exoplayer.audio.AudioSink? {
+                return DefaultAudioSink.Builder(context)
+                    .setAudioProcessors(arrayOf(CrossfadeAudioProcessor()))
+                    .build()
+            }
+        }
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -32,8 +37,7 @@ class PlaybackService : MediaSessionService() {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(httpDataSourceFactory)
 
-        val exoPlayer = ExoPlayer.Builder(this, renderersFactory)
-            .setMediaSourceFactory(mediaSourceFactory)
+        val exoPlayer = ExoPlayer.Builder(this, renderersFactory, mediaSourceFactory)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -46,7 +50,7 @@ class PlaybackService : MediaSessionService() {
             .build()
         
         player = exoPlayer
-        exoPlayer.skipSilenceEnabled = true
+        exoPlayer.setSkipSilenceEnabled(true)
         
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
             override fun onAudioSessionIdChanged(audioSessionId: Int) {

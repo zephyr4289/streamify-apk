@@ -15,7 +15,7 @@ import com.streamify.app.ui.theme.StreamifyColors
 @Composable
 fun ShimmerPlaceholder(
     modifier: Modifier = Modifier,
-    shape: Shape
+    shape: Shape = StreamifyShapes.CardShape
 ) {
     val shimmerColors = listOf(
         StreamifyColors.BgCard,
