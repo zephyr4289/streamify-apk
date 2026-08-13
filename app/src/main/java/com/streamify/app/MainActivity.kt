@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
                 )
                 val scaffoldState = rememberBottomSheetScaffoldState(
                     bottomSheetState = sheetState,
-                    snackbarHostState = androidx.compose.material3.rememberSnackbarHostState()
+                    snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
                 )
 
                 LaunchedEffect(Unit) {
