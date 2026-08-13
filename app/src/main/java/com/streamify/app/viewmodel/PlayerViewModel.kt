@@ -297,23 +297,29 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
     
     fun toggleLike(trackToToggle: Track? = null) {
+        val track = trackToToggle ?: _playerState.value.currentTrack ?: return
+
+        val newIsLiked = !track.isLiked
+        val updatedQueue = _playerState.value.queue.map { item ->
+            if ((item.id != 0 && item.id == track.id) || (item.filepath.isNotBlank() && item.filepath == track.filepath)) {
+                item.copy(isLiked = newIsLiked)
+            } else item
+        }
+        val updatedCurrent = if (_playerState.value.currentTrack?.let { 
+            (it.id != 0 && it.id == track.id) || (it.filepath.isNotBlank() && it.filepath == track.filepath) 
+        } == true) {
+            _playerState.value.currentTrack?.copy(isLiked = newIsLiked)
+        } else {
+            _playerState.value.currentTrack
+        }
+
+        _playerState.value = _playerState.value.copy(
+            queue = updatedQueue,
+            currentTrack = updatedCurrent
+        )
+
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val track = trackToToggle ?: _playerState.value.currentTrack ?: return@launch
-            repository.toggleLike(track.id)
-            
-            val updatedQueue = _playerState.value.queue.map { item ->
-                if (item.id == track.id) item.copy(isLiked = !item.isLiked) else item
-            }
-            val updatedCurrent = if (_playerState.value.currentTrack?.id == track.id) {
-                _playerState.value.currentTrack?.copy(isLiked = !_playerState.value.currentTrack!!.isLiked)
-            } else {
-                _playerState.value.currentTrack
-            }
-            
-            _playerState.value = _playerState.value.copy(
-                queue = updatedQueue,
-                currentTrack = updatedCurrent
-            )
+            repository.toggleLike(track.id, track = track)
         }
     }
 

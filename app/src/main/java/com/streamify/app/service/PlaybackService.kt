@@ -31,8 +31,13 @@ class PlaybackService : MediaSessionService() {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(10000)
-            .setReadTimeoutMs(10000)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(15000)
+            .setDefaultRequestProperties(mapOf(
+                "Accept" to "*/*",
+                "Accept-Encoding" to "gzip, deflate, br",
+                "Connection" to "keep-alive"
+            ))
 
         val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
 

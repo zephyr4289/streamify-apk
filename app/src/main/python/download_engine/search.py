@@ -81,15 +81,24 @@ def get_stream_url(url):
         'quiet': True,
         'no_warnings': True,
         'ignoreerrors': True,
+        'nocheckcertificate': True,
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            if info and 'url' in info:
-                return info['url']
-            elif info and 'entries' in info and len(info['entries']) > 0:
-                return info['entries'][0]['url']
+            if info:
+                if 'entries' in info and len(info['entries']) > 0:
+                    info = info['entries'][0]
+                target_url = info.get('url', '')
+                if target_url:
+                    headers = info.get('http_headers', {})
+                    user_agent = headers.get('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+                    return json.dumps({
+                        'url': target_url,
+                        'user_agent': user_agent
+                    })
         return ""
     except Exception as e:
         print(f"Stream URL error: {e}")
         return ""
+

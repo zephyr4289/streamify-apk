@@ -153,7 +153,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             )
 
             // 2. Fetch the direct stream URL
-            val streamUrl = withContext(Dispatchers.IO) {
+            val rawStreamResult = withContext(Dispatchers.IO) {
                 try {
                     val py = Python.getInstance()
                     val searchModule = py.getModule("download_engine.search")
@@ -164,7 +164,18 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 }
             }
 
-            if (streamUrl.isNotBlank()) {
+            val directUrl = try {
+                if (rawStreamResult.trim().startsWith("{")) {
+                    val jsonObj = org.json.JSONObject(rawStreamResult)
+                    jsonObj.optString("url", "")
+                } else {
+                    rawStreamResult
+                }
+            } catch (e: Exception) {
+                rawStreamResult
+            }
+
+            if (directUrl.isNotBlank()) {
                 // 3. Construct a transient track and stream it immediately
                 val transientTrack = Track(
                     id = -(onlineTrack.url.hashCode()), // Negative ID for transient online tracks
@@ -172,7 +183,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                     artist = onlineTrack.uploader,
                     album = "Online Stream",
                     durationSec = onlineTrack.duration,
-                    filepath = streamUrl,
+                    filepath = directUrl,
                     coverArtPath = onlineTrack.thumbnail,
                     bpm = 0f,
                     key = "",

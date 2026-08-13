@@ -43,10 +43,46 @@ object TrackRepository {
         liked
     }
     
-    suspend fun toggleLike(trackId: Int, userId: Int = 1): Boolean = withContext(Dispatchers.IO) {
-        val result = NativeBridge.toggleLike(userId, trackId)
-        refresh()
-        result
+    suspend fun toggleLike(trackId: Int, userId: Int = 1, track: Track? = null): Boolean = withContext(Dispatchers.IO) {
+        var targetId = trackId
+
+        // If trackId is invalid (<=0) or missing from SQLite, auto-insert track into DB first
+        if (targetId <= 0 && track != null && track.filepath.isNotBlank()) {
+            val insertedId = NativeBridge.insertTrack(
+                filepath = track.filepath,
+                title = track.title,
+                artist = track.artist,
+                album = track.album,
+                durationSec = track.durationSec,
+                bpm = track.bpm
+            ).toInt()
+            if (insertedId > 0) {
+                targetId = insertedId
+            }
+        } else if (targetId <= 0) {
+            val found = _allTracks.value.find { it.id == trackId || (track != null && it.filepath == track.filepath) }
+            if (found != null && found.filepath.isNotBlank()) {
+                val insertedId = NativeBridge.insertTrack(
+                    filepath = found.filepath,
+                    title = found.title,
+                    artist = found.artist,
+                    album = found.album,
+                    durationSec = found.durationSec,
+                    bpm = found.bpm
+                ).toInt()
+                if (insertedId > 0) {
+                    targetId = insertedId
+                }
+            }
+        }
+
+        if (targetId > 0) {
+            val result = NativeBridge.toggleLike(userId, targetId)
+            refresh()
+            result
+        } else {
+            false
+        }
     }
 
     suspend fun getRecommendations(trackId: Int, recentHistory: IntArray = intArrayOf(), userId: Int = 1, limit: Int = 10): List<Track> = withContext(Dispatchers.IO) {
