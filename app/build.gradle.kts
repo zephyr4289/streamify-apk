@@ -8,12 +8,14 @@ android {
     namespace = "com.streamify.app"
     compileSdk = 34
 
+    val buildNum = (System.getenv("GITHUB_RUN_NUMBER") ?: System.getenv("BUILD_NUMBER") ?: "1").toIntOrNull() ?: 1
+
     defaultConfig {
         applicationId = "com.streamify.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = buildNum
+        versionName = "1.0.$buildNum"
 
         externalNativeBuild {
             cmake {
