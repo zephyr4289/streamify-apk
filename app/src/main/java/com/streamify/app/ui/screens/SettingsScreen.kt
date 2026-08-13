@@ -1,6 +1,7 @@
 package com.streamify.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
@@ -96,7 +97,7 @@ fun SettingsScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .androidx.compose.foundation.clickable {
+                                    .clickable {
                                         selectedQuality = kbps
                                         audioPrefs.edit().putString("download_quality", kbps).apply()
                                     }
