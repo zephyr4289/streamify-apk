@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -121,7 +122,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 }
             }
 
-            if (kotlinx.coroutines.isActive) {
+            if (isActive) {
                 _uiState.value = SearchUiState.Success(
                     localResults = localResults,
                     onlineResults = onlineResults,
