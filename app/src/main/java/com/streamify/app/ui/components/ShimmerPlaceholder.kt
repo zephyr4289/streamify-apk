@@ -11,6 +11,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shape
 import com.streamify.app.ui.theme.StreamifyColors
+import com.streamify.app.ui.theme.StreamifyShapes
 
 @Composable
 fun ShimmerPlaceholder(
