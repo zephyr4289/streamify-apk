@@ -1,4 +1,5 @@
 #include "VectorStore.h"
+#include <cmath>
 #if defined(__ARM_NEON)
 #include <arm_neon.h>
 #elif defined(__AVX__) || defined(__AVX2__)
