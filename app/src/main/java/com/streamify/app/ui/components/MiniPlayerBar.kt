@@ -2,7 +2,7 @@ package com.streamify.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
@@ -19,6 +19,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,6 +31,7 @@ import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyShapes
 import com.streamify.app.ui.theme.StreamifyType
+import kotlin.math.abs
 
 @Composable
 fun MiniPlayerBar(
@@ -51,12 +54,12 @@ fun MiniPlayerBar(
             .fillMaxWidth()
             .padding(horizontal = StreamifyDimens.MiniPlayerMargin)
             .padding(bottom = StreamifyDimens.MiniPlayerMargin)
-            .androidx.compose.ui.draw.shadow(8.dp, StreamifyShapes.MiniPlayerShape, spotColor = androidx.compose.ui.graphics.Color.Black)
+            .shadow(8.dp, StreamifyShapes.MiniPlayerShape, spotColor = Color.Black)
             .clip(StreamifyShapes.MiniPlayerShape)
             .background(StreamifyColors.BgElevated.copy(alpha = 0.95f))
             .clickable(onClick = onExpand)
             .pointerInput(Unit) {
-                androidx.compose.foundation.gestures.detectDragGestures(
+                detectDragGestures(
                     onDragEnd = { 
                         if (totalDrag < -50f) onNext()
                         else if (totalDrag > 50f) onPrevious()
@@ -64,7 +67,7 @@ fun MiniPlayerBar(
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        if (kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
+                        if (abs(dragAmount.x) > abs(dragAmount.y)) {
                             totalDrag += dragAmount.x
                         } else if (dragAmount.y < -30f) {
                             onExpand()
