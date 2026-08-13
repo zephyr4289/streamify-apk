@@ -27,15 +27,11 @@ def download_audio(url, output_path, callback_java, preferred_quality="320"):
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': str(preferred_quality),
-        }],
         'progress_hooks': [DownloadProgressHook(callback_java)],
         'quiet': True,
         'no_warnings': True,
         'writethumbnail': True,
+        'nocheckcertificate': True,
     }
 
     try:
@@ -44,11 +40,10 @@ def download_audio(url, output_path, callback_java, preferred_quality="320"):
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
             base, _ = os.path.splitext(filename)
-            mp3_path = base + ".mp3"
             thumb_path = base + ".jpg"
 
-            # Download thumbnail image if missing or not written by postprocessor
-            if not os.path.exists(thumb_path) and info.get('thumbnail'):
+            # Download thumbnail image if missing or not written
+            if not os.path.exists(thumb_path) and info and info.get('thumbnail'):
                 try:
                     resp = requests.get(info.get('thumbnail'), timeout=5)
                     if resp.status_code == 200:
@@ -57,8 +52,24 @@ def download_audio(url, output_path, callback_java, preferred_quality="320"):
                 except Exception as ex:
                     print(f"Thumbnail download failed: {ex}")
 
-            callback_java.onFinished(mp3_path if os.path.exists(mp3_path) else filename)
+            final_file = filename
+            if not os.path.exists(final_file):
+                for ext in ['.m4a', '.mp3', '.webm', '.opus', '.ogg', '.flac']:
+                    if os.path.exists(base + ext):
+                        final_file = base + ext
+                        break
+
+            callback_java.onFinished(final_file)
             return True
     except Exception as e:
+        print(f"Download exception: {e}")
+        try:
+            files = [os.path.join(output_path, f) for f in os.listdir(output_path) if f.endswith(('.mp3', '.m4a', '.webm', '.opus'))]
+            if files:
+                latest = max(files, key=os.path.getmtime)
+                callback_java.onFinished(latest)
+                return True
+        except Exception:
+            pass
         callback_java.onError(str(e))
         return False

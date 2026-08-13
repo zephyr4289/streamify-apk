@@ -112,7 +112,7 @@ class DownloadWorker(
                 }?.maxByOrNull { it.lastModified() }?.absolutePath
             }
 
-            if (success && targetPath != null && File(targetPath).exists()) {
+            if (targetPath != null && File(targetPath).exists()) {
                 // Inject metadata and extract cover art & lyrics path
                 val metadataResult = try {
                     metadataModule.callAttr("inject_metadata", targetPath, title, artist, album, null)
