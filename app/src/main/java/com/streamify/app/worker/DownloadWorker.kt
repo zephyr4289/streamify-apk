@@ -64,7 +64,10 @@ class DownloadWorker(
         val url = inputData.getString("url") ?: return@withContext Result.failure()
         val title = inputData.getString("title") ?: "Unknown"
         val artist = inputData.getString("artist") ?: "Unknown"
-        val album = inputData.getString("album") ?: "Unknown"
+        var album = inputData.getString("album") ?: "Streamify"
+        if (album.isBlank() || album == "Unknown" || album == "Downloads") {
+            album = "Streamify"
+        }
         
         val quality = inputData.getString("quality") ?: "320"
         
@@ -72,7 +75,7 @@ class DownloadWorker(
         if (!musicDir.exists()) {
             try { musicDir.mkdirs() } catch (e: Exception) { e.printStackTrace() }
         }
-        val outputDir = if (musicDir.exists()) musicDir else File(applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC), "Downloads")
+        val outputDir = if (musicDir.exists()) musicDir else File(applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC), "Streamify")
         if (!outputDir.exists()) outputDir.mkdirs()
 
         try {
@@ -102,7 +105,9 @@ class DownloadWorker(
 
             val success = coreModule.callAttr("download_audio", url, outputDir.absolutePath, callback, quality).toBoolean()
             
-            val targetPath = completedFilePath ?: outputDir.listFiles()?.firstOrNull { it.name.endsWith(".mp3") || it.name.endsWith(".m4a") }?.absolutePath
+            val targetPath = completedFilePath ?: outputDir.listFiles()?.firstOrNull { 
+                it.name.endsWith(".mp3") || it.name.endsWith(".m4a") || it.name.endsWith(".webm") || it.name.endsWith(".opus")
+            }?.absolutePath
 
             if (success && targetPath != null && File(targetPath).exists()) {
                 // Inject metadata and extract cover art & lyrics path
@@ -154,6 +159,35 @@ class DownloadWorker(
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
+
+                    // Auto-assign to 'Streamify' Playlist
+                    try {
+                        com.streamify.app.data.PlaylistRepository.init(applicationContext)
+                        val repo = com.streamify.app.data.PlaylistRepository
+                        var playlist = repo.playlists.value.find { it.name.equals("Streamify", ignoreCase = true) }
+                        if (playlist == null) {
+                            repo.createPlaylist("Streamify", "Downloaded songs on Streamify")
+                            playlist = repo.playlists.value.find { it.name.equals("Streamify", ignoreCase = true) }
+                        }
+                        if (playlist != null) {
+                            repo.addTrackToPlaylist(playlist.id, trackId)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
+                    // Scan file with Android MediaStore
+                    try {
+                        android.media.MediaScannerConnection.scanFile(
+                            applicationContext,
+                            arrayOf(targetPath),
+                            null,
+                            null
+                        )
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
                     // Refresh repository flow so all UI screens update automatically
                     TrackRepository.refresh()
                 }

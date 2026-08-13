@@ -219,6 +219,36 @@ fun SearchScreen(
                             )
                         }
                     } 
+                    if (state.isOnlineLoading) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(StreamifyDimens.SpaceLG),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    color = StreamifyColors.Primary,
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
+                                Text(
+                                    text = "Searching YouTube...",
+                                    style = StreamifyType.TitleMedium,
+                                    color = StreamifyColors.Primary
+                                )
+                            }
+                        }
+                        items(4) {
+                            com.streamify.app.ui.components.ShimmerPlaceholder(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp)
+                                    .padding(horizontal = StreamifyDimens.SpaceLG, vertical = 6.dp)
+                            )
+                        }
+                    }
                     if (state.onlineResults.isNotEmpty()) {
                         item {
                             Text("YouTube Results", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
@@ -226,21 +256,21 @@ fun SearchScreen(
                         items(state.onlineResults, key = { it.url }) { onlineTrack ->
                             val mockTrack = com.streamify.app.data.models.Track(
                                 id = 0, title = onlineTrack.title, artist = onlineTrack.uploader,
-                                album = "Online", durationSec = onlineTrack.duration,
+                                album = "Streamify", durationSec = onlineTrack.duration,
                                 filepath = "", coverArtPath = onlineTrack.thumbnail.takeIf { it.isNotBlank() },
                                 bpm = 0f, key = "", lyricsPath = null, source = "online"
                             )
                             TrackListItem(
                                 track = mockTrack,
                                 onClick = { 
-                                    Toast.makeText(context, "Starting Stream & Background Download...", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Starting Stream & Download...", Toast.LENGTH_SHORT).show()
                                     viewModel.playOnlineTrack(onlineTrack, playerViewModel, ingestionViewModel, context)
                                 },
                                 onOptionsClick = { selectedOptionsTrack = mockTrack }
                             )
                         }
                     } 
-                    if (state.localResults.isEmpty() && state.onlineResults.isEmpty()) {
+                    if (!state.isOnlineLoading && state.localResults.isEmpty() && state.onlineResults.isEmpty()) {
                         item {
                             Box(modifier = Modifier.fillMaxWidth().padding(StreamifyDimens.SpaceXL), contentAlignment = Alignment.Center) {
                                 Text("No results found for \"$query\"", color = StreamifyColors.TextMain)

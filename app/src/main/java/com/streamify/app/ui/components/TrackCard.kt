@@ -4,10 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
-import coil.compose.AsyncImage
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.animations.cardPressEffect
 import com.streamify.app.ui.theme.StreamifyColors
@@ -26,13 +23,12 @@ fun TrackCard(
             .width(StreamifyDimens.CardWidth)
             .cardPressEffect(onClick = onClick)
     ) {
-        AsyncImage(
-            model = track.coverArtPath,
-            contentDescription = "Cover for ${track.title}",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(StreamifyDimens.CardArtSize)
-                .clip(StreamifyShapes.CardShape)
+        TrackCoverArt(
+            coverArtPath = track.coverArtPath,
+            title = track.title,
+            artist = track.artist,
+            modifier = Modifier.size(StreamifyDimens.CardArtSize),
+            shape = StreamifyShapes.CardShape
         )
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
         Text(
@@ -52,3 +48,4 @@ fun TrackCard(
         )
     }
 }
+

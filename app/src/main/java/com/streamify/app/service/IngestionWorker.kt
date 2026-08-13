@@ -79,6 +79,21 @@ class IngestionWorker(
 
                 if (trackId > 0) {
                     insertedCount++
+
+                    // Extract embedded cover art if present
+                    try {
+                        val retriever = android.media.MediaMetadataRetriever()
+                        retriever.setDataSource(file.dataPath)
+                        val artBytes = retriever.embeddedPicture
+                        if (artBytes != null && artBytes.isNotEmpty()) {
+                            val artFile = java.io.File(applicationContext.cacheDir, "art_${file.dataPath.hashCode()}.jpg")
+                            artFile.writeBytes(artBytes)
+                            NativeBridge.updateTrackCoverArt(trackId, artFile.absolutePath)
+                        }
+                        retriever.release()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
 
                 val progress = (index + 1).toFloat() / newFiles.size.toFloat()

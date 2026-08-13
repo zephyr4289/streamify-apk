@@ -7,9 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
-import coil.compose.AsyncImage
 import com.streamify.app.ui.animations.cardPressEffect
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
@@ -31,13 +29,12 @@ fun RecentPlayCard(
             .cardPressEffect(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AsyncImage(
-            model = imageUrl,
-            contentDescription = "Cover for $title",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(StreamifyDimens.RecentCardArt)
-                // Left corners only rounded based on container, but container is already clipped
+        TrackCoverArt(
+            coverArtPath = imageUrl,
+            title = title,
+            artist = "",
+            modifier = Modifier.size(StreamifyDimens.RecentCardArt),
+            shape = StreamifyShapes.CardShape
         )
         Spacer(modifier = Modifier.width(StreamifyDimens.SpaceSM))
         Text(
@@ -50,3 +47,4 @@ fun RecentPlayCard(
         )
     }
 }
+

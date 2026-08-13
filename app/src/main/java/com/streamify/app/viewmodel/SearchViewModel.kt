@@ -25,7 +25,8 @@ sealed class SearchUiState {
     object Loading : SearchUiState()
     data class Success(
         val localResults: List<Track>,
-        val onlineResults: List<OnlineSearchResult>
+        val onlineResults: List<OnlineSearchResult>,
+        val isOnlineLoading: Boolean = false
     ) : SearchUiState()
     data class Error(val message: String) : SearchUiState()
 }
@@ -85,7 +86,8 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             val localResults = repository.searchTracks(query)
             _uiState.value = SearchUiState.Success(
                 localResults = localResults,
-                onlineResults = emptyList()
+                onlineResults = emptyList(),
+                isOnlineLoading = true
             )
 
             // 2. Debounce & Async Online Search (Chaquopy yt-dlp)
@@ -119,7 +121,8 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
 
             _uiState.value = SearchUiState.Success(
                 localResults = localResults,
-                onlineResults = onlineResults
+                onlineResults = onlineResults,
+                isOnlineLoading = false
             )
         }
     }

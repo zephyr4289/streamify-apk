@@ -10,10 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
-import coil.compose.AsyncImage
 import androidx.compose.ui.unit.dp
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.theme.StreamifyColors
@@ -37,13 +34,12 @@ fun TrackListItem(
             .padding(horizontal = StreamifyDimens.SpaceLG),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AsyncImage(
-            model = track.coverArtPath,
-            contentDescription = "Cover for ${track.title}",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(StreamifyDimens.TrackRowArt)
-                .clip(StreamifyShapes.MiniPlayerShape)
+        TrackCoverArt(
+            coverArtPath = track.coverArtPath,
+            title = track.title,
+            artist = track.artist,
+            modifier = Modifier.size(StreamifyDimens.TrackRowArt),
+            shape = StreamifyShapes.MiniPlayerShape
         )
         Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
         
@@ -92,3 +88,4 @@ fun TrackListItem(
         }
     }
 }
+

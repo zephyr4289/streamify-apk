@@ -75,14 +75,14 @@ fun MiniPlayerBar(
                 .padding(end = StreamifyDimens.SpaceSM),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = track.coverArtPath,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
+            TrackCoverArt(
+                coverArtPath = track.coverArtPath,
+                title = track.title,
+                artist = track.artist,
                 modifier = Modifier
                     .size(StreamifyDimens.MiniPlayerHeight)
-                    .padding(StreamifyDimens.SpaceSM)
-                    .clip(StreamifyShapes.CardShape)
+                    .padding(StreamifyDimens.SpaceSM),
+                shape = StreamifyShapes.CardShape
             )
 
             Column(modifier = Modifier.weight(1f)) {
