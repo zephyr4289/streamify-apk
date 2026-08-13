@@ -133,9 +133,21 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     if (currentIdx >= 0 && currentIdx == currentQueue.size - 1) {
                         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             val currentT = _playerState.value.currentTrack
-                            if (currentT != null && currentT.id > 0) {
-                                val recentHistory = currentQueue.takeLast(5).map { it.id }.toIntArray()
-                                val recs = repository.getRecommendations(currentT.id, recentHistory, 1, 5)
+                            if (currentT != null) {
+                                var validId = currentT.id
+                                if (validId <= 0 && currentT.filepath.isNotBlank()) {
+                                    validId = com.streamify.app.data.NativeBridge.insertTrack(
+                                        filepath = currentT.filepath,
+                                        title = currentT.title,
+                                        artist = currentT.artist,
+                                        album = currentT.album,
+                                        durationSec = currentT.durationSec,
+                                        bpm = currentT.bpm
+                                    ).toInt()
+                                }
+                                if (validId > 0) {
+                                    val recentHistory = currentQueue.takeLast(5).map { it.id }.toIntArray()
+                                    val recs = repository.getRecommendations(validId, recentHistory, 1, 5)
                                 if (recs.isNotEmpty()) {
                                     val newQueue = currentQueue.toMutableList()
                                     val newMediaItems = mutableListOf<MediaItem>()
