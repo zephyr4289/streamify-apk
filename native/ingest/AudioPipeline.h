@@ -19,6 +19,10 @@ public:
     bool init(const std::string& onnx_model_path);
     std::vector<float> processAudio(const std::string& filepath);
     TrackMetadata extractMetadata(const std::string& filepath);
+    float extractBPM(const std::string& filepath);
+    std::string extractKey(const std::string& filepath);
+
+
 
 private:
     AudioPipeline();

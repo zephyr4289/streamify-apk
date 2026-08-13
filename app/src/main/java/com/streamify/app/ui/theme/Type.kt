@@ -43,6 +43,9 @@ object StreamifyType {
 
     val CardTitle = TextStyle(fontFamily = Montserrat, fontWeight = FontWeight.Bold, fontSize = 15.sp, letterSpacing = (-0.3).sp)
     val CardSubtitle = TextStyle(fontFamily = Poppins, fontWeight = FontWeight.Medium, fontSize = 13.sp, letterSpacing = 0.1.sp)
+    
+    val LyricsActive = TextStyle(fontFamily = Montserrat, fontWeight = FontWeight.Bold, fontSize = 28.sp, letterSpacing = (-0.5).sp, lineHeight = 36.sp, color = StreamifyColors.TextMain)
+    val LyricsInactive = TextStyle(fontFamily = Montserrat, fontWeight = FontWeight.Bold, fontSize = 24.sp, letterSpacing = (-0.5).sp, lineHeight = 32.sp, color = StreamifyColors.TextDimmed)
 }
 
 val Typography = Typography(

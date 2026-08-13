@@ -20,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import com.streamify.app.ui.animations.cardPressEffect
 import com.streamify.app.ui.theme.StreamifyColors
@@ -37,12 +39,23 @@ fun PlayerControls(
     onRepeatToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptic = LocalHapticFeedback.current
+
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onShuffleToggle) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .cardPressEffect {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onShuffleToggle()
+                },
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
                 imageVector = Icons.Filled.Shuffle,
                 contentDescription = "Shuffle",
@@ -51,7 +64,16 @@ fun PlayerControls(
             )
         }
 
-        IconButton(onClick = onSkipPrevious) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .cardPressEffect {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSkipPrevious()
+                },
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
                 imageVector = Icons.Filled.SkipPrevious,
                 contentDescription = "Previous",
@@ -65,19 +87,36 @@ fun PlayerControls(
                 .size(StreamifyDimens.PlayButtonSize)
                 .clip(CircleShape)
                 .background(StreamifyColors.TextMain)
-                .cardPressEffect(onClick = onPlayPause)
+                .cardPressEffect {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onPlayPause()
+                }
                 .padding(StreamifyDimens.SpaceMD),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (isPlaying) "Pause" else "Play",
-                tint = StreamifyColors.BgBase,
-                modifier = Modifier.size(32.dp)
-            )
+            androidx.compose.animation.AnimatedContent(
+                targetState = isPlaying,
+                label = "play_pause_icon"
+            ) { playing ->
+                Icon(
+                    imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (playing) "Pause" else "Play",
+                    tint = StreamifyColors.BgBase,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
         }
 
-        IconButton(onClick = onSkipNext) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .cardPressEffect {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onSkipNext()
+                },
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
                 imageVector = Icons.Filled.SkipNext,
                 contentDescription = "Next",
@@ -86,7 +125,16 @@ fun PlayerControls(
             )
         }
 
-        IconButton(onClick = onRepeatToggle) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .cardPressEffect {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onRepeatToggle()
+                },
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
                 imageVector = Icons.Filled.Repeat,
                 contentDescription = "Repeat",

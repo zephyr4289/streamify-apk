@@ -28,7 +28,7 @@ StreamifyDB& StreamifyDB::getInstance() {
 }
 
 StreamifyDB::~StreamifyDB() {
-    std::lock_guard<std::mutex> lock(db_mutex_);
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     if (shared_db_) {
         sqlite3_close_v2(shared_db_);
         shared_db_ = nullptr;
@@ -37,6 +37,7 @@ StreamifyDB::~StreamifyDB() {
 
 bool StreamifyDB::init(const std::string& db_path) {
     db_path_ = db_path;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return false;
 
@@ -109,7 +110,7 @@ bool StreamifyDB::init(const std::string& db_path) {
 }
 
 sqlite3* StreamifyDB::getConnection() {
-    std::lock_guard<std::mutex> lock(db_mutex_);
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     if (shared_db_ == nullptr) {
         if (sqlite3_open_v2(db_path_.c_str(), &shared_db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK) {
             __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[StreamifyDB] Cannot open database");
@@ -123,6 +124,7 @@ sqlite3* StreamifyDB::getConnection() {
 }
 
 std::optional<StreamifyTrack> StreamifyDB::getTrackById(int track_id) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return std::nullopt;
 
@@ -136,7 +138,7 @@ std::optional<StreamifyTrack> StreamifyDB::getTrackById(int track_id) {
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         StreamifyTrack t;
         t.id = sqlite3_column_int(stmt, 0);
-        t.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        t.filepath = sqlite3_column_text(stmt, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)) : "";
         t.title = sqlite3_column_text(stmt, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
         t.artist = sqlite3_column_text(stmt, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)) : "";
         t.album = sqlite3_column_text(stmt, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)) : "Single";
@@ -156,6 +158,7 @@ std::optional<StreamifyTrack> StreamifyDB::getTrackById(int track_id) {
 }
 
 std::optional<StreamifyTrack> StreamifyDB::getTrackByVectorOffset(int offset) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return std::nullopt;
 
@@ -169,7 +172,7 @@ std::optional<StreamifyTrack> StreamifyDB::getTrackByVectorOffset(int offset) {
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         StreamifyTrack t;
         t.id = sqlite3_column_int(stmt, 0);
-        t.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        t.filepath = sqlite3_column_text(stmt, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)) : "";
         t.title = sqlite3_column_text(stmt, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
         t.artist = sqlite3_column_text(stmt, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)) : "";
         t.album = sqlite3_column_text(stmt, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)) : "Single";
@@ -190,6 +193,7 @@ std::optional<StreamifyTrack> StreamifyDB::getTrackByVectorOffset(int offset) {
 
 std::vector<StreamifyTrack> StreamifyDB::getAllTracks() {
     std::vector<StreamifyTrack> tracks;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return tracks;
 
@@ -200,7 +204,7 @@ std::vector<StreamifyTrack> StreamifyDB::getAllTracks() {
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         StreamifyTrack t;
         t.id = sqlite3_column_int(stmt, 0);
-        t.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        t.filepath = sqlite3_column_text(stmt, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)) : "";
         t.title = sqlite3_column_text(stmt, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
         t.artist = sqlite3_column_text(stmt, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)) : "";
         t.album = sqlite3_column_text(stmt, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)) : "Single";
@@ -221,6 +225,7 @@ std::vector<StreamifyTrack> StreamifyDB::getAllTracks() {
 
 std::vector<StreamifyTrack> StreamifyDB::searchTracks(const std::string& query) {
     std::vector<StreamifyTrack> tracks;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return tracks;
 
@@ -235,7 +240,7 @@ std::vector<StreamifyTrack> StreamifyDB::searchTracks(const std::string& query) 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         StreamifyTrack t;
         t.id = sqlite3_column_int(stmt, 0);
-        t.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        t.filepath = sqlite3_column_text(stmt, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)) : "";
         t.title = sqlite3_column_text(stmt, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
         t.artist = sqlite3_column_text(stmt, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)) : "";
         t.album = sqlite3_column_text(stmt, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)) : "Single";
@@ -255,6 +260,7 @@ std::vector<StreamifyTrack> StreamifyDB::searchTracks(const std::string& query) 
 }
 
 int StreamifyDB::insertTrack(const std::string& filepath, const std::string& title, const std::string& artist, const std::string& album, int duration_sec, double bpm) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return -1;
 
@@ -278,38 +284,24 @@ int StreamifyDB::insertTrack(const std::string& filepath, const std::string& tit
     sqlite3_bind_double(stmt, 6, bpm);
     sqlite3_bind_text(stmt, 7, source.c_str(), -1, SQLITE_TRANSIENT);
 
-    if (sqlite3_step(stmt) != SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        const char* sel_sql = "SELECT id FROM tracks WHERE filepath = ?;";
-        sqlite3_stmt* sel_stmt = nullptr;
-        int found_id = -1;
-        if (sqlite3_prepare_v2(db, sel_sql, -1, &sel_stmt, nullptr) == SQLITE_OK) {
-            sqlite3_bind_text(sel_stmt, 1, filepath.c_str(), -1, SQLITE_TRANSIENT);
-            if (sqlite3_step(sel_stmt) == SQLITE_ROW) {
-                found_id = sqlite3_column_int(sel_stmt, 0);
-            }
-            sqlite3_finalize(sel_stmt);
-        }
-        return found_id;
-    }
-
-    int id = sqlite3_last_insert_rowid(db);
+    sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    if (id <= 0) {
-        const char* sel_sql = "SELECT id FROM tracks WHERE filepath = ?;";
-        sqlite3_stmt* sel_stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sel_sql, -1, &sel_stmt, nullptr) == SQLITE_OK) {
-            sqlite3_bind_text(sel_stmt, 1, filepath.c_str(), -1, SQLITE_TRANSIENT);
-            if (sqlite3_step(sel_stmt) == SQLITE_ROW) {
-                id = sqlite3_column_int(sel_stmt, 0);
-            }
-            sqlite3_finalize(sel_stmt);
+
+    int id = -1;
+    const char* sel_sql = "SELECT id FROM tracks WHERE filepath = ?;";
+    sqlite3_stmt* sel_stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sel_sql, -1, &sel_stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(sel_stmt, 1, filepath.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(sel_stmt) == SQLITE_ROW) {
+            id = sqlite3_column_int(sel_stmt, 0);
         }
+        sqlite3_finalize(sel_stmt);
     }
     return id;
 }
 
 std::optional<StreamifyUser> StreamifyDB::registerOrLoginUser(const std::string& username, const std::string& pin) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db || username.empty() || pin.empty()) return std::nullopt;
 
@@ -350,6 +342,7 @@ std::optional<StreamifyUser> StreamifyDB::registerOrLoginUser(const std::string&
 }
 
 std::string StreamifyDB::createSession(int user_id) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return "";
     std::string token = generateRandomToken();
@@ -368,6 +361,7 @@ std::string StreamifyDB::createSession(int user_id) {
 }
 
 std::optional<StreamifyUser> StreamifyDB::validateSession(const std::string& token) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db || token.empty()) return std::nullopt;
     const char* sql = R"(
@@ -393,6 +387,7 @@ std::optional<StreamifyUser> StreamifyDB::validateSession(const std::string& tok
 }
 
 bool StreamifyDB::deleteSession(const std::string& token) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return false;
     const char* sql = "DELETE FROM user_sessions WHERE token = ?;";
@@ -408,6 +403,7 @@ bool StreamifyDB::deleteSession(const std::string& token) {
 
 std::vector<int> StreamifyDB::getUserLikedTrackIds(int user_id) {
     std::vector<int> ids;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return ids;
     const char* sql = "SELECT track_id FROM user_liked_songs WHERE user_id = ?;";
@@ -424,6 +420,7 @@ std::vector<int> StreamifyDB::getUserLikedTrackIds(int user_id) {
 
 std::vector<StreamifyTrack> StreamifyDB::getUserLikedTracks(int user_id) {
     std::vector<StreamifyTrack> tracks;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return tracks;
     const char* sql = R"(
@@ -439,7 +436,7 @@ std::vector<StreamifyTrack> StreamifyDB::getUserLikedTracks(int user_id) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             StreamifyTrack t;
             t.id = sqlite3_column_int(stmt, 0);
-            t.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            t.filepath = sqlite3_column_text(stmt, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)) : "";
             t.title = sqlite3_column_text(stmt, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
             t.artist = sqlite3_column_text(stmt, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)) : "";
             t.album = sqlite3_column_text(stmt, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)) : "Single";
@@ -460,6 +457,7 @@ std::vector<StreamifyTrack> StreamifyDB::getUserLikedTracks(int user_id) {
 }
 
 bool StreamifyDB::toggleUserLikedTrack(int user_id, int track_id, bool& out_is_liked) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return false;
     const char* check_sql = "SELECT 1 FROM user_liked_songs WHERE user_id = ? AND track_id = ?;";
@@ -497,6 +495,7 @@ bool StreamifyDB::toggleUserLikedTrack(int user_id, int track_id, bool& out_is_l
 }
 
 bool StreamifyDB::updateTrackVectorOffset(int track_id, int offset) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return false;
     const char* sql = "UPDATE tracks SET vector_offset = ?, is_processed = 1 WHERE id = ?;";
@@ -512,6 +511,7 @@ bool StreamifyDB::updateTrackVectorOffset(int track_id, int offset) {
 }
 
 bool StreamifyDB::updateTrackCoverArt(int track_id, const std::string& cover_art_path) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return false;
     const char* sql = "UPDATE tracks SET cover_art_path = ? WHERE id = ?;";
@@ -526,7 +526,40 @@ bool StreamifyDB::updateTrackCoverArt(int track_id, const std::string& cover_art
     return false;
 }
 
+bool StreamifyDB::updateTrackBPM(int track_id, double bpm) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return false;
+    const char* sql = "UPDATE tracks SET bpm = ? WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_double(stmt, 1, bpm);
+        sqlite3_bind_int(stmt, 2, track_id);
+        bool res = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return res;
+    }
+    return false;
+}
+
+bool StreamifyDB::updateTrackKey(int track_id, const std::string& key) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return false;
+    const char* sql = "UPDATE tracks SET key = ? WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, track_id);
+        bool res = (sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        return res;
+    }
+    return false;
+}
+
 bool StreamifyDB::updateTrackMetadata(int track_id, const std::string& title, const std::string& artist, const std::string& album) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return false;
     const char* sql = "UPDATE tracks SET title = ?, artist = ?, album = ? WHERE id = ?;";
@@ -544,6 +577,7 @@ bool StreamifyDB::updateTrackMetadata(int track_id, const std::string& title, co
 }
 
 bool StreamifyDB::insertTransition(int user_id, int from_track_id, int to_track_id, const std::string& type) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return false;
     const char* sql = "INSERT INTO user_transitions (user_id, from_track_id, to_track_id, event_type) VALUES (?, ?, ?, ?);";
@@ -561,6 +595,7 @@ bool StreamifyDB::insertTransition(int user_id, int from_track_id, int to_track_
 }
 
 float StreamifyDB::getTransitionProbability(int user_id, int from_track_id, int to_track_id) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return 0.0f;
     
@@ -589,6 +624,7 @@ float StreamifyDB::getTransitionProbability(int user_id, int from_track_id, int 
 }
 
 int StreamifyDB::getSkipCount(int user_id, int from_track_id, int to_track_id) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return 0;
 
@@ -606,6 +642,7 @@ int StreamifyDB::getSkipCount(int user_id, int from_track_id, int to_track_id) {
 }
 
 int StreamifyDB::getTrackTotalSkipCount(int user_id, int track_id) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     sqlite3* db = getConnection();
     if (!db) return 0;
 

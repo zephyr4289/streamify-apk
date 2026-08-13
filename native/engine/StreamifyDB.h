@@ -56,6 +56,8 @@ public:
     bool updateTrackVectorOffset(int track_id, int offset);
     bool updateTrackCoverArt(int track_id, const std::string& cover_art_path);
     bool updateTrackMetadata(int track_id, const std::string& title, const std::string& artist, const std::string& album);
+    bool updateTrackBPM(int track_id, double bpm);
+    bool updateTrackKey(int track_id, const std::string& key);
 
     // Behavioral Transition Methods
     bool insertTransition(int user_id, int from_track_id, int to_track_id, const std::string& type);
@@ -70,7 +72,7 @@ private:
 
     std::string db_path_{"streamify.db"};
     sqlite3* shared_db_{nullptr};
-    std::mutex db_mutex_;
+    std::recursive_mutex db_mutex_;
 };
 
 #endif // STREAMIFY_DB_H

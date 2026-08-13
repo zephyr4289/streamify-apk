@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import yt_dlp
 
 class DownloadProgressHook:
@@ -10,9 +11,9 @@ class DownloadProgressHook:
         if d['status'] == 'downloading':
             try:
                 # Remove ANSI escape sequences from strings
-                percent_str = d.get('_percent_str', '0%').replace('\x1b[0;94m', '').replace('\x1b[0m', '').strip()
-                speed_str = d.get('_speed_str', '0KiB/s').replace('\x1b[0;32m', '').replace('\x1b[0m', '').strip()
-                eta_str = d.get('_eta_str', '00:00').replace('\x1b[0;33m', '').replace('\x1b[0m', '').strip()
+                percent_str = re.sub(r'\x1b\[[0-9;]*m', '', d.get('_percent_str', '0%')).strip()
+                speed_str = re.sub(r'\x1b\[[0-9;]*m', '', d.get('_speed_str', '0KiB/s')).strip()
+                eta_str = re.sub(r'\x1b\[[0-9;]*m', '', d.get('_eta_str', '00:00')).strip()
                 
                 self.callback_java.onProgress(percent_str, speed_str, eta_str)
             except Exception as e:
@@ -32,6 +33,11 @@ def download_audio(url, output_path, callback_java, preferred_quality="320"):
         'no_warnings': True,
         'writethumbnail': True,
         'nocheckcertificate': True,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': preferred_quality,
+        }],
     }
 
     try:

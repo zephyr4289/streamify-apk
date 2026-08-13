@@ -21,9 +21,14 @@ def fetch_itunes_cover_art(title, artist):
     return ""
 
 def is_bad_candidate(title):
-    bad_words = ['slowed', 'reverb', 'nightcore', 'cover', 'karaoke', 'instrumental', '8d', 'reaction', 'bass boosted']
+    bad_words = ['slowed', 'reverb', 'nightcore', 'cover', 'karaoke', 'instrumental', '8d', 'reaction', 'bass boosted', 'episode', 'season', 'explained', 'review', 'trailer']
     t_lower = title.lower()
     return any(word in t_lower for word in bad_words)
+
+def is_likely_music(title, duration):
+    if duration and (duration < 30 or duration > 900): # 15 mins
+        return False
+    return True
 
 def process_single_entry(entry, query):
     if not entry:
@@ -31,6 +36,10 @@ def process_single_entry(entry, query):
     video_id = entry.get('id', '')
     title = entry.get('title', '')
     uploader = entry.get('uploader', '')
+
+    duration = entry.get('duration', 0)
+    if not is_likely_music(title, duration):
+        return None
 
     if is_bad_candidate(title) and not is_bad_candidate(query):
         return None

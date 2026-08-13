@@ -185,6 +185,14 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_streamify_app_data_NativeBridge_processAudioFile(JNIEnv* env, jobject /* this */, jint trackId, jstring filePath) {
     const char* path = env->GetStringUTFChars(filePath, 0);
     std::vector<float> vec = AudioPipeline::getInstance().processAudio(path);
+    
+    if (!vec.empty() && trackId > 0) {
+        float bpm = AudioPipeline::getInstance().extractBPM(path);
+        std::string key = AudioPipeline::getInstance().extractKey(path);
+        StreamifyDB::getInstance().updateTrackBPM(trackId, bpm);
+        StreamifyDB::getInstance().updateTrackKey(trackId, key);
+    }
+    
     env->ReleaseStringUTFChars(filePath, path);
 
     if (vec.empty()) return -1;
@@ -194,6 +202,17 @@ Java_com_streamify_app_data_NativeBridge_processAudioFile(JNIEnv* env, jobject /
         StreamifyDB::getInstance().updateTrackVectorOffset(trackId, offset);
     }
     return offset;
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_streamify_app_data_NativeBridge_extractBPM(JNIEnv* env, jobject /* this */, jint trackId, jstring filePath) {
+    const char* path = env->GetStringUTFChars(filePath, 0);
+    float bpm = AudioPipeline::getInstance().extractBPM(path);
+    if (trackId > 0) {
+        StreamifyDB::getInstance().updateTrackBPM(trackId, bpm);
+    }
+    env->ReleaseStringUTFChars(filePath, path);
+    return bpm;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

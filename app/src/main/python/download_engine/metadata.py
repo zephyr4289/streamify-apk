@@ -37,12 +37,23 @@ def inject_metadata(filepath, title, artist, album, cover_art_path=None):
         duration_sec = int(audio_file.info.length) if audio_file else 0
         
         # Fetch actual lyrics
-        lyrics_text = fetch_lrclib_lyrics(title, artist, duration_sec)
-        lyrics_path = ""
-        if lyrics_text:
-            lyrics_path = base + ".lrc"
-            with open(lyrics_path, 'w', encoding='utf-8') as f:
-                f.write(lyrics_text)
+        lyrics_path = base + ".lrc"
+        lyrics_text = ""
+        if os.path.exists(lyrics_path):
+            try:
+                with open(lyrics_path, 'r', encoding='utf-8') as f:
+                    lyrics_text = f.read()
+            except Exception:
+                pass
+        
+        if not lyrics_text:
+            lyrics_text = fetch_lrclib_lyrics(title, artist, duration_sec)
+            if lyrics_text:
+                with open(lyrics_path, 'w', encoding='utf-8') as f:
+                    f.write(lyrics_text)
+        
+        if not os.path.exists(lyrics_path):
+            lyrics_path = ""
 
         # Apply Mutagen Tags natively
         if ext in [".m4a", ".mp4"]:
@@ -81,10 +92,9 @@ def inject_metadata(filepath, title, artist, album, cover_art_path=None):
                     audio_file["LYRICS"] = [lyrics_text]
                 audio_file.save()
 
-        size = os.path.getsize(filepath)
-        bpm = 90.0 + (size % 500) / 10.0
+        bpm = 0.0
         
         return [duration_sec, bpm, cover_art_path if cover_art_path else "", lyrics_path]
     except Exception as e:
         print(f"Metadata injection error: {e}")
-        return [0, 120.0, "", ""]
+        return [0, 0.0, "", ""]

@@ -104,6 +104,7 @@ std::vector<SearchResult> VectorStore::searchNearest(const std::vector<float>& q
             dot += q[j] * v[j];
         }
         
+        if (std::isnan(dot) || std::isinf(dot)) dot = -1.0f;
         results[i] = {i, dot};
     }
 #elif defined(__AVX__) || defined(__AVX2__)
@@ -126,6 +127,7 @@ std::vector<SearchResult> VectorStore::searchNearest(const std::vector<float>& q
             dot += q[j] * v[j];
         }
         
+        if (std::isnan(dot) || std::isinf(dot)) dot = -1.0f;
         results[i] = {i, dot};
     }
 #else
@@ -135,6 +137,7 @@ std::vector<SearchResult> VectorStore::searchNearest(const std::vector<float>& q
         for (int j = 0; j < dim_; ++j) {
             dot += q[j] * v[j];
         }
+        if (std::isnan(dot) || std::isinf(dot)) dot = -1.0f;
         results[i] = {i, dot};
     }
 #endif

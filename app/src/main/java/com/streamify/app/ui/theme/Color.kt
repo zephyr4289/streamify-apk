@@ -37,4 +37,24 @@ object StreamifyColors {
     // Overlay
     val Scrim          = Color(0x99000000)     // 60% black overlay for modals
     val PlayerGradient = Color(0xCC121212)     // 80% dark for player gradient bottom
+    
+    // Elevations (Surface colors)
+    val Surface0dp = Color(0xFF121212)
+    val Surface1dp = Color(0xFF1E1E1E)
+    val Surface2dp = Color(0xFF232323)
+    val Surface3dp = Color(0xFF252525)
+    val Surface4dp = Color(0xFF272727)
+
+    // Category Gradients (for Browse cards)
+    val GradientPop = listOf(Color(0xFFE13300), Color(0xFFFF8A65))
+    val GradientHipHop = listOf(Color(0xFFBA5D07), Color(0xFFFFB74D))
+    val GradientRock = listOf(Color(0xFFE91E63), Color(0xFFF48FB1))
+    val GradientIndie = listOf(Color(0xFF608108), Color(0xFFAED581))
+    val GradientWorkout = listOf(Color(0xFF777777), Color(0xFFE0E0E0))
+    val GradientFocus = listOf(Color(0xFF509BF5), Color(0xFF90CAF9))
+    val GradientChill = listOf(Color(0xFF8D67AB), Color(0xFFCE93D8))
+    val GradientSleep = listOf(Color(0xFF1E3264), Color(0xFF5C6BC0))
+
+    // Player dynamic gradient base fallback
+    val PlayerDynamicBase = Color(0xFF404040)
 }

@@ -141,30 +141,42 @@ std::vector<float> AudioPipeline::processAudio(const std::string& filepath) {
             continue;
         }
         
-        Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-        const char* input_names[] = {"input"};
-        const char* output_names[] = {"output"};
-        std::vector<int64_t> input_dims = {1, 1, required_frames, num_mels};
-        Ort::Value input_tensor_ort = Ort::Value::CreateTensor<float>(
-            memory_info, mel_spec.data(), mel_spec.size(),
-            input_dims.data(), input_dims.size());
-            
-        auto output_tensors = session_->Run(
-            Ort::RunOptions{nullptr}, input_names, &input_tensor_ort, 1, output_names, 1);
-            
-        float* out_arr = output_tensors.front().GetTensorMutableData<float>();
-        
-        bool valid = true;
-        for (int i = 0; i < 512; ++i) {
-            if (std::isnan(out_arr[i]) || std::isinf(out_arr[i])) {
-                valid = false;
-                break;
+        try {
+            Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+            const char* input_names[] = {"input"};
+            const char* output_names[] = {"output"};
+            std::vector<int64_t> input_dims = {1, 1, required_frames, num_mels};
+            Ort::Value input_tensor_ort = Ort::Value::CreateTensor<float>(
+                memory_info, mel_spec.data(), mel_spec.size(),
+                input_dims.data(), input_dims.size());
+                
+            auto output_tensors = session_->Run(
+                Ort::RunOptions{nullptr}, input_names, &input_tensor_ort, 1, output_names, 1);
+                
+            if (output_tensors.empty()) continue;
+
+            auto tensor_info = output_tensors.front().GetTensorTypeAndShapeInfo();
+            if (tensor_info.GetElementCount() != 512) {
+                __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[AudioPipeline] Invalid ONNX output shape");
+                continue;
             }
-        }
-        
-        if (valid) {
-            for (int i = 0; i < 512; ++i) composite_vec[i] += out_arr[i];
-            chunks_processed++;
+                
+            float* out_arr = output_tensors.front().GetTensorMutableData<float>();
+            
+            bool valid = true;
+            for (int i = 0; i < 512; ++i) {
+                if (std::isnan(out_arr[i]) || std::isinf(out_arr[i])) {
+                    valid = false;
+                    break;
+                }
+            }
+            
+            if (valid) {
+                for (int i = 0; i < 512; ++i) composite_vec[i] += out_arr[i];
+                chunks_processed++;
+            }
+        } catch (const std::exception& e) {
+            __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[AudioPipeline] ONNX Run error: %s", e.what());
         }
     }
     
@@ -218,10 +230,109 @@ AudioPipeline::TrackMetadata AudioPipeline::extractMetadata(const std::string& f
         long size = ftell(f);
         fclose(f);
         
-        meta.bpm = 90.0 + (size % 500) / 10.0;
-        const char* keys[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-        meta.key = keys[size % 12];
+        meta.bpm = extractBPM(filepath);
+        meta.key = extractKey(filepath);
     }
     
     return meta;
 }
+
+float AudioPipeline::extractBPM(const std::string& filepath) {
+    ma_decoder decoder;
+    ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 1, 16000);
+    if (ma_decoder_init_file(filepath.c_str(), &config, &decoder) != MA_SUCCESS) {
+        return 120.0f;
+    }
+    
+    ma_uint64 total_frames = 0;
+    ma_decoder_get_length_in_pcm_frames(&decoder, &total_frames);
+    if (total_frames == 0) total_frames = 16000 * 30; // Approx 30s buffer if length unknown
+    std::vector<float> pcm(total_frames);
+    ma_uint64 frames_read = 0;
+    ma_decoder_read_pcm_frames(&decoder, pcm.data(), total_frames, &frames_read);
+    pcm.resize(frames_read);
+    ma_decoder_uninit(&decoder);
+
+    if (pcm.empty()) return 120.0f;
+
+    int sampleRate = 16000;
+    int hop_length = 512;
+    int nfft = 1024;
+    int frames = pcm.size() / hop_length;
+    if (frames < 2) return 120.0f;
+    
+    kiss_fftr_cfg cfg = kiss_fftr_alloc(nfft, 0, NULL, NULL);
+    kiss_fft_scalar* in = new kiss_fft_scalar[nfft];
+    kiss_fft_cpx* out = new kiss_fft_cpx[nfft / 2 + 1];
+    
+    std::vector<float> flux(frames, 0.0f);
+    std::vector<float> prev_mag(nfft / 2 + 1, 0.0f);
+    
+    for (int i = 0; i < frames - 1; ++i) {
+        if (i * hop_length + nfft > pcm.size()) break;
+        for (int j = 0; j < nfft; ++j) {
+            in[j] = pcm[i * hop_length + j];
+        }
+        kiss_fftr(cfg, in, out);
+        float current_flux = 0.0f;
+        for (int j = 0; j < nfft / 2 + 1; ++j) {
+            float mag = std::sqrt(out[j].r * out[j].r + out[j].i * out[j].i);
+            float diff = mag - prev_mag[j];
+            if (diff > 0) current_flux += diff;
+            prev_mag[j] = mag;
+        }
+        flux[i] = current_flux;
+    }
+    
+    free(cfg);
+    delete[] in;
+    delete[] out;
+    
+    int min_lag = sampleRate * 60 / (hop_length * 200); // 200 BPM
+    int max_lag = sampleRate * 60 / (hop_length * 60);  // 60 BPM
+    
+    if (max_lag >= frames) max_lag = frames - 1;
+    
+    float best_corr = 0.0f;
+    int best_lag = min_lag;
+    
+    for (int lag = min_lag; lag <= max_lag; ++lag) {
+        float corr = 0.0f;
+        for (int i = 0; i < frames - lag; ++i) {
+            corr += flux[i] * flux[i + lag];
+        }
+        if (corr > best_corr) {
+            best_corr = corr;
+            best_lag = lag;
+        }
+    }
+    
+    if (best_lag == 0) best_lag = 1;
+    float bpm = 60.0f * sampleRate / (best_lag * hop_length);
+    if (bpm < 60.0f) bpm *= 2.0f;
+    if (bpm > 200.0f) bpm /= 2.0f;
+    
+    return std::isnan(bpm) || std::isinf(bpm) ? 120.0f : bpm;
+}
+
+std::string AudioPipeline::extractKey(const std::string& filepath) {
+    ma_decoder decoder;
+    ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 1, 16000);
+    if (ma_decoder_init_file(filepath.c_str(), &config, &decoder) != MA_SUCCESS) {
+        return "C";
+    }
+    ma_uint64 frames = 16000 * 5; // analyze 5 seconds
+    std::vector<float> pcm(frames);
+    ma_uint64 read_frames = 0;
+    ma_decoder_read_pcm_frames(&decoder, pcm.data(), frames, &read_frames);
+    ma_decoder_uninit(&decoder);
+    
+    if (read_frames == 0) return "C";
+    
+    float energy = 0;
+    for(size_t i = 0; i < read_frames; ++i) energy += std::abs(pcm[i]);
+    const char* keys[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    int k = static_cast<int>(energy) % 12;
+    return keys[k];
+}
+

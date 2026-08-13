@@ -51,7 +51,7 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
     if (!session_vec.empty()) {
         for (float& val : session_vec) val *= 0.70f;
         
-        float weights[] = {0.15f, 0.10f, 0.05f};
+        float weights[] = {0.45f, 0.15f, 0.05f}; // temporal decay
         for (size_t h = 0; h < recentHistory.size() && h < 3; ++h) {
             int hist_id = recentHistory[h];
             if (hist_id == currentTrackId) continue;
@@ -83,6 +83,7 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
     std::vector<Recommendation> candidates;
     const float beta_bpm = 0.20f;
     const float artist_boost = 0.25f;
+    const float key_boost = 0.15f;
     const float liked_boost = 0.35f;
     const float skip_penalty_factor = 0.15f;
 
@@ -113,6 +114,12 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
                 a_boost = artist_boost;
             }
 
+            // Key Compatibility Bonus
+            float k_boost = 0.0f;
+            if (!curTrack->key.empty() && equalsIgnoreCase(curTrack->key, candidateTrack->key)) {
+                k_boost = key_boost;
+            }
+
             // Liked Song Affinity Boost
             float l_boost = 0.0f;
             if (liked_set.count(track_id) > 0) {
@@ -124,14 +131,13 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
             int skip_count = db.getTrackTotalSkipCount(1, track_id);
             float skip_penalty = std::min(1.0f, skip_count * skip_penalty_factor);
 
-            float final_score = cosine_sim + (beta_bpm * bpm_score) + a_boost + l_boost + (transition_prob * 0.30f) - skip_penalty;
+            float final_score = cosine_sim + (beta_bpm * bpm_score) + a_boost + k_boost + l_boost + (transition_prob * 0.30f) - skip_penalty;
             candidates.push_back({track_id, final_score});
             candidate_ids_added.insert(track_id);
         }
     }
 
     // COLD-START / METADATA FALLBACK:
-    // If nearest vector results are empty or fewer than limit, pull remaining songs directly from DB
     if (candidates.size() < static_cast<size_t>(limit)) {
         auto allTracks = db.getAllTracks();
         for (const auto& candidateTrack : allTracks) {
@@ -142,6 +148,9 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
             float base_score = 0.50f;
             if (!curTrack->artist.empty() && equalsIgnoreCase(curTrack->artist, candidateTrack.artist)) {
                 base_score += artist_boost;
+            }
+            if (!curTrack->key.empty() && equalsIgnoreCase(curTrack->key, candidateTrack.key)) {
+                base_score += key_boost;
             }
             if (liked_set.count(track_id) > 0) {
                 base_score += liked_boost;
@@ -157,9 +166,44 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
         return a.score > b.score;
     });
 
-    if (candidates.size() > static_cast<size_t>(limit)) {
-        candidates.resize(limit);
+    // Diversity Injection
+    std::vector<Recommendation> diverse_candidates;
+    std::unordered_set<std::string> artists_in_top;
+    
+    for (const auto& rec : candidates) {
+        auto cTrack = db.getTrackById(rec.trackId);
+        if (!cTrack) continue;
+        
+        std::string lowerArtist = cTrack->artist;
+        std::transform(lowerArtist.begin(), lowerArtist.end(), lowerArtist.begin(), ::tolower);
+        
+        if (diverse_candidates.size() < 5) {
+            if (artists_in_top.size() > 0 && artists_in_top.count(lowerArtist) > 0) {
+                // If we already have this artist and we need more diversity, we might skip it 
+                // but let's just make sure the 5th item is a different artist if the first 4 are same.
+                if (diverse_candidates.size() == 4 && artists_in_top.size() == 1) {
+                    continue; // skip this track, find another artist
+                }
+            }
+        }
+        
+        diverse_candidates.push_back(rec);
+        artists_in_top.insert(lowerArtist);
+        
+        if (diverse_candidates.size() >= static_cast<size_t>(limit)) break;
+    }
+    
+    // Fallback if diversity filtering removed too many
+    while (diverse_candidates.size() < static_cast<size_t>(limit) && diverse_candidates.size() < candidates.size()) {
+        for (const auto& rec : candidates) {
+            auto it = std::find_if(diverse_candidates.begin(), diverse_candidates.end(),
+                [&](const Recommendation& r) { return r.trackId == rec.trackId; });
+            if (it == diverse_candidates.end()) {
+                diverse_candidates.push_back(rec);
+            }
+            if (diverse_candidates.size() >= static_cast<size_t>(limit)) break;
+        }
     }
 
-    return candidates;
+    return diverse_candidates;
 }

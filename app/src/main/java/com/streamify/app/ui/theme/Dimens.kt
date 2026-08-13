@@ -56,3 +56,19 @@ object StreamifyDimens {
     val SheetPeekHeight   = 0.dp
     val SheetMaxHeight    = 0.92f     // 92% of screen height
 }
+
+object StreamifyAnimations {
+    // Durations
+    const val Fast = 150
+    const val Normal = 300
+    const val Slow = 500
+    const val SuperSlow = 800
+
+    // Spring Constants
+    const val SpringStiffness = 300f
+    const val SpringDamping = 0.75f
+
+    // Stagger Delays
+    const val StaggerBase = 50
+    const val StaggerIncrement = 30
+}
