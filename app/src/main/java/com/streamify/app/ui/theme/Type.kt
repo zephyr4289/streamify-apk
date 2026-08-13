@@ -2,25 +2,37 @@ package com.streamify.app.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.googlefonts.Font
+import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
 import com.streamify.app.R
 
+val fontProvider = GoogleFont.Provider(
+    providerAuthority = "com.google.android.gms.fonts",
+    providerPackage = "com.google.android.gms",
+    certificates = R.array.com_google_android_gms_fonts_certs
+)
+
+val montserratFont = GoogleFont("Montserrat")
+val poppinsFont = GoogleFont("Poppins")
+
 val Montserrat = FontFamily(
-    Font(R.font.montserrat_regular, FontWeight.Normal),
-    Font(R.font.montserrat_medium, FontWeight.Medium),
-    Font(R.font.montserrat_semibold, FontWeight.SemiBold),
-    Font(R.font.montserrat_bold, FontWeight.Bold),
-    Font(R.font.montserrat_extrabold, FontWeight.ExtraBold)
+    Font(googleFont = montserratFont, fontProvider = fontProvider, weight = FontWeight.Normal),
+    Font(googleFont = montserratFont, fontProvider = fontProvider, weight = FontWeight.Medium),
+    Font(googleFont = montserratFont, fontProvider = fontProvider, weight = FontWeight.SemiBold),
+    Font(googleFont = montserratFont, fontProvider = fontProvider, weight = FontWeight.Bold),
+    Font(googleFont = montserratFont, fontProvider = fontProvider, weight = FontWeight.ExtraBold),
+    Font(googleFont = montserratFont, fontProvider = fontProvider, weight = FontWeight.Black)
 )
 
 val Poppins = FontFamily(
-    Font(R.font.poppins_light, FontWeight.Light),
-    Font(R.font.poppins_regular, FontWeight.Normal),
-    Font(R.font.poppins_medium, FontWeight.Medium),
-    Font(R.font.poppins_semibold, FontWeight.SemiBold)
+    Font(googleFont = poppinsFont, fontProvider = fontProvider, weight = FontWeight.Light),
+    Font(googleFont = poppinsFont, fontProvider = fontProvider, weight = FontWeight.Normal),
+    Font(googleFont = poppinsFont, fontProvider = fontProvider, weight = FontWeight.Medium),
+    Font(googleFont = poppinsFont, fontProvider = fontProvider, weight = FontWeight.SemiBold),
+    Font(googleFont = poppinsFont, fontProvider = fontProvider, weight = FontWeight.Bold)
 )
 
 object StreamifyType {

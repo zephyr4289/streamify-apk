@@ -5,6 +5,7 @@ import android.content.Context
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 object MediaStoreScanner {
     
@@ -15,6 +16,41 @@ object MediaStoreScanner {
         val dataPath: String,
         val durationMs: Long
     )
+
+    private val EXCLUDED_PATH_KEYWORDS = listOf(
+        "/recordings/", "/recording/", "/callrecordings/", "/call recording/",
+        "/call_rec/", "/voice recorder/", "/sound_recorder/", "/soundrecorder/",
+        "/miui/sound_recorder/", "/whatsapp/", "/telegram/",
+        "/android/media/com.whatsapp/", "/android/media/org.telegram.messenger/",
+        "/notifications/", "/ringtones/", "/alarms/", "/system/media/",
+        "/podcasts/", "/audiobooks/"
+    )
+
+    private val EXCLUDED_FILENAME_PREFIXES = listOf(
+        "call_rec_", "call_", "rec_", "recording_", "voice_", "ptt-", "audiorecord_", "call@"
+    )
+
+    private fun isMusicFile(dataPath: String, title: String): Boolean {
+        val lowerPath = dataPath.lowercase().replace('\\', '/')
+        val lowerTitle = title.lowercase()
+        val fileName = File(lowerPath).name
+
+        // Exclude paths matching blacklist keywords
+        for (keyword in EXCLUDED_PATH_KEYWORDS) {
+            if (lowerPath.contains(keyword)) {
+                return false
+            }
+        }
+
+        // Exclude filenames starting with recording prefixes
+        for (prefix in EXCLUDED_FILENAME_PREFIXES) {
+            if (fileName.startsWith(prefix) || lowerTitle.startsWith(prefix)) {
+                return false
+            }
+        }
+
+        return true
+    }
 
     suspend fun scanLocalMusic(context: Context): List<LocalAudioFile> = withContext(Dispatchers.IO) {
         val audioFiles = mutableListOf<LocalAudioFile>()
@@ -29,7 +65,6 @@ object MediaStoreScanner {
             MediaStore.Audio.Media.DURATION
         )
 
-        // Optionally filter by size/duration to avoid short notification sounds
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} >= 30000"
 
         resolver.query(uri, projection, selection, null, null)?.use { cursor ->
@@ -46,7 +81,9 @@ object MediaStoreScanner {
                 val dataPath = cursor.getString(dataColumn) ?: continue
                 val durationMs = cursor.getLong(durationColumn)
 
-                audioFiles.add(LocalAudioFile(id, title, artist, dataPath, durationMs))
+                if (isMusicFile(dataPath, title)) {
+                    audioFiles.add(LocalAudioFile(id, title, artist, dataPath, durationMs))
+                }
             }
         }
         

@@ -293,7 +293,7 @@ fun FullPlayerSheet(
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    text = if (track.isProcessed) "⚡ Neural Engine • ${track.bpm.toInt()} BPM" else "✨ AI Analyzed • ${track.bpm.toInt()} BPM",
+                                    text = if (track.isProcessed) "NEURAL ENGINE • ${track.bpm.toInt()} BPM" else "AI ANALYZED • ${track.bpm.toInt()} BPM",
                                     style = StreamifyType.Caption,
                                     color = StreamifyColors.Primary
                                 )

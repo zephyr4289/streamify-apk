@@ -265,9 +265,14 @@ int StreamifyDB::insertTrack(const std::string& filepath, const std::string& tit
     if (!db) return -1;
 
     std::string source = "local";
+    std::string path_lower = filepath;
+    std::transform(path_lower.begin(), path_lower.end(), path_lower.begin(), ::tolower);
+    std::string album_lower = album;
+    std::transform(album_lower.begin(), album_lower.end(), album_lower.begin(), ::tolower);
+
     if (filepath.rfind("http://", 0) == 0 || filepath.rfind("https://", 0) == 0 || filepath.rfind("online://", 0) == 0) {
         source = "online";
-    } else if (album == "Streamify" || filepath.find("Streamify") != std::string::npos) {
+    } else if (album_lower == "streamify" || path_lower.find("streamify") != std::string::npos) {
         source = "streamify_download";
     }
 

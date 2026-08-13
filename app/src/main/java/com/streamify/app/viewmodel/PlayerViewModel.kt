@@ -376,7 +376,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         )
 
         viewModelScope.launch {
-            val msg = if (newIsLiked) "Added to Liked Songs ❤️" else "Removed from Liked Songs"
+            val msg = if (newIsLiked) "Added to Liked Songs" else "Removed from Liked Songs"
             UiEventBus.emitEvent(UiEvent.ShowSnackbar(msg))
         }
 

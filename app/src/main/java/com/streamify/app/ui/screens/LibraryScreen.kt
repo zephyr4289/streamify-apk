@@ -314,15 +314,37 @@ fun LibraryScreen(
                 } else {
                     val displayTracks = when (selectedFilter) {
                         1 -> state.likedTracks
-                        2 -> state.tracks.filter { it.filepath.isNotBlank() && !it.source.equals("online", ignoreCase = true) }
+                        2 -> {
+                            val streamifyPlaylist = playlists.find { it.name.equals("Streamify", ignoreCase = true) }
+                            val playlistTrackIds = streamifyPlaylist?.trackIds?.toSet() ?: emptySet()
+                            val musicDir = java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC), "Streamify").absolutePath.lowercase()
+                            val appMusicDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC)?.absolutePath?.lowercase() ?: ""
+                            state.tracks.filter { track ->
+                                val pathLower = track.filepath.lowercase()
+                                track.filepath.isNotBlank() && !track.source.equals("online", ignoreCase = true) && (
+                                    track.source.equals("streamify_download", ignoreCase = true) ||
+                                    track.album.equals("Streamify", ignoreCase = true) ||
+                                    pathLower.contains("streamify") ||
+                                    (musicDir.isNotEmpty() && pathLower.startsWith(musicDir)) ||
+                                    (appMusicDir.isNotEmpty() && pathLower.startsWith(appMusicDir)) ||
+                                    playlistTrackIds.contains(track.id)
+                                )
+                            }
+                        }
                         3 -> {
                             val streamifyPlaylist = playlists.find { it.name.equals("Streamify", ignoreCase = true) }
                             val playlistTrackIds = streamifyPlaylist?.trackIds?.toSet() ?: emptySet()
-                            state.tracks.filter { 
-                                it.album.equals("Streamify", ignoreCase = true) || 
-                                it.source.equals("streamify_download", ignoreCase = true) ||
-                                (it.filepath.isNotBlank() && it.filepath.contains("Streamify", ignoreCase = true)) ||
-                                playlistTrackIds.contains(it.id)
+                            val musicDir = java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC), "Streamify").absolutePath.lowercase()
+                            val appMusicDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC)?.absolutePath?.lowercase() ?: ""
+                            state.tracks.filter { track ->
+                                val pathLower = track.filepath.lowercase()
+                                track.album.equals("Streamify", ignoreCase = true) || 
+                                track.source.equals("streamify_download", ignoreCase = true) ||
+                                track.source.equals("download", ignoreCase = true) ||
+                                pathLower.contains("streamify") ||
+                                (musicDir.isNotEmpty() && pathLower.startsWith(musicDir)) ||
+                                (appMusicDir.isNotEmpty() && pathLower.startsWith(appMusicDir)) ||
+                                playlistTrackIds.contains(track.id)
                             }
                         }
                         4 -> {

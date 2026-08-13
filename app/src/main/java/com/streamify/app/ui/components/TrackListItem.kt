@@ -85,10 +85,10 @@ fun TrackListItem(
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
                     ) {
                         Text(
-                            text = "AI ⚡",
+                            text = "AI",
                             style = StreamifyType.Caption,
                             color = StreamifyColors.Primary,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
                 }

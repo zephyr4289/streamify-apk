@@ -198,7 +198,7 @@ class DownloadWorker(
 
                     // Assurity Notification via EventBus
                     com.streamify.app.viewmodel.UiEventBus.emitEvent(
-                        com.streamify.app.viewmodel.UiEvent.ShowSnackbar("Saved to Streamify Library 🎵 ($title)")
+                        com.streamify.app.viewmodel.UiEvent.ShowSnackbar("Saved to Streamify Library ($title)")
                     )
                 }
 
