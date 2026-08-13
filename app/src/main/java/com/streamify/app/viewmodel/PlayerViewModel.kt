@@ -18,8 +18,11 @@ import com.streamify.app.service.PlaybackService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -39,6 +42,9 @@ data class PlayerState(
 class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
+    val currentTrack: StateFlow<Track?> = _playerState
+        .map { it.currentTrack }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null

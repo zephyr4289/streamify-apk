@@ -321,18 +321,110 @@ std::string AudioPipeline::extractKey(const std::string& filepath) {
     if (ma_decoder_init_file(filepath.c_str(), &config, &decoder) != MA_SUCCESS) {
         return "C";
     }
-    ma_uint64 frames = 16000 * 5; // analyze 5 seconds
+    
+    ma_uint64 sampleRate = 16000;
+    ma_uint64 frames = sampleRate * 8; // Analyze up to 8 seconds
     std::vector<float> pcm(frames);
     ma_uint64 read_frames = 0;
     ma_decoder_read_pcm_frames(&decoder, pcm.data(), frames, &read_frames);
     ma_decoder_uninit(&decoder);
     
-    if (read_frames == 0) return "C";
-    
-    float energy = 0;
-    for(size_t i = 0; i < read_frames; ++i) energy += std::abs(pcm[i]);
-    const char* keys[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-    int k = static_cast<int>(energy) % 12;
-    return keys[k];
+    if (read_frames < 2048) return "C";
+    pcm.resize(read_frames);
+
+    int nfft = 2048;
+    int hop_length = 1024;
+    int num_frames = (pcm.size() - nfft) / hop_length;
+    if (num_frames <= 0) return "C";
+
+    kiss_fftr_cfg cfg = kiss_fftr_alloc(nfft, 0, NULL, NULL);
+    kiss_fft_scalar* in = new kiss_fft_scalar[nfft];
+    kiss_fft_cpx* out = new kiss_fft_cpx[nfft / 2 + 1];
+
+    std::vector<double> window(nfft);
+    for (int i = 0; i < nfft; ++i) {
+        window[i] = 0.5 * (1.0 - std::cos(2.0 * M_PI * i / (nfft - 1)));
+    }
+
+    std::vector<double> chroma(12, 0.0);
+
+    for (int f = 0; f < num_frames; ++f) {
+        int start = f * hop_length;
+        for (int i = 0; i < nfft; ++i) {
+            in[i] = pcm[start + i] * window[i];
+        }
+
+        kiss_fftr(cfg, in, out);
+
+        for (int k = 1; k < nfft / 2; ++k) {
+            double freq = static_cast<double>(k) * sampleRate / nfft;
+            if (freq < 65.0 || freq > 2000.0) continue; // C2 to B6 focus range
+
+            double power = (out[k].r * out[k].r + out[k].i * out[k].i);
+            double midi = 69.0 + 12.0 * std::log2(freq / 440.0);
+            int pitch_class = (static_cast<int>(std::round(midi)) % 12 + 12) % 12;
+            chroma[pitch_class] += power;
+        }
+    }
+
+    free(cfg);
+    delete[] in;
+    delete[] out;
+
+    // Normalize chroma vector
+    double chroma_sum = 0.0;
+    for (int i = 0; i < 12; ++i) chroma_sum += chroma[i];
+    if (chroma_sum > 1e-9) {
+        for (int i = 0; i < 12; ++i) chroma[i] /= chroma_sum;
+    }
+
+    // Krumhansl-Schmuckler Key Profiles
+    const double major_profile[12] = {6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88};
+    const double minor_profile[12] = {6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17};
+
+    const char* key_names[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+
+    double best_corr = -2.0;
+    std::string best_key = "C";
+
+    for (int shift = 0; shift < 12; ++shift) {
+        // Test Major Key
+        double sum_c = 0.0, sum_p = 0.0, sum_cp = 0.0, sum_c2 = 0.0, sum_p2 = 0.0;
+        for (int i = 0; i < 12; ++i) {
+            double c = chroma[(i + shift) % 12];
+            double p = major_profile[i];
+            sum_c += c; sum_p += p;
+            sum_cp += c * p;
+            sum_c2 += c * c; sum_p2 += p * p;
+        }
+        double num = 12.0 * sum_cp - sum_c * sum_p;
+        double den = std::sqrt((12.0 * sum_c2 - sum_c * sum_c) * (12.0 * sum_p2 - sum_p * sum_p));
+        double corr_maj = (den > 1e-9) ? (num / den) : 0.0;
+
+        if (corr_maj > best_corr) {
+            best_corr = corr_maj;
+            best_key = std::string(key_names[shift]);
+        }
+
+        // Test Minor Key
+        sum_c = 0.0; sum_p = 0.0; sum_cp = 0.0; sum_c2 = 0.0; sum_p2 = 0.0;
+        for (int i = 0; i < 12; ++i) {
+            double c = chroma[(i + shift) % 12];
+            double p = minor_profile[i];
+            sum_c += c; sum_p += p;
+            sum_cp += c * p;
+            sum_c2 += c * c; sum_p2 += p * p;
+        }
+        num = 12.0 * sum_cp - sum_c * sum_p;
+        den = std::sqrt((12.0 * sum_c2 - sum_c * sum_c) * (12.0 * sum_p2 - sum_p * sum_p));
+        double corr_min = (den > 1e-9) ? (num / den) : 0.0;
+
+        if (corr_min > best_corr) {
+            best_corr = corr_min;
+            best_key = std::string(key_names[shift]) + "m";
+        }
+    }
+
+    return best_key;
 }
 

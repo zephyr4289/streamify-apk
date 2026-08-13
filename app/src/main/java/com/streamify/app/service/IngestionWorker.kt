@@ -96,6 +96,13 @@ class IngestionWorker(
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
+
+                    // Process audio for real BPM and ONNX vector embedding
+                    try {
+                        NativeBridge.processAudioFile(trackId, file.dataPath)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
 
                 val progress = (index + 1).toFloat() / newFiles.size.toFloat()

@@ -44,6 +44,7 @@ fun SearchScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val currentTrack by playerViewModel.currentTrack.collectAsState()
     var query by remember { mutableStateOf("") }
     var pendingDownloadTrack by remember { mutableStateOf<com.streamify.app.viewmodel.OnlineSearchResult?>(null) }
     var selectedOptionsTrack by remember { mutableStateOf<com.streamify.app.data.models.Track?>(null) }
@@ -220,7 +221,6 @@ fun SearchScreen(
                             Text("Your Library", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
                         }
                         items(state.localResults, key = { it.id }) { track ->
-                            val currentTrack by playerViewModel.currentTrack.collectAsState()
                             TrackListItem(
                                 track = track,
                                 onClick = { onTrackClick(track, (uiState as? SearchUiState.Success)?.localResults ?: emptyList()) },
@@ -270,7 +270,6 @@ fun SearchScreen(
                                 filepath = onlineTrack.url, coverArtPath = onlineTrack.thumbnail.takeIf { it.isNotBlank() },
                                 bpm = 0f, key = "", lyricsPath = null, source = "online"
                             )
-                            val currentTrack by playerViewModel.currentTrack.collectAsState()
                             TrackListItem(
                                 track = mockTrack,
                                 onClick = { 
@@ -278,7 +277,7 @@ fun SearchScreen(
                                     viewModel.playOnlineTrack(onlineTrack, playerViewModel, ingestionViewModel, context)
                                 },
                                 onOptionsClick = { selectedOptionsTrack = mockTrack },
-                                isPlaying = currentTrack?.id == mockTrack.id && mockTrack.id != 0L // Online mock tracks have id 0, they might match if playing? Actually, online tracks are given a proper id when downloaded, but we'll leave this as false or simple check.
+                                isPlaying = currentTrack?.id == mockTrack.id && mockTrack.id != 0
                             )
                         }
                     } 

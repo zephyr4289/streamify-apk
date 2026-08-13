@@ -39,6 +39,7 @@ fun LibraryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val downloadTasks by ingestionViewModel.downloadTasks.collectAsState()
+    val currentTrack by playerViewModel.currentTrack.collectAsState()
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
     
     var selectedFilter by remember { mutableStateOf(0) } // 0: All, 1: Liked, 2: Downloads, 3: Folders
@@ -369,7 +370,6 @@ fun LibraryScreen(
                             LazyColumn(
                                 contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
                             ) {
-                                val currentTrack by playerViewModel.currentTrack.collectAsState()
                                 items(displayTracks, key = { it.id }) { track ->
                                     TrackListItem(
                                         track = track,
