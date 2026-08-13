@@ -196,14 +196,10 @@ class DownloadWorker(
                     // Refresh repository flow so all UI screens update automatically
                     TrackRepository.refresh()
 
-                    // Toast Assurity Notification on Main Thread
-                    withContext(Dispatchers.Main) {
-                        android.widget.Toast.makeText(
-                            applicationContext,
-                            "Saved to Streamify Library 🎵 ($title)",
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
-                    }
+                    // Assurity Notification via EventBus
+                    com.streamify.app.viewmodel.UiEventBus.emitEvent(
+                        com.streamify.app.viewmodel.UiEvent.ShowSnackbar("Saved to Streamify Library 🎵 ($title)")
+                    )
                 }
 
                 Result.success()

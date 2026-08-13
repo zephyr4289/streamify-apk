@@ -361,10 +361,11 @@ fun LibraryScreen(
                 } else {
                     val displayTracks = when (selectedFilter) {
                         1 -> state.likedTracks
-                        2 -> state.tracks.filter { it.filepath.isNotBlank() }
+                        2 -> state.tracks.filter { it.source.equals("downloaded", ignoreCase = true) || (it.filepath.isNotBlank() && it.filepath.contains("Streamify", ignoreCase = true)) }
                         3 -> state.tracks.filter { 
-                            it.album.equals("Streamify", ignoreCase = true) || 
+                            it.source.equals("downloaded", ignoreCase = true) ||
                             it.source.equals("online", ignoreCase = true) ||
+                            it.album.equals("Streamify", ignoreCase = true) || 
                             it.filepath.contains("Streamify", ignoreCase = true)
                         }
                         4 -> {

@@ -331,9 +331,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             currentTrack = updatedCurrent
         )
 
-        context?.let { ctx ->
+        viewModelScope.launch {
             val msg = if (newIsLiked) "Added to Liked Songs ❤️" else "Removed from Liked Songs"
-            android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
+            UiEventBus.emitEvent(UiEvent.ShowSnackbar(msg))
         }
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {

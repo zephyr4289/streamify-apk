@@ -27,6 +27,14 @@ StreamifyDB& StreamifyDB::getInstance() {
     return instance;
 }
 
+StreamifyDB::~StreamifyDB() {
+    std::lock_guard<std::mutex> lock(db_mutex_);
+    if (shared_db_) {
+        sqlite3_close_v2(shared_db_);
+        shared_db_ = nullptr;
+    }
+}
+
 bool StreamifyDB::init(const std::string& db_path) {
     db_path_ = db_path;
     sqlite3* db = getConnection();
@@ -92,21 +100,26 @@ bool StreamifyDB::init(const std::string& db_path) {
             sqlite3_free(err);
         }
     }
+
+    // Ensure default user ID=1 exists
+    const char* bootstrap_user = "INSERT OR IGNORE INTO users (id, username, pin_hash) VALUES (1, 'default_user', 'default_hash');";
+    sqlite3_exec(db, bootstrap_user, nullptr, nullptr, nullptr);
+
     return true;
 }
 
 sqlite3* StreamifyDB::getConnection() {
-    thread_local sqlite3* tls_db = nullptr;
-    if (tls_db == nullptr) {
-        if (sqlite3_open_v2(db_path_.c_str(), &tls_db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
-            __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[StreamifyDB] Cannot open database in thread");
+    std::lock_guard<std::mutex> lock(db_mutex_);
+    if (shared_db_ == nullptr) {
+        if (sqlite3_open_v2(db_path_.c_str(), &shared_db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK) {
+            __android_log_print(ANDROID_LOG_ERROR, "StreamifyNative", "[StreamifyDB] Cannot open database");
             return nullptr;
         }
         char* err = nullptr;
-        sqlite3_exec(tls_db, "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;", nullptr, nullptr, &err);
+        sqlite3_exec(shared_db_, "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;", nullptr, nullptr, &err);
         if (err) sqlite3_free(err);
     }
-    return tls_db;
+    return shared_db_;
 }
 
 std::optional<StreamifyTrack> StreamifyDB::getTrackById(int track_id) {
@@ -245,8 +258,10 @@ int StreamifyDB::insertTrack(const std::string& filepath, const std::string& tit
     sqlite3* db = getConnection();
     if (!db) return -1;
 
-    const char* sql = "INSERT INTO tracks (filepath, title, artist, album, duration_sec, bpm) VALUES (?, ?, ?, ?, ?, ?) "
-                      "ON CONFLICT(filepath) DO UPDATE SET title=excluded.title, artist=excluded.artist, album=excluded.album, duration_sec=excluded.duration_sec, bpm=excluded.bpm;";
+    std::string source = (filepath.find("online://") == 0) ? "online" : "downloaded";
+
+    const char* sql = "INSERT INTO tracks (filepath, title, artist, album, duration_sec, bpm, source) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                      "ON CONFLICT(filepath) DO UPDATE SET title=excluded.title, artist=excluded.artist, album=excluded.album, duration_sec=excluded.duration_sec, bpm=excluded.bpm, source=excluded.source;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return -1;
 
@@ -256,6 +271,7 @@ int StreamifyDB::insertTrack(const std::string& filepath, const std::string& tit
     sqlite3_bind_text(stmt, 4, album.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmt, 5, duration_sec);
     sqlite3_bind_double(stmt, 6, bpm);
+    sqlite3_bind_text(stmt, 7, source.c_str(), -1, SQLITE_TRANSIENT);
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
         sqlite3_finalize(stmt);

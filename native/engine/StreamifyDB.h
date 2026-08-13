@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <mutex>
 #include "../third_party/sqlite3/sqlite3.h"
 
 struct StreamifyTrack {
@@ -64,10 +65,12 @@ public:
 
 private:
     StreamifyDB() = default;
-    ~StreamifyDB() = default;
+    ~StreamifyDB();
     sqlite3* getConnection();
 
     std::string db_path_{"streamify.db"};
+    sqlite3* shared_db_{nullptr};
+    std::mutex db_mutex_;
 };
 
 #endif // STREAMIFY_DB_H

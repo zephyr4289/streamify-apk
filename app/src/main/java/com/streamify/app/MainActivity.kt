@@ -112,7 +112,23 @@ class MainActivity : ComponentActivity() {
                     initialValue = SheetValue.PartiallyExpanded,
                     skipHiddenState = true
                 )
-                val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheetState)
+                val scaffoldState = rememberBottomSheetScaffoldState(
+                    bottomSheetState = sheetState,
+                    snackbarHostState = androidx.compose.material3.rememberSnackbarHostState()
+                )
+
+                LaunchedEffect(Unit) {
+                    com.streamify.app.viewmodel.UiEventBus.events.collect { event ->
+                        when (event) {
+                            is com.streamify.app.viewmodel.UiEvent.ShowSnackbar -> {
+                                scaffoldState.snackbarHostState.showSnackbar(
+                                    message = event.message,
+                                    duration = androidx.compose.material3.SnackbarDuration.Short
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // Calculate physics fraction (0.0 = collapsed, 1.0 = expanded)
                 val fraction = try {
@@ -127,6 +143,15 @@ class MainActivity : ComponentActivity() {
                 BottomSheetScaffold(
                     scaffoldState = scaffoldState,
                     sheetPeekHeight = if (playerState.currentTrack != null) peekHeight else 0.dp,
+                    snackbarHost = { 
+                        androidx.compose.material3.SnackbarHost(hostState = scaffoldState.snackbarHostState) { data ->
+                            androidx.compose.material3.Snackbar(
+                                snackbarData = data,
+                                containerColor = com.streamify.app.ui.theme.StreamifyColors.Primary,
+                                contentColor = com.streamify.app.ui.theme.StreamifyColors.BgBase
+                            )
+                        }
+                    },
                     sheetContent = {
                         if (playerState.currentTrack != null) {
                             val progress = if (playerState.duration > 0)
