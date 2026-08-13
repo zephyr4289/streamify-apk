@@ -48,7 +48,7 @@ fun LibraryScreen(
     var spotifyUrlInput by remember { mutableStateOf("") }
     
     val context = androidx.compose.ui.platform.LocalContext.current
-    val searchViewModel = androidx.lifecycle.ViewModelProvider(context as androidx.lifecycle.ViewModelStoreOwner)[com.streamify.app.viewmodel.SearchViewModel::class.java]
+    val searchViewModel: com.streamify.app.viewmodel.SearchViewModel = viewModel()
     
     val jsonFilePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -107,7 +107,6 @@ fun LibraryScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val searchViewModel = androidx.lifecycle.ViewModelProvider(context as androidx.lifecycle.ViewModelStoreOwner)[com.streamify.app.viewmodel.SearchViewModel::class.java]
                     searchViewModel.importSpotifyPlaylist(spotifyUrlInput, ingestionViewModel, context)
                     showSpotifyImportDialog = false
                     spotifyUrlInput = ""
@@ -165,66 +164,19 @@ fun LibraryScreen(
             contentPadding = PaddingValues(horizontal = StreamifyDimens.SpaceLG),
             horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceSM)
         ) {
-            item {
+            val filters = listOf(
+                0 to "All Songs",
+                1 to "Liked",
+                2 to "Downloads",
+                3 to "Streamify",
+                4 to "Playlists",
+                5 to "Folders"
+            )
+            items(filters) { (id, label) ->
                 FilterChip(
-                    selected = selectedFilter == 0,
-                    onClick = { selectedFilter = 0; selectedFolder = null },
-                    label = { Text("All Songs", color = if (selectedFilter == 0) StreamifyColors.BgBase else StreamifyColors.TextMain) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = StreamifyColors.BgCard,
-                        selectedContainerColor = StreamifyColors.Primary
-                    )
-                )
-            }
-            item {
-                FilterChip(
-                    selected = selectedFilter == 1,
-                    onClick = { selectedFilter = 1; selectedFolder = null },
-                    label = { Text("Liked", color = if (selectedFilter == 1) StreamifyColors.BgBase else StreamifyColors.TextMain) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = StreamifyColors.BgCard,
-                        selectedContainerColor = StreamifyColors.Primary
-                    )
-                )
-            }
-            item {
-                FilterChip(
-                    selected = selectedFilter == 2,
-                    onClick = { selectedFilter = 2; selectedFolder = null },
-                    label = { Text("Downloads", color = if (selectedFilter == 2) StreamifyColors.BgBase else StreamifyColors.TextMain) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = StreamifyColors.BgCard,
-                        selectedContainerColor = StreamifyColors.Primary
-                    )
-                )
-            }
-            item {
-                FilterChip(
-                    selected = selectedFilter == 3,
-                    onClick = { selectedFilter = 3; selectedFolder = null },
-                    label = { Text("Streamify", color = if (selectedFilter == 3) StreamifyColors.BgBase else StreamifyColors.TextMain) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = StreamifyColors.BgCard,
-                        selectedContainerColor = StreamifyColors.Primary
-                    )
-                )
-            }
-            item {
-                FilterChip(
-                    selected = selectedFilter == 4,
-                    onClick = { selectedFilter = 4; selectedFolder = null },
-                    label = { Text("Playlists", color = if (selectedFilter == 4) StreamifyColors.BgBase else StreamifyColors.TextMain) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = StreamifyColors.BgCard,
-                        selectedContainerColor = StreamifyColors.Primary
-                    )
-                )
-            }
-            item {
-                FilterChip(
-                    selected = selectedFilter == 5,
-                    onClick = { selectedFilter = 5; selectedFolder = null },
-                    label = { Text("Folders", color = if (selectedFilter == 5) StreamifyColors.BgBase else StreamifyColors.TextMain) },
+                    selected = selectedFilter == id,
+                    onClick = { selectedFilter = id; selectedFolder = null },
+                    label = { Text(label, color = if (selectedFilter == id) StreamifyColors.BgBase else StreamifyColors.TextMain) },
                     colors = FilterChipDefaults.filterChipColors(
                         containerColor = StreamifyColors.BgCard,
                         selectedContainerColor = StreamifyColors.Primary

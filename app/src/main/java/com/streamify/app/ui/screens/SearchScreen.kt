@@ -165,22 +165,30 @@ fun SearchScreen(
                     }
                     
                     item {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
-                            modifier = Modifier.heightIn(max = 1000.dp), // Quick fix for nested scrolling
-                            contentPadding = PaddingValues(
-                                start = StreamifyDimens.SpaceLG,
-                                end = StreamifyDimens.SpaceLG
-                            ),
-                            horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG),
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = StreamifyDimens.SpaceLG),
                             verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
                         ) {
-                            items(categories) { category ->
-                                CategoryCard(
-                                    title = category.first,
-                                    backgroundColor = category.second,
-                                    onClick = { /* Handle category */ }
-                                )
+                            val chunked = categories.chunked(2)
+                            for (row in chunked) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
+                                ) {
+                                    for (category in row) {
+                                        CategoryCard(
+                                            title = category.first,
+                                            backgroundColor = category.second,
+                                            onClick = { /* Handle category */ },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                    if (row.size == 1) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
                             }
                         }
                     }

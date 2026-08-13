@@ -174,12 +174,12 @@
 ## PHASE 5 — Home Screen Transformation
 
 ### 5.1 Collapsing App Bar
-- [ ] 5.1.1 Implement collapsing app bar with green-to-black gradient
+- [x] 5.1.1 Implement collapsing app bar with green-to-black gradient
 - [ ] 5.1.2 Add user avatar placeholder in app bar
-- [ ] 5.1.3 Smooth collapse animation on scroll (parallax)
+- [x] 5.1.3 Smooth collapse animation on scroll (parallax)
 
 ### 5.2 Recent Plays Grid (Spotify Clone)
-- [ ] 5.2.1 Redesign to 2×3 compact cards (48dp height, art left, text right)
+- [x] 5.2.1 Redesign to 2×3 compact cards (48dp height, art left, text right)
 - [ ] 5.2.2 Background: #282828, corner radius 4dp
 - [ ] 5.2.3 Add press scale animation (0.96) with spring physics
 - [ ] 5.2.4 Show animated equalizer overlay on currently playing track
@@ -194,8 +194,8 @@
 - [ ] 5.4.3 Snap-to-item behavior on horizontal fling
 
 ### 5.5 Staggered Entry Animations
-- [ ] 5.5.1 Greeting: fade in immediately
-- [ ] 5.5.2 Recent Plays: staggered fade+slide (50ms per card)
+- [x] 5.5.1 Greeting: fade in immediately
+- [x] 5.5.2 Recent Plays: staggered fade+slide (50ms per card)
 - [ ] 5.5.3 Section headers: fade in 200ms after cards
 - [ ] 5.5.4 Carousels: slide in from right (400ms)
 
@@ -205,9 +205,9 @@
 - [ ] 5.6.3 Re-fetch library + re-run recommendations on refresh
 
 ### 5.7 Layout Fixes
-- [ ] 5.7.1 Remove hardcoded `height(300.dp)` on header
-- [ ] 5.7.2 Remove unused `PlayerViewModel` parameter
-- [ ] 5.7.3 Replace `chunked(2)` loop with proper `LazyVerticalGrid` or fixed grid
+- [x] 5.7.1 Remove hardcoded `height(300.dp)` on header (Replaced with parallax)
+- [x] 5.7.2 Remove unused `PlayerViewModel` parameter
+- [x] 5.7.3 Replace `chunked(2)` loop with proper `LazyVerticalGrid` or fixed grid
 
 ---
 
@@ -219,9 +219,9 @@
 - [ ] 6.1.3 Auto-focus on screen entry (with 200ms keyboard delay)
 
 ### 6.2 Browse Categories Redesign
-- [ ] 6.2.1 Replace flat colored rectangles with gradient cards
-- [ ] 6.2.2 Add tilted image overlay in bottom-right corner (20° rotation)
-- [ ] 6.2.3 Each card: gradient background, Bold 16sp white text, 8dp radius
+- [x] 6.2.1 Replace flat colored rectangles with gradient cards
+- [x] 6.2.2 Add tilted image overlay in bottom-right corner (20° rotation)
+- [x] 6.2.3 Each card: gradient background, Bold 16sp white text, 8dp radius
 - [ ] 6.2.4 Press animation: scale(0.96) + elevation increase
 
 ### 6.3 Search Results Improvements
@@ -236,8 +236,8 @@
 - [ ] 6.4.3 "Clear" button with confirmation dialog
 
 ### 6.5 Layout Fixes
-- [ ] 6.5.1 Fix nested `LazyVerticalGrid` inside `LazyColumn` anti-pattern
-- [ ] 6.5.2 Remove hardcoded `heightIn(max = 1000.dp)` hack
+- [x] 6.5.1 Fix nested `LazyVerticalGrid` inside `LazyColumn` anti-pattern
+- [x] 6.5.2 Remove hardcoded `heightIn(max = 1000.dp)` hack
 - [ ] 6.5.3 Replace Toast on track click with proper Snackbar
 
 ---
@@ -255,10 +255,10 @@
 - [ ] 7.1.8 Pull-to-refresh to re-scan library
 
 ### 7.2 Layout Fixes
-- [ ] 7.2.1 Fix unsafe `context as ViewModelStoreOwner` cast
+- [x] 7.2.1 Fix unsafe `context as ViewModelStoreOwner` cast
 - [ ] 7.2.2 Fix empty "Add to Playlist" action in ContextMenuSheet
-- [ ] 7.2.3 Replace magic number filters (0, 1, 2, 3) with enum
-- [ ] 7.2.4 Deduplicate filter chip code (DRY refactor)
+- [x] 7.2.3 Replace magic number filters (0, 1, 2, 3) with enum
+- [x] 7.2.4 Deduplicate filter chip code (DRY refactor)
 
 ### 7.3 Playlist Database Migration
 - [ ] 7.3.1 Add `playlists` table to `StreamifyDB.cc` schema

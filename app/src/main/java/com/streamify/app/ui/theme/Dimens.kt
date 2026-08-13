@@ -22,8 +22,8 @@ object StreamifyDimens {
     val MiniPlayerArt     = 40.dp     // Album art thumbnail in mini player
     val FullPlayerArtSize = 340.dp    // Large album art in full player
     val SearchBarHeight   = 48.dp
-    val RecentCardHeight  = 56.dp     // Compact recent play grid items
-    val RecentCardArt     = 56.dp     // Album art in recent grid
+    val RecentCardHeight  = 48.dp     // Compact recent play grid items
+    val RecentCardArt     = 48.dp     // Album art in recent grid
     val TrackRowHeight    = 56.dp     // Track list item height
     val TrackRowArt       = 48.dp     // Track list album art
     val CategoryCardH     = 100.dp    // Search browse category card height
