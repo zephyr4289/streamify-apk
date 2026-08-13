@@ -257,7 +257,7 @@ fun SearchScreen(
                             val mockTrack = com.streamify.app.data.models.Track(
                                 id = 0, title = onlineTrack.title, artist = onlineTrack.uploader,
                                 album = "Streamify", durationSec = onlineTrack.duration,
-                                filepath = "", coverArtPath = onlineTrack.thumbnail.takeIf { it.isNotBlank() },
+                                filepath = onlineTrack.url, coverArtPath = onlineTrack.thumbnail.takeIf { it.isNotBlank() },
                                 bpm = 0f, key = "", lyricsPath = null, source = "online"
                             )
                             TrackListItem(
@@ -287,7 +287,7 @@ fun SearchScreen(
             track = track,
             onDismissRequest = { selectedOptionsTrack = null },
             onLikeClick = { 
-                playerViewModel.toggleLike(track)
+                playerViewModel.toggleLike(track, context)
                 selectedOptionsTrack = null 
             },
             onAddToPlaylistClick = { selectedOptionsTrack = null },

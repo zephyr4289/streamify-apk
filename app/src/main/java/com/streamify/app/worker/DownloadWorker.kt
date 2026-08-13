@@ -142,12 +142,14 @@ class DownloadWorker(
                     }
                 }
                 
+                val finalAlbum = if (album.isBlank() || album.equals("Single", ignoreCase = true)) "Streamify" else album
+
                 // Insert to database using JNI on Dispatchers.IO
                 val trackId = NativeBridge.insertTrack(
                     filepath = targetPath,
                     title = title,
                     artist = artist,
-                    album = album,
+                    album = finalAlbum,
                     durationSec = durationSec,
                     bpm = bpm
                 ).toInt()
@@ -193,6 +195,16 @@ class DownloadWorker(
 
                     // Refresh repository flow so all UI screens update automatically
                     TrackRepository.refresh()
+
+                    // Toast Assurity Notification on Main Thread
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(
+                            applicationContext,
+                            "Saved to Streamify Library 🎵 ($title)",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
                 }
 
                 Result.success()

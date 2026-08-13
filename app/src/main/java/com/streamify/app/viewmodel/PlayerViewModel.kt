@@ -309,7 +309,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         ctrl.repeatMode = if (ctrl.repeatMode == Player.REPEAT_MODE_OFF) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
     }
     
-    fun toggleLike(trackToToggle: Track? = null) {
+    fun toggleLike(trackToToggle: Track? = null, context: android.content.Context? = null) {
         val track = trackToToggle ?: _playerState.value.currentTrack ?: return
 
         val newIsLiked = !track.isLiked
@@ -330,6 +330,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             queue = updatedQueue,
             currentTrack = updatedCurrent
         )
+
+        context?.let { ctx ->
+            val msg = if (newIsLiked) "Added to Liked Songs ❤️" else "Removed from Liked Songs"
+            android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
+        }
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             repository.toggleLike(track.id, track = track)

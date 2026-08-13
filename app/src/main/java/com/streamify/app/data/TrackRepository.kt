@@ -45,30 +45,19 @@ object TrackRepository {
     
     suspend fun toggleLike(trackId: Int, userId: Int = 1, track: Track? = null): Boolean = withContext(Dispatchers.IO) {
         var targetId = trackId
+        val trackObj = track ?: _allTracks.value.find { it.id == trackId }
 
-        // If trackId is invalid (<=0) or missing from SQLite, auto-insert track into DB first
-        if (targetId <= 0 && track != null && track.filepath.isNotBlank()) {
-            val insertedId = NativeBridge.insertTrack(
-                filepath = track.filepath,
-                title = track.title,
-                artist = track.artist,
-                album = track.album,
-                durationSec = track.durationSec,
-                bpm = track.bpm
-            ).toInt()
-            if (insertedId > 0) {
-                targetId = insertedId
-            }
-        } else if (targetId <= 0) {
-            val found = _allTracks.value.find { it.id == trackId || (track != null && it.filepath == track.filepath) }
-            if (found != null && found.filepath.isNotBlank()) {
+        // Guarantee DB row exists before adding to user_liked_songs
+        if (targetId <= 0 || NativeBridge.getTrackById(targetId) == null) {
+            if (trackObj != null) {
+                val path = trackObj.filepath.ifBlank { "online://${(trackObj.title + trackObj.artist).hashCode()}" }
                 val insertedId = NativeBridge.insertTrack(
-                    filepath = found.filepath,
-                    title = found.title,
-                    artist = found.artist,
-                    album = found.album,
-                    durationSec = found.durationSec,
-                    bpm = found.bpm
+                    filepath = path,
+                    title = trackObj.title,
+                    artist = trackObj.artist,
+                    album = trackObj.album.ifBlank { "Streamify" },
+                    durationSec = trackObj.durationSec,
+                    bpm = trackObj.bpm
                 ).toInt()
                 if (insertedId > 0) {
                     targetId = insertedId

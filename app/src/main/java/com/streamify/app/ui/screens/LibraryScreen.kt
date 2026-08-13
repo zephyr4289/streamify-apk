@@ -400,10 +400,13 @@ fun LibraryScreen(
                         
                         if (displayTracks.isEmpty()) {
                             EmptyStateView(
-                                title = if (selectedFilter == 3) "No Streamify Downloads" else "No songs found",
-                                subtitle = if (selectedFilter == 3) "Songs downloaded from the Search tab will automatically appear right here in Streamify" else if (selectedFilter == 1) "Tracks you like will appear here" else "Scan your device storage or download songs to listen offline",
-                                actionText = "Scan Device Storage",
-                                onActionClick = { enqueueMediaScan(context) }
+                                title = when (selectedFilter) {
+                                    1 -> "No Liked Songs"
+                                    2 -> "No Downloaded Songs"
+                                    3 -> "No Streamify Songs"
+                                    else -> "No Songs Found"
+                                },
+                                subtitle = "Songs will appear here once added or downloaded."
                             )
                         } else {
                             LazyColumn(
@@ -429,7 +432,7 @@ fun LibraryScreen(
             track = track,
             onDismissRequest = { selectedOptionsTrack = null },
             onLikeClick = { 
-                playerViewModel.toggleLike(track)
+                playerViewModel.toggleLike(track, context)
                 selectedOptionsTrack = null 
             },
             onAddToPlaylistClick = { selectedOptionsTrack = null },
