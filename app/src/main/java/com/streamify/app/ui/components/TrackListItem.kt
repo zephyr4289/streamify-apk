@@ -105,3 +105,77 @@ fun TrackListItem(
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun SwipeableTrackListItem(
+    track: Track,
+    onClick: () -> Unit,
+    onOptionsClick: () -> Unit,
+    onSwipeQueue: (() -> Unit)? = null,
+    onSwipeLike: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    isPlaying: Boolean = false
+) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val dismissState = androidx.compose.material3.rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd) {
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                onSwipeQueue?.invoke()
+                false
+            } else if (value == androidx.compose.material3.SwipeToDismissBoxValue.EndToStart) {
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                onSwipeLike?.invoke()
+                false
+            } else false
+        }
+    )
+
+    androidx.compose.material3.SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = onSwipeQueue != null,
+        enableDismissFromEndToStart = onSwipeLike != null,
+        backgroundContent = {
+            val direction = dismissState.dismissDirection
+            val color = when (direction) {
+                androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd -> StreamifyColors.Primary
+                androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> StreamifyColors.LikeHeart
+                else -> androidx.compose.ui.graphics.Color.Transparent
+            }
+            val alignment = when (direction) {
+                androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                else -> Alignment.Center
+            }
+            val icon = when (direction) {
+                androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd -> androidx.compose.material.icons.Icons.Filled.QueueMusic
+                androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> androidx.compose.material.icons.Icons.Filled.Favorite
+                else -> androidx.compose.material.icons.Icons.Filled.QueueMusic
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(color.copy(alpha = 0.25f))
+                    .padding(horizontal = 24.dp),
+                contentAlignment = alignment
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    ) {
+        TrackListItem(
+            track = track,
+            onClick = onClick,
+            onOptionsClick = onOptionsClick,
+            modifier = modifier.background(StreamifyColors.BgBase),
+            isPlaying = isPlaying
+        )
+    }
+}
+

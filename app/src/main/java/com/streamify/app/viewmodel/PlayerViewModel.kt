@@ -383,6 +383,21 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             repository.toggleLike(track.id, track = track)
         }
+
+        // Auto-download liked online songs if setting is enabled
+        if (newIsLiked && (track.filepath.startsWith("http") || track.source.contains("online", ignoreCase = true))) {
+            try {
+                com.streamify.app.viewmodel.IngestionViewModel.enqueueDownloadDirect(
+                    url = if (track.filepath.startsWith("http")) track.filepath else "https://www.youtube.com/watch?v=${track.id}",
+                    title = track.title,
+                    artist = track.artist,
+                    album = "Streamify",
+                    quality = "320"
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun addToQueue(track: Track) {
@@ -391,6 +406,29 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             _playerState.value = _playerState.value.copy(
                 queue = currentQueue + track
             )
+        }
+    }
+
+    fun removeFromQueue(trackId: Int) {
+        val currentQueue = _playerState.value.queue.toMutableList()
+        val index = currentQueue.indexOfFirst { it.id == trackId }
+        if (index != -1) {
+            currentQueue.removeAt(index)
+            _playerState.value = _playerState.value.copy(queue = currentQueue)
+            try {
+                controller?.removeMediaItem(index)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun clearQueue() {
+        _playerState.value = _playerState.value.copy(queue = emptyList())
+        try {
+            controller?.clearMediaItems()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 

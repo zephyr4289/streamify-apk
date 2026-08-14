@@ -221,11 +221,13 @@ fun SearchScreen(
                             Text("Your Library", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
                         }
                         items(state.localResults, key = { it.id }) { track ->
-                            TrackListItem(
+                            com.streamify.app.ui.components.SwipeableTrackListItem(
                                 track = track,
                                 onClick = { onTrackClick(track, (uiState as? SearchUiState.Success)?.localResults ?: emptyList()) },
                                 onOptionsClick = { selectedOptionsTrack = track },
-                                isPlaying = currentTrack?.id == track.id
+                                isPlaying = currentTrack?.id == track.id,
+                                onSwipeQueue = { playerViewModel.addToQueue(track) },
+                                onSwipeLike = { playerViewModel.toggleLike(track) }
                             )
                         }
                     } 

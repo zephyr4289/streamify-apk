@@ -157,6 +157,28 @@ fun AppNavGraph(
                 onBack = { navController.popBackStack() }
             )
         }
+        composable("artist/{artistName}") { backStackEntry ->
+            val artistName = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("artistName") ?: "", "UTF-8")
+            val libraryState by com.streamify.app.data.TrackRepository.trackFlow.collectAsState(initial = emptyList())
+            ArtistScreen(
+                artistName = artistName,
+                allTracks = libraryState,
+                playerViewModel = playerViewModel,
+                onBack = { navController.popBackStack() },
+                onTrackClick = { track, list -> playerViewModel.playTrack(track, list) }
+            )
+        }
+        composable("album/{albumName}") { backStackEntry ->
+            val albumName = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("albumName") ?: "", "UTF-8")
+            val libraryState by com.streamify.app.data.TrackRepository.trackFlow.collectAsState(initial = emptyList())
+            AlbumScreen(
+                albumName = albumName,
+                allTracks = libraryState,
+                playerViewModel = playerViewModel,
+                onBack = { navController.popBackStack() },
+                onTrackClick = { track, list -> playerViewModel.playTrack(track, list) }
+            )
+        }
     }
 }
 

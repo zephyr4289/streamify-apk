@@ -393,11 +393,13 @@ fun LibraryScreen(
                                 contentPadding = PaddingValues(bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL)
                             ) {
                                 items(displayTracks, key = { it.id }) { track ->
-                                    TrackListItem(
+                                    com.streamify.app.ui.components.SwipeableTrackListItem(
                                         track = track,
                                         onClick = { onTrackClick(track, displayTracks) },
                                         onOptionsClick = { selectedOptionsTrack = track },
-                                        isPlaying = currentTrack?.id == track.id
+                                        isPlaying = currentTrack?.id == track.id,
+                                        onSwipeQueue = { playerViewModel.addToQueue(track) },
+                                        onSwipeLike = { playerViewModel.toggleLike(track) }
                                     )
                                 }
                             }
@@ -413,7 +415,7 @@ fun LibraryScreen(
             track = track,
             onDismissRequest = { selectedOptionsTrack = null },
             onLikeClick = { 
-                playerViewModel.toggleLike(track, context)
+                playerViewModel.toggleLike(track)
                 selectedOptionsTrack = null 
             },
             onAddToPlaylistClick = { selectedOptionsTrack = null },

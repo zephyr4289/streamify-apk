@@ -63,6 +63,7 @@ class StreamifyApp : Application(), ImageLoaderFactory {
             NativeBridge.initAudioPipeline(modelFile.absolutePath)
         }
 
+        com.streamify.app.service.AudioDeviceManager.init(this)
         createNotificationChannels()
     }
 

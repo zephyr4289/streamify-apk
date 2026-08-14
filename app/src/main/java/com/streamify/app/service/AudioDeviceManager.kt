@@ -1,0 +1,112 @@
+package com.streamify.app.service
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.os.Build
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+data class AudioOutputDevice(
+    val name: String,
+    val isBluetooth: Boolean = false,
+    val isHeadphones: Boolean = false,
+    val isSpeaker: Boolean = false
+)
+
+object AudioDeviceManager {
+
+    private val _currentDevice = MutableStateFlow(AudioOutputDevice("Phone Speaker", isSpeaker = true))
+    val currentDevice: StateFlow<AudioOutputDevice> = _currentDevice.asStateFlow()
+
+    private var isReceiverRegistered = false
+
+    private val audioReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            context?.let { updateCurrentDevice(it) }
+        }
+    }
+
+    fun init(context: Context) {
+        updateCurrentDevice(context)
+        if (!isReceiverRegistered) {
+            try {
+                val filter = IntentFilter().apply {
+                    addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+                    addAction(AudioManager.ACTION_HEADSET_PLUG)
+                    addAction("android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED")
+                    addAction("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED")
+                }
+                context.registerReceiver(audioReceiver, filter)
+                isReceiverRegistered = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun updateCurrentDevice(context: Context) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            for (device in devices) {
+                when (device.type) {
+                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+                    AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                    AudioDeviceInfo.TYPE_BLE_HEADSET,
+                    AudioDeviceInfo.TYPE_BLE_SPEAKER -> {
+                        val deviceName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !device.address.isNullOrBlank()) {
+                            device.productName?.toString() ?: "Bluetooth Audio"
+                        } else {
+                            device.productName?.toString() ?: "Bluetooth Audio"
+                        }
+                        _currentDevice.value = AudioOutputDevice(
+                            name = deviceName,
+                            isBluetooth = true
+                        )
+                        return
+                    }
+                    AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                    AudioDeviceInfo.TYPE_USB_HEADSET,
+                    AudioDeviceInfo.TYPE_USB_DEVICE -> {
+                        _currentDevice.value = AudioOutputDevice(
+                            name = "Headphones",
+                            isHeadphones = true
+                        )
+                        return
+                    }
+                }
+            }
+        }
+
+        // Fallback or default
+        _currentDevice.value = AudioOutputDevice(
+            name = "This Phone",
+            isSpeaker = true
+        )
+    }
+
+    fun openSystemAudioSettings(context: Context) {
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_SOUND_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+            } catch (ex: Exception) {
+                ex.printStackTrace()
+            }
+        }
+    }
+}

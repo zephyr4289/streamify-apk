@@ -9,9 +9,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 object TrackRepository {
-    
+    var appContext: android.content.Context? = null
+
     private val _allTracks = MutableStateFlow<List<Track>>(emptyList())
     val allTracks: StateFlow<List<Track>> = _allTracks.asStateFlow()
+    val trackFlow: StateFlow<List<Track>> = allTracks
 
     private val _likedTracks = MutableStateFlow<List<Track>>(emptyList())
     val likedTracks: StateFlow<List<Track>> = _likedTracks.asStateFlow()

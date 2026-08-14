@@ -237,24 +237,205 @@ fun SettingsScreen(
                 }
             }
             item {
-                SectionHeader("Storage")
+                SectionHeader("Playback & Acoustic Dynamics")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
-                
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        val isLoudnessOn by com.streamify.app.service.EqualizerManager.isLoudnessNormalizationEnabled.collectAsState()
+                        var autoDownloadLiked by remember {
+                            mutableStateOf(audioPrefs.getBoolean("auto_download_liked", false))
+                        }
+
+                        // Loudness Normalization
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Loudness Normalization", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                Text("Normalizes volume across tracks (-14 LUFS standard)", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                            }
+                            Switch(
+                                checked = isLoudnessOn,
+                                onCheckedChange = { com.streamify.app.service.EqualizerManager.setLoudnessNormalization(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = StreamifyColors.Primary,
+                                    checkedTrackColor = StreamifyColors.Primary.copy(alpha = 0.5f)
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Auto-Download Liked Songs
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Auto-Download Liked Songs", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                Text("Automatically saves liked online songs for offline listening", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                            }
+                            Switch(
+                                checked = autoDownloadLiked,
+                                onCheckedChange = {
+                                    autoDownloadLiked = it
+                                    audioPrefs.edit().putBoolean("auto_download_liked", it).apply()
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = StreamifyColors.Primary,
+                                    checkedTrackColor = StreamifyColors.Primary.copy(alpha = 0.5f)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                SectionHeader("Storage & 5-Tier Cache")
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+
+                var storageInfo by remember { mutableStateOf<com.streamify.app.data.StorageBreakdown?>(null) }
+                val scope = rememberCoroutineScope()
+
+                LaunchedEffect(Unit) {
+                    storageInfo = com.streamify.app.data.StorageManager.getStorageBreakdown(context)
+                }
+
                 Card(
                     colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().clickable { /* Clear cache */ },
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text("Clear cache", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
-                                Text("Free up storage space", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                Text("Audio Stream Cache", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                Text("250 MB LRU progressive buffer", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
                             }
-                            Text("142 MB", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                            Text(
+                                text = com.streamify.app.data.StorageManager.formatBytes(storageInfo?.audioCacheBytes ?: 0L),
+                                style = StreamifyType.BodyMedium,
+                                color = StreamifyColors.TextMain
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Cover Art Disk Cache", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                Text("100 MB HD image cache", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                            }
+                            Text(
+                                text = com.streamify.app.data.StorageManager.formatBytes(storageInfo?.imageCacheBytes ?: 0L),
+                                style = StreamifyType.BodyMedium,
+                                color = StreamifyColors.TextMain
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    com.streamify.app.data.StorageManager.clearAllCache(context)
+                                    storageInfo = com.streamify.app.data.StorageManager.getStorageBreakdown(context)
+                                    android.widget.Toast.makeText(context, "Cache cleared successfully", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.BgSurfaceElevated),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Clear All Cache (${com.streamify.app.data.StorageManager.formatBytes(storageInfo?.totalCacheBytes ?: 0L)})", color = StreamifyColors.Primary)
+                        }
+                    }
+                }
+            }
+
+            item {
+                SectionHeader("Backup & Data Migration")
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+
+                val scope = rememberCoroutineScope()
+                val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                    contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+                ) { uri ->
+                    uri?.let {
+                        scope.launch {
+                            try {
+                                val jsonStr = context.contentResolver.openInputStream(it)?.bufferedReader().use { r -> r?.readText() } ?: ""
+                                val result = com.streamify.app.data.BackupManager.importLibraryBackup(context, jsonStr)
+                                if (result.isSuccess) {
+                                    android.widget.Toast.makeText(context, "Restored ${result.getOrNull()} items successfully", android.widget.Toast.LENGTH_LONG).show()
+                                } else {
+                                    android.widget.Toast.makeText(context, "Failed to restore backup", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    scope.launch {
+                                        val res = com.streamify.app.data.BackupManager.exportLibraryBackup(context)
+                                        if (res.isSuccess) {
+                                            android.widget.Toast.makeText(context, "Backup exported to Documents/Streamify", android.widget.Toast.LENGTH_LONG).show()
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Export failed", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Export Library Backup", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                Text("Save liked songs & playlists to JSON file", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                            }
+                            Icon(Icons.Filled.ArrowForward, contentDescription = null, tint = StreamifyColors.TextSub)
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { importLauncher.launch("application/json") }
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Restore Library from JSON", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                Text("Import tracks and playlists from backup", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                            }
+                            Icon(Icons.Filled.ArrowForward, contentDescription = null, tint = StreamifyColors.TextSub)
                         }
                     }
                 }
@@ -274,10 +455,10 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("Version", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
-                            Text("4.0.0 (Engineering Marvel)", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                            Text("4.2.0 (Flagship Edition)", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
                         }
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Third-party software", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                        Text("Open Source High-Performance Architecture", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
                     }
                 }
             }

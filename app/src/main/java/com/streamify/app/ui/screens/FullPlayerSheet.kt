@@ -348,32 +348,60 @@ fun FullPlayerSheet(
 
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
 
-                // Bottom Action Bar (Queue & Lyrics)
+                // Bottom Action Bar (Audio Device Switcher, Queue, Infinity Radio, Lyrics)
+                val audioDevice by com.streamify.app.service.AudioDeviceManager.currentDevice.collectAsState()
+                val context = androidx.compose.ui.platform.LocalContext.current
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { onQueueClick?.invoke() }) {
+                    // Spotify Connect Audio Device Pill
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { com.streamify.app.service.AudioDeviceManager.openSystemAudioSettings(context) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
-                            imageVector = Icons.Filled.QueueMusic,
-                            contentDescription = "Up Next Queue",
-                            tint = StreamifyColors.TextSub
+                            imageVector = if (audioDevice.isBluetooth) Icons.Filled.BluetoothAudio else Icons.Filled.Speaker,
+                            contentDescription = "Audio Output Device",
+                            tint = if (audioDevice.isBluetooth) StreamifyColors.Primary else StreamifyColors.TextSub,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = audioDevice.name,
+                            style = StreamifyType.Caption,
+                            color = if (audioDevice.isBluetooth) StreamifyColors.Primary else StreamifyColors.TextSub,
+                            maxLines = 1
                         )
                     }
-                    IconButton(onClick = { onAutoPlayToggle?.invoke() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Star,
-                            contentDescription = "Neural Infinity Radio",
-                            tint = if (isAutoPlayEnabled) StreamifyColors.Primary else StreamifyColors.TextSub
-                        )
-                    }
-                    IconButton(onClick = { onLyricsClick?.invoke() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Subtitles,
-                            contentDescription = "Lyrics",
-                            tint = StreamifyColors.TextSub
-                        )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { onQueueClick?.invoke() }) {
+                            Icon(
+                                imageVector = Icons.Filled.QueueMusic,
+                                contentDescription = "Up Next Queue",
+                                tint = StreamifyColors.TextSub
+                            )
+                        }
+                        IconButton(onClick = { onAutoPlayToggle?.invoke() }) {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = "Neural Infinity Radio",
+                                tint = if (isAutoPlayEnabled) StreamifyColors.Primary else StreamifyColors.TextSub
+                            )
+                        }
+                        IconButton(onClick = { onLyricsClick?.invoke() }) {
+                            Icon(
+                                imageVector = Icons.Filled.Subtitles,
+                                contentDescription = "Lyrics",
+                                tint = StreamifyColors.TextSub
+                            )
+                        }
                     }
                 }
             }

@@ -85,5 +85,43 @@ class IngestionViewModel : ViewModel() {
     fun cancelDownload(context: Context, taskId: UUID) {
         WorkManager.getInstance(context).cancelWorkById(taskId)
     }
+
+    companion object {
+        fun enqueueDownloadDirect(
+            context: Context? = null,
+            url: String,
+            title: String,
+            artist: String,
+            album: String = "Streamify",
+            quality: String = "320"
+        ) {
+            try {
+                val targetContext = context ?: com.streamify.app.data.TrackRepository.appContext ?: return
+                val workManager = WorkManager.getInstance(targetContext)
+                val inputData = Data.Builder()
+                    .putString("url", url)
+                    .putString("title", title)
+                    .putString("artist", artist)
+                    .putString("album", album)
+                    .putString("quality", quality)
+                    .build()
+
+                val constraints = Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+
+                val downloadRequest = OneTimeWorkRequestBuilder<com.streamify.app.worker.DownloadWorker>()
+                    .addTag("download_worker")
+                    .addTag("TITLE:$title")
+                    .setInputData(inputData)
+                    .setConstraints(constraints)
+                    .build()
+
+                workManager.enqueue(downloadRequest)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
 }
 

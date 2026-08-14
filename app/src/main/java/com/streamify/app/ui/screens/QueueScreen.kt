@@ -50,12 +50,24 @@ fun QueueScreen(
 
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
 
-        Text(
-            text = "Next In Queue",
-            style = StreamifyType.HeadlineMedium,
-            color = StreamifyColors.TextMain,
-            modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Next In Queue (${upNext.size})",
+                style = StreamifyType.HeadlineMedium,
+                color = StreamifyColors.TextMain
+            )
+            if (upNext.isNotEmpty()) {
+                androidx.compose.material3.TextButton(onClick = { playerViewModel.clearQueue() }) {
+                    Text("Clear", style = StreamifyType.TitleSmall, color = StreamifyColors.TextSub)
+                }
+            }
+        }
 
         com.streamify.app.ui.components.ReorderableList(
             items = upNext,
@@ -68,11 +80,13 @@ fun QueueScreen(
                 color = if (isDragging) StreamifyColors.BgCard else androidx.compose.ui.graphics.Color.Transparent,
                 shadowElevation = elevation
             ) {
-                TrackListItem(
+                com.streamify.app.ui.components.SwipeableTrackListItem(
                     track = track,
                     isPlaying = false,
                     onClick = { onTrackClick(track.id) },
-                    onOptionsClick = { selectedOptionsTrack = track }
+                    onOptionsClick = { selectedOptionsTrack = track },
+                    onSwipeQueue = null,
+                    onSwipeLike = { playerViewModel.removeFromQueue(track.id) }
                 )
             }
         }

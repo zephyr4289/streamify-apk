@@ -6,9 +6,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
@@ -44,7 +46,9 @@ fun ContextMenuSheet(
     onLikeClick: () -> Unit,
     onAddToPlaylistClick: () -> Unit,
     onAddToQueueClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onGoToArtist: ((String) -> Unit)? = null,
+    onGoToAlbum: ((String) -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showEditDialog by remember { mutableStateOf(false) }
@@ -125,17 +129,48 @@ fun ContextMenuSheet(
                     onDismissRequest()
                 }
             )
+            val context = androidx.compose.ui.platform.LocalContext.current
+
             ContextActionItem(
                 icon = Icons.Filled.Download,
                 text = "Download",
                 onClick = {
+                    com.streamify.app.viewmodel.IngestionViewModel.enqueueDownloadDirect(
+                        context = context,
+                        url = if (track.filepath.startsWith("http")) track.filepath else "https://www.youtube.com/watch?v=${track.id}",
+                        title = track.title,
+                        artist = track.artist,
+                        album = track.album.ifBlank { "Streamify" }
+                    )
+                    android.widget.Toast.makeText(context, "Download queued: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
                     onDismissRequest()
                 }
             )
+            if (onGoToArtist != null && track.artist.isNotBlank() && track.artist != "Unknown Artist") {
+                ContextActionItem(
+                    icon = Icons.Filled.Person,
+                    text = "Go to Artist",
+                    onClick = {
+                        onGoToArtist(track.artist)
+                        onDismissRequest()
+                    }
+                )
+            }
+            if (onGoToAlbum != null && track.album.isNotBlank() && track.album != "Single" && track.album != "Local Import") {
+                ContextActionItem(
+                    icon = Icons.Filled.Album,
+                    text = "Go to Album",
+                    onClick = {
+                        onGoToAlbum(track.album)
+                        onDismissRequest()
+                    }
+                )
+            }
             ContextActionItem(
                 icon = Icons.Filled.Share,
                 text = "Share",
                 onClick = {
+                    com.streamify.app.util.TrackShareCard.shareTrack(context, track)
                     onDismissRequest()
                 }
             )

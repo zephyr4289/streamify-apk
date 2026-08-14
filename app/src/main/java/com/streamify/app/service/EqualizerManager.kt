@@ -2,6 +2,7 @@ package com.streamify.app.service
 
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,11 +12,15 @@ object EqualizerManager {
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
+    private var loudnessEnhancer: LoudnessEnhancer? = null
 
     data class EqBand(val centerFreqHz: Int, val level: Short, val lowerHz: Int, val upperHz: Int)
 
     private val _isEqEnabled = MutableStateFlow(false)
     val isEqEnabled: StateFlow<Boolean> = _isEqEnabled.asStateFlow()
+
+    private val _isLoudnessNormalizationEnabled = MutableStateFlow(true)
+    val isLoudnessNormalizationEnabled: StateFlow<Boolean> = _isLoudnessNormalizationEnabled.asStateFlow()
 
     private val _bands = MutableStateFlow<List<EqBand>>(emptyList())
     val bands: StateFlow<List<EqBand>> = _bands.asStateFlow()
@@ -36,10 +41,16 @@ object EqualizerManager {
             equalizer = Equalizer(0, audioSessionId)
             bassBoost = BassBoost(0, audioSessionId)
             virtualizer = Virtualizer(0, audioSessionId)
+            loudnessEnhancer = LoudnessEnhancer(audioSessionId)
 
             equalizer?.enabled = _isEqEnabled.value
             bassBoost?.enabled = _isEqEnabled.value
             virtualizer?.enabled = _isEqEnabled.value
+            
+            loudnessEnhancer?.enabled = _isLoudnessNormalizationEnabled.value
+            if (_isLoudnessNormalizationEnabled.value) {
+                loudnessEnhancer?.setTargetGain(150)
+            }
 
             val eq = equalizer ?: return
             val bandRange = eq.bandLevelRange
@@ -65,6 +76,18 @@ object EqualizerManager {
 
             bassBoost?.setStrength(_bassStrength.value)
             virtualizer?.setStrength(_virtualizerStrength.value)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun setLoudnessNormalization(enabled: Boolean) {
+        _isLoudnessNormalizationEnabled.value = enabled
+        try {
+            loudnessEnhancer?.enabled = enabled
+            if (enabled) {
+                loudnessEnhancer?.setTargetGain(150)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -102,8 +125,10 @@ object EqualizerManager {
         equalizer?.release()
         bassBoost?.release()
         virtualizer?.release()
+        loudnessEnhancer?.release()
         equalizer = null
         bassBoost = null
         virtualizer = null
+        loudnessEnhancer = null
     }
 }
