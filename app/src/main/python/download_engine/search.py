@@ -122,13 +122,17 @@ def search_youtube(query, max_results=20):
 
 def get_stream_url(url):
     ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'ignoreerrors': True,
         'nocheckcertificate': True,
         'noplaylist': True,
-        'extract_flat': False,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+            }
+        }
     }
     try:
         target_input = url.strip()
@@ -143,20 +147,65 @@ def get_stream_url(url):
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(target_input, download=False)
-            if info:
-                if 'entries' in info and len(info['entries']) > 0:
-                    info = info['entries'][0]
-                target_url = info.get('url', '')
-                if target_url:
-                    headers = info.get('http_headers', {})
-                    user_agent = headers.get('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-                    return json.dumps({
-                        'url': target_url,
-                        'user_agent': user_agent,
-                        'title': info.get('title', ''),
-                        'uploader': info.get('uploader', ''),
-                        'duration': info.get('duration', 0)
-                    })
+            if not info:
+                return ""
+            
+            if 'entries' in info:
+                entries = [e for e in info['entries'] if e]
+                if not entries:
+                    return ""
+                info = entries[0]
+                if not info.get('formats') and (info.get('webpage_url') or info.get('id')):
+                    sub_url = info.get('webpage_url') or f"https://www.youtube.com/watch?v={info.get('id')}"
+                    info = ydl.extract_info(sub_url, download=False)
+
+            formats = info.get('formats', [])
+            
+            # 1. Look for genuine audio-only streams (m4a, webm/opus)
+            audio_formats = [
+                f for f in formats 
+                if f.get('url') 
+                and (f.get('acodec') and f.get('acodec') != 'none')
+                and (f.get('vcodec') == 'none' or not f.get('vcodec'))
+                and not f.get('format_id', '').startswith('sb')
+                and f.get('ext') not in ['mhtml', 'jpg', 'jpeg', 'png', 'webp']
+            ]
+
+            direct_url = None
+            if audio_formats:
+                audio_formats.sort(
+                    key=lambda f: (
+                        1 if f.get('ext') == 'm4a' else 0,
+                        f.get('abr') or f.get('tbr') or 0
+                    ),
+                    reverse=True
+                )
+                direct_url = audio_formats[0].get('url')
+
+            # 2. Fallback to top-level URL or media formats
+            if not direct_url:
+                if info.get('url') and info.get('ext') not in ['mhtml', 'jpg', 'png', 'webp']:
+                    direct_url = info.get('url')
+                elif formats:
+                    valid_media = [
+                        f for f in formats 
+                        if f.get('url') 
+                        and not f.get('format_id', '').startswith('sb')
+                        and f.get('ext') not in ['mhtml', 'jpg', 'png', 'webp']
+                    ]
+                    if valid_media:
+                        direct_url = valid_media[-1].get('url')
+
+            if direct_url:
+                headers = info.get('http_headers', {})
+                user_agent = headers.get('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+                return json.dumps({
+                    'url': direct_url,
+                    'user_agent': user_agent,
+                    'title': info.get('title', ''),
+                    'uploader': info.get('uploader', ''),
+                    'duration': info.get('duration', 0)
+                })
         return ""
     except Exception as e:
         print(f"Stream URL error: {e}")

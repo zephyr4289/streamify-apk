@@ -22,6 +22,7 @@ __pycache__/
 *.pyo
 .venv/
 *.egg-info/
+test_*.py
 
 # Database
 *.db
