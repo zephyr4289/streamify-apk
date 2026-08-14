@@ -32,8 +32,9 @@ object NativeBridge {
     external fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int)
     external fun logSkipEvent(fromTrackId: Int, toTrackId: Int, userId: Int)
 
-    // Resource-Aware Dynamic Task Orchestrator
+    // Resource-Aware Dynamic Task Orchestrator (Project Prometheus)
     external fun setHighPriorityActive(active: Boolean)
+    external fun setBatterySaverActive(active: Boolean)
     external fun setTotalAiTasks(total: Int)
     external fun getOrchestratorStatus(): OrchestratorStatusNative?
 

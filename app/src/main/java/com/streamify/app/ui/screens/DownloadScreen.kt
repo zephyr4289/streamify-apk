@@ -54,7 +54,10 @@ fun DownloadScreen(
                         totalAiTasks = nativeStatus.totalAiTasks,
                         cpuCoreBudget = nativeStatus.cpuCoreBudget,
                         activeThreads = nativeStatus.activeThreads,
-                        isThrottled = nativeStatus.isThrottled
+                        isThrottled = nativeStatus.isThrottled,
+                        cpuTemp = nativeStatus.cpuTemp,
+                        isThermallyThrottled = nativeStatus.isThermallyThrottled,
+                        isBatterySaver = nativeStatus.isBatterySaver
                     )
                 }
             } catch (e: Exception) {
@@ -109,45 +112,70 @@ fun DownloadScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "C++ Dynamic Task Orchestrator",
+                                text = "C++ Project Prometheus",
                                 style = StreamifyType.TitleSmall,
                                 color = StreamifyColors.TextMain
                             )
                             val statusColor by animateColorAsState(
-                                targetValue = if (orchestratorStatus.isThrottled) Color(0xFFFFB74D) else StreamifyColors.Primary,
+                                targetValue = when {
+                                    orchestratorStatus.isThermallyThrottled -> Color(0xFFFF5722)
+                                    orchestratorStatus.isThrottled -> Color(0xFFFFB74D)
+                                    else -> StreamifyColors.Primary
+                                },
                                 label = "statusColor"
                             )
                             Text(
-                                text = if (orchestratorStatus.activeAiTasks > 0)
-                                    (if (orchestratorStatus.isThrottled) "Throttled (UI & Search Priority)" else "AI Neural Ingestion Active")
-                                else "Idle (Power Optimized)",
+                                text = when {
+                                    orchestratorStatus.isThermallyThrottled -> "Thermal Throttling (${orchestratorStatus.cpuTemp}°C)"
+                                    orchestratorStatus.activeAiTasks > 0 && orchestratorStatus.isThrottled -> "Throttled (UI Priority)"
+                                    orchestratorStatus.activeAiTasks > 0 -> "AI Ingestion Active (${orchestratorStatus.activeAiTasks} tasks)"
+                                    else -> "Idle (Power Optimized)"
+                                },
                                 style = StreamifyType.Caption,
                                 color = statusColor
                             )
                         }
                     }
 
-                    // CPU Core Budget Badge
-                    Surface(
-                        color = StreamifyColors.BgElevated,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    // CPU Temperature & Core Budget Badges
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Surface(
+                            color = if (orchestratorStatus.cpuTemp >= 46) Color(0xFFFF5722).copy(alpha = 0.2f) else StreamifyColors.BgElevated,
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Speed,
-                                contentDescription = null,
-                                tint = StreamifyColors.TextSub,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "${orchestratorStatus.cpuCoreBudget}% Core Budget",
-                                style = StreamifyType.Caption.copy(fontSize = 11.sp),
-                                color = StreamifyColors.TextSub
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${orchestratorStatus.cpuTemp}°C",
+                                    style = StreamifyType.Caption.copy(fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                                    color = if (orchestratorStatus.cpuTemp >= 46) Color(0xFFFF5722) else StreamifyColors.TextSub
+                                )
+                            }
+                        }
+
+                        Surface(
+                            color = StreamifyColors.BgElevated,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Speed,
+                                    contentDescription = null,
+                                    tint = StreamifyColors.TextSub,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "${orchestratorStatus.cpuCoreBudget}%",
+                                    style = StreamifyType.Caption.copy(fontSize = 11.sp),
+                                    color = StreamifyColors.TextSub
+                                )
+                            }
                         }
                     }
                 }

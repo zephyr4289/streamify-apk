@@ -260,7 +260,7 @@ Java_com_streamify_app_data_NativeBridge_getOrchestratorStatus(JNIEnv* env, jobj
     jclass statusClass = env->FindClass("com/streamify/app/data/models/OrchestratorStatusNative");
     if (!statusClass) return nullptr;
     
-    jmethodID constructor = env->GetMethodID(statusClass, "<init>", "(Ljava/lang/String;Ljava/lang/String;IIIIIZ)V");
+    jmethodID constructor = env->GetMethodID(statusClass, "<init>", "(Ljava/lang/String;Ljava/lang/String;IIIIIZIZZ)V");
     if (!constructor) return nullptr;
     
     jstring stateStr = env->NewStringUTF(m.state.c_str());
@@ -268,11 +268,17 @@ Java_com_streamify_app_data_NativeBridge_getOrchestratorStatus(JNIEnv* env, jobj
     
     jobject obj = env->NewObject(statusClass, constructor,
         stateStr, actionStr, m.activeAiTasks, m.completedAiTasks, m.totalAiTasks,
-        m.cpuCoreBudget, m.activeThreads, m.isThrottled);
+        m.cpuCoreBudget, m.activeThreads, m.isThrottled,
+        m.cpuTemp, m.isThermallyThrottled, m.isBatterySaver);
         
     env->DeleteLocalRef(stateStr);
     env->DeleteLocalRef(actionStr);
     return obj;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_setBatterySaverActive(JNIEnv* /* env */, jobject /* this */, jboolean active) {
+    TaskOrchestrator::getInstance().setBatterySaverActive(active);
 }
 
 extern "C" JNIEXPORT jint JNICALL

@@ -8,7 +8,10 @@ data class OrchestratorStatusNative(
     val totalAiTasks: Int,
     val cpuCoreBudget: Int,
     val activeThreads: Int,
-    val isThrottled: Boolean
+    val isThrottled: Boolean,
+    val cpuTemp: Int,
+    val isThermallyThrottled: Boolean,
+    val isBatterySaver: Boolean
 )
 
 data class OrchestratorStatus(
@@ -19,7 +22,10 @@ data class OrchestratorStatus(
     val totalAiTasks: Int = 0,
     val cpuCoreBudget: Int = 100,
     val activeThreads: Int = 0,
-    val isThrottled: Boolean = false
+    val isThrottled: Boolean = false,
+    val cpuTemp: Int = 35,
+    val isThermallyThrottled: Boolean = false,
+    val isBatterySaver: Boolean = false
 ) {
     val progress: Float
         get() = if (totalAiTasks > 0) (completedAiTasks.toFloat() / totalAiTasks.toFloat()).coerceIn(0f, 1f) else 1f
