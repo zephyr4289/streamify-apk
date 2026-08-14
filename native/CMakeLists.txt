@@ -14,6 +14,7 @@ add_library(streamify_core SHARED
     engine/VectorStore.cc
     engine/RecommendEngine.cc
     engine/EventTracker.cc
+    engine/TaskOrchestrator.cc
     ingest/AudioPipeline.cc
     dsp/kissfft/kiss_fft.c
     dsp/kissfft/kiss_fftr.c

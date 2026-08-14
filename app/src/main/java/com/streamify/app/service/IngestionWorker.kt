@@ -67,6 +67,8 @@ class IngestionWorker(
             val newFiles = localFiles.filter { !existingPaths.contains(it.dataPath) }
             var insertedCount = 0
 
+            NativeBridge.setTotalAiTasks(newFiles.size)
+
             newFiles.forEachIndexed { index, file ->
                 val trackId = NativeBridge.insertTrack(
                     filepath = file.dataPath,
@@ -97,16 +99,22 @@ class IngestionWorker(
                         e.printStackTrace()
                     }
 
-                    // Process audio for real BPM and ONNX vector embedding
+                    // Process audio for real BPM and ONNX vector embedding (cooperatively throttled)
                     try {
                         NativeBridge.processAudioFile(trackId, file.dataPath)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
+
+                    // Progressive refinement: Refresh repository every 3 tracks or first track
+                    if (insertedCount == 1 || insertedCount % 3 == 0) {
+                        TrackRepository.refresh()
+                    }
                 }
 
                 val progress = (index + 1).toFloat() / newFiles.size.toFloat()
                 setProgress(workDataOf("PROGRESS" to progress))
+                kotlinx.coroutines.delay(20) // Cooperative yield for UI smoothness
             }
 
             if (insertedCount > 0 || existingTracks.isEmpty()) {

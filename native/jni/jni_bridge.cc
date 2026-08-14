@@ -184,6 +184,9 @@ Java_com_streamify_app_data_NativeBridge_initAudioPipeline(JNIEnv* env, jobject 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_streamify_app_data_NativeBridge_processAudioFile(JNIEnv* env, jobject /* this */, jint trackId, jstring filePath) {
     const char* path = env->GetStringUTFChars(filePath, 0);
+    std::string trackPathStr(path);
+    TaskOrchestrator::getInstance().notifyAiTaskStarted(trackPathStr);
+    
     std::vector<float> vec = AudioPipeline::getInstance().processAudio(path);
     
     if (!vec.empty() && trackId > 0) {
@@ -194,6 +197,7 @@ Java_com_streamify_app_data_NativeBridge_processAudioFile(JNIEnv* env, jobject /
     }
     
     env->ReleaseStringUTFChars(filePath, path);
+    TaskOrchestrator::getInstance().notifyAiTaskCompleted();
 
     if (vec.empty()) return -1;
 
@@ -236,4 +240,38 @@ Java_com_streamify_app_data_NativeBridge_updateTrackMetadata(JNIEnv* env, jobjec
     env->ReleaseStringUTFChars(album, cAlbum);
     
     return res;
+}
+
+#include "../engine/TaskOrchestrator.h"
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_setHighPriorityActive(JNIEnv* /* env */, jobject /* this */, jboolean active) {
+    TaskOrchestrator::getInstance().setHighPriorityActive(active);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_setTotalAiTasks(JNIEnv* /* env */, jobject /* this */, jint total) {
+    TaskOrchestrator::getInstance().setTotalAiTasks(total);
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_streamify_app_data_NativeBridge_getOrchestratorStatus(JNIEnv* env, jobject /* this */) {
+    OrchestratorMetrics m = TaskOrchestrator::getInstance().getMetrics();
+    
+    jclass statusClass = env->FindClass("com/streamify/app/data/models/OrchestratorStatusNative");
+    if (!statusClass) return nullptr;
+    
+    jmethodID constructor = env->GetMethodID(statusClass, "<init>", "(Ljava/lang/String;Ljava/lang/String;IIIIIZ)V");
+    if (!constructor) return nullptr;
+    
+    jstring stateStr = env->NewStringUTF(m.state.c_str());
+    jstring actionStr = env->NewStringUTF(m.currentAction.c_str());
+    
+    jobject obj = env->NewObject(statusClass, constructor,
+        stateStr, actionStr, m.activeAiTasks, m.completedAiTasks, m.totalAiTasks,
+        m.cpuCoreBudget, m.activeThreads, m.isThrottled);
+        
+    env->DeleteLocalRef(stateStr);
+    env->DeleteLocalRef(actionStr);
+    return obj;
 }

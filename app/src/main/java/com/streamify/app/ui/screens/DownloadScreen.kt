@@ -1,24 +1,34 @@
 package com.streamify.app.ui.screens
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.streamify.app.data.NativeBridge
+import com.streamify.app.data.models.OrchestratorStatus
 import com.streamify.app.ui.components.EmptyStateView
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
-import com.streamify.app.ui.theme.StreamifyShapes
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.viewmodel.IngestionViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 fun DownloadScreen(
@@ -27,8 +37,31 @@ fun DownloadScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val tasks by viewModel.downloadTasks.collectAsState()
     
-    androidx.compose.runtime.LaunchedEffect(context) {
+    var orchestratorStatus by remember { mutableStateOf(OrchestratorStatus()) }
+
+    LaunchedEffect(Unit) {
         viewModel.observeDownloads(context)
+        // Lightweight polling (1500ms) with zero UI lock or GC overhead
+        while (isActive) {
+            try {
+                val nativeStatus = NativeBridge.getOrchestratorStatus()
+                if (nativeStatus != null) {
+                    orchestratorStatus = OrchestratorStatus(
+                        state = nativeStatus.state,
+                        currentAction = nativeStatus.currentAction,
+                        activeAiTasks = nativeStatus.activeAiTasks,
+                        completedAiTasks = nativeStatus.completedAiTasks,
+                        totalAiTasks = nativeStatus.totalAiTasks,
+                        cpuCoreBudget = nativeStatus.cpuCoreBudget,
+                        activeThreads = nativeStatus.activeThreads,
+                        isThrottled = nativeStatus.isThrottled
+                    )
+                }
+            } catch (e: Exception) {
+                // Ignore if native bridge not ready
+            }
+            delay(1500)
+        }
     }
 
     Column(
@@ -38,11 +71,118 @@ fun DownloadScreen(
             .padding(top = StreamifyDimens.SpaceGiant)
     ) {
         Text(
-            text = "Downloads",
+            text = "Downloads & Engine",
             style = StreamifyType.HeadlineLarge,
             color = StreamifyColors.TextMain,
             modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD)
         )
+
+        // Zero-Overhead C++ Core Task Orchestrator Status Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceSM)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(StreamifyColors.Primary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Memory,
+                                contentDescription = null,
+                                tint = StreamifyColors.Primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "C++ Dynamic Task Orchestrator",
+                                style = StreamifyType.TitleSmall,
+                                color = StreamifyColors.TextMain
+                            )
+                            val statusColor by animateColorAsState(
+                                targetValue = if (orchestratorStatus.isThrottled) Color(0xFFFFB74D) else StreamifyColors.Primary,
+                                label = "statusColor"
+                            )
+                            Text(
+                                text = if (orchestratorStatus.activeAiTasks > 0)
+                                    (if (orchestratorStatus.isThrottled) "Throttled (UI & Search Priority)" else "AI Neural Ingestion Active")
+                                else "Idle (Power Optimized)",
+                                style = StreamifyType.Caption,
+                                color = statusColor
+                            )
+                        }
+                    }
+
+                    // CPU Core Budget Badge
+                    Surface(
+                        color = StreamifyColors.BgElevated,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Speed,
+                                contentDescription = null,
+                                tint = StreamifyColors.TextSub,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "${orchestratorStatus.cpuCoreBudget}% Core Budget",
+                                style = StreamifyType.Caption.copy(fontSize = 11.sp),
+                                color = StreamifyColors.TextSub
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = orchestratorStatus.currentAction,
+                    style = StreamifyType.BodyMedium,
+                    color = StreamifyColors.TextSub,
+                    maxLines = 1
+                )
+
+                if (orchestratorStatus.totalAiTasks > 0 && orchestratorStatus.activeAiTasks > 0) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { orchestratorStatus.progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = StreamifyColors.Primary,
+                        trackColor = StreamifyColors.BgElevated
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Indexed ${orchestratorStatus.completedAiTasks} / ${orchestratorStatus.totalAiTasks} neural embeddings",
+                        style = StreamifyType.Caption.copy(fontSize = 11.sp),
+                        color = StreamifyColors.TextDimmed
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
 
         if (tasks.isEmpty()) {
             EmptyStateView(

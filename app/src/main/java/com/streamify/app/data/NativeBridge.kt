@@ -2,6 +2,7 @@ package com.streamify.app.data
 
 import com.streamify.app.data.models.TrackNative
 import com.streamify.app.data.models.RecommendationNative
+import com.streamify.app.data.models.OrchestratorStatusNative
 
 object NativeBridge {
     init { System.loadLibrary("streamify_core") }
@@ -30,4 +31,9 @@ object NativeBridge {
     // Events
     external fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int)
     external fun logSkipEvent(fromTrackId: Int, toTrackId: Int, userId: Int)
+
+    // Resource-Aware Dynamic Task Orchestrator
+    external fun setHighPriorityActive(active: Boolean)
+    external fun setTotalAiTasks(total: Int)
+    external fun getOrchestratorStatus(): OrchestratorStatusNative?
 }

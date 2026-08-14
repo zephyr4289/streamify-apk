@@ -89,6 +89,9 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         }
 
         searchJob = viewModelScope.launch {
+            // Signal orchestrator to prioritize search over background AI ingestion
+            com.streamify.app.data.NativeBridge.setHighPriorityActive(true)
+
             // 1. Instantaneous Local Search (Sub-millisecond JNI)
             val localResults = repository.searchTracks(cleanQuery)
 

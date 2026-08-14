@@ -4,6 +4,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 #include "AudioPipeline.h"
+#include "../engine/TaskOrchestrator.h"
 #include <android/log.h>
 #include <kiss_fftr.h>
 
@@ -81,6 +82,7 @@ std::vector<float> AudioPipeline::processAudio(const std::string& filepath) {
         std::vector<float> mel_spec(required_frames * num_mels, 0.0f);
         
         for (int f = 0; f < required_frames; ++f) {
+            TaskOrchestrator::getInstance().cooperativeYield();
             ma_uint64 start = chunk_start + f * hop_length;
             if (start + nfft > pcm.size()) break;
             

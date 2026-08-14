@@ -423,6 +423,20 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
     }
 
+    fun reorderQueue(fromIndex: Int, toIndex: Int) {
+        val currentQueue = _playerState.value.queue.toMutableList()
+        if (fromIndex in currentQueue.indices && toIndex in currentQueue.indices && fromIndex != toIndex) {
+            val item = currentQueue.removeAt(fromIndex)
+            currentQueue.add(toIndex, item)
+            _playerState.value = _playerState.value.copy(queue = currentQueue)
+            try {
+                controller?.moveMediaItem(fromIndex, toIndex)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun clearQueue() {
         _playerState.value = _playerState.value.copy(queue = emptyList())
         try {
