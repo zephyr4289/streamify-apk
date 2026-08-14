@@ -125,15 +125,20 @@ Streamify is architected as 9 decoupled, highly specialized subsystem engines wo
 │     • Ellis Gaussian tempo prior curve centered at 120 BPM (σ=40) eliminating 2x/0.5x octave jumps      │
 │     • 20s temporal median-filtered chromagram matching 24 Krumhansl-Schmuckler Major/Minor profiles    │
 │                                                                                                        │
-│  3. ⚡ RESOURCE-AWARE DYNAMIC TASK ORCHESTRATOR                                                        │
-│     Files: TaskOrchestrator.cc, TaskOrchestrator.h                                                     │
-│     • Real-time CPU budget governor and Big.LITTLE efficiency core thread allocator                    │
-│     • Cooperative yielding (30ms per frame) during active touch, search, and playback to lock 120fps   │
+│  3. ⚡ RESOURCE-AWARE DYNAMIC TASK ORCHESTRATOR ("PROJECT PROMETHEUS")                                 │
+│     Files: TaskOrchestrator.cc, TaskOrchestrator.h, DownloadScreen.kt                                  │
+│     • 3-tier QoS Priority Queues (Immediate Now-Playing <50ms, Session Up-Next, Background Batch)      │
+│     • Linux kernel sched_setaffinity pinning background DSP workers to Cores 0-3 (LITTLE Efficiency)   │
+│     • Sysfs thermal polling (/sys/class/thermal) with dynamic thermal backoff sleeps (10ms to 60ms)    │
+│     • Real-time Jetpack Compose telemetry HUD displaying CPU temp, throttling state, and core budgets  │
 │                                                                                                        │
-│  4. 🚀 HIGH-SPEED STREAM RESOLVER & INGESTION ENGINE                                                   │
-│     Files: YouTubeStreamResolver.kt, iTunesSearchApi.kt, search.py                                     │
-│     • Sub-200ms native Kotlin HTTP Innertube client with ANDROID_MUSIC payload                         │
-│     • Fuzzy SequenceMatcher studio heuristic scorer with Topic/VEVO channel boosts & bad-keyword filter│
+│  4. 🚀 HIGH-SPEED STREAM RESOLVER & INGESTION ENGINE ("PROJECT HYPERION")                              │
+│     Files: YouTubeStreamResolver.kt, YouTubeMusicSearchApi.kt, NetworkEngine.kt, search.py            │
+│     • "Happy Eyeballs" parallel racing (ANDROID_MUSIC, ANDROID, IOS, WEB_REMIX) resolving in <80ms     │
+│     • Perceptual Codec Scoring Matrix favoring WebM Opus 160kbps (itag 251) studio-quality streams     │
+│     • Zero-RTT Stream Edge Cache (LruCache with 4-hour TTL) for instant 0ms track replays              │
+│     • Zero-RTT live Google search autocomplete dropdown with 150ms keystroke debounce                  │
+│     • HTTP/2 multiplexed connection pool with Brotli/Gzip compression and aggressive timeouts          │
 │                                                                                                        │
 │  5. 💾 PREDICTIVE AUDIO CACHE & UNIFIED STREAM STORE                                                   │
 │     Files: AudioCacheManager.kt, StreamifyDB.cc, TrackRepository.kt                                    │
@@ -217,9 +222,10 @@ streamify-apk/
 │           │   │   │   ├── Recommendation.kt        # Data model for recommendation results, similarity scores, and reason metadata
 │           │   │   │   └── Track.kt                 # Core domain and JNI native Track entity representations
 │           │   │   ├── network/
-│           │   │   │   ├── YouTubeMusicSearchApi.kt # Ultra-fast sub-100ms pure Kotlin YouTube Music Innertube search client
-│           │   │   │   ├── YouTubeStreamResolver.kt # High-speed Native Kotlin Innertube stream resolver with sub-200ms URL extraction
-│           │   │   │   └── iTunesSearchApi.kt       # Apple iTunes Search API client for fetching high-resolution album covers and metadata
+│           │   │   │   ├── NetworkEngine.kt         # HTTP/2 multiplexed transport client and zero-RTT in-memory StreamEdgeCache
+│           │   │   │   ├── YouTubeMusicSearchApi.kt # Ultra-fast sub-100ms pure Kotlin YouTube Music Innertube search & autocomplete client
+│           │   │   │   ├── YouTubeStreamResolver.kt # Happy Eyeballs parallel client racer with perceptual WebM Opus 160k scoring
+│           │   │   │   └── iTunesSearchApi.kt       # Apple iTunes Search API client for fetching high-resolution 1400x1400 album covers
 │           │   │   └── remote/
 │           │   │       ├── AuthManager.kt           # Google 1-Tap OAuth credentials and Supabase authentication session manager
 │           │   │       └── SupabaseClient.kt        # Remote Supabase client handling user profiles, remote playlist sync, and telemetry
