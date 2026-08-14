@@ -1,10 +1,10 @@
 package com.streamify.app.data
 
 import android.content.Context
-import com.chaquo.python.Python
 import com.streamify.app.data.models.LyricsData
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track
+import com.streamify.app.data.network.LyricsResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -31,7 +31,8 @@ object LyricsCacheManager {
             val file = File(track.lyricsPath)
             if (file.exists() && file.length() > 0) {
                 try {
-                    return@withContext LyricsData.parseLrc(file.readText()).lines
+                    val parsed = LyricsData.parseLrc(file.readText()).lines
+                    if (parsed.isNotEmpty()) return@withContext parsed
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -43,7 +44,8 @@ object LyricsCacheManager {
             val companionLrc = File(track.filepath.substringBeforeLast(".") + ".lrc")
             if (companionLrc.exists() && companionLrc.length() > 0) {
                 try {
-                    return@withContext LyricsData.parseLrc(companionLrc.readText()).lines
+                    val parsed = LyricsData.parseLrc(companionLrc.readText()).lines
+                    if (parsed.isNotEmpty()) return@withContext parsed
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -54,27 +56,40 @@ object LyricsCacheManager {
         val cachedFile = getCachedLyricsFile(context, track.title, track.artist)
         if (cachedFile.exists() && cachedFile.length() > 0) {
             try {
-                return@withContext LyricsData.parseLrc(cachedFile.readText()).lines
+                val parsed = LyricsData.parseLrc(cachedFile.readText()).lines
+                if (parsed.isNotEmpty()) return@withContext parsed
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
 
-        // 4. Asynchronously fetch from Python lyrics module and save to disk cache
+        // 4. Asynchronously fetch from Native Kotlin Multi-Provider LyricsResolver (<100ms)
         try {
-            if (Python.isStarted()) {
-                val py = Python.getInstance()
-                val lyricsModule = py.getModule("download_engine.lyrics")
-                val lrcContent = lyricsModule.callAttr("fetch_lyrics", track.title, track.artist, track.durationSec)?.toString()
-                if (!lrcContent.isNullOrBlank() && lrcContent != "None") {
-                    cachedFile.writeText(lrcContent)
-                    return@withContext LyricsData.parseLrc(lrcContent).lines
+            val lrcContent = LyricsResolver.fetchSyncedLyrics(track.title, track.artist, track.durationSec)
+            if (!lrcContent.isNullOrBlank()) {
+                cachedFile.writeText(lrcContent)
+
+                // If this is a local track, write companion .lrc
+                if (track.filepath.isNotBlank() && !track.filepath.startsWith("http")) {
+                    saveCompanionLyrics(track.filepath, lrcContent)
                 }
+
+                return@withContext LyricsData.parseLrc(lrcContent).lines
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
 
         return@withContext emptyList()
+    }
+
+    fun saveCompanionLyrics(audioFilePath: String, lrcContent: String) {
+        try {
+            if (audioFilePath.isBlank() || audioFilePath.startsWith("http")) return
+            val companionFile = File(audioFilePath.substringBeforeLast(".") + ".lrc")
+            companionFile.writeText(lrcContent)
+        } catch (e: Exception) {
+            // Ignore filesystem write error
+        }
     }
 }

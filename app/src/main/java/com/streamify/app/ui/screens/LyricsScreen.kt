@@ -1,7 +1,13 @@
 package com.streamify.app.ui.screens
 
+import android.os.Build
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -9,10 +15,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.graphicsLayer
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.ui.theme.StreamifyColors
 import kotlinx.coroutines.launch
@@ -21,18 +33,16 @@ import kotlinx.coroutines.launch
 fun LyricsScreen(
     lyrics: List<LyricsLine>,
     currentPositionMs: Long,
-    dominantColor: androidx.compose.ui.graphics.Color = StreamifyColors.BgBase,
+    dominantColor: Color = StreamifyColors.BgBase,
     onSeek: (Long) -> Unit
 ) {
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    
-    // Find active line
+
     var activeIndex by remember { mutableStateOf(-1) }
-    
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val scrollOffsetPx = remember(density) { with(density) { (-250).dp.roundToPx() } } // Center the text roughly in middle
-    
+    val density = LocalDensity.current
+    val scrollOffsetPx = remember(density) { with(density) { (-220).dp.roundToPx() } }
+
     LaunchedEffect(currentPositionMs, lyrics) {
         val index = lyrics.indexOfLast { it.timeMs <= currentPositionMs }
         if (index != activeIndex && index >= 0) {
@@ -43,28 +53,28 @@ fun LyricsScreen(
         }
     }
 
-    // Dynamic gradient background
-    val animatedColor by androidx.compose.animation.animateColorAsState(
+    val animatedColor by animateColorAsState(
         targetValue = dominantColor,
-        animationSpec = androidx.compose.animation.core.tween(1500)
+        animationSpec = tween(1500),
+        label = "bgColor"
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                brush = Brush.verticalGradient(
                     colors = listOf(
-                        animatedColor.copy(alpha = 0.8f),
+                        animatedColor.copy(alpha = 0.85f),
                         StreamifyColors.BgBase
                     )
                 )
             )
-            .padding(top = 48.dp, start = 24.dp, end = 24.dp)
+            .padding(top = 48.dp, start = 20.dp, end = 20.dp)
     ) {
         if (lyrics.isEmpty()) {
             Text(
-                text = "No lyrics available",
+                text = "Looking for synchronized lyrics...",
                 color = StreamifyColors.TextSub,
                 modifier = Modifier.padding(top = 32.dp)
             )
@@ -72,49 +82,50 @@ fun LyricsScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 200.dp, bottom = 300.dp), // Lots of padding for centering
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+                contentPadding = PaddingValues(top = 180.dp, bottom = 320.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 itemsIndexed(lyrics) { index, line ->
                     val isActive = index == activeIndex
                     val isPast = index < activeIndex
-                    
-                    val targetScale = if (isActive) 1.2f else 1.0f
 
+                    val targetScale = if (isActive) 1.15f else 0.95f
                     val targetAlpha = when {
-                        isActive -> 1f
-                        isPast -> 0.5f
-                        else -> 0.3f
+                        isActive -> 1.0f
+                        isPast -> 0.45f
+                        else -> 0.25f
                     }
-                    val animatedAlpha by androidx.compose.animation.core.animateFloatAsState(
-                        targetValue = targetAlpha,
-                        animationSpec = androidx.compose.animation.core.tween(400)
+
+                    val animatedScale by animateFloatAsState(
+                        targetValue = targetScale,
+                        animationSpec = spring(
+                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+                        ),
+                        label = "scale"
                     )
-                    
+
+                    val animatedAlpha by animateFloatAsState(
+                        targetValue = targetAlpha,
+                        animationSpec = tween(300),
+                        label = "alpha"
+                    )
+
                     val nextLineTimeMs = if (index < lyrics.size - 1) lyrics[index + 1].timeMs else line.timeMs + 5000L
-                    
                     val lineProgress = if (isActive && currentPositionMs >= line.timeMs) {
                         val duration = (nextLineTimeMs - line.timeMs).toFloat()
                         if (duration > 0) ((currentPositionMs - line.timeMs) / duration).coerceIn(0f, 1f) else 1f
                     } else if (isPast) 1f else 0f
 
-                    val animatedScale by androidx.compose.animation.core.animateFloatAsState(
-                        targetValue = targetScale,
-                        animationSpec = androidx.compose.animation.core.spring(
-                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
-                        )
-                    )
-                    
                     val brush = if (isActive || isPast) {
-                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                        Brush.horizontalGradient(
                             0.0f to StreamifyColors.TextMain,
-                            (lineProgress - 0.05f).coerceAtLeast(0f) to StreamifyColors.TextMain,
-                            (lineProgress + 0.05f).coerceAtMost(1f) to StreamifyColors.TextMain.copy(alpha = 0.3f),
-                            1.0f to StreamifyColors.TextMain.copy(alpha = 0.3f)
+                            (lineProgress - 0.04f).coerceAtLeast(0f) to StreamifyColors.TextMain,
+                            (lineProgress + 0.04f).coerceAtMost(1f) to StreamifyColors.TextMain.copy(alpha = 0.35f),
+                            1.0f to StreamifyColors.TextMain.copy(alpha = 0.35f)
                         )
                     } else {
-                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                        Brush.horizontalGradient(
                             0.0f to StreamifyColors.TextMain.copy(alpha = animatedAlpha),
                             1.0f to StreamifyColors.TextMain.copy(alpha = animatedAlpha)
                         )
@@ -123,19 +134,26 @@ fun LyricsScreen(
                     Text(
                         text = line.text,
                         fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Bold,
-                        fontSize = 28.sp,
-                        lineHeight = 36.sp,
-                        style = androidx.compose.ui.text.TextStyle(brush = brush),
+                        fontSize = 26.sp,
+                        lineHeight = 34.sp,
+                        style = TextStyle(brush = brush),
                         modifier = Modifier
                             .fillMaxWidth()
                             .graphicsLayer {
-                                this.scaleX = animatedScale
-                                this.scaleY = animatedScale
-                                this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                                scaleX = animatedScale
+                                scaleY = animatedScale
+                                transformOrigin = TransformOrigin(0f, 0.5f)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    renderEffect = if (!isActive) {
+                                        android.graphics.RenderEffect.createBlurEffect(
+                                            5f, 5f, android.graphics.Shader.TileMode.CLAMP
+                                        ).asComposeRenderEffect()
+                                    } else null
+                                }
                             }
                             .clickable(
-                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                indication = null // Remove ripple for seamless feel
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
                             ) { onSeek(line.timeMs) }
                     )
                 }

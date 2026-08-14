@@ -165,6 +165,16 @@ class DownloadWorker(
                         e.printStackTrace()
                     }
 
+                    // Auto-fetch & save companion .lrc file for 100% offline synced lyrics
+                    try {
+                        val lyrics = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(title, artist)
+                        if (!lyrics.isNullOrBlank()) {
+                            com.streamify.app.data.LyricsCacheManager.saveCompanionLyrics(targetPath, lyrics)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
                     // Auto-assign to 'Streamify' Playlist
                     try {
                         com.streamify.app.data.PlaylistRepository.init(applicationContext)
