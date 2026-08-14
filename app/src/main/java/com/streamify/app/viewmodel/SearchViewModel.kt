@@ -39,8 +39,26 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
     private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
     val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
 
+    private val _searchSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val searchSuggestions: StateFlow<List<String>> = _searchSuggestions.asStateFlow()
+
     private var searchJob: kotlinx.coroutines.Job? = null
+    private var suggestJob: kotlinx.coroutines.Job? = null
     private var prefs: android.content.SharedPreferences? = null
+
+    fun updateSuggestions(query: String) {
+        suggestJob?.cancel()
+        val clean = query.trim()
+        if (clean.length < 2) {
+            _searchSuggestions.value = emptyList()
+            return
+        }
+        suggestJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(150)
+            val list = com.streamify.app.data.network.YouTubeMusicSearchApi.fetchSearchSuggestions(clean)
+            _searchSuggestions.value = list
+        }
+    }
 
     fun init(context: android.content.Context) {
         if (prefs == null) {

@@ -78,11 +78,14 @@ fun SearchScreen(
         
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
 
+        val searchSuggestions by viewModel.searchSuggestions.collectAsState()
+
         TextField(
             value = query,
             onValueChange = { 
                 query = it
                 viewModel.search(it)
+                viewModel.updateSuggestions(it)
             },
             placeholder = { 
                 Text("What do you want to listen to?", color = StreamifyColors.TextOnSearch) 
@@ -105,7 +108,45 @@ fun SearchScreen(
                 .height(56.dp)
         )
 
-        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXL))
+        if (query.isNotBlank() && searchSuggestions.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = StreamifyDimens.SpaceLG),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(searchSuggestions) { suggestion ->
+                    Surface(
+                        color = StreamifyColors.BgElevated,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.clickable {
+                            query = suggestion
+                            viewModel.search(suggestion)
+                            viewModel.updateSuggestions("")
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = null,
+                                tint = StreamifyColors.Primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = suggestion,
+                                style = StreamifyType.BodySmall,
+                                color = StreamifyColors.TextMain
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
 
         LaunchedEffect(context) {
             viewModel.init(context)

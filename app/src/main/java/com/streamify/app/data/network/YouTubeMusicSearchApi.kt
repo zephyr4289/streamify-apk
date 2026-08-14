@@ -3,19 +3,21 @@ package com.streamify.app.data.network
 import com.streamify.app.viewmodel.OnlineSearchResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
+import java.net.URLEncoder
 import java.util.zip.GZIPInputStream
 
 object YouTubeMusicSearchApi {
 
     private const val INNERTUBE_MUSIC_SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"
     private const val INNERTUBE_YT_SEARCH_URL = "https://www.youtube.com/youtubei/v1/search"
+    private const val SUGGEST_URL = "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q="
     private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
 
     suspend fun search(query: String, maxResults: Int = 25): List<OnlineSearchResult> = withContext(Dispatchers.IO) {
         val cleanQuery = query.trim()
@@ -32,28 +34,45 @@ object YouTubeMusicSearchApi {
         return@withContext ytResults
     }
 
-    private fun executeInnertubeSearch(query: String, endpointUrl: String, isMusic: Boolean, maxResults: Int): List<OnlineSearchResult> {
+    suspend fun fetchSearchSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {
+        val clean = query.trim()
+        if (clean.length < 2) return@withContext emptyList()
+
         try {
-            val url = URL(endpointUrl)
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 4000
-                readTimeout = 4000
-                doOutput = true
-                doInput = true
-                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                setRequestProperty("User-Agent", USER_AGENT)
-                setRequestProperty("Accept", "*/*")
-                setRequestProperty("Accept-Encoding", "gzip, deflate")
-                if (isMusic) {
-                    setRequestProperty("Origin", "https://music.youtube.com")
-                    setRequestProperty("Referer", "https://music.youtube.com/")
-                } else {
-                    setRequestProperty("Origin", "https://www.youtube.com")
-                    setRequestProperty("Referer", "https://www.youtube.com/")
+            val url = SUGGEST_URL + URLEncoder.encode(clean, "UTF-8")
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .get()
+                .build()
+
+            NetworkEngine.client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val body = response.body?.string() ?: return@withContext emptyList()
+
+                // Response format: ["query", ["suggestion1", "suggestion2", ...]]
+                val jsonArray = JSONArray(body)
+                if (jsonArray.length() >= 2) {
+                    val suggestionsArray = jsonArray.optJSONArray(1) ?: return@withContext emptyList()
+                    val suggestions = mutableListOf<String>()
+                    for (i in 0 until suggestionsArray.length()) {
+                        val item = suggestionsArray.optString(i, "").trim()
+                        if (item.isNotBlank() && !suggestions.contains(item)) {
+                            suggestions.add(item)
+                        }
+                    }
+                    return@withContext suggestions.take(6)
                 }
             }
+        } catch (e: Exception) {
+            // Ignore suggestion network exceptions
+        }
+        return@withContext emptyList()
+    }
 
+    private fun executeInnertubeSearch(query: String, endpointUrl: String, isMusic: Boolean, maxResults: Int): List<OnlineSearchResult> {
+        try {
             val clientName = if (isMusic) "WEB_REMIX" else "WEB"
             val clientVersion = if (isMusic) "1.20230515.01.00" else "2.20230515.01.00"
 
@@ -69,26 +88,33 @@ object YouTubeMusicSearchApi {
                 put("query", query)
             }
 
-            conn.outputStream.use { os ->
-                os.write(requestJson.toString().toByteArray(Charsets.UTF_8))
-                os.flush()
-            }
+            val request = Request.Builder()
+                .url(endpointUrl)
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "*/*")
+                .header("Accept-Encoding", "gzip, deflate")
+                .header("Origin", if (isMusic) "https://music.youtube.com" else "https://www.youtube.com")
+                .header("Referer", if (isMusic) "https://music.youtube.com/" else "https://www.youtube.com/")
+                .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
 
-            if (conn.responseCode != 200) {
-                return emptyList()
-            }
+            NetworkEngine.client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return emptyList()
 
-            val inputStream = if ("gzip".equals(conn.contentEncoding, ignoreCase = true)) {
-                GZIPInputStream(conn.inputStream)
-            } else {
-                conn.inputStream
-            }
+                val body = response.body ?: return emptyList()
+                val encoding = response.header("Content-Encoding", "")
 
-            val responseBody = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8)).use { it.readText() }
-            val root = JSONObject(responseBody)
-            return parseInnertubeResponse(root, maxResults)
+                val responseBody = if ("gzip".equals(encoding, ignoreCase = true)) {
+                    GZIPInputStream(body.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                } else {
+                    body.string()
+                }
+
+                val root = JSONObject(responseBody)
+                return parseInnertubeResponse(root, maxResults)
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
             return emptyList()
         }
     }
