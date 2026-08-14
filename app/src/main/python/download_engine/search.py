@@ -49,8 +49,7 @@ def process_single_entry(entry, query):
         score += 50
 
     clean_uploader = uploader.replace(" - Topic", "").replace("VEVO", "").strip()
-    hd_cover = fetch_itunes_cover_art(title, clean_uploader)
-    thumbnail = hd_cover if hd_cover else entry.get('thumbnail', f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg")
+    thumbnail = entry.get('thumbnail', f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg")
 
     return {
         'id': video_id,
