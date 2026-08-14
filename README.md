@@ -154,10 +154,12 @@ Streamify is architected as 9 decoupled, highly specialized subsystem engines wo
 │     • 3D Depth-of-Field Karaoke UI: RenderEffect blur + scale on inactive lines with spring physics     │
 │     • Companion .lrc Auto-Export: Saves Song.lrc alongside downloads for 100% offline karaoke          │
 │                                                                                                        │
-│  7. 🎚️ DSP EQUALIZER, LOUDNESS & AUDIO ROUTING ENGINE                                                  │
-│     Files: EqualizerManager.kt, AudioDeviceManager.kt, PlaybackService.kt                              │
-│     • 10-band graphic equalizer with bass boost, virtualizer, and preset management                    │
-│     • Real-time broadcast audio routing detector (Bluetooth A2DP, 3.5mm jack, USB DAC, Speaker)       │
+│  7. 🎚️ DSP EQUALIZER, LOUDNESS & AUDIO ROUTING ENGINE ("PROJECT SONIC MAXX")                          │
+│     Files: SoftKneeLimiter.cc, CrossfadeAudioProcessor.kt, EqualizerManager.kt, AudioDeviceManager.kt │
+│     • Native C++ Soft-Knee Limiter: Prevents PCM clipping & square-wave distortion during +15dB boosts │
+│     • Trigonometric Matrix Crossfade: Constant acoustic power (cos/sin curve) eliminating volume dips   │
+│     • Acoustic Preset Studio: 11 acoustic presets (Bass Booster, Vocal, Rock, Pop, etc.) + persistence │
+│     • Smart Peripheral Router: Auto-applies mapped EQ presets when switching BT/Headphones/Speakers     │
 │                                                                                                        │
 │  8. 📦 LOSSLESS DOWNLOAD & TAGGING PIPELINE                                                            │
 │     Files: download.py, metadata.py, DownloadWorker.kt                                                 │
@@ -323,6 +325,8 @@ streamify-apk/
 ├── native/
 │   ├── CMakeLists.txt                               # Native CMake build script linking C++17, SQLite3, KissFFT, and ARM NEON flags
 │   ├── dsp/
+│   │   ├── SoftKneeLimiter.cc                       # Native C++ soft-knee dynamic range compressor preventing clipping at +15dB EQ boosts
+│   │   ├── SoftKneeLimiter.h                        # Header definitions for SoftKneeLimiter
 │   │   └── kissfft/                                 # Embedded KissFFT library providing fast, lightweight Fast Fourier Transforms
 │   │       ├── kiss_fft.c                           # Core complex FFT routine implementation
 │   │       ├── kiss_fft.h                           # Header definitions for KissFFT data structures and prototypes
