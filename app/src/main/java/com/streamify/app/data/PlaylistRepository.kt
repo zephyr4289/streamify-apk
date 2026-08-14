@@ -25,6 +25,8 @@ object PlaylistRepository {
     private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
     val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
 
+    fun getPlaylists(): List<Playlist> = _playlists.value
+
     fun init(context: Context) {
         if (playlistFile != null) return
         playlistFile = File(context.filesDir, "playlists.json")
