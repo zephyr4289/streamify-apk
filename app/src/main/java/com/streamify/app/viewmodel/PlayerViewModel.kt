@@ -115,8 +115,15 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 updateCurrentTrackFromMediaItem(mediaItem)
                 
-                // AI Event Logging: Track change
                 val newTrackId = mediaItem?.mediaId?.toIntOrNull()
+                if (newTrackId != null && newTrackId > 0) {
+                    viewModelScope.launch {
+                        repository.updateSessionVector(newTrackId, 0.45f)
+                        repository.recordTrackPlay(newTrackId)
+                    }
+                }
+                
+                // AI Event Logging: Track change
                 if (lastPlayedTrackId != null && newTrackId != null && lastPlayedTrackId != newTrackId) {
                     val wasSkipped = reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK || 
                                      reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO

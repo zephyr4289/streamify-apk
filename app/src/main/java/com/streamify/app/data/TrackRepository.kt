@@ -143,5 +143,25 @@ object TrackRepository {
         val nativeTracks = NativeBridge.getTopPlayedTracks(limit)
         nativeTracks.map { it.toDomain(false) }
     }
+
+    suspend fun updateSessionVector(trackId: Int, alpha: Float = 0.45f) = withContext(Dispatchers.IO) {
+        if (trackId > 0) {
+            NativeBridge.updateSessionVector(trackId, alpha)
+        }
+    }
+
+    suspend fun getSessionRecommendations(limit: Int = 50): List<Track> = withContext(Dispatchers.IO) {
+        val recs = NativeBridge.getSessionRecommendations(limit)
+        if (recs.isEmpty()) return@withContext emptyList()
+        val all = getAllTracks().associateBy { it.id }
+        recs.mapNotNull { rec -> all[rec.trackId] }
+    }
+
+    suspend fun getLongTermRecommendations(userId: Int = 1, limit: Int = 50): List<Track> = withContext(Dispatchers.IO) {
+        val recs = NativeBridge.getLongTermRecommendations(userId, limit)
+        if (recs.isEmpty()) return@withContext emptyList()
+        val all = getAllTracks().associateBy { it.id }
+        recs.mapNotNull { rec -> all[rec.trackId] }
+    }
 }
 

@@ -207,3 +207,125 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
 
     return diverse_candidates;
 }
+
+void RecommendEngine::updateSessionVector(int trackId, float alpha) {
+    auto& db = StreamifyDB::getInstance();
+    auto track = db.getTrackById(trackId);
+    if (!track || track->vector_offset < 0) return;
+
+    auto& vecStore = VectorStore::getInstance();
+    std::vector<float> newVec = vecStore.getVectorAt(track->vector_offset);
+    if (newVec.empty()) return;
+
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    if (session_vector_.empty() || session_vector_.size() != newVec.size()) {
+        session_vector_ = newVec;
+    } else {
+        // Exponential Moving Average (EMA)
+        float norm = 0.0f;
+        for (size_t i = 0; i < session_vector_.size(); ++i) {
+            session_vector_[i] = (alpha * newVec[i]) + ((1.0f - alpha) * session_vector_[i]);
+            norm += session_vector_[i] * session_vector_[i];
+        }
+        if (norm > 1e-9f) {
+            norm = std::sqrt(norm);
+            for (float& val : session_vector_) val /= norm;
+        }
+    }
+}
+
+std::vector<Recommendation> RecommendEngine::getSessionRecommendations(int limit) {
+    std::vector<float> target_vec;
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        target_vec = session_vector_;
+    }
+
+    if (target_vec.empty()) {
+        return getLongTermRecommendations(1, limit);
+    }
+
+    auto& vecStore = VectorStore::getInstance();
+    auto nearestResults = vecStore.searchNearest(target_vec, limit * 2);
+
+    auto& db = StreamifyDB::getInstance();
+    std::vector<Recommendation> recs;
+    std::unordered_set<int> seen;
+
+    for (const auto& res : nearestResults) {
+        auto t = db.getTrackByVectorOffset(res.vector_offset);
+        if (!t || seen.count(t->id) > 0) continue;
+        seen.insert(t->id);
+        recs.push_back({t->id, res.similarity});
+        if (recs.size() >= static_cast<size_t>(limit)) break;
+    }
+
+    if (recs.empty()) {
+        auto allTracks = db.getAllTracks();
+        for (const auto& t : allTracks) {
+            recs.push_back({t.id, 0.5f});
+            if (recs.size() >= static_cast<size_t>(limit)) break;
+        }
+    }
+
+    return recs;
+}
+
+std::vector<Recommendation> RecommendEngine::getLongTermRecommendations(int userId, int limit) {
+    auto& db = StreamifyDB::getInstance();
+    auto& vecStore = VectorStore::getInstance();
+
+    std::vector<int> likedIds = db.getUserLikedTrackIds(userId);
+    std::vector<StreamifyTrack> topTracks = db.getTopPlayedTracks(10);
+
+    std::vector<float> centroid;
+    int count = 0;
+
+    auto accumulateVec = [&](int trackId, float weight) {
+        auto t = db.getTrackById(trackId);
+        if (t && t->vector_offset >= 0) {
+            auto v = vecStore.getVectorAt(t->vector_offset);
+            if (!v.empty()) {
+                if (centroid.empty()) centroid.resize(v.size(), 0.0f);
+                for (size_t i = 0; i < v.size(); ++i) {
+                    centroid[i] += weight * v[i];
+                }
+                count++;
+            }
+        }
+    };
+
+    for (int id : likedIds) accumulateVec(id, 2.0f);
+    for (const auto& t : topTracks) accumulateVec(t.id, 1.5f);
+
+    if (count > 0 && !centroid.empty()) {
+        float norm = 0.0f;
+        for (float val : centroid) norm += val * val;
+        if (norm > 1e-9f) {
+            norm = std::sqrt(norm);
+            for (float& val : centroid) val /= norm;
+        }
+
+        auto nearestResults = vecStore.searchNearest(centroid, limit * 2);
+        std::vector<Recommendation> recs;
+        std::unordered_set<int> seen;
+
+        for (const auto& res : nearestResults) {
+            auto t = db.getTrackByVectorOffset(res.vector_offset);
+            if (!t || seen.count(t->id) > 0) continue;
+            seen.insert(t->id);
+            recs.push_back({t->id, res.similarity});
+            if (recs.size() >= static_cast<size_t>(limit)) break;
+        }
+        if (!recs.empty()) return recs;
+    }
+
+    // Cold-start fallback
+    auto allTracks = db.getAllTracks();
+    std::vector<Recommendation> fallback;
+    for (const auto& t : allTracks) {
+        fallback.push_back({t.id, 0.5f});
+        if (fallback.size() >= static_cast<size_t>(limit)) break;
+    }
+    return fallback;
+}

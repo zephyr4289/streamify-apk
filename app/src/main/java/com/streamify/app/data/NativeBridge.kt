@@ -51,4 +51,9 @@ object NativeBridge {
     ): Int
     external fun recordTrackPlay(trackId: Int): Boolean
     external fun getTopPlayedTracks(limit: Int): Array<TrackNative>
+
+    // Session & Long-Term Taste Profiling
+    external fun updateSessionVector(trackId: Int, alpha: Float)
+    external fun getSessionRecommendations(limit: Int): Array<RecommendationNative>
+    external fun getLongTermRecommendations(userId: Int, limit: Int): Array<RecommendationNative>
 }

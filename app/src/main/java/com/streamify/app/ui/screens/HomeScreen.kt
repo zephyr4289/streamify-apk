@@ -187,8 +187,55 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXL))
                     }
 
-                    // Recommendations
-                    if (state.recommendations.isNotEmpty()) {
+                    // 1. Session-Aware "Jump Back In • Current Vibe"
+                    if (state.sessionRecommendations.isNotEmpty()) {
+                        item {
+                            AnimatedVisibility(
+                                visible = isVisible,
+                                enter = fadeIn(tween(400, delayMillis = 250)) + slideInVertically(tween(400, delayMillis = 250)) { 50 }
+                            ) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Jump Back In",
+                                            style = StreamifyType.HeadlineMedium,
+                                            color = StreamifyColors.TextMain
+                                        )
+                                        androidx.compose.material3.Surface(
+                                            color = StreamifyColors.AccentSecondary.copy(alpha = 0.15f),
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "CURRENT VIBE",
+                                                style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                                                color = StreamifyColors.AccentSecondary,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
+                                    ) {
+                                        items(state.sessionRecommendations, key = { it.id }) { track ->
+                                            TrackCard(
+                                                track = track,
+                                                onClick = { onTrackClick(track, state.sessionRecommendations) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXL))
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Multi-Modal Long-Term "Made For You"
+                    if (state.madeForYou.isNotEmpty()) {
                         item {
                             AnimatedVisibility(
                                 visible = isVisible,
@@ -204,10 +251,10 @@ fun HomeScreen(
                                     LazyRow(
                                         horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
                                     ) {
-                                        items(state.recommendations, key = { it.id }) { track ->
+                                        items(state.madeForYou, key = { it.id }) { track ->
                                             TrackCard(
                                                 track = track,
-                                                onClick = { onTrackClick(track, state.allTracks) }
+                                                onClick = { onTrackClick(track, state.madeForYou) }
                                             )
                                         }
                                     }
@@ -217,7 +264,54 @@ fun HomeScreen(
                         }
                     }
 
-                    // Top Played / On Repeat
+                    // 3. Online Discovery (Bandit Exploration + 2-Hop Graph)
+                    if (state.onlineDiscoveries.isNotEmpty()) {
+                        item {
+                            AnimatedVisibility(
+                                visible = isVisible,
+                                enter = fadeIn(tween(400, delayMillis = 350)) + slideInVertically(tween(400, delayMillis = 350)) { 50 }
+                            ) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Discover New Music",
+                                            style = StreamifyType.HeadlineMedium,
+                                            color = StreamifyColors.TextMain
+                                        )
+                                        androidx.compose.material3.Surface(
+                                            color = StreamifyColors.Primary.copy(alpha = 0.15f),
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "DISCOVER",
+                                                style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                                                color = StreamifyColors.Primary,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
+                                    ) {
+                                        items(state.onlineDiscoveries, key = { it.id }) { track ->
+                                            TrackCard(
+                                                track = track,
+                                                onClick = { onTrackClick(track, state.onlineDiscoveries) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXL))
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Top Played / On Repeat
                     if (state.topPlayed.isNotEmpty()) {
                         item {
                             AnimatedVisibility(

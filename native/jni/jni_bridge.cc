@@ -313,3 +313,40 @@ Java_com_streamify_app_data_NativeBridge_getTopPlayedTracks(JNIEnv* env, jobject
     std::vector<StreamifyTrack> tracks = StreamifyDB::getInstance().getTopPlayedTracks(limit);
     return convertTrackList(env, tracks);
 }
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_updateSessionVector(JNIEnv* /* env */, jobject /* this */, jint trackId, jfloat alpha) {
+    RecommendEngine::getInstance().updateSessionVector(trackId, alpha);
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_streamify_app_data_NativeBridge_getSessionRecommendations(JNIEnv* env, jobject /* this */, jint limit) {
+    std::vector<Recommendation> recs = RecommendEngine::getInstance().getSessionRecommendations(limit);
+
+    jclass recClass = env->FindClass("com/streamify/app/data/models/RecommendationNative");
+    jmethodID constructor = env->GetMethodID(recClass, "<init>", "(IF)V");
+
+    jobjectArray resultArray = env->NewObjectArray(recs.size(), recClass, nullptr);
+    for (size_t i = 0; i < recs.size(); ++i) {
+        jobject obj = env->NewObject(recClass, constructor, recs[i].trackId, recs[i].score);
+        env->SetObjectArrayElement(resultArray, i, obj);
+        env->DeleteLocalRef(obj);
+    }
+    return resultArray;
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_streamify_app_data_NativeBridge_getLongTermRecommendations(JNIEnv* env, jobject /* this */, jint userId, jint limit) {
+    std::vector<Recommendation> recs = RecommendEngine::getInstance().getLongTermRecommendations(userId, limit);
+
+    jclass recClass = env->FindClass("com/streamify/app/data/models/RecommendationNative");
+    jmethodID constructor = env->GetMethodID(recClass, "<init>", "(IF)V");
+
+    jobjectArray resultArray = env->NewObjectArray(recs.size(), recClass, nullptr);
+    for (size_t i = 0; i < recs.size(); ++i) {
+        jobject obj = env->NewObject(recClass, constructor, recs[i].trackId, recs[i].score);
+        env->SetObjectArrayElement(resultArray, i, obj);
+        env->DeleteLocalRef(obj);
+    }
+    return resultArray;
+}
