@@ -69,6 +69,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     private val searchCache = android.util.LruCache<String, List<OnlineSearchResult>>(100)
+    private val streamUrlCache = android.util.LruCache<String, Pair<String, Long>>(50)
     private var historyJob: kotlinx.coroutines.Job? = null
 
     fun search(query: String) {
@@ -172,27 +173,37 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 quality = savedQuality
             )
 
-            // 2. Fetch the direct stream URL
-            val rawStreamResult = withContext(Dispatchers.IO) {
-                try {
-                    val py = Python.getInstance()
-                    val searchModule = py.getModule("download_engine.search")
-                    searchModule.callAttr("get_stream_url", onlineTrack.url).toString()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    ""
+            // 2. Check stream URL cache (TTL 2 hours for instant 0ms stream start)
+            val now = System.currentTimeMillis()
+            val cachedEntry = streamUrlCache.get(onlineTrack.url)
+            val directUrl = if (cachedEntry != null && (now - cachedEntry.second) < 7200000L) {
+                cachedEntry.first
+            } else {
+                val rawStreamResult = withContext(Dispatchers.IO) {
+                    try {
+                        val py = Python.getInstance()
+                        val searchModule = py.getModule("download_engine.search")
+                        searchModule.callAttr("get_stream_url", onlineTrack.url).toString()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        ""
+                    }
                 }
-            }
 
-            val directUrl = try {
-                if (rawStreamResult.trim().startsWith("{")) {
-                    val jsonObj = org.json.JSONObject(rawStreamResult)
-                    jsonObj.optString("url", "")
-                } else {
+                val resolved = try {
+                    if (rawStreamResult.trim().startsWith("{")) {
+                        val jsonObj = org.json.JSONObject(rawStreamResult)
+                        jsonObj.optString("url", "")
+                    } else {
+                        rawStreamResult
+                    }
+                } catch (e: Exception) {
                     rawStreamResult
                 }
-            } catch (e: Exception) {
-                rawStreamResult
+                if (resolved.isNotBlank()) {
+                    streamUrlCache.put(onlineTrack.url, Pair(resolved, now))
+                }
+                resolved
             }
 
             if (directUrl.isNotBlank()) {

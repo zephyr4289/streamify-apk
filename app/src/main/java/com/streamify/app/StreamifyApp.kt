@@ -12,6 +12,7 @@ import com.chaquo.python.android.AndroidPlatform
 
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.disk.DiskCache
 import coil.memory.MemoryCache
 
 class StreamifyApp : Application(), ImageLoaderFactory {
@@ -22,6 +23,14 @@ class StreamifyApp : Application(), ImageLoaderFactory {
                     .maxSizePercent(0.25)
                     .build()
             }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("image_cache"))
+                    .maxSizeBytes(100 * 1024 * 1024L) // 100MB LRU disk cache for instantaneous album art loading
+                    .build()
+            }
+            .crossfade(300)
+            .respectCacheHeaders(false)
             .build()
     }
     override fun onCreate() {

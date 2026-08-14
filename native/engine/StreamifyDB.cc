@@ -117,7 +117,7 @@ sqlite3* StreamifyDB::getConnection() {
             return nullptr;
         }
         char* err = nullptr;
-        sqlite3_exec(shared_db_, "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;", nullptr, nullptr, &err);
+        sqlite3_exec(shared_db_, "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -8000; PRAGMA temp_store = MEMORY;", nullptr, nullptr, &err);
         if (err) sqlite3_free(err);
     }
     return shared_db_;

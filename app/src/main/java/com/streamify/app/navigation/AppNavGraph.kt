@@ -121,18 +121,18 @@ fun AppNavGraph(
             }
         ) {
             val playerState = playerViewModel.playerState.collectAsState().value
-            val lyricsLines = remember(playerState.currentTrack) {
-                val dbPath = playerState.currentTrack?.lyricsPath
-                val path = if (dbPath.isNullOrBlank()) {
-                    playerState.currentTrack?.filepath?.replace(".mp3", ".lrc")
-                } else dbPath
-                
-                if (path != null && path.isNotBlank()) {
-                    val file = java.io.File(path)
-                    if (file.exists()) {
-                        com.streamify.app.data.models.LyricsData.parseLrc(file.readText()).lines
-                    } else emptyList()
-                } else emptyList()
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var lyricsLines by androidx.compose.runtime.remember(playerState.currentTrack) {
+                androidx.compose.runtime.mutableStateOf<List<com.streamify.app.data.models.LyricsLine>>(emptyList())
+            }
+
+            androidx.compose.runtime.LaunchedEffect(playerState.currentTrack) {
+                val track = playerState.currentTrack
+                if (track != null) {
+                    lyricsLines = com.streamify.app.data.LyricsCacheManager.getOrFetchLyrics(context, track)
+                } else {
+                    lyricsLines = emptyList()
+                }
             }
 
             LyricsScreen(

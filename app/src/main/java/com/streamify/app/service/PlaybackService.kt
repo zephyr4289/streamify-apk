@@ -39,7 +39,14 @@ class PlaybackService : MediaSessionService() {
                 "Connection" to "keep-alive"
             ))
 
-        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
+        // Progressive 250MB Audio LRU Cache (Zero-latency seeking & offline replaying)
+        val audioCache = AudioCacheManager.getCache(this)
+        val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
+            .setCache(audioCache)
+            .setUpstreamDataSourceFactory(httpDataSourceFactory)
+            .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, cacheDataSourceFactory)
 
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(dataSourceFactory)
