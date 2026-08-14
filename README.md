@@ -86,10 +86,14 @@
 
 | Feature Module | Description & Technical Implementation |
 | :--- | :--- |
-| **Acoustic AI Core** | Native C++ STFT spectral flux onset detection & autocorrelation for BPM; 12-bin Chromagram with Krumhansl-Schmuckler profiles for harmonic key extraction. |
-| **NEON SIMD Vector Search** | Hardware-accelerated 512-dimensional vector cosine similarity with NaN/Inf guards and plain C++ fallbacks for non-ARM64 platforms. |
+| **Acoustic AI Core ("Project Orpheus")** | Native C++ STFT spectral flux onset detection with Ellis Gaussian tempo prior for BPM; 12-bin temporal median-filtered Chromagram with Krumhansl-Schmuckler profiles for harmonic key extraction. |
+| **NEON SIMD Vector Search** | Hardware-accelerated 512-dimensional vector cosine similarity calculated on ARM64 registers (`vld1q_f32`, `vmlaq_f32`, `vaddvq_f32`) yielding <1ms nearest-neighbor recommendations. |
+| **Session-Aware ML Recommender** | Real-time Exponential Moving Average ($V_{\text{session}}$, $\alpha = 0.45$) capturing active listening mood + lifetime centroid ($V_{\text{long}}$) with multi-armed bandit $\epsilon$-greedy exploration and artist damping. |
 | **Dynamic Task Orchestrator** | Dynamic resource-aware background task scheduler capping AI workers to efficiency cores with cooperative yielding during UI interaction. |
 | **Sub-100ms Search & Stream** | Pure Kotlin Innertube client and `YouTubeStreamResolver` bypassing Python runtimes for sub-200ms stream resolution and instant search. |
+| **Unified Stream Persistence** | Atomic SQLite upsert for all streamed tracks with automatic play count tracking, persistent stream URLs, and top 20 "On Repeat" shelf aggregation. |
+| **Exportify & M3U8 Engine** | Auto-discovers local Exportify / Spotify JSON files in `/sdcard/Download/` for 1-tap ingestion and exports standard `#EXTM3U` playlists to device storage. |
+| **iTunes 1400x1400 HD Covers** | Fetches and injects uncompressed 1400x1400 Retina cover art into downloaded and streamed tracks. |
 | **Dynamic Audio Routing** | Real-time audio peripheral monitoring (Bluetooth A2DP, wired 3.5mm, USB DAC, Speaker, HQ Stream) with dynamic UI routing badges. |
 | **5-Tier Caching** | Segmented disk cache for audio streaming chunks, memory/disk cover art caching (Coil), `.lrc` lyrics cache, stream URL LRU cache, and SQLite RAM cache. |
 | **Dynamic Full Player** | Horizontal pager (Cover Art ↔ LRC Synced Lyrics ↔ Reorderable Queue), animated palette mesh background, floating time tooltip canvas seekbar. |
@@ -97,6 +101,67 @@
 | **Cloud Sync & Auth** | Supabase backend integration with Google 1-Tap OAuth, user profiles, synced playlists, and Admin Command Center telemetry. |
 | **Backup & Storage** | Full JSON database export/import engine, detailed storage breakdown (downloads vs cache), and one-tap cache flush. |
 | **Call Recording Filter** | MediaStore ingestion scanner automatically excludes voice memos and call recordings from polluting music library. |
+
+---
+
+## ⚙️ The 9 Core Subsystem Engines of Streamify
+
+Streamify is architected as 9 decoupled, highly specialized subsystem engines working together across Kotlin, C++, and Python:
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                  STREAMIFY 9-ENGINE SYSTEM RUNTIME                                     │
+├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                        │
+│  1. 🧠 AI RECOMMENDATION & VECTOR SEARCH ENGINE                                                        │
+│     Files: RecommendEngine.cc, VectorStore.cc, ReRanker.kt                                             │
+│     • Dual-vector taste profiling (EMA V_session for active session + V_long for lifetime centroid)    │
+│     • Multi-Armed Bandit ε-Greedy Re-Ranker with strict artist damping (max 2/artist) & tempo variance │
+│                                                                                                        │
+│  2. 🎛️ NATIVE AUDIO DSP & ACOUSTIC FEATURE EXTRACTION ("PROJECT ORPHEUS")                             │
+│     Files: AudioPipeline.cc, AudioPipeline.h, miniaudio.h, kiss_fftr.c                                 │
+│     • Zero-allocation memory arena with precomputed 2048/1024 Hann windows and Krumhansl tables       │
+│     • 128-bit ARM NEON SIMD windowing, spectral flux, and cosine similarity kernels                    │
+│     • Ellis Gaussian tempo prior curve centered at 120 BPM (σ=40) eliminating 2x/0.5x octave jumps      │
+│     • 20s temporal median-filtered chromagram matching 24 Krumhansl-Schmuckler Major/Minor profiles    │
+│                                                                                                        │
+│  3. ⚡ RESOURCE-AWARE DYNAMIC TASK ORCHESTRATOR                                                        │
+│     Files: TaskOrchestrator.cc, TaskOrchestrator.h                                                     │
+│     • Real-time CPU budget governor and Big.LITTLE efficiency core thread allocator                    │
+│     • Cooperative yielding (30ms per frame) during active touch, search, and playback to lock 120fps   │
+│                                                                                                        │
+│  4. 🚀 HIGH-SPEED STREAM RESOLVER & INGESTION ENGINE                                                   │
+│     Files: YouTubeStreamResolver.kt, iTunesSearchApi.kt, search.py                                     │
+│     • Sub-200ms native Kotlin HTTP Innertube client with ANDROID_MUSIC payload                         │
+│     • Fuzzy SequenceMatcher studio heuristic scorer with Topic/VEVO channel boosts & bad-keyword filter│
+│                                                                                                        │
+│  5. 💾 PREDICTIVE AUDIO CACHE & UNIFIED STREAM STORE                                                   │
+│     Files: AudioCacheManager.kt, StreamifyDB.cc, TrackRepository.kt                                    │
+│     • Persistent SQLite storage for streamed tracks with play count tracking and instant ID resolution │
+│     • Top 20 "On Repeat • TOP ROTATIONS" smart shelf with sub-millisecond query latency                │
+│                                                                                                        │
+│  6. 🎤 SYNCHRONIZED LYRICS & KARAOKE ENGINE                                                            │
+│     Files: LyricsSheet.kt, LyricsCacheManager.kt, lyrics.py                                            │
+│     • Real-time timestamped LRC parser with smooth animated auto-scrolling and tap-to-seek             │
+│     • Multi-provider fallback scraper (LRCLIB, Genius, Musixmatch) with local disk caching             │
+│                                                                                                        │
+│  7. 🎚️ DSP EQUALIZER, LOUDNESS & AUDIO ROUTING ENGINE                                                  │
+│     Files: EqualizerManager.kt, AudioDeviceManager.kt, PlaybackService.kt                              │
+│     • 10-band graphic equalizer with bass boost, virtualizer, and preset management                    │
+│     • Real-time broadcast audio routing detector (Bluetooth A2DP, 3.5mm jack, USB DAC, Speaker)       │
+│                                                                                                        │
+│  8. 📦 LOSSLESS DOWNLOAD & TAGGING PIPELINE                                                            │
+│     Files: download.py, metadata.py, DownloadWorker.kt                                                 │
+│     • Sandboxed Python yt-dlp audio downloader with FFmpeg conversion (MP3 320k, M4A 256k, FLAC)       │
+│     • Mutagen ID3v2.4 and Vorbis comment tagger embedding 1400x1400 Retina iTunes artwork              │
+│                                                                                                        │
+│  9. 📂 PLAYLIST MIGRATION & M3U8 EXPORT ENGINE                                                         │
+│     Files: ExportifyParser.kt, PlaylistRepository.kt                                                   │
+│     • Auto-discovers Exportify, Soundiiz, and Spotify backup JSON files across device storage          │
+│     • Standard #EXTM3U playlist exporter saving universal playlists to /sdcard/Music/Streamify/        │
+│                                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -139,11 +204,13 @@ streamify-apk/
 │           │   ├── StreamifyApp.kt                  # Custom Android Application class initializing JNI, Chaquopy, and Supabase clients
 │           │   ├── data/
 │           │   │   ├── BackupManager.kt             # Full database JSON serialization, backup export, and restore recovery engine
+│           │   │   ├── ExportifyParser.kt           # Auto-discovery and parser for local JSON, Soundiiz, and Exportify Spotify playlists
 │           │   │   ├── LyricsCacheManager.kt        # High-performance disk cache manager for synced LRC lyrics files
 │           │   │   ├── NativeBridge.kt              # Kotlin JNI bindings to C++ native engine (DB, VectorStore, Recommender, AudioPipeline)
-│           │   │   ├── PlaylistRepository.kt        # Playlist persistence manager handling custom collections and playlist track relations
+│           │   │   ├── PlaylistRepository.kt        # Playlist persistence manager handling custom collections, track relations, and M3U8 exports
+│           │   │   ├── ReRanker.kt                  # Multi-armed bandit ε-greedy re-ranker with artist damping and tempo diversity
 │           │   │   ├── StorageManager.kt            # Storage calculation utility managing app cache, downloads folder, and cleanup operations
-│           │   │   ├── TrackRepository.kt           # Central track repository coordinating SQLite queries, like states, and Flow streams
+│           │   │   ├── TrackRepository.kt           # Central track repository coordinating SQLite queries, session vectors, and Flow streams
 │           │   │   ├── models/
 │           │   │   │   ├── LyricsData.kt            # Data models representing synchronized LRC lyrics lines and timestamps
 │           │   │   │   ├── OrchestratorStatus.kt    # Data class representing native C++ TaskOrchestrator worker thread status and queue depth
@@ -319,13 +386,23 @@ Streamify runs all acoustic feature extraction and similarity ranking completely
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Recommendation Scoring Formula
-$$S(t) = \alpha \cdot \cos(\vec{v}_{user}, \vec{v}_{track}) + \beta \cdot \text{KeyMatch}(K_u, K_t) + \gamma \cdot \text{BpmProximity}(B_u, B_t) + \delta \cdot \text{Affinity}(A_t)$$
+### Dual-Vector Session State & Multi-Modal Recommendation
+Streamify separates user taste into **immediate session mood** and **lifetime taste centroid**:
 
-*   $\cos(\vec{v}_{user}, \vec{v}_{track})$: 512-dim acoustic vector similarity computed via ARM NEON SIMD.
-*   $\text{KeyMatch}(K_u, K_t)$: Camelot wheel harmonic compatibility score ($1.0$ for exact, $0.8$ for relative major/minor, $0.5$ for dominant/subdominant).
-*   $\text{BpmProximity}(B_u, B_t)$: Gaussian tempo distance curve: $\exp\left(-\frac{(B_u - B_t)^2}{2\sigma^2}\right)$.
-*   $\text{Affinity}(A_t)$: User listening frequency, completion rate, and explicit Like weighting.
+1. **Short-Term Session Vector ($V_{\text{session}}$)**: Updated on every song transition via Exponential Moving Average (EMA, $\alpha = 0.45$):
+   $$V_{\text{session}} = \alpha \cdot \vec{v}_{\text{current}} + (1 - \alpha) \cdot V_{\text{prev\_session}}$$
+
+2. **Long-Term Lifetime Centroid ($V_{\text{long}}$)**: Aggregated across user interaction history in SQLite:
+   $$V_{\text{long}} = \sum_{t \in \text{Liked}} 2.0 \cdot \vec{v}_t + \sum_{t \in \text{TopPlayed}} 1.5 \cdot \vec{v}_t + \sum_{t \in \text{Completed}} 1.0 \cdot \vec{v}_t - \sum_{t \in \text{Skipped}} 1.2 \cdot \vec{v}_t$$
+
+3. **Multi-Armed Bandit ($\epsilon$-Greedy) Re-Ranking**:
+   - **80% Exploitation**: High-affinity tracks matching $V_{\text{session}}$ / $V_{\text{long}}$ with **Artist Damping** ($\le 2$ tracks per artist).
+   - **20% Exploration**: Controlled injection of unfamiliar artists / novel discoveries to expand taste horizons without echo chambers.
+
+### DSP Acoustic Feature Extraction ("Project Orpheus")
+- **Ellis Gaussian Tempo Prior**: Multiplies spectral flux autocorrelation by a Gaussian curve centered at 120 BPM ($\sigma = 40\text{ BPM}$) to eliminate octave halving/doubling:
+  $$R_{\text{biased}}(\tau) = R(\tau) \cdot \exp\left(-\frac{1}{2}\left(\frac{\text{BPM}(\tau) - 120.0}{40.0}\right)^2\right)$$
+- **Stabilized Median-Filtered Key Detection**: Computes a 20s multi-frame chromagram and applies a **temporal median filter** across frames to reject percussion noise before matching against the 24 Krumhansl-Schmuckler Major and Minor profiles.
 
 ---
 
