@@ -124,4 +124,34 @@ object PlaylistRepository {
         val trackMap = allTracks.associateBy { it.id }
         playlist.trackIds.mapNotNull { trackMap[it] }
     }
+
+    suspend fun exportPlaylistToM3U8(playlistId: String, allTracks: List<Track>, context: Context): File? = withContext(Dispatchers.IO) {
+        val playlist = _playlists.value.find { it.id == playlistId } ?: return@withContext null
+        val trackMap = allTracks.associateBy { it.id }
+        val playlistTracks = playlist.trackIds.mapNotNull { trackMap[it] }
+        if (playlistTracks.isEmpty()) return@withContext null
+
+        try {
+            val exportDir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC), "Streamify/Playlists")
+            if (!exportDir.exists()) exportDir.mkdirs()
+
+            val safeName = playlist.name.replace(Regex("[^a-zA-Z0-9_\\-\\s]"), "").trim().ifBlank { "playlist" }
+            val m3u8File = File(exportDir, "$safeName.m3u8")
+
+            val sb = StringBuilder()
+            sb.append("#EXTM3U\n")
+            sb.append("#PLAYLIST:${playlist.name}\n\n")
+
+            for (t in playlistTracks) {
+                sb.append("#EXTINF:${t.durationSec},${t.artist} - ${t.title}\n")
+                sb.append("${t.filepath}\n\n")
+            }
+
+            m3u8File.writeText(sb.toString(), Charsets.UTF_8)
+            m3u8File
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
 }

@@ -262,12 +262,30 @@ fun LibraryScreen(
                                         modifier = Modifier.size(48.dp)
                                     )
                                     Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(playlist.name, style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
                                         Text("$trackCount tracks", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
                                         if (playlist.description.isNotBlank()) {
                                             Text(playlist.description, style = StreamifyType.Caption, color = StreamifyColors.TextSub, maxLines = 1)
                                         }
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                                val file = com.streamify.app.data.PlaylistRepository.exportPlaylistToM3U8(playlist.id, state.tracks, context)
+                                                if (file != null) {
+                                                    android.widget.Toast.makeText(context, "Exported: ${file.name} to Music/Streamify/Playlists", android.widget.Toast.LENGTH_LONG).show()
+                                                } else {
+                                                    android.widget.Toast.makeText(context, "Could not export playlist", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = androidx.compose.material.icons.Icons.Filled.Share,
+                                            contentDescription = "Export M3U8",
+                                            tint = StreamifyColors.TextSub
+                                        )
                                     }
                                 }
                             }

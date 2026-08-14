@@ -4,47 +4,101 @@ import urllib.request
 import urllib.parse
 import concurrent.futures
 
+from difflib import SequenceMatcher
+import re
+
+def normalize_text(text):
+    if not text:
+        return ""
+    text = re.sub(r'[\(\[\{].*?[\)\]\}]', '', text)
+    text = re.sub(r'[^a-zA-Z0-9\s]', ' ', text)
+    return " ".join(text.lower().split())
+
 def fetch_itunes_cover_art(title, artist):
     try:
-        query = urllib.parse.quote(f"{title} {artist}")
-        url = f"https://itunes.apple.com/search?term={query}&limit=1&entity=song"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=2) as response:
+        clean_title = re.sub(r"\(feat\.[^\)]+\)", "", title, flags=re.IGNORECASE).strip()
+        primary_artist = re.split(r",| feat\.| ft\.|&", artist, flags=re.IGNORECASE)[0].strip() if artist else ""
+        query = urllib.parse.quote(f"{clean_title} {primary_artist}".strip())
+        url = f"https://itunes.apple.com/search?term={query}&limit=5&entity=song"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+        with urllib.request.urlopen(req, timeout=3) as response:
             data = json.loads(response.read().decode())
-            if data.get('resultCount', 0) > 0:
-                art = data['results'][0].get('artworkUrl100', '')
-                return art.replace('100x100bb', '600x600bb')
-    except Exception as e:
+            results = data.get('results', [])
+            norm_target_title = normalize_text(clean_title)
+            norm_target_artist = normalize_text(primary_artist)
+            
+            for item in results:
+                track_name = normalize_text(item.get('trackName', ''))
+                artist_name = normalize_text(item.get('artistName', ''))
+                
+                # Check for strong match
+                if (norm_target_title in track_name or track_name in norm_target_title) and \
+                   (not norm_target_artist or norm_target_artist in artist_name or artist_name in norm_target_artist):
+                    art = item.get('artworkUrl100', '')
+                    if art:
+                        return art.replace('100x100bb', '1400x1400bb').replace('100x100', '1400x1400')
+    except Exception:
         pass
     return ""
 
 def is_bad_candidate(title):
-    bad_words = ['slowed', 'reverb', 'nightcore', 'cover', 'karaoke', 'instrumental', '8d', 'reaction', 'bass boosted', 'episode', 'season', 'explained', 'review', 'trailer']
+    bad_words = ['slowed', 'reverb', 'nightcore', 'cover', 'karaoke', 'instrumental', '8d audio', 'reaction', 'bass boosted', 'episode', 'season', 'explained', 'review', 'trailer', 'parody']
     t_lower = title.lower()
     return any(word in t_lower for word in bad_words)
 
-def is_likely_music(title, duration):
-    if duration and (duration < 30 or duration > 900): # 15 mins
-        return False
-    return True
+def calculate_title_similarity(target_title, candidate_title):
+    t1 = normalize_text(target_title)
+    t2 = normalize_text(candidate_title)
+    if not t1 or not t2:
+        return 0.0
+    seq_ratio = SequenceMatcher(None, t1, t2).ratio()
+    words1 = set(t1.split())
+    words2 = set(t2.split())
+    overlap = len(words1 & words2) / max(len(words1 | words2), 1)
+    return (0.6 * seq_ratio) + (0.4 * overlap)
 
-def process_single_entry(entry, query):
+def score_candidate(target_title, target_artist, candidate_title, uploader, candidate_duration, target_duration=0):
+    score = 0
+    sim = calculate_title_similarity(target_title, candidate_title)
+    score += int(sim * 60) # Up to 60 pts from title similarity
+
+    # Channel match & studio bonus (+25 pts)
+    uploader_lower = uploader.lower()
+    if "- topic" in uploader_lower or "vevo" in uploader_lower:
+        score += 25
+    elif target_artist and normalize_text(target_artist) in normalize_text(uploader):
+        score += 15
+
+    # Duration tolerance check (+15 pts if within 15s)
+    if target_duration > 0 and candidate_duration > 0:
+        delta = abs(target_duration - candidate_duration)
+        if delta <= 5:
+            score += 15
+        elif delta <= 15:
+            score += 10
+        elif delta > 45:
+            score -= 25
+
+    # Bad keyword penalty (-40 pts)
+    if is_bad_candidate(candidate_title) and not is_bad_candidate(target_title):
+        score -= 40
+
+    return max(0, min(100, score))
+
+def process_single_entry(entry, query, target_duration=0):
     if not entry:
         return None
     video_id = entry.get('id', '')
     title = entry.get('title', '')
     uploader = entry.get('uploader', '')
-
     duration = entry.get('duration', 0)
-    if not is_likely_music(title, duration):
+
+    if duration and (duration < 30 or duration > 1200): # Filter out < 30s clips or > 20 min videos
         return None
 
-    if is_bad_candidate(title) and not is_bad_candidate(query):
+    score = score_candidate(query, "", title, uploader, duration, target_duration)
+    if score < 20 and is_bad_candidate(title):
         return None
-
-    score = 0
-    if "- Topic" in uploader or "VEVO" in uploader:
-        score += 50
 
     thumbnail = entry.get('thumbnail', f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg")
 
@@ -52,7 +106,7 @@ def process_single_entry(entry, query):
         'id': video_id,
         'title': title,
         'uploader': uploader,
-        'duration': entry.get('duration', 0),
+        'duration': duration,
         'url': entry.get('url', f"https://www.youtube.com/watch?v={video_id}"),
         'thumbnail': thumbnail,
         'score': score

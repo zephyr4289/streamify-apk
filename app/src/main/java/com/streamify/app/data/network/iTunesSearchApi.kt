@@ -53,7 +53,9 @@ object iTunesSearchApi {
                 val durationMs = item.optLong("trackTimeMillis", 0L)
                 val durationSec = (durationMs / 1000).toInt()
                 val rawThumb = item.optString("artworkUrl100", "")
-                val hdThumb = rawThumb.replace("100x100bb", "600x600bb")
+                val hdThumb = if (rawThumb.isNotBlank()) {
+                    rawThumb.replace("100x100bb", "1400x1400bb").replace("100x100", "1400x1400")
+                } else ""
 
                 val trackId = item.optString("trackId", "")
                 val searchUrl = "https://www.youtube.com/results?search_query=" + URLEncoder.encode("$title $artist", "UTF-8")
@@ -73,6 +75,55 @@ object iTunesSearchApi {
         } catch (e: Exception) {
             e.printStackTrace()
             return@withContext emptyList()
+        }
+    }
+
+    suspend fun fetchHdCoverArt(title: String, artist: String): String? = withContext(Dispatchers.IO) {
+        if (title.isBlank()) return@withContext null
+        try {
+            val cleanTitle = title.replace(Regex("\\(feat\\.[^)]+\\)", RegexOption.IGNORE_CASE), "").trim()
+            val primaryArtist = artist.split(",", " feat.", " ft.", "&").firstOrNull()?.trim() ?: ""
+            val query = "$cleanTitle $primaryArtist".trim()
+            val encodedQuery = URLEncoder.encode(query, "UTF-8")
+            val targetUrl = "$ITUNES_SEARCH_URL?term=$encodedQuery&media=music&entity=song&limit=5"
+
+            val conn = (URL(targetUrl).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 3000
+                readTimeout = 3000
+                setRequestProperty("User-Agent", "Mozilla/5.0")
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Accept-Encoding", "gzip, deflate")
+            }
+
+            if (conn.responseCode != 200) return@withContext null
+
+            val inputStream = if ("gzip".equals(conn.contentEncoding, ignoreCase = true)) {
+                GZIPInputStream(conn.inputStream)
+            } else {
+                conn.inputStream
+            }
+
+            val responseBody = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8)).use { it.readText() }
+            val root = JSONObject(responseBody)
+            val resultsArray = root.optJSONArray("results") ?: return@withContext null
+
+            for (i in 0 until resultsArray.length()) {
+                val item = resultsArray.getJSONObject(i)
+                val trackName = item.optString("trackName", "").lowercase()
+                val artistName = item.optString("artistName", "").lowercase()
+                val normTargetTitle = cleanTitle.lowercase()
+
+                if (normTargetTitle in trackName || trackName in normTargetTitle) {
+                    val rawArt = item.optString("artworkUrl100", "")
+                    if (rawArt.isNotBlank()) {
+                        return@withContext rawArt.replace("100x100bb", "1400x1400bb").replace("100x100", "1400x1400")
+                    }
+                }
+            }
+            null
+        } catch (e: Exception) {
+            null
         }
     }
 }

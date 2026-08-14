@@ -410,6 +410,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             quality = "256"
                         )
                     }
+                    kotlinx.coroutines.delay(50)
                 }
                 
                 if (trackIds.isNotEmpty()) {
