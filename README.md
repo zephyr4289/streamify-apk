@@ -140,10 +140,12 @@ Streamify is architected as 9 decoupled, highly specialized subsystem engines wo
 │     • Zero-RTT live Google search autocomplete dropdown with 150ms keystroke debounce                  │
 │     • HTTP/2 multiplexed connection pool with Brotli/Gzip compression and aggressive timeouts          │
 │                                                                                                        │
-│  5. 💾 PREDICTIVE AUDIO CACHE & UNIFIED STREAM STORE                                                   │
-│     Files: AudioCacheManager.kt, StreamifyDB.cc, TrackRepository.kt                                    │
-│     • Persistent SQLite storage for streamed tracks with play count tracking and instant ID resolution │
-│     • Top 20 "On Repeat • TOP ROTATIONS" smart shelf with sub-millisecond query latency                │
+│  5. 💾 PREDICTIVE AUDIO CACHE & UNIFIED STREAM STORE ("PROJECT TARTARUS VAULT")                        │
+│     Files: AudioCacheManager.kt, PredictivePreBufferManager.kt, PriorityWeightedEvictor.kt            │
+│     • Predictive Pre-Buffering: Fetches first 2MB of track N+1 at T-minus 35s for 0.00s gapless audio  │
+│     • PriorityWeightedEvictor: Protects "Liked" and heavy rotation tracks with sticky bit preservation │
+│     • ElasticStorageAllocator: Dynamically scales cache limit (100MB to 2GB) using Android StatFs      │
+│     • Unified SQLite persistence: Permanent track IDs for streams powering Top 20 On Repeat shelves   │
 │                                                                                                        │
 │  6. 🎤 SYNCHRONIZED LYRICS & KARAOKE ENGINE                                                            │
 │     Files: LyricsSheet.kt, LyricsCacheManager.kt, lyrics.py                                            │
@@ -232,13 +234,16 @@ streamify-apk/
 │           │   ├── navigation/
 │           │   │   └── AppNavGraph.kt               # Jetpack Compose animated navigation graph with custom horizontal and vertical transitions
 │           │   ├── service/
-│           │   │   ├── AudioCacheManager.kt         # Segmented disk cache manager for media chunk streaming
+│           │   │   ├── AudioCacheManager.kt         # Segmented disk cache manager with elastic storage allocation and sticky preservation
 │           │   │   ├── AudioDeviceManager.kt        # Broadcast listener and manager for detecting Bluetooth, wired, and speaker audio routes
 │           │   │   ├── CrossfadeAudioProcessor.kt   # Custom Media3 audio processor executing seamless crossfade blending between tracks
 │           │   │   ├── DownloadService.kt           # Foreground download notification service managing download workers
+│           │   │   ├── ElasticStorageAllocator.kt   # Android StatFs disk storage monitor dynamically scaling cache limit (100MB to 2GB)
 │           │   │   ├── EqualizerManager.kt          # Android 10-band audio equalizer controller and loudness normalization enhancer
 │           │   │   ├── IngestionWorker.kt           # WorkManager worker executing local device MediaStore audio scanning and C++ ingestion
-│           │   │   └── PlaybackService.kt           # Core AndroidX Media3 media session service for lock-screen controls and background audio
+│           │   │   ├── PlaybackService.kt           # Core AndroidX Media3 media session service for lock-screen controls and background audio
+│           │   │   ├── PredictivePreBufferManager.kt# Pre-fetches first 2MB of track N+1 at T-minus 35s for 0.00s gapless playback
+│           │   │   └── PriorityWeightedEvictor.kt   # Media3 CacheEvictor protecting Liked and heavy rotation tracks from eviction
 │           │   ├── ui/
 │           │   │   ├── animations/
 │           │   │   │   ├── CardPressEffect.kt       # Bouncy spring scale and alpha reduction modifier for interactive UI elements
