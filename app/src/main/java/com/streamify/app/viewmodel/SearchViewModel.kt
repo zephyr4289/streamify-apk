@@ -195,31 +195,34 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 val directUrl = if (cachedEntry != null && (now - cachedEntry.second) < 7200000L) {
                     cachedEntry.first
                 } else {
-                    val rawStreamResult = withContext(Dispatchers.IO) {
-                        try {
-                            val py = Python.getInstance()
-                            val searchModule = py.getModule("download_engine.search")
-                            searchModule.callAttr("get_stream_url", onlineTrack.url).toString()
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            ""
+                    // 1. Instantaneous Native Kotlin HTTP Innertube Player Resolution (sub-200ms)
+                    val nativeStream = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamUrl(onlineTrack.url)
+                    val resolvedUrl = if (nativeStream != null && nativeStream.streamUrl.isNotBlank()) {
+                        nativeStream.streamUrl
+                    } else {
+                        // 2. Robust Secondary Fallback: Chaquopy yt-dlp Extraction
+                        withContext(Dispatchers.IO) {
+                            try {
+                                val py = Python.getInstance()
+                                val searchModule = py.getModule("download_engine.search")
+                                val rawStreamResult = searchModule.callAttr("get_stream_url", onlineTrack.url).toString()
+                                if (rawStreamResult.trim().startsWith("{")) {
+                                    val jsonObj = org.json.JSONObject(rawStreamResult)
+                                    jsonObj.optString("url", "")
+                                } else {
+                                    rawStreamResult
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                ""
+                            }
                         }
                     }
 
-                    val resolved = try {
-                        if (rawStreamResult.trim().startsWith("{")) {
-                            val jsonObj = org.json.JSONObject(rawStreamResult)
-                            jsonObj.optString("url", "")
-                        } else {
-                            rawStreamResult
-                        }
-                    } catch (e: Exception) {
-                        rawStreamResult
+                    if (resolvedUrl.isNotBlank()) {
+                        streamUrlCache.put(onlineTrack.url, Pair(resolvedUrl, now))
                     }
-                    if (resolved.isNotBlank()) {
-                        streamUrlCache.put(onlineTrack.url, Pair(resolved, now))
-                    }
-                    resolved
+                    resolvedUrl
                 }
 
                 if (directUrl.isNotBlank()) {
