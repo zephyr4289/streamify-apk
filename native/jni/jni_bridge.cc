@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include "../engine/StreamifyDB.h"
+#include "../engine/TaskOrchestrator.h"
 
 // Helper to convert C++ Track to Java TrackNative
 jobject convertTrack(JNIEnv* env, jclass trackClass, jmethodID constructor, const StreamifyTrack& t) {
@@ -241,8 +242,6 @@ Java_com_streamify_app_data_NativeBridge_updateTrackMetadata(JNIEnv* env, jobjec
     
     return res;
 }
-
-#include "../engine/TaskOrchestrator.h"
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_streamify_app_data_NativeBridge_setHighPriorityActive(JNIEnv* /* env */, jobject /* this */, jboolean active) {

@@ -466,24 +466,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
     }
 
-    fun reorderQueue(fromIndex: Int, toIndex: Int) {
-        val currentQueue = _playerState.value.queue.toMutableList()
-        if (fromIndex in currentQueue.indices && toIndex in currentQueue.indices) {
-            val item = currentQueue.removeAt(fromIndex)
-            currentQueue.add(toIndex, item)
-            _playerState.value = _playerState.value.copy(queue = currentQueue)
-            
-            // Re-sync media items in controller
-            val mediaItems = currentQueue.map { t ->
-                MediaItem.Builder()
-                    .setMediaId(t.id.toString())
-                    .setUri(t.filepath)
-                    .build()
-            }
-            controller?.setMediaItems(mediaItems)
-        }
-    }
-
     override fun onCleared() {
         super.onCleared()
         controllerFuture?.let { MediaController.releaseFuture(it) }
