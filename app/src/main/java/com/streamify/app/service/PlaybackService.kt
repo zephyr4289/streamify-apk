@@ -71,6 +71,11 @@ class PlaybackService : MediaSessionService() {
                 super.onAudioSessionIdChanged(audioSessionId)
                 EqualizerManager.init(audioSessionId)
             }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                super.onPlayerError(error)
+                error.printStackTrace()
+            }
         })
 
         mediaSession = MediaSession.Builder(this, exoPlayer)

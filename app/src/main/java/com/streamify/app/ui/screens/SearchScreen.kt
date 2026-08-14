@@ -275,7 +275,7 @@ fun SearchScreen(
                             TrackListItem(
                                 track = mockTrack,
                                 onClick = { 
-                                    Toast.makeText(context, "Starting Stream & Download...", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Streaming track...", Toast.LENGTH_SHORT).show()
                                     viewModel.playOnlineTrack(onlineTrack, playerViewModel, ingestionViewModel, context)
                                 },
                                 onOptionsClick = { selectedOptionsTrack = mockTrack },

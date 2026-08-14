@@ -1,9 +1,7 @@
 import json
 import yt_dlp
-
 import urllib.request
 import urllib.parse
-
 import concurrent.futures
 
 def fetch_itunes_cover_art(title, artist):
@@ -48,7 +46,6 @@ def process_single_entry(entry, query):
     if "- Topic" in uploader or "VEVO" in uploader:
         score += 50
 
-    clean_uploader = uploader.replace(" - Topic", "").replace("VEVO", "").strip()
     thumbnail = entry.get('thumbnail', f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg")
 
     return {
@@ -74,14 +71,12 @@ def search_itunes_fast(query, max_results=20):
                 artist = item.get('artistName', 'Unknown')
                 duration = item.get('trackTimeMillis', 0) // 1000
                 thumb = item.get('artworkUrl100', '').replace('100x100bb', '600x600bb')
-                yt_query = urllib.parse.quote(f"{title} {artist}")
-                yt_url = f"https://www.youtube.com/watch?v={item.get('trackId', '')}"
                 results.append({
                     'id': str(item.get('trackId', '')),
                     'title': title,
                     'uploader': artist,
                     'duration': duration,
-                    'url': yt_url,
+                    'url': f"https://www.youtube.com/results?search_query={urllib.parse.quote(f'{title} {artist}')}",
                     'thumbnail': thumb,
                     'score': 100
                 })
@@ -127,15 +122,27 @@ def search_youtube(query, max_results=20):
 
 def get_stream_url(url):
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'ignoreerrors': True,
         'nocheckcertificate': True,
+        'noplaylist': True,
+        'extract_flat': False,
     }
     try:
+        target_input = url.strip()
+        if "results?search_query=" in target_input:
+            parsed = urllib.parse.urlparse(target_input)
+            params = urllib.parse.parse_qs(parsed.query)
+            q = params.get('search_query', [''])[0]
+            if q:
+                target_input = f"ytsearch1:{q}"
+        elif not target_input.startswith("http"):
+            target_input = f"ytsearch1:{target_input}"
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(target_input, download=False)
             if info:
                 if 'entries' in info and len(info['entries']) > 0:
                     info = info['entries'][0]
@@ -145,10 +152,12 @@ def get_stream_url(url):
                     user_agent = headers.get('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
                     return json.dumps({
                         'url': target_url,
-                        'user_agent': user_agent
+                        'user_agent': user_agent,
+                        'title': info.get('title', ''),
+                        'uploader': info.get('uploader', ''),
+                        'duration': info.get('duration', 0)
                     })
         return ""
     except Exception as e:
         print(f"Stream URL error: {e}")
         return ""
-

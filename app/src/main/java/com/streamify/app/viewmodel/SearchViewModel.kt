@@ -109,16 +109,41 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 isOnlineLoading = true
             )
 
-            // 3. Ultra-Fast Sub-100ms Native Innertube & iTunes Search Pipeline
+            // 3. Ultra-Fast Sub-100ms Native Innertube & Python Search Pipeline
             kotlinx.coroutines.delay(100)
             
             val onlineResults = withContext(Dispatchers.IO) {
                 try {
-                    // Fast Primary: Direct YouTube Music Innertube API (~80ms)
+                    // Fast Primary: Direct YouTube Music & YouTube Innertube API (~80ms)
                     val ytMusicResults = com.streamify.app.data.network.YouTubeMusicSearchApi.search(cleanQuery, maxResults = 25)
                     if (ytMusicResults.isNotEmpty()) {
                         searchCache.put(cleanQuery.lowercase(), ytMusicResults)
                         return@withContext ytMusicResults
+                    }
+
+                    // Secondary: Python YouTube search extraction
+                    val py = Python.getInstance()
+                    val searchModule = py.getModule("download_engine.search")
+                    val pyResultJson = searchModule.callAttr("search_youtube", cleanQuery, 25).toString()
+                    if (pyResultJson.isNotBlank() && pyResultJson.startsWith("[")) {
+                        val jsonArr = org.json.JSONArray(pyResultJson)
+                        val results = mutableListOf<OnlineSearchResult>()
+                        for (i in 0 until jsonArr.length()) {
+                            val item = jsonArr.getJSONObject(i)
+                            results.add(
+                                OnlineSearchResult(
+                                    title = item.optString("title", "Unknown"),
+                                    uploader = item.optString("uploader", "Unknown"),
+                                    url = item.optString("url", ""),
+                                    duration = item.optInt("duration", 0),
+                                    thumbnail = item.optString("thumbnail", "")
+                                )
+                            )
+                        }
+                        if (results.isNotEmpty()) {
+                            searchCache.put(cleanQuery.lowercase(), results)
+                            return@withContext results
+                        }
                     }
 
                     // Ultra-fast Fallback: Apple iTunes Global Edge CDN (~60ms)
@@ -154,20 +179,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         context: android.content.Context
     ) {
         viewModelScope.launch {
-            val savedQuality = context.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
-                .getString("download_quality", "320") ?: "320"
-
-            // 1. Instantly fire off the background download (Plan A)
-            ingestionViewModel.enqueueDownload(
-                context = context,
-                url = onlineTrack.url,
-                title = onlineTrack.title,
-                artist = onlineTrack.uploader,
-                album = "Streamify",
-                quality = savedQuality
-            )
-
-            // 2. Check stream URL cache (TTL 2 hours for instant 0ms stream start)
+            // Check stream URL cache (TTL 2 hours for instant 0ms stream start)
             val now = System.currentTimeMillis()
             val cachedEntry = streamUrlCache.get(onlineTrack.url)
             val directUrl = if (cachedEntry != null && (now - cachedEntry.second) < 7200000L) {
@@ -201,7 +213,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             }
 
             if (directUrl.isNotBlank()) {
-                // 3. Construct a transient track and stream it immediately
+                // Construct a transient track and stream it immediately
                 val transientTrack = Track(
                     id = -(onlineTrack.url.hashCode()), // Negative ID for transient online tracks
                     title = onlineTrack.title,
@@ -218,7 +230,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 playerViewModel.playTrack(transientTrack, listOf(transientTrack))
             } else {
                 withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(context, "Failed to extract stream. Falling back to background download.", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, "Could not resolve audio stream. Please try another track.", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         }

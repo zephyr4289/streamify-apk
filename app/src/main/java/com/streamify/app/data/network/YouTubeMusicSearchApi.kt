@@ -13,15 +13,28 @@ import java.util.zip.GZIPInputStream
 
 object YouTubeMusicSearchApi {
 
-    private const val INNERTUBE_SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"
+    private const val INNERTUBE_MUSIC_SEARCH_URL = "https://music.youtube.com/youtubei/v1/search"
+    private const val INNERTUBE_YT_SEARCH_URL = "https://www.youtube.com/youtubei/v1/search"
     private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-    suspend fun search(query: String, maxResults: Int = 20): List<OnlineSearchResult> = withContext(Dispatchers.IO) {
+    suspend fun search(query: String, maxResults: Int = 25): List<OnlineSearchResult> = withContext(Dispatchers.IO) {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) return@withContext emptyList()
 
+        // 1. Try YouTube Music Search (General without strict params filter)
+        val musicResults = executeInnertubeSearch(cleanQuery, INNERTUBE_MUSIC_SEARCH_URL, isMusic = true, maxResults = maxResults)
+        if (musicResults.isNotEmpty()) {
+            return@withContext musicResults
+        }
+
+        // 2. Fallback to standard YouTube Innertube search for maximum coverage
+        val ytResults = executeInnertubeSearch(cleanQuery, INNERTUBE_YT_SEARCH_URL, isMusic = false, maxResults = maxResults)
+        return@withContext ytResults
+    }
+
+    private fun executeInnertubeSearch(query: String, endpointUrl: String, isMusic: Boolean, maxResults: Int): List<OnlineSearchResult> {
         try {
-            val url = URL(INNERTUBE_SEARCH_URL)
+            val url = URL(endpointUrl)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 4000
@@ -32,23 +45,28 @@ object YouTubeMusicSearchApi {
                 setRequestProperty("User-Agent", USER_AGENT)
                 setRequestProperty("Accept", "*/*")
                 setRequestProperty("Accept-Encoding", "gzip, deflate")
-                setRequestProperty("Origin", "https://music.youtube.com")
-                setRequestProperty("Referer", "https://music.youtube.com/")
+                if (isMusic) {
+                    setRequestProperty("Origin", "https://music.youtube.com")
+                    setRequestProperty("Referer", "https://music.youtube.com/")
+                } else {
+                    setRequestProperty("Origin", "https://www.youtube.com")
+                    setRequestProperty("Referer", "https://www.youtube.com/")
+                }
             }
 
-            // Official YouTube Music WEB_REMIX search payload filtered to songs
+            val clientName = if (isMusic) "WEB_REMIX" else "WEB"
+            val clientVersion = if (isMusic) "1.20230515.01.00" else "2.20230515.01.00"
+
             val requestJson = JSONObject().apply {
                 put("context", JSONObject().apply {
                     put("client", JSONObject().apply {
-                        put("clientName", "WEB_REMIX")
-                        put("clientVersion", "1.20230515.01.00")
+                        put("clientName", clientName)
+                        put("clientVersion", clientVersion)
                         put("hl", "en")
                         put("gl", "US")
                     })
                 })
-                put("query", cleanQuery)
-                // Filter param: "Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D" focuses search on songs
-                put("params", "Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D")
+                put("query", query)
             }
 
             conn.outputStream.use { os ->
@@ -57,7 +75,7 @@ object YouTubeMusicSearchApi {
             }
 
             if (conn.responseCode != 200) {
-                return@withContext emptyList()
+                return emptyList()
             }
 
             val inputStream = if ("gzip".equals(conn.contentEncoding, ignoreCase = true)) {
@@ -68,23 +86,20 @@ object YouTubeMusicSearchApi {
 
             val responseBody = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8)).use { it.readText() }
             val root = JSONObject(responseBody)
-            return@withContext parseInnertubeResponse(root, maxResults)
+            return parseInnertubeResponse(root, maxResults)
         } catch (e: Exception) {
             e.printStackTrace()
-            return@withContext emptyList()
+            return emptyList()
         }
     }
 
     private fun parseInnertubeResponse(root: JSONObject, maxResults: Int): List<OnlineSearchResult> {
         val results = mutableListOf<OnlineSearchResult>()
-
         try {
-            // Find musicResponsiveListItemRenderer objects throughout the JSON hierarchy
             findMusicItems(root, results, maxResults)
         } catch (e: Exception) {
             e.printStackTrace()
         }
-
         return results
     }
 
@@ -95,6 +110,18 @@ object YouTubeMusicSearchApi {
             is JSONObject -> {
                 if (obj.has("musicResponsiveListItemRenderer")) {
                     val item = parseMusicItem(obj.getJSONObject("musicResponsiveListItemRenderer"))
+                    if (item != null && list.none { it.url == item.url }) {
+                        list.add(item)
+                        if (list.size >= maxResults) return
+                    }
+                } else if (obj.has("videoRenderer")) {
+                    val item = parseVideoRenderer(obj.getJSONObject("videoRenderer"))
+                    if (item != null && list.none { it.url == item.url }) {
+                        list.add(item)
+                        if (list.size >= maxResults) return
+                    }
+                } else if (obj.has("compactVideoRenderer")) {
+                    val item = parseVideoRenderer(obj.getJSONObject("compactVideoRenderer"))
                     if (item != null && list.none { it.url == item.url }) {
                         list.add(item)
                         if (list.size >= maxResults) return
@@ -158,7 +185,6 @@ object YouTubeMusicSearchApi {
                     if (runs1 != null && runs1.length() > 0) {
                         uploader = runs1.getJSONObject(0).optString("text", "Unknown")
 
-                        // Scan remaining runs for duration (e.g., "3:45" or "4:12")
                         for (j in 1 until runs1.length()) {
                             val textVal = runs1.getJSONObject(j).optString("text", "").trim()
                             if (textVal.contains(":")) {
@@ -194,9 +220,59 @@ object YouTubeMusicSearchApi {
         }
     }
 
+    private fun parseVideoRenderer(videoObj: JSONObject): OnlineSearchResult? {
+        try {
+            val videoId = videoObj.optString("videoId", "")
+            if (videoId.isBlank()) return null
+
+            var title = "Unknown"
+            val titleObj = videoObj.optJSONObject("title")
+            val titleRuns = titleObj?.optJSONArray("runs")
+            if (titleRuns != null && titleRuns.length() > 0) {
+                title = titleRuns.getJSONObject(0).optString("text", "Unknown")
+            } else if (titleObj?.has("simpleText") == true) {
+                title = titleObj.optString("simpleText", "Unknown")
+            }
+
+            var uploader = "Unknown"
+            val ownerObj = videoObj.optJSONObject("ownerText") ?: videoObj.optJSONObject("shortBylineText")
+            val ownerRuns = ownerObj?.optJSONArray("runs")
+            if (ownerRuns != null && ownerRuns.length() > 0) {
+                uploader = ownerRuns.getJSONObject(0).optString("text", "Unknown")
+            }
+
+            var duration = 0
+            val lengthObj = videoObj.optJSONObject("lengthText")
+            val lengthText = lengthObj?.optString("simpleText", "") ?: ""
+            if (lengthText.isNotBlank()) {
+                duration = parseDurationToSeconds(lengthText)
+            }
+
+            var thumbnail = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+            val thumbObj = videoObj.optJSONObject("thumbnail")
+            val thumbsArray = thumbObj?.optJSONArray("thumbnails")
+            if (thumbsArray != null && thumbsArray.length() > 0) {
+                val lastThumb = thumbsArray.getJSONObject(thumbsArray.length() - 1)
+                val rawUrl = lastThumb.optString("url", "")
+                if (rawUrl.isNotBlank()) {
+                    thumbnail = upgradeThumbnailResolution(rawUrl)
+                }
+            }
+
+            return OnlineSearchResult(
+                title = title,
+                uploader = uploader,
+                url = "https://www.youtube.com/watch?v=$videoId",
+                duration = duration,
+                thumbnail = thumbnail
+            )
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
     private fun upgradeThumbnailResolution(url: String): String {
         if (url.isBlank()) return ""
-        // Upgrade Google/YouTube user content thumbnails to 544x544 HD
         if (url.contains("googleusercontent.com") || url.contains("ggpht.com")) {
             return url.replace(Regex("=w\\d+-h\\d+.*"), "=w544-h544-l90-rj")
         }
