@@ -1,24 +1,29 @@
 package com.streamify.app.worker
 
-import android.content.Context
-import androidx.work.CoroutineWorker
-import androidx.work.WorkerParameters
-import androidx.work.workDataOf
-import com.chaquo.python.PyObject
-import com.chaquo.python.Python
-import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.TrackRepository
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.File
-
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.ListenableWorker.Result
+import androidx.work.WorkerParameters
+import androidx.work.workDataOf
+import com.chaquo.python.Python
+import com.streamify.app.data.NativeBridge
+import com.streamify.app.data.NativeMetadataTagger
+import com.streamify.app.data.PlaylistRepository
+import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.network.ParallelStreamDownloader
+import com.streamify.app.data.network.YouTubeStreamResolver
+import com.streamify.app.service.LosslessRemuxer
+import com.streamify.app.viewmodel.UiEvent
+import com.streamify.app.viewmodel.UiEventBus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 
 class DownloadWorker(
     appContext: Context,
@@ -68,9 +73,8 @@ class DownloadWorker(
         if (album.isBlank() || album == "Unknown" || album == "Downloads") {
             album = "Streamify"
         }
-        
         val quality = inputData.getString("quality") ?: "320"
-        
+
         val musicDir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC), "Streamify")
         if (!musicDir.exists()) {
             try { musicDir.mkdirs() } catch (e: Exception) { e.printStackTrace() }
@@ -78,15 +82,19 @@ class DownloadWorker(
         val outputDir = if (musicDir.exists()) musicDir else File(applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC), "Streamify")
         if (!outputDir.exists()) outputDir.mkdirs()
 
+        // -------------------------------------------------------------
+        // FAST-PATH: Pure Kotlin Native Hermes Downloader (<3s, Zero Python)
+        // -------------------------------------------------------------
+        var fastPathSuccess = false
         try {
-            val py = Python.getInstance()
-            val coreModule = py.getModule("download_engine.core")
-            val metadataModule = py.getModule("download_engine.metadata")
-            
-            var completedFilePath: String? = null
+            val videoId = if (url.contains("v=")) url.substringAfter("v=").substringBefore("&") else url.substringAfterLast("/")
+            val streamResult = YouTubeStreamResolver.resolveStreamUrl(videoId)
 
-            val callback = object : DownloadCallback {
-                override fun onProgress(percent: String, speed: String, eta: String) {
+            if (streamResult != null && streamResult.streamUrl.isNotBlank()) {
+                val tempRaw = File(applicationContext.cacheDir, "hermes_${System.currentTimeMillis()}.raw")
+                val downloader = ParallelStreamDownloader()
+                
+                val downloadOk = downloader.download(streamResult.streamUrl, tempRaw) { percent, speed, eta ->
                     setProgressAsync(workDataOf(
                         "progress" to percent,
                         "speed" to speed,
@@ -94,132 +102,184 @@ class DownloadWorker(
                     ))
                 }
 
-                override fun onFinished(filepath: String) {
-                    completedFilePath = filepath
-                }
+                if (downloadOk && tempRaw.exists() && tempRaw.length() > 0) {
+                    val targetFile = LosslessRemuxer.prepareTargetFile(outputDir, title, artist, streamResult.mimeType)
+                    if (LosslessRemuxer.remuxLossless(tempRaw, targetFile)) {
+                        // Tag with iTunes 1400x1400 Retina art and lyrics
+                        val taggedAssets = NativeMetadataTagger.tagAndExtractAssets(targetFile, title, artist)
 
-                override fun onError(error: String) {
-                    // Log error
+                        val trackId = NativeBridge.insertTrack(
+                            filepath = targetFile.absolutePath,
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            durationSec = 0,
+                            bpm = 120.0f
+                        ).toInt()
+
+                        if (trackId > 0) {
+                            if (taggedAssets.coverArtPath.isNotBlank()) {
+                                NativeBridge.updateTrackCoverArt(trackId, taggedAssets.coverArtPath)
+                            }
+                            
+                            // Background AI Feature extraction
+                            try {
+                                NativeBridge.processAudioFile(trackId, targetFile.absolutePath)
+                            } catch (e: Exception) {}
+
+                            // Add to Streamify playlist
+                            try {
+                                PlaylistRepository.init(applicationContext)
+                                var playlist = PlaylistRepository.playlists.value.find { it.name.equals("Streamify", ignoreCase = true) }
+                                if (playlist == null) {
+                                    PlaylistRepository.createPlaylist("Streamify", "Downloaded songs on Streamify")
+                                    playlist = PlaylistRepository.playlists.value.find { it.name.equals("Streamify", ignoreCase = true) }
+                                }
+                                if (playlist != null) {
+                                    PlaylistRepository.addTrackToPlaylist(playlist.id, trackId)
+                                }
+                            } catch (e: Exception) {}
+
+                            // Scan MediaStore
+                            try {
+                                android.media.MediaScannerConnection.scanFile(
+                                    applicationContext,
+                                    arrayOf(targetFile.absolutePath),
+                                    null,
+                                    null
+                                )
+                            } catch (e: Exception) {}
+
+                            TrackRepository.refresh()
+                            UiEventBus.emitEvent(UiEvent.ShowSnackbar("Saved Lossless Track ($title)"))
+                            fastPathSuccess = true
+                        }
+                    }
                 }
             }
+        } catch (e: Exception) {
+            fastPathSuccess = false
+        }
 
-            val success = coreModule.callAttr("download_audio", url, outputDir.absolutePath, callback, quality).toBoolean()
-            
-            var targetPath = completedFilePath
-            if (targetPath == null || !File(targetPath).exists()) {
-                targetPath = outputDir.listFiles()?.filter { 
-                    it.name.endsWith(".mp3") || it.name.endsWith(".m4a") || it.name.endsWith(".webm") || it.name.endsWith(".opus")
-                }?.maxByOrNull { it.lastModified() }?.absolutePath
-            }
+        if (fastPathSuccess) {
+            return@withContext Result.success()
+        }
 
-            if (targetPath != null && File(targetPath).exists()) {
-                // Inject metadata and extract cover art & lyrics path
-                val metadataResult = try {
-                    metadataModule.callAttr("inject_metadata", targetPath, title, artist, album, null)
-                } catch (e: Exception) {
-                    null
-                }
+        // -------------------------------------------------------------
+        // FALLBACK: Python yt-dlp Core
+        // -------------------------------------------------------------
+        try {
+            if (Python.isStarted()) {
+                val py = Python.getInstance()
+                val coreModule = py.getModule("download_engine.core")
+                val metadataModule = py.getModule("download_engine.metadata")
                 
-                var durationSec = 0
-                var bpm = 120.0f
-                var coverArtPath = ""
-                var lyricsPath = ""
-                if (metadataResult != null) {
-                    try {
-                        val list = metadataResult.asList()
-                        if (list.size >= 2) {
-                            durationSec = list[0].toInt()
-                            bpm = list[1].toFloat()
-                        }
-                        if (list.size >= 3) {
-                            coverArtPath = list[2].toString()
-                        }
-                        if (list.size >= 4) {
-                            lyricsPath = list[3].toString()
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                var completedFilePath: String? = null
+
+                val callback = object : DownloadCallback {
+                    override fun onProgress(percent: String, speed: String, eta: String) {
+                        setProgressAsync(workDataOf(
+                            "progress" to percent,
+                            "speed" to speed,
+                            "eta" to eta
+                        ))
                     }
+
+                    override fun onFinished(filepath: String) {
+                        completedFilePath = filepath
+                    }
+
+                    override fun onError(error: String) {}
                 }
+
+                val success = coreModule.callAttr("download_audio", url, outputDir.absolutePath, callback, quality).toBoolean()
                 
-                val finalAlbum = if (album.isBlank() || album.equals("Single", ignoreCase = true)) "Streamify" else album
-
-                // Insert to database using JNI on Dispatchers.IO
-                val trackId = NativeBridge.insertTrack(
-                    filepath = targetPath,
-                    title = title,
-                    artist = artist,
-                    album = finalAlbum,
-                    durationSec = durationSec,
-                    bpm = bpm
-                ).toInt()
-
-                if (trackId > 0) {
-                    if (coverArtPath.isNotBlank()) {
-                        NativeBridge.updateTrackCoverArt(trackId, coverArtPath)
-                    }
-                    // Run ONNX feature extraction & VectorStore embedding
-                    try {
-                        NativeBridge.processAudioFile(trackId, targetPath)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    // Auto-fetch & save companion .lrc file for 100% offline synced lyrics
-                    try {
-                        val lyrics = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(title, artist)
-                        if (!lyrics.isNullOrBlank()) {
-                            com.streamify.app.data.LyricsCacheManager.saveCompanionLyrics(targetPath, lyrics)
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    // Auto-assign to 'Streamify' Playlist
-                    try {
-                        com.streamify.app.data.PlaylistRepository.init(applicationContext)
-                        val repo = com.streamify.app.data.PlaylistRepository
-                        var playlist = repo.playlists.value.find { it.name.equals("Streamify", ignoreCase = true) }
-                        if (playlist == null) {
-                            repo.createPlaylist("Streamify", "Downloaded songs on Streamify")
-                            playlist = repo.playlists.value.find { it.name.equals("Streamify", ignoreCase = true) }
-                        }
-                        if (playlist != null) {
-                            repo.addTrackToPlaylist(playlist.id, trackId)
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    // Scan file with Android MediaStore
-                    try {
-                        android.media.MediaScannerConnection.scanFile(
-                            applicationContext,
-                            arrayOf(targetPath),
-                            null,
-                            null
-                        )
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    // Refresh repository flow so all UI screens update automatically
-                    TrackRepository.refresh()
-
-                    // Assurity Notification via EventBus
-                    com.streamify.app.viewmodel.UiEventBus.emitEvent(
-                        com.streamify.app.viewmodel.UiEvent.ShowSnackbar("Saved to Streamify Library ($title)")
-                    )
+                var targetPath = completedFilePath
+                if (targetPath == null || !File(targetPath).exists()) {
+                    targetPath = outputDir.listFiles()?.filter { 
+                        it.name.endsWith(".mp3") || it.name.endsWith(".m4a") || it.name.endsWith(".webm") || it.name.endsWith(".opus")
+                    }?.maxByOrNull { it.lastModified() }?.absolutePath
                 }
 
-                Result.success()
-            } else {
-                Result.failure()
+                if (targetPath != null && File(targetPath).exists()) {
+                    val metadataResult = try {
+                        metadataModule.callAttr("inject_metadata", targetPath, title, artist, album, null)
+                    } catch (e: Exception) {
+                        null
+                    }
+                    
+                    var durationSec = 0
+                    var bpm = 120.0f
+                    var coverArtPath = ""
+                    if (metadataResult != null) {
+                        try {
+                            val list = metadataResult.asList()
+                            if (list.size >= 2) {
+                                durationSec = list[0].toInt()
+                                bpm = list[1].toFloat()
+                            }
+                            if (list.size >= 3) {
+                                coverArtPath = list[2].toString()
+                            }
+                        } catch (e: Exception) {}
+                    }
+                    
+                    val trackId = NativeBridge.insertTrack(
+                        filepath = targetPath,
+                        title = title,
+                        artist = artist,
+                        album = album,
+                        durationSec = durationSec,
+                        bpm = bpm
+                    ).toInt()
+
+                    if (trackId > 0) {
+                        if (coverArtPath.isNotBlank()) {
+                            NativeBridge.updateTrackCoverArt(trackId, coverArtPath)
+                        }
+                        try {
+                            NativeBridge.processAudioFile(trackId, targetPath)
+                        } catch (e: Exception) {}
+
+                        try {
+                            val lyrics = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(title, artist)
+                            if (!lyrics.isNullOrBlank()) {
+                                com.streamify.app.data.LyricsCacheManager.saveCompanionLyrics(targetPath, lyrics)
+                            }
+                        } catch (e: Exception) {}
+
+                        try {
+                            PlaylistRepository.init(applicationContext)
+                            var playlist = PlaylistRepository.playlists.value.find { it.name.equals("Streamify", ignoreCase = true) }
+                            if (playlist == null) {
+                                PlaylistRepository.createPlaylist("Streamify", "Downloaded songs on Streamify")
+                                playlist = PlaylistRepository.playlists.value.find { it.name.equals("Streamify", ignoreCase = true) }
+                            }
+                            if (playlist != null) {
+                                PlaylistRepository.addTrackToPlaylist(playlist.id, trackId)
+                            }
+                        } catch (e: Exception) {}
+
+                        try {
+                            android.media.MediaScannerConnection.scanFile(
+                                applicationContext,
+                                arrayOf(targetPath),
+                                null,
+                                null
+                            )
+                        } catch (e: Exception) {}
+
+                        TrackRepository.refresh()
+                        UiEventBus.emitEvent(UiEvent.ShowSnackbar("Saved to Streamify Library ($title)"))
+                    }
+                    return@withContext Result.success()
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            Result.failure()
         }
+
+        Result.failure()
     }
 }
 
@@ -228,4 +288,3 @@ interface DownloadCallback {
     fun onFinished(filepath: String)
     fun onError(error: String)
 }
-
