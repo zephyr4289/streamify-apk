@@ -138,7 +138,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.ui:ui-text-google-fonts:1.6.2")
-    implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
 
     // Google Credential Manager (One-Tap Google Sign-In)
     implementation("androidx.credentials:credentials:1.2.2")

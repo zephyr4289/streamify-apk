@@ -300,6 +300,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             quality = savedQuality
                         )
                     }
+                    kotlinx.coroutines.delay(60) // Smooth scheduling prevents WorkManager queue thrashing
                 }
                 
                 if (trackIds.isNotEmpty()) {
