@@ -118,5 +118,30 @@ object TrackRepository {
     suspend fun logSkipEvent(fromTrackId: Int, toTrackId: Int, userId: Int = 1) = withContext(Dispatchers.IO) {
         NativeBridge.logSkipEvent(fromTrackId, toTrackId, userId)
     }
+
+    suspend fun upsertStreamedTrack(track: Track): Int = withContext(Dispatchers.IO) {
+        val id = NativeBridge.upsertStreamedTrack(
+            filepath = track.filepath,
+            title = track.title,
+            artist = track.artist,
+            album = track.album,
+            durationSec = track.durationSec,
+            coverArtPath = track.coverArtPath ?: "",
+            lyricsPath = track.lyricsPath ?: "",
+            bpm = track.bpm,
+            key = track.key
+        )
+        refresh()
+        id
+    }
+
+    suspend fun recordTrackPlay(trackId: Int): Boolean = withContext(Dispatchers.IO) {
+        NativeBridge.recordTrackPlay(trackId)
+    }
+
+    suspend fun getTopPlayedTracks(limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
+        val nativeTracks = NativeBridge.getTopPlayedTracks(limit)
+        nativeTracks.map { it.toDomain(false) }
+    }
 }
 

@@ -36,4 +36,19 @@ object NativeBridge {
     external fun setHighPriorityActive(active: Boolean)
     external fun setTotalAiTasks(total: Int)
     external fun getOrchestratorStatus(): OrchestratorStatusNative?
+
+    // Stream Persistence & Top Rotation
+    external fun upsertStreamedTrack(
+        filepath: String,
+        title: String,
+        artist: String,
+        album: String,
+        durationSec: Int,
+        coverArtPath: String,
+        lyricsPath: String,
+        bpm: Float,
+        key: String
+    ): Int
+    external fun recordTrackPlay(trackId: Int): Boolean
+    external fun getTopPlayedTracks(limit: Int): Array<TrackNative>
 }

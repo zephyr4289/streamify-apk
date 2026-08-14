@@ -92,6 +92,7 @@ bool StreamifyDB::init(const std::string& db_path) {
         CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
         CREATE INDEX IF NOT EXISTS idx_tracks_vector_offset ON tracks(vector_offset);
         CREATE INDEX IF NOT EXISTS idx_transitions_user ON user_transitions(user_id, from_track_id, event_type);
+        CREATE INDEX IF NOT EXISTS idx_tracks_play_count ON tracks(play_count DESC, last_played_timestamp DESC);
     )";
 
     char* err = nullptr;
@@ -101,6 +102,10 @@ bool StreamifyDB::init(const std::string& db_path) {
             sqlite3_free(err);
         }
     }
+
+    // Safe column migrations for existing databases
+    sqlite3_exec(db, "ALTER TABLE tracks ADD COLUMN play_count INTEGER DEFAULT 1;", nullptr, nullptr, nullptr);
+    sqlite3_exec(db, "ALTER TABLE tracks ADD COLUMN last_played_timestamp INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
 
     // Ensure default user ID=1 exists
     const char* bootstrap_user = "INSERT OR IGNORE INTO users (id, username, pin_hash) VALUES (1, 'default_user', 'default_hash');";
@@ -303,6 +308,124 @@ int StreamifyDB::insertTrack(const std::string& filepath, const std::string& tit
         sqlite3_finalize(sel_stmt);
     }
     return id;
+}
+
+int StreamifyDB::upsertStreamedTrack(const std::string& filepath, const std::string& title, const std::string& artist, const std::string& album, int duration_sec, const std::string& cover_art_path, const std::string& lyrics_path, double bpm, const std::string& key) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return -1;
+
+    int64_t now = static_cast<int64_t>(std::time(nullptr));
+
+    // 1. Check if track already exists by title + artist or filepath
+    const char* check_sql = "SELECT id, play_count FROM tracks WHERE (title = ? AND artist = ?) OR filepath = ? LIMIT 1;";
+    sqlite3_stmt* check_stmt = nullptr;
+    int existing_id = -1;
+    int play_count = 1;
+
+    if (sqlite3_prepare_v2(db, check_sql, -1, &check_stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(check_stmt, 1, title.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(check_stmt, 2, artist.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(check_stmt, 3, filepath.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(check_stmt) == SQLITE_ROW) {
+            existing_id = sqlite3_column_int(check_stmt, 0);
+            play_count = sqlite3_column_int(check_stmt, 1) + 1;
+        }
+        sqlite3_finalize(check_stmt);
+    }
+
+    if (existing_id > 0) {
+        // Update play_count, last_played_timestamp, and latest stream URL
+        const char* update_sql = "UPDATE tracks SET play_count = ?, last_played_timestamp = ?, filepath = ?, cover_art_path = CASE WHEN (cover_art_path IS NULL OR cover_art_path = '') THEN ? ELSE cover_art_path END WHERE id = ?;";
+        sqlite3_stmt* upd_stmt = nullptr;
+        if (sqlite3_prepare_v2(db, update_sql, -1, &upd_stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int(upd_stmt, 1, play_count);
+            sqlite3_bind_int64(upd_stmt, 2, now);
+            sqlite3_bind_text(upd_stmt, 3, filepath.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(upd_stmt, 4, cover_art_path.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(upd_stmt, 5, existing_id);
+            sqlite3_step(upd_stmt);
+            sqlite3_finalize(upd_stmt);
+        }
+        return existing_id;
+    }
+
+    // 2. Insert new streamed track
+    const char* ins_sql = "INSERT INTO tracks (filepath, title, artist, album, duration_sec, bpm, key, cover_art_path, lyrics_path, source, play_count, last_played_timestamp, is_processed) "
+                          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'online_stream', 1, ?, ?);";
+    sqlite3_stmt* ins_stmt = nullptr;
+    if (sqlite3_prepare_v2(db, ins_sql, -1, &ins_stmt, nullptr) != SQLITE_OK) return -1;
+
+    sqlite3_bind_text(ins_stmt, 1, filepath.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins_stmt, 2, title.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins_stmt, 3, artist.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins_stmt, 4, album.empty() ? "Online Stream" : album.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(ins_stmt, 5, duration_sec);
+    sqlite3_bind_double(ins_stmt, 6, bpm);
+    sqlite3_bind_text(ins_stmt, 7, key.empty() ? "C" : key.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins_stmt, 8, cover_art_path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins_stmt, 9, lyrics_path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(ins_stmt, 10, now);
+    sqlite3_bind_int(ins_stmt, 11, bpm > 0 ? 1 : 0);
+
+    sqlite3_step(ins_stmt);
+    sqlite3_finalize(ins_stmt);
+
+    return static_cast<int>(sqlite3_last_insert_rowid(db));
+}
+
+bool StreamifyDB::recordTrackPlay(int track_id) {
+    if (track_id <= 0) return false;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return false;
+
+    int64_t now = static_cast<int64_t>(std::time(nullptr));
+    const char* sql = "UPDATE tracks SET play_count = play_count + 1, last_played_timestamp = ? WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int64(stmt, 1, now);
+    sqlite3_bind_int(stmt, 2, track_id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return true;
+}
+
+std::vector<StreamifyTrack> StreamifyDB::getTopPlayedTracks(int limit) {
+    std::vector<StreamifyTrack> tracks;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return tracks;
+
+    const char* sql = "SELECT id, filepath, title, artist, album, duration_sec, bpm, key, vector_offset, cover_art_path, lyrics_path, source, is_processed, download_quality, play_count, last_played_timestamp FROM tracks WHERE play_count > 0 ORDER BY play_count DESC, last_played_timestamp DESC LIMIT ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return tracks;
+
+    sqlite3_bind_int(stmt, 1, limit);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        StreamifyTrack t;
+        t.id = sqlite3_column_int(stmt, 0);
+        t.filepath = sqlite3_column_text(stmt, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)) : "";
+        t.title = sqlite3_column_text(stmt, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
+        t.artist = sqlite3_column_text(stmt, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)) : "";
+        t.album = sqlite3_column_text(stmt, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)) : "Single";
+        t.duration_sec = sqlite3_column_int(stmt, 5);
+        t.bpm = sqlite3_column_double(stmt, 6);
+        t.key = sqlite3_column_text(stmt, 7) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7)) : "C";
+        t.vector_offset = sqlite3_column_int(stmt, 8);
+        t.cover_art_path = sqlite3_column_text(stmt, 9) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9)) : "";
+        t.lyrics_path = sqlite3_column_text(stmt, 10) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 10)) : "";
+        t.source = sqlite3_column_text(stmt, 11) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11)) : "";
+        t.is_processed = sqlite3_column_int(stmt, 12);
+        t.download_quality = sqlite3_column_text(stmt, 13) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13)) : "";
+        t.play_count = sqlite3_column_int(stmt, 14);
+        t.last_played_timestamp = sqlite3_column_int64(stmt, 15);
+        tracks.push_back(t);
+    }
+    sqlite3_finalize(stmt);
+    return tracks;
 }
 
 std::optional<StreamifyUser> StreamifyDB::registerOrLoginUser(const std::string& username, const std::string& pin) {

@@ -274,3 +274,42 @@ Java_com_streamify_app_data_NativeBridge_getOrchestratorStatus(JNIEnv* env, jobj
     env->DeleteLocalRef(actionStr);
     return obj;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_streamify_app_data_NativeBridge_upsertStreamedTrack(JNIEnv* env, jobject /* this */,
+    jstring filepath, jstring title, jstring artist, jstring album, jint durationSec,
+    jstring coverArtPath, jstring lyricsPath, jfloat bpm, jstring key) {
+    
+    const char* cFilepath = env->GetStringUTFChars(filepath, 0);
+    const char* cTitle = env->GetStringUTFChars(title, 0);
+    const char* cArtist = env->GetStringUTFChars(artist, 0);
+    const char* cAlbum = env->GetStringUTFChars(album, 0);
+    const char* cCover = env->GetStringUTFChars(coverArtPath, 0);
+    const char* cLyrics = env->GetStringUTFChars(lyricsPath, 0);
+    const char* cKey = env->GetStringUTFChars(key, 0);
+
+    int id = StreamifyDB::getInstance().upsertStreamedTrack(
+        cFilepath, cTitle, cArtist, cAlbum, durationSec, cCover, cLyrics, static_cast<double>(bpm), cKey
+    );
+
+    env->ReleaseStringUTFChars(filepath, cFilepath);
+    env->ReleaseStringUTFChars(title, cTitle);
+    env->ReleaseStringUTFChars(artist, cArtist);
+    env->ReleaseStringUTFChars(album, cAlbum);
+    env->ReleaseStringUTFChars(coverArtPath, cCover);
+    env->ReleaseStringUTFChars(lyricsPath, cLyrics);
+    env->ReleaseStringUTFChars(key, cKey);
+
+    return id;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_recordTrackPlay(JNIEnv* /* env */, jobject /* this */, jint trackId) {
+    return StreamifyDB::getInstance().recordTrackPlay(trackId);
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_streamify_app_data_NativeBridge_getTopPlayedTracks(JNIEnv* env, jobject /* this */, jint limit) {
+    std::vector<StreamifyTrack> tracks = StreamifyDB::getInstance().getTopPlayedTracks(limit);
+    return convertTrackList(env, tracks);
+}

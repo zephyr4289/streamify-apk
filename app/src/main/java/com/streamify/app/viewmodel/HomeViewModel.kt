@@ -11,7 +11,12 @@ import kotlinx.coroutines.launch
 
 sealed class HomeUiState {
     object Loading : HomeUiState()
-    data class Success(val recommendations: List<Track>, val recent: List<Track>, val allTracks: List<Track>) : HomeUiState()
+    data class Success(
+        val recommendations: List<Track>,
+        val recent: List<Track>,
+        val topPlayed: List<Track>,
+        val allTracks: List<Track>
+    ) : HomeUiState()
     data class Error(val message: String) : HomeUiState()
 }
 
@@ -32,10 +37,12 @@ class HomeViewModel(private val repository: TrackRepository = TrackRepository) :
                 } else {
                     emptyList()
                 }
+                val topPlayed = try { repository.getTopPlayedTracks(20) } catch (e: Exception) { emptyList() }
                 val recent = allTracks.takeLast(6)
                 _uiState.value = HomeUiState.Success(
                     recommendations = recommendations,
                     recent = recent,
+                    topPlayed = topPlayed,
                     allTracks = allTracks
                 )
             }

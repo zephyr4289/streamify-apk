@@ -217,6 +217,53 @@ fun HomeScreen(
                         }
                     }
 
+                    // Top Played / On Repeat
+                    if (state.topPlayed.isNotEmpty()) {
+                        item {
+                            AnimatedVisibility(
+                                visible = isVisible,
+                                enter = fadeIn(tween(400, delayMillis = 400)) + slideInVertically(tween(400, delayMillis = 400)) { 50 }
+                            ) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "On Repeat",
+                                            style = StreamifyType.HeadlineMedium,
+                                            color = StreamifyColors.TextMain
+                                        )
+                                        androidx.compose.material3.Surface(
+                                            color = StreamifyColors.Primary.copy(alpha = 0.15f),
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "TOP ROTATIONS",
+                                                style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                                                color = StreamifyColors.Primary,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
+                                    ) {
+                                        items(state.topPlayed, key = { it.id }) { track ->
+                                            TrackCard(
+                                                track = track,
+                                                onClick = { onTrackClick(track, state.topPlayed) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXL))
+                                }
+                            }
+                        }
+                    }
+
                     // All Tracks
                     if (state.allTracks.isNotEmpty()) {
                         item {

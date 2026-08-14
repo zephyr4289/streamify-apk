@@ -22,6 +22,8 @@ struct StreamifyTrack {
     std::string source;
     int is_processed;
     std::string download_quality;
+    int play_count;
+    int64_t last_played_timestamp;
 };
 
 struct StreamifyUser {
@@ -40,6 +42,9 @@ public:
     std::vector<StreamifyTrack> getAllTracks();
     std::vector<StreamifyTrack> searchTracks(const std::string& query);
     int insertTrack(const std::string& filepath, const std::string& title, const std::string& artist, const std::string& album, int duration_sec, double bpm);
+    int upsertStreamedTrack(const std::string& filepath, const std::string& title, const std::string& artist, const std::string& album, int duration_sec, const std::string& cover_art_path, const std::string& lyrics_path, double bpm, const std::string& key);
+    bool recordTrackPlay(int track_id);
+    std::vector<StreamifyTrack> getTopPlayedTracks(int limit = 20);
 
     // Multi-User Profile & Session Methods
     std::optional<StreamifyUser> registerOrLoginUser(const std::string& username, const std::string& pin);

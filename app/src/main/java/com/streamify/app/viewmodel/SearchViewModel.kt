@@ -226,9 +226,29 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 }
 
                 if (directUrl.isNotBlank()) {
-                    // Construct a transient track and stream it immediately
-                    val transientTrack = Track(
-                        id = -(onlineTrack.url.hashCode()), // Negative ID for transient online tracks
+                    // 1. Persist to native C++ SQLite store for playback history & AI recommendations
+                    val persistedId = try {
+                        com.streamify.app.data.TrackRepository.upsertStreamedTrack(
+                            Track(
+                                id = 0,
+                                title = onlineTrack.title,
+                                artist = onlineTrack.uploader,
+                                album = "Online Stream",
+                                durationSec = onlineTrack.duration,
+                                filepath = directUrl,
+                                coverArtPath = onlineTrack.thumbnail,
+                                bpm = 0f,
+                                key = "",
+                                lyricsPath = null,
+                                source = "online_stream"
+                            )
+                        )
+                    } catch (e: Exception) {
+                        0
+                    }
+
+                    val trackToPlay = Track(
+                        id = if (persistedId > 0) persistedId else -(onlineTrack.url.hashCode()),
                         title = onlineTrack.title,
                         artist = onlineTrack.uploader,
                         album = "Online Stream",
@@ -240,7 +260,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         lyricsPath = null,
                         source = "online_stream"
                     )
-                    playerViewModel.playTrack(transientTrack, listOf(transientTrack))
+                    playerViewModel.playTrack(trackToPlay, listOf(trackToPlay))
                 } else {
                     withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(context, "Could not resolve audio stream. Please try another track.", android.widget.Toast.LENGTH_SHORT).show()
