@@ -147,10 +147,12 @@ Streamify is architected as 9 decoupled, highly specialized subsystem engines wo
 │     • ElasticStorageAllocator: Dynamically scales cache limit (100MB to 2GB) using Android StatFs      │
 │     • Unified SQLite persistence: Permanent track IDs for streams powering Top 20 On Repeat shelves   │
 │                                                                                                        │
-│  6. 🎤 SYNCHRONIZED LYRICS & KARAOKE ENGINE                                                            │
-│     Files: LyricsSheet.kt, LyricsCacheManager.kt, lyrics.py                                            │
-│     • Real-time timestamped LRC parser with smooth animated auto-scrolling and tap-to-seek             │
-│     • Multi-provider fallback scraper (LRCLIB, Genius, Musixmatch) with local disk caching             │
+│  6. 🎤 SYNCHRONIZED LYRICS & KARAOKE ENGINE ("PROJECT ARIA")                                            │
+│     Files: LyricsResolver.kt, LyricsCacheManager.kt, LyricsScreen.kt, LyricsData.kt                   │
+│     • Native Multi-Provider Racer: Concurrent HTTP/2 racing (LRCLIB, NetEase, Lyrics.ovh) in <100ms    │
+│     • Enhanced LRC Syllable Parser: Parses <mm:ss.xx> word timestamps for syllable-by-syllable sing-along│
+│     • 3D Depth-of-Field Karaoke UI: RenderEffect blur + scale on inactive lines with spring physics     │
+│     • Companion .lrc Auto-Export: Saves Song.lrc alongside downloads for 100% offline karaoke          │
 │                                                                                                        │
 │  7. 🎚️ DSP EQUALIZER, LOUDNESS & AUDIO ROUTING ENGINE                                                  │
 │     Files: EqualizerManager.kt, AudioDeviceManager.kt, PlaybackService.kt                              │
@@ -224,6 +226,7 @@ streamify-apk/
 │           │   │   │   ├── Recommendation.kt        # Data model for recommendation results, similarity scores, and reason metadata
 │           │   │   │   └── Track.kt                 # Core domain and JNI native Track entity representations
 │           │   │   ├── network/
+│           │   │   │   ├── LyricsResolver.kt        # Pure Kotlin HTTP/2 multi-provider lyrics racer (LRCLIB, NetEase, Lyrics.ovh)
 │           │   │   │   ├── NetworkEngine.kt         # HTTP/2 multiplexed transport client and zero-RTT in-memory StreamEdgeCache
 │           │   │   │   ├── YouTubeMusicSearchApi.kt # Ultra-fast sub-100ms pure Kotlin YouTube Music Innertube search & autocomplete client
 │           │   │   │   ├── YouTubeStreamResolver.kt # Happy Eyeballs parallel client racer with perceptual WebM Opus 160k scoring
