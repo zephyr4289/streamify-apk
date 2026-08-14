@@ -4,15 +4,21 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
@@ -113,7 +119,7 @@ fun SettingsScreen(
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Icon(Icons.Filled.AccountCircle, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Black)
@@ -131,7 +137,7 @@ fun SettingsScreen(
                                         Box(
                                             modifier = Modifier
                                                 .size(44.dp)
-                                                .androidx.compose.ui.draw.clip(androidx.compose.foundation.shape.CircleShape)
+                                                .clip(CircleShape)
                                                 .background(StreamifyColors.Primary.copy(alpha = 0.2f)),
                                             contentAlignment = Alignment.Center
                                         ) {
@@ -143,7 +149,7 @@ fun SettingsScreen(
                                             contentDescription = null,
                                             modifier = Modifier
                                                 .size(44.dp)
-                                                .androidx.compose.ui.draw.clip(androidx.compose.foundation.shape.CircleShape)
+                                                .clip(CircleShape)
                                         )
                                     }
 
@@ -166,7 +172,7 @@ fun SettingsScreen(
                                 Button(
                                     onClick = onNavigateToAdmin,
                                     colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
-                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                    shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Icon(Icons.Filled.AdminPanelSettings, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Black)
@@ -462,7 +468,7 @@ fun SettingsScreen(
                                     android.widget.Toast.makeText(context, "Cache cleared successfully", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.BgSurfaceElevated),
+                            colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.BgElevated),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Clear All Cache (${com.streamify.app.data.StorageManager.formatBytes(storageInfo?.totalCacheBytes ?: 0L)})", color = StreamifyColors.Primary)

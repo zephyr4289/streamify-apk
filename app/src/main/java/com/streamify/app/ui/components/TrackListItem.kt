@@ -4,7 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -139,7 +141,7 @@ fun SwipeableTrackListItem(
             val direction = dismissState.dismissDirection
             val color = when (direction) {
                 androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd -> StreamifyColors.Primary
-                androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> StreamifyColors.LikeHeart
+                androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> androidx.compose.ui.graphics.Color(0xFFE91E63)
                 else -> androidx.compose.ui.graphics.Color.Transparent
             }
             val alignment = when (direction) {
@@ -148,9 +150,9 @@ fun SwipeableTrackListItem(
                 else -> Alignment.Center
             }
             val icon = when (direction) {
-                androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd -> androidx.compose.material.icons.Icons.Filled.QueueMusic
-                androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> androidx.compose.material.icons.Icons.Filled.Favorite
-                else -> androidx.compose.material.icons.Icons.Filled.QueueMusic
+                androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd -> Icons.Filled.QueueMusic
+                androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> Icons.Filled.Favorite
+                else -> Icons.Filled.QueueMusic
             }
 
             Box(

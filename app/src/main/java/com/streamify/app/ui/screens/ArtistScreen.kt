@@ -86,7 +86,7 @@ fun ArtistScreen(
                         modifier = Modifier
                             .size(160.dp)
                             .clip(CircleShape)
-                            .background(StreamifyColors.BgSurfaceElevated),
+                            .background(StreamifyColors.BgElevated),
                         contentAlignment = Alignment.Center
                     ) {
                         TrackCoverArt(
@@ -109,7 +109,7 @@ fun ArtistScreen(
                     Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXS))
 
                     Text(
-                        text = "${artistTracks.size} songs in library",
+                        text = "${artistTracks.size} tracks available",
                         style = StreamifyType.BodyMedium,
                         color = StreamifyColors.TextSub
                     )
@@ -183,12 +183,16 @@ fun ArtistScreen(
     selectedOptionsTrack?.let { track ->
         com.streamify.app.ui.components.ContextMenuSheet(
             track = track,
-            onDismiss = { selectedOptionsTrack = null },
-            onPlayNext = { playerViewModel.addToQueue(track) },
-            onAddToQueue = { playerViewModel.addToQueue(track) },
-            onToggleLike = { playerViewModel.toggleLike(track) },
-            onGoToArtist = {},
-            onGoToAlbum = {}
+            onDismissRequest = { selectedOptionsTrack = null },
+            onLikeClick = { 
+                playerViewModel.toggleLike(track)
+                selectedOptionsTrack = null 
+            },
+            onAddToPlaylistClick = { selectedOptionsTrack = null },
+            onAddToQueueClick = { 
+                playerViewModel.addToQueue(track)
+                selectedOptionsTrack = null 
+            }
         )
     }
 }

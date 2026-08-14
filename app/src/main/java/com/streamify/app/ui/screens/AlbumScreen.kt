@@ -85,7 +85,7 @@ fun AlbumScreen(
                         modifier = Modifier
                             .size(180.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(StreamifyColors.BgSurfaceElevated),
+                            .background(StreamifyColors.BgElevated),
                         contentAlignment = Alignment.Center
                     ) {
                         TrackCoverArt(
@@ -102,30 +102,22 @@ fun AlbumScreen(
                     Text(
                         text = albumName,
                         style = StreamifyType.HeadlineLarge,
-                        color = StreamifyColors.TextMain
+                        color = StreamifyColors.TextMain,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
 
-                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXS))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = firstTrack?.artist ?: "Various Artists",
-                        style = StreamifyType.TitleSmall,
+                        text = "${firstTrack?.artist ?: "Unknown Artist"} • ${albumTracks.size} songs",
+                        style = StreamifyType.BodyMedium,
                         color = StreamifyColors.TextSub
                     )
 
-                    Text(
-                        text = "${albumTracks.size} tracks",
-                        style = StreamifyType.BodyMedium,
-                        color = StreamifyColors.TextDimmed
-                    )
+                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
 
-                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
-
-                    // Play & Shuffle Action Buttons
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
                     ) {
                         Button(
                             onClick = {
@@ -134,30 +126,22 @@ fun AlbumScreen(
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
-                            shape = RoundedCornerShape(24.dp),
-                            modifier = Modifier.height(48.dp)
+                            shape = RoundedCornerShape(24.dp)
                         ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.Black)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Play", style = StreamifyType.TitleSmall, color = Color.Black)
+                            Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.Black)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Play", color = Color.Black, style = StreamifyType.TitleSmall)
                         }
 
-                        Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
-
-                        OutlinedButton(
+                        IconButton(
                             onClick = {
                                 if (albumTracks.isNotEmpty()) {
                                     val shuffled = albumTracks.shuffled()
                                     onTrackClick(shuffled.first(), shuffled)
                                 }
-                            },
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = StreamifyColors.TextMain),
-                            modifier = Modifier.height(48.dp)
+                            }
                         ) {
-                            Icon(Icons.Filled.Shuffle, contentDescription = null, tint = StreamifyColors.TextMain)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Shuffle", style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                            Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle", tint = StreamifyColors.TextSub)
                         }
                     }
                 }
@@ -188,12 +172,16 @@ fun AlbumScreen(
     selectedOptionsTrack?.let { track ->
         com.streamify.app.ui.components.ContextMenuSheet(
             track = track,
-            onDismiss = { selectedOptionsTrack = null },
-            onPlayNext = { playerViewModel.addToQueue(track) },
-            onAddToQueue = { playerViewModel.addToQueue(track) },
-            onToggleLike = { playerViewModel.toggleLike(track) },
-            onGoToArtist = {},
-            onGoToAlbum = {}
+            onDismissRequest = { selectedOptionsTrack = null },
+            onLikeClick = { 
+                playerViewModel.toggleLike(track)
+                selectedOptionsTrack = null 
+            },
+            onAddToPlaylistClick = { selectedOptionsTrack = null },
+            onAddToQueueClick = { 
+                playerViewModel.addToQueue(track)
+                selectedOptionsTrack = null 
+            }
         )
     }
 }

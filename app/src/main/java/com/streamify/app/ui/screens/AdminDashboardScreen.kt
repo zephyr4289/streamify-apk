@@ -143,7 +143,7 @@ fun AdminDashboardScreen(
             // Live System Status Banner
             item {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgSurfaceElevated),
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgElevated),
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -289,7 +289,7 @@ fun AdminDashboardScreen(
                                 modifier = Modifier
                                     .size(44.dp)
                                     .clip(CircleShape)
-                                    .background(StreamifyColors.BgSurfaceElevated),
+                                    .background(StreamifyColors.BgElevated),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
