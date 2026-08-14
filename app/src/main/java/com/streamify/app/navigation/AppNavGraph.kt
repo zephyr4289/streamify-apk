@@ -149,7 +149,13 @@ fun AppNavGraph(
             SettingsScreen(
                 playerViewModel = playerViewModel,
                 onBack = { navController.popBackStack() },
-                onNavigateToEq = { navController.navigate("eq") }
+                onNavigateToEq = { navController.navigate("eq") },
+                onNavigateToAdmin = { navController.navigate("admin") }
+            )
+        }
+        composable("admin") {
+            AdminDashboardScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable("eq") {

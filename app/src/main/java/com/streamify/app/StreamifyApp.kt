@@ -64,6 +64,7 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         }
 
         com.streamify.app.service.AudioDeviceManager.init(this)
+        com.streamify.app.data.remote.SupabaseClient.init(this)
         createNotificationChannels()
     }
 

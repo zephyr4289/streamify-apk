@@ -43,6 +43,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
@@ -63,6 +64,32 @@ android {
             }
         }
     }
+}
+
+val localProperties = java.util.Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use { load(it) }
+    }
+}
+
+val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL")
+    ?: System.getenv("SUPABASE_URL")
+    ?: "https://your-project.supabase.co"
+
+val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY")
+    ?: System.getenv("SUPABASE_ANON_KEY")
+    ?: "your-anon-key"
+
+val googleWebClientId: String = localProperties.getProperty("GOOGLE_WEB_CLIENT_ID")
+    ?: System.getenv("GOOGLE_WEB_CLIENT_ID")
+    ?: "your-google-web-client-id.apps.googleusercontent.com"
+
+android.defaultConfig {
+    buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+    buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+    buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
+    buildConfigField("String", "ADMIN_EMAIL", "\"sireenyadav@gmail.com\"")
 }
 
 dependencies {
@@ -96,6 +123,11 @@ dependencies {
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.ui:ui-text-google-fonts:1.6.2")
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
+
+    // Google Credential Manager (One-Tap Google Sign-In)
+    implementation("androidx.credentials:credentials:1.2.2")
+    implementation("androidx.credentials:credentials-play-services-auth:1.2.2")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
     // ONNX Runtime
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")

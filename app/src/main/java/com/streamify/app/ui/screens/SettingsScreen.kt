@@ -34,13 +34,17 @@ private fun SectionHeader(title: String) {
 fun SettingsScreen(
     playerViewModel: PlayerViewModel,
     onBack: () -> Unit,
-    onNavigateToEq: () -> Unit = {}
+    onNavigateToEq: () -> Unit = {},
+    onNavigateToAdmin: () -> Unit = {}
 ) {
     val playerState by playerViewModel.playerState.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val audioPrefs = remember { context.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE) }
     var selectedQuality by remember { mutableStateOf(audioPrefs.getString("download_quality", "320") ?: "320") }
     var crossfadeValue by remember { mutableStateOf(CrossfadeAudioProcessor.crossfadeDurationMs / 1000f) }
+
+    val user by com.streamify.app.data.remote.SupabaseClient.currentUser.collectAsState()
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -75,6 +79,106 @@ fun SettingsScreen(
                 .padding(horizontal = StreamifyDimens.SpaceLG),
             verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceXL)
         ) {
+            // Profile & Supabase Cloud Section
+            item {
+                SectionHeader("Account & Cloud Sync")
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        if (user == null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Sign In with Google", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                                    Text("Sync likes, playlists & Jam rooms across devices", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        val res = com.streamify.app.data.remote.AuthManager.signInWithGoogle(context)
+                                        if (res.isSuccess) {
+                                            android.widget.Toast.makeText(context, "Welcome, ${res.getOrNull()?.displayName}!", android.widget.Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Sign-in note: ${res.exceptionOrNull()?.message}", android.widget.Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Filled.AccountCircle, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Black)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Continue with Google (1-Tap)", style = StreamifyType.TitleSmall, color = androidx.compose.ui.graphics.Color.Black)
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (user?.avatarUrl.isNullOrBlank()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .androidx.compose.ui.draw.clip(androidx.compose.foundation.shape.CircleShape)
+                                                .background(StreamifyColors.Primary.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(user?.displayName?.take(1)?.uppercase() ?: "U", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
+                                        }
+                                    } else {
+                                        coil.compose.AsyncImage(
+                                            model = user?.avatarUrl,
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .androidx.compose.ui.draw.clip(androidx.compose.foundation.shape.CircleShape)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column {
+                                        Text(user?.displayName ?: "User", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                                        Text(user?.email ?: "", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                    }
+                                }
+
+                                TextButton(onClick = { com.streamify.app.data.remote.SupabaseClient.signOut() }) {
+                                    Text("Sign Out", color = StreamifyColors.ErrorRed)
+                                }
+                            }
+
+                            // Special Admin Command Center Card for sireenyadav@gmail.com
+                            if (user?.isAdmin == true || user?.email.equals("sireenyadav@gmail.com", ignoreCase = true)) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = onNavigateToAdmin,
+                                    colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Filled.AdminPanelSettings, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Black)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Open Admin Command Center", style = StreamifyType.TitleSmall, color = androidx.compose.ui.graphics.Color.Black)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             item {
                 SectionHeader("Audio Quality")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
