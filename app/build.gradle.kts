@@ -4,6 +4,25 @@ plugins {
     id("com.chaquo.python")
 }
 
+val localProperties = java.util.Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use { load(it) }
+    }
+}
+
+val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL")
+    ?: System.getenv("SUPABASE_URL")
+    ?: "https://your-project.supabase.co"
+
+val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY")
+    ?: System.getenv("SUPABASE_ANON_KEY")
+    ?: "your-anon-key"
+
+val googleWebClientId: String = localProperties.getProperty("GOOGLE_WEB_CLIENT_ID")
+    ?: System.getenv("GOOGLE_WEB_CLIENT_ID")
+    ?: "your-google-web-client-id.apps.googleusercontent.com"
+
 android {
     namespace = "com.streamify.app"
     compileSdk = 34
@@ -16,6 +35,11 @@ android {
         targetSdk = 34
         versionCode = buildNum
         versionName = "1.0.$buildNum"
+
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
+        buildConfigField("String", "ADMIN_EMAIL", "\"sireenyadav@gmail.com\"")
 
         externalNativeBuild {
             cmake {
@@ -76,32 +100,6 @@ android {
             }
         }
     }
-}
-
-val localProperties = java.util.Properties().apply {
-    val localFile = rootProject.file("local.properties")
-    if (localFile.exists()) {
-        localFile.inputStream().use { load(it) }
-    }
-}
-
-val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL")
-    ?: System.getenv("SUPABASE_URL")
-    ?: "https://your-project.supabase.co"
-
-val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY")
-    ?: System.getenv("SUPABASE_ANON_KEY")
-    ?: "your-anon-key"
-
-val googleWebClientId: String = localProperties.getProperty("GOOGLE_WEB_CLIENT_ID")
-    ?: System.getenv("GOOGLE_WEB_CLIENT_ID")
-    ?: "your-google-web-client-id.apps.googleusercontent.com"
-
-android.defaultConfig {
-    buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
-    buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
-    buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
-    buildConfigField("String", "ADMIN_EMAIL", "\"sireenyadav@gmail.com\"")
 }
 
 dependencies {
