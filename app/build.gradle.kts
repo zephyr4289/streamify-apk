@@ -13,15 +13,15 @@ val localProperties = java.util.Properties().apply {
 
 val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL")
     ?: System.getenv("SUPABASE_URL")
-    ?: "https://your-project.supabase.co"
+    ?: "https://dbgtvzgwixerhnwvhtil.supabase.co"
 
 val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY")
     ?: System.getenv("SUPABASE_ANON_KEY")
-    ?: "your-anon-key"
+    ?: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRiZ3R2emd3aXhlcmhud3ZodGlsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY5MDAyOCwiZXhwIjoyMTAyMjY2MDI4fQ.d-wjZmw8s1liL0JlllLDQ6KBGwHPm7drxhWkvGyOxLQ"
 
 val googleWebClientId: String = localProperties.getProperty("GOOGLE_WEB_CLIENT_ID")
     ?: System.getenv("GOOGLE_WEB_CLIENT_ID")
-    ?: "your-google-web-client-id.apps.googleusercontent.com"
+    ?: "868888425624-9dfr5crtahiqph68tiba1acapvicnsug.apps.googleusercontent.com"
 
 android {
     namespace = "com.streamify.app"
