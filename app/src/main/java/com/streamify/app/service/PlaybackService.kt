@@ -66,6 +66,9 @@ class PlaybackService : MediaSessionService() {
         player = exoPlayer
         exoPlayer.setSkipSilenceEnabled(true)
         
+        preBufferManager = PredictivePreBufferManager(exoPlayer, audioCache)
+        exoPlayer.addListener(preBufferManager!!)
+
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 super.onAudioSessionIdChanged(audioSessionId)
@@ -82,11 +85,15 @@ class PlaybackService : MediaSessionService() {
             .build()
     }
 
+    private var preBufferManager: PredictivePreBufferManager? = null
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
     }
 
     override fun onDestroy() {
+        preBufferManager?.release()
+        preBufferManager = null
         mediaSession?.run {
             player.release()
             release()

@@ -389,6 +389,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             repository.toggleLike(track.id, track = track)
+            if (newIsLiked && track.filepath.isNotBlank()) {
+                com.streamify.app.service.AudioCacheManager.markStickyTrack(track.filepath)
+            }
         }
 
         // Auto-download liked online songs if setting is enabled

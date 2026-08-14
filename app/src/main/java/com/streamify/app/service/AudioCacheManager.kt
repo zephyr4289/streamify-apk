@@ -2,13 +2,14 @@ package com.streamify.app.service
 
 import android.content.Context
 import androidx.media3.database.StandaloneDatabaseProvider
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import java.io.File
 
 object AudioCacheManager {
     @Volatile
     private var simpleCache: SimpleCache? = null
+    @Volatile
+    private var evictor: PriorityWeightedEvictor? = null
 
     @Synchronized
     fun getCache(context: Context): SimpleCache {
@@ -17,10 +18,20 @@ object AudioCacheManager {
             if (!cacheDir.exists()) {
                 cacheDir.mkdirs()
             }
-            val evictor = LeastRecentlyUsedCacheEvictor(250 * 1024 * 1024L) // 250MB LRU progressive cache
+            val dynamicLimit = ElasticStorageAllocator.getDynamicCacheLimitBytes(context)
+            val weightedEvictor = PriorityWeightedEvictor(dynamicLimit)
+            evictor = weightedEvictor
             val databaseProvider = StandaloneDatabaseProvider(context.applicationContext)
-            simpleCache = SimpleCache(cacheDir, evictor, databaseProvider)
+            simpleCache = SimpleCache(cacheDir, weightedEvictor, databaseProvider)
         }
         return simpleCache!!
+    }
+
+    fun markStickyTrack(streamUrl: String) {
+        evictor?.addStickyKey(streamUrl)
+    }
+
+    fun updateStickyKeys(keys: Collection<String>) {
+        evictor?.setStickyKeys(keys)
     }
 }
