@@ -88,11 +88,12 @@
 | :--- | :--- |
 | **Acoustic AI Core** | Native C++ STFT spectral flux onset detection & autocorrelation for BPM; 12-bin Chromagram with Krumhansl-Schmuckler profiles for harmonic key extraction. |
 | **NEON SIMD Vector Search** | Hardware-accelerated 512-dimensional vector cosine similarity with NaN/Inf guards and plain C++ fallbacks for non-ARM64 platforms. |
-| **Task Orchestrator** | Dynamic resource-aware background task scheduler with cooperative yielding preventing UI thread contention during heavy ingestion. |
-| **Sub-100ms Search** | Pure Kotlin Innertube client bypasses heavy Python runtimes for near-instant YouTube Music search and iTunes CDN metadata resolution. |
+| **Dynamic Task Orchestrator** | Dynamic resource-aware background task scheduler capping AI workers to efficiency cores with cooperative yielding during UI interaction. |
+| **Sub-100ms Search & Stream** | Pure Kotlin Innertube client and `YouTubeStreamResolver` bypassing Python runtimes for sub-200ms stream resolution and instant search. |
+| **Dynamic Audio Routing** | Real-time audio peripheral monitoring (Bluetooth A2DP, wired 3.5mm, USB DAC, Speaker, HQ Stream) with dynamic UI routing badges. |
 | **5-Tier Caching** | Segmented disk cache for audio streaming chunks, memory/disk cover art caching (Coil), `.lrc` lyrics cache, stream URL LRU cache, and SQLite RAM cache. |
 | **Dynamic Full Player** | Horizontal pager (Cover Art ↔ LRC Synced Lyrics ↔ Reorderable Queue), animated palette mesh background, floating time tooltip canvas seekbar. |
-| **Reorderable Queue** | Smooth drag-and-drop queue management with instant disk persistence across app restarts. |
+| **Reorderable Queue** | Smooth drag-and-drop queue management with cumulative touch offset tracking and instant Media3 synchronization. |
 | **Cloud Sync & Auth** | Supabase backend integration with Google 1-Tap OAuth, user profiles, synced playlists, and Admin Command Center telemetry. |
 | **Backup & Storage** | Full JSON database export/import engine, detailed storage breakdown (downloads vs cache), and one-tap cache flush. |
 | **Call Recording Filter** | MediaStore ingestion scanner automatically excludes voice memos and call recordings from polluting music library. |
@@ -150,6 +151,7 @@ streamify-apk/
 │           │   │   │   └── Track.kt                 # Core domain and JNI native Track entity representations
 │           │   │   ├── network/
 │           │   │   │   ├── YouTubeMusicSearchApi.kt # Ultra-fast sub-100ms pure Kotlin YouTube Music Innertube search client
+│           │   │   │   ├── YouTubeStreamResolver.kt # High-speed Native Kotlin Innertube stream resolver with sub-200ms URL extraction
 │           │   │   │   └── iTunesSearchApi.kt       # Apple iTunes Search API client for fetching high-resolution album covers and metadata
 │           │   │   └── remote/
 │           │   │       ├── AuthManager.kt           # Google 1-Tap OAuth credentials and Supabase authentication session manager
@@ -183,7 +185,7 @@ streamify-apk/
 │           │   │   │   ├── PlayerControls.kt        # Media playback control buttons (Shuffle, Previous, Play/Pause, Next, Repeat)
 │           │   │   │   ├── PlayerSeekBar.kt         # Custom canvas-drawn interactive seekbar with magnifying touch scrubber and time bubble
 │           │   │   │   ├── RecentPlayCard.kt        # Spotify-style 2x3 compact grid card with album art and track metadata
-│           │   │   │   ├── ReorderableList.kt       # Drag-and-drop reorderable lazy list implementation for queue management
+│           │   │   │   ├── ReorderableList.kt       # Fluid drag-and-drop queue list with cumulative displacement and floating elevation
 │           │   │   │   ├── ShimmerPlaceholder.kt    # Shimmer loading skeleton effect for tracks, cards, and browse items
 │           │   │   │   ├── TrackCard.kt             # Vertical card component for albums, playlists, and recommendation carousels
 │           │   │   │   ├── TrackCoverArt.kt         # Optimized Coil async image loader with fallback icons and rounded corners
