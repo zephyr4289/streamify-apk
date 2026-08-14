@@ -17,6 +17,7 @@ object StreamifyColors {
     val Primary        = Color(0xFF1DB954)     // Spotify Green — CTAs, active states
     val PrimaryHover   = Color(0xFF1ED760)     // Green hover/pressed variant
     val PrimaryDark    = Color(0xFF169C46)     // Green for dark contexts
+    val AccentSecondary= Color(0xFF1DB954)     // Secondary accent color
 
     // Text
     val TextMain       = Color(0xFFFFFFFF)     // Primary text — titles, active lyrics

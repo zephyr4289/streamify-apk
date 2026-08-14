@@ -141,7 +141,7 @@ object TrackRepository {
 
     suspend fun getTopPlayedTracks(limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
         val nativeTracks = NativeBridge.getTopPlayedTracks(limit)
-        nativeTracks.map { it.toDomain(false) }
+        nativeTracks.map { it.toTrack() }
     }
 
     suspend fun updateSessionVector(trackId: Int, alpha: Float = 0.45f) = withContext(Dispatchers.IO) {

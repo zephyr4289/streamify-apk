@@ -85,10 +85,11 @@ object PlaylistRepository {
         }
     }
 
-    fun createPlaylist(name: String, description: String = "") {
+    fun createPlaylist(name: String, description: String = ""): Playlist {
         val newPlaylist = Playlist(name = name, description = description)
         _playlists.value = _playlists.value + newPlaylist
         savePlaylists()
+        return newPlaylist
     }
 
     fun addPlaylist(playlist: Playlist) {
