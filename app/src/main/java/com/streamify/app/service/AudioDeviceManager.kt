@@ -1,5 +1,6 @@
 package com.streamify.app.service
 
+import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -27,7 +28,10 @@ object AudioDeviceManager {
 
     private val audioReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            context?.let { updateCurrentDevice(it) }
+            context?.let { 
+                updateCurrentDevice(it)
+                autoRoutePreset(it)
+            }
         }
     }
 
@@ -49,6 +53,21 @@ object AudioDeviceManager {
         }
     }
 
+    private fun autoRoutePreset(context: Context) {
+        val prefs = context.getSharedPreferences("streamify_eq_prefs", Context.MODE_PRIVATE)
+        val autoRoutingEnabled = prefs.getBoolean("auto_routing_preset", true)
+        if (!autoRoutingEnabled) return
+
+        val device = _currentDevice.value
+        val targetPreset = when {
+            device.isBluetooth -> prefs.getString("preset_bluetooth", "Bass Booster") ?: "Bass Booster"
+            device.isHeadphones -> prefs.getString("preset_headphones", "Acoustic") ?: "Acoustic"
+            else -> prefs.getString("preset_speaker", "Vocal Booster") ?: "Vocal Booster"
+        }
+
+        EqualizerManager.applyPresetByName(targetPreset)
+    }
+
     fun updateCurrentDevice(context: Context) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
 
@@ -60,11 +79,7 @@ object AudioDeviceManager {
                     AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
                     AudioDeviceInfo.TYPE_BLE_HEADSET,
                     AudioDeviceInfo.TYPE_BLE_SPEAKER -> {
-                        val deviceName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !device.address.isNullOrBlank()) {
-                            device.productName?.toString() ?: "Bluetooth Audio"
-                        } else {
-                            device.productName?.toString() ?: "Bluetooth Audio"
-                        }
+                        val deviceName = device.productName?.toString() ?: "Bluetooth Audio"
                         _currentDevice.value = AudioOutputDevice(
                             name = deviceName,
                             isBluetooth = true
@@ -76,7 +91,7 @@ object AudioDeviceManager {
                     AudioDeviceInfo.TYPE_USB_HEADSET,
                     AudioDeviceInfo.TYPE_USB_DEVICE -> {
                         _currentDevice.value = AudioOutputDevice(
-                            name = "Headphones",
+                            name = "Headphones / DAC",
                             isHeadphones = true
                         )
                         return

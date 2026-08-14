@@ -57,4 +57,8 @@ object NativeBridge {
     external fun updateSessionVector(trackId: Int, alpha: Float)
     external fun getSessionRecommendations(limit: Int): Array<RecommendationNative>
     external fun getLongTermRecommendations(userId: Int, limit: Int): Array<RecommendationNative>
+
+    // Native DSP Soft-Knee Limiter (Project Sonic Maxx)
+    external fun processLimiterShorts(buffer: ShortArray, length: Int, threshold: Float, kneeWidth: Float)
+    external fun processLimiterFloats(buffer: FloatArray, length: Int, threshold: Float, kneeWidth: Float)
 }

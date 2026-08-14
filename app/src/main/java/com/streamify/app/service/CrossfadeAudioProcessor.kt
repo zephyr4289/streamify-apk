@@ -3,9 +3,12 @@ package com.streamify.app.service
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.AudioProcessor.AudioFormat
 import androidx.media3.common.audio.AudioProcessor.EMPTY_BUFFER
+import com.streamify.app.data.NativeBridge
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.sqrt
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 class CrossfadeAudioProcessor : AudioProcessor {
     companion object {
@@ -58,8 +61,9 @@ class CrossfadeAudioProcessor : AudioProcessor {
         }
 
         val shortBuffer = inputBuffer.asShortBuffer()
-        val outShortBuffer = outputBuffer.asShortBuffer()
         val sampleCount = shortBuffer.remaining()
+        val tempOutput = ShortArray(sampleCount)
+        var tempOutIdx = 0
         
         val requiredBufferSize = fadeFramesTotal * inputAudioFormat.channelCount
         if (requiredBufferSize > 0 && (trackABuffer == null || trackABuffer!!.size != requiredBufferSize)) {
@@ -73,8 +77,9 @@ class CrossfadeAudioProcessor : AudioProcessor {
             
             if (crossfading && fadeFramesCurrent < fadeFramesTotal && fadeFramesCurrent < trackAFramesStored) {
                 val progress = fadeFramesCurrent.toFloat() / fadeFramesTotal
-                val gainA = sqrt(1.0f - progress)
-                val gainB = sqrt(progress)
+                // Trigonometric Equal-Power Curve (Eliminates Phase & Volume Dip)
+                val gainA = cos(progress * (PI / 2.0)).toFloat()
+                val gainB = sin(progress * (PI / 2.0)).toFloat()
                 
                 for (ch in 0 until inputAudioFormat.channelCount) {
                     val sampleB = shortBuffer.get(shortBuffer.position() + i + ch).toFloat()
@@ -85,7 +90,7 @@ class CrossfadeAudioProcessor : AudioProcessor {
                     if (mixed > Short.MAX_VALUE) mixed = Short.MAX_VALUE.toInt()
                     if (mixed < Short.MIN_VALUE) mixed = Short.MIN_VALUE.toInt()
                     
-                    outShortBuffer.put(mixed.toShort())
+                    tempOutput[tempOutIdx++] = mixed.toShort()
                 }
                 fadeFramesCurrent++
                 frameMixed = true
@@ -93,7 +98,7 @@ class CrossfadeAudioProcessor : AudioProcessor {
             
             if (!frameMixed) {
                 for (ch in 0 until inputAudioFormat.channelCount) {
-                    outShortBuffer.put(shortBuffer.get(shortBuffer.position() + i + ch))
+                    tempOutput[tempOutIdx++] = shortBuffer.get(shortBuffer.position() + i + ch)
                 }
             }
             
@@ -106,6 +111,16 @@ class CrossfadeAudioProcessor : AudioProcessor {
             }
         }
         
+        // Native Soft-Knee Limiter to prevent clipping
+        try {
+            NativeBridge.processLimiterShorts(tempOutput, sampleCount, 0.92f, 0.15f)
+        } catch (e: UnsatisfiedLinkError) {
+            // Ignore if native lib not loaded in test
+        }
+
+        val outShortBuffer = outputBuffer.asShortBuffer()
+        outShortBuffer.put(tempOutput, 0, sampleCount)
+
         shortBuffer.position(shortBuffer.position() + sampleCount)
         inputBuffer.position(inputBuffer.position() + size)
         
@@ -136,4 +151,3 @@ class CrossfadeAudioProcessor : AudioProcessor {
         isActive = false
     }
 }
-

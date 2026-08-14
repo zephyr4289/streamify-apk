@@ -2,6 +2,10 @@ package com.streamify.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -23,14 +27,18 @@ import kotlin.math.roundToInt
 @Composable
 fun EqualizerScreen(onBack: () -> Unit) {
     val isEqEnabled by EqualizerManager.isEqEnabled.collectAsState()
+    val activePresetName by EqualizerManager.activePresetName.collectAsState()
+    val isLoudnessEnabled by EqualizerManager.isLoudnessNormalizationEnabled.collectAsState()
     val bands by EqualizerManager.bands.collectAsState()
     val bassStrength by EqualizerManager.bassStrength.collectAsState()
     val virtualizerStrength by EqualizerManager.virtualizerStrength.collectAsState()
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(StreamifyColors.BgBase)
+            .verticalScroll(scrollState)
     ) {
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceGiant)) // Status bar
         
@@ -43,103 +51,219 @@ fun EqualizerScreen(onBack: () -> Unit) {
             IconButton(onClick = onBack) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = StreamifyColors.TextMain)
             }
-            Text("Equalizer & Effects", style = StreamifyType.TitleLarge, color = StreamifyColors.TextMain)
+            Text("Equalizer & DSP Studio", style = StreamifyType.TitleLarge, color = StreamifyColors.TextMain)
         }
         
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
 
-        Row(
+        // Master EQ Toggle Card
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = StreamifyDimens.SpaceXL),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = StreamifyDimens.SpaceLG),
+            colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard)
         ) {
-            Text("Enable Master EQ", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
-            Switch(
-                checked = isEqEnabled,
-                onCheckedChange = { EqualizerManager.setEqEnabled(it) },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = StreamifyColors.BgBase,
-                    checkedTrackColor = StreamifyColors.Primary
-                )
-            )
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("Master Equalizer", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                        Text(
+                            if (isEqEnabled) "Active Preset: $activePresetName" else "DSP Bypassed",
+                            style = StreamifyType.BodySmall,
+                            color = if (isEqEnabled) StreamifyColors.Primary else StreamifyColors.TextSub
+                        )
+                    }
+                    Switch(
+                        checked = isEqEnabled,
+                        onCheckedChange = { EqualizerManager.setEqEnabled(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = StreamifyColors.BgBase,
+                            checkedTrackColor = StreamifyColors.Primary
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Loudness Normalization", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                    Switch(
+                        checked = isLoudnessEnabled,
+                        onCheckedChange = { EqualizerManager.setLoudnessNormalization(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = StreamifyColors.BgBase,
+                            checkedTrackColor = StreamifyColors.Primary
+                        )
+                    )
+                }
+            }
         }
 
-        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceGiant))
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+
+        // 1-Tap Preset Horizontal Chips
+        Text(
+            "Acoustic Presets",
+            style = StreamifyType.TitleSmall,
+            color = StreamifyColors.TextSub,
+            modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceLG)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = StreamifyDimens.SpaceLG),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(EqualizerManager.PRESET_PROFILES) { preset ->
+                val isSelected = activePresetName.equals(preset.name, ignoreCase = true)
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { EqualizerManager.applyPresetByName(preset.name) },
+                    label = { Text(preset.name, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = StreamifyColors.Primary,
+                        selectedLabelColor = StreamifyColors.BgBase,
+                        containerColor = StreamifyColors.BgCard,
+                        labelColor = StreamifyColors.TextMain
+                    ),
+                    enabled = isEqEnabled
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
 
         if (bands.isEmpty()) {
-            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Text("Equalizer not initialized (Start playing a track first)", color = StreamifyColors.TextSub)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Equalizer not initialized (Start playing audio to activate)", color = StreamifyColors.TextSub)
             }
         } else {
             // Equalizer Sliders
-            Row(
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = StreamifyDimens.SpaceLG)
-                    .height(250.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                    .padding(horizontal = StreamifyDimens.SpaceLG),
+                colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard)
             ) {
-                bands.forEachIndexed { index, band ->
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("${band.centerFreqHz}", color = StreamifyColors.TextSub, fontSize = 12.sp)
-                        
-                        // Vertical slider (Custom implementation using Slider with rotation)
-                        Slider(
-                            value = band.level.toFloat(),
-                            onValueChange = { EqualizerManager.setBandLevel(index.toShort(), it.toInt().toShort()) },
-                            valueRange = EqualizerManager.minEqLevel.toFloat()..EqualizerManager.maxEqLevel.toFloat(),
-                            modifier = Modifier
-                                .weight(1f)
-                                .graphicsLayer {
-                                    this.rotationZ = 270f
-                                    this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
-                                },
-                            colors = SliderDefaults.colors(
-                                thumbColor = StreamifyColors.Primary,
-                                activeTrackColor = StreamifyColors.Primary,
-                                inactiveTrackColor = StreamifyColors.BgCard
-                            ),
-                            enabled = isEqEnabled
-                        )
-                        
-                        val db = (band.level / 100f).roundToInt()
-                        Text(if (db > 0) "+$db dB" else "$db dB", color = StreamifyColors.TextMain, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp, horizontal = 8.dp)
+                        .height(220.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    bands.forEachIndexed { index, band ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            val db = (band.level / 100f).roundToInt()
+                            Text(
+                                if (db > 0) "+$db" else "$db",
+                                color = if (db != 0) StreamifyColors.Primary else StreamifyColors.TextSub,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            
+                            Slider(
+                                value = band.level.toFloat(),
+                                onValueChange = { EqualizerManager.setBandLevel(index.toShort(), it.toInt().toShort()) },
+                                valueRange = EqualizerManager.minEqLevel.toFloat()..EqualizerManager.maxEqLevel.toFloat(),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .graphicsLayer {
+                                        this.rotationZ = 270f
+                                        this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
+                                    },
+                                colors = SliderDefaults.colors(
+                                    thumbColor = StreamifyColors.Primary,
+                                    activeTrackColor = StreamifyColors.Primary,
+                                    inactiveTrackColor = StreamifyColors.BgBase
+                                ),
+                                enabled = isEqEnabled
+                            )
+                            
+                            Text(
+                                if (band.centerFreqHz >= 1000) "${band.centerFreqHz / 1000}k" else "${band.centerFreqHz}",
+                                color = StreamifyColors.TextSub,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(StreamifyDimens.SpaceGiant))
+            Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
             
-            // Bass Boost
-            Column(modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceXL)) {
-                Text("Bass Boost", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
-                Slider(
-                    value = bassStrength.toFloat(),
-                    onValueChange = { EqualizerManager.setBassStrength(it.toInt().toShort()) },
-                    valueRange = 0f..1000f,
-                    colors = SliderDefaults.colors(thumbColor = StreamifyColors.Primary, activeTrackColor = StreamifyColors.Primary),
-                    enabled = isEqEnabled
-                )
+            // Sub-Bass Boost Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = StreamifyDimens.SpaceLG),
+                colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Sub-Bass Boost", style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                        Text("${(bassStrength / 10)}%", color = StreamifyColors.Primary, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = bassStrength.toFloat(),
+                        onValueChange = { EqualizerManager.setBassStrength(it.toInt().toShort()) },
+                        valueRange = 0f..1000f,
+                        colors = SliderDefaults.colors(thumbColor = StreamifyColors.Primary, activeTrackColor = StreamifyColors.Primary, inactiveTrackColor = StreamifyColors.BgBase),
+                        enabled = isEqEnabled
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
 
-            // Virtualizer
-            Column(modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceXL)) {
-                Text("Virtualizer (3D Surround)", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
-                Slider(
-                    value = virtualizerStrength.toFloat(),
-                    onValueChange = { EqualizerManager.setVirtualizerStrength(it.toInt().toShort()) },
-                    valueRange = 0f..1000f,
-                    colors = SliderDefaults.colors(thumbColor = StreamifyColors.Primary, activeTrackColor = StreamifyColors.Primary),
-                    enabled = isEqEnabled
-                )
+            // 3D Spatial Virtualizer Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = StreamifyDimens.SpaceLG),
+                colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("3D Spatial Virtualizer", style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                        Text("${(virtualizerStrength / 10)}%", color = StreamifyColors.Primary, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = virtualizerStrength.toFloat(),
+                        onValueChange = { EqualizerManager.setVirtualizerStrength(it.toInt().toShort()) },
+                        valueRange = 0f..1000f,
+                        colors = SliderDefaults.colors(thumbColor = StreamifyColors.Primary, activeTrackColor = StreamifyColors.Primary, inactiveTrackColor = StreamifyColors.BgBase),
+                        enabled = isEqEnabled
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.height(StreamifyDimens.SpaceGiant))
         }
     }
 }

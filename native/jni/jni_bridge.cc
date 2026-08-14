@@ -356,3 +356,29 @@ Java_com_streamify_app_data_NativeBridge_getLongTermRecommendations(JNIEnv* env,
     }
     return resultArray;
 }
+
+#include "../dsp/SoftKneeLimiter.h"
+
+static streamify::dsp::SoftKneeLimiter g_limiter(0.90f, 0.15f);
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_processLimiterShorts(JNIEnv* env, jobject /* this */, jshortArray buffer, jint length, jfloat threshold, jfloat kneeWidth) {
+    if (!buffer || length <= 0) return;
+    g_limiter.setParameters(threshold, kneeWidth);
+    jshort* pcm = env->GetShortArrayElements(buffer, nullptr);
+    if (pcm) {
+        g_limiter.processShorts(pcm, length);
+        env->ReleaseShortArrayElements(buffer, pcm, 0);
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_processLimiterFloats(JNIEnv* env, jobject /* this */, jfloatArray buffer, jint length, jfloat threshold, jfloat kneeWidth) {
+    if (!buffer || length <= 0) return;
+    g_limiter.setParameters(threshold, kneeWidth);
+    jfloat* pcm = env->GetFloatArrayElements(buffer, nullptr);
+    if (pcm) {
+        g_limiter.processFloats(pcm, length);
+        env->ReleaseFloatArrayElements(buffer, pcm, 0);
+    }
+}

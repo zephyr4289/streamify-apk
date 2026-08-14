@@ -16,6 +16,7 @@ add_library(streamify_core SHARED
     engine/EventTracker.cc
     engine/TaskOrchestrator.cc
     ingest/AudioPipeline.cc
+    dsp/SoftKneeLimiter.cc
     dsp/kissfft/kiss_fft.c
     dsp/kissfft/kiss_fftr.c
     third_party/sqlite3/sqlite3.c
