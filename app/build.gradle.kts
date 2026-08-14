@@ -1,13 +1,19 @@
+import java.util.Properties
+import java.io.File
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.chaquo.python")
 }
 
-val localProperties = java.util.Properties().apply {
+val localProperties = Properties().apply {
     val localFile = rootProject.file("local.properties")
     if (localFile.exists()) {
-        localFile.inputStream().use { load(it) }
+        localFile.inputStream().use { stream ->
+            this.load(stream)
+        }
     }
 }
 
