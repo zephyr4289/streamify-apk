@@ -112,6 +112,36 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 if (isPlaying) startPollingPosition() else stopPollingPosition()
             }
 
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                val d = ctrl.duration
+                if (d > 0) {
+                    val curr = _playerState.value.currentTrack
+                    val updated = if (curr != null && curr.durationSec <= 0) {
+                        curr.copy(durationSec = (d / 1000).toInt())
+                    } else curr
+                    _playerState.value = _playerState.value.copy(
+                        duration = d,
+                        currentPosition = ctrl.currentPosition.coerceAtLeast(0L),
+                        currentTrack = updated
+                    )
+                }
+            }
+
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                val d = ctrl.duration
+                if (d > 0) {
+                    val curr = _playerState.value.currentTrack
+                    val updated = if (curr != null && curr.durationSec <= 0) {
+                        curr.copy(durationSec = (d / 1000).toInt())
+                    } else curr
+                    _playerState.value = _playerState.value.copy(
+                        duration = d,
+                        currentPosition = ctrl.currentPosition.coerceAtLeast(0L),
+                        currentTrack = updated
+                    )
+                }
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 updateCurrentTrackFromMediaItem(mediaItem)
                 
@@ -272,10 +302,19 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         positionPollingJob = viewModelScope.launch {
             while (true) {
                 controller?.let {
-                    val actualDuration = if (it.duration > 0) it.duration else _playerState.value.duration
+                    val playerDuration = if (it.duration > 0) it.duration else 0L
+                    val trackDuration = (_playerState.value.currentTrack?.durationSec?.toLong() ?: 0L) * 1000L
+                    val finalDuration = if (playerDuration > 0) playerDuration else if (trackDuration > 0) trackDuration else _playerState.value.duration
+                    
+                    val currentTrack = _playerState.value.currentTrack
+                    val updatedTrack = if (currentTrack != null && currentTrack.durationSec <= 0 && finalDuration > 0) {
+                        currentTrack.copy(durationSec = (finalDuration / 1000).toInt())
+                    } else currentTrack
+
                     _playerState.value = _playerState.value.copy(
-                        currentPosition = it.currentPosition,
-                        duration = actualDuration
+                        currentPosition = it.currentPosition.coerceAtLeast(0L),
+                        duration = finalDuration,
+                        currentTrack = updatedTrack
                     )
                 }
                 delay(200)

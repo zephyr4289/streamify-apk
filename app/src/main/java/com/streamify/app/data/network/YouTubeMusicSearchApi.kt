@@ -204,18 +204,34 @@ object YouTubeMusicSearchApi {
                     title = runs0.getJSONObject(0).optString("text", "Unknown")
                 }
 
-                // Column 1: Artist, Album, Duration
-                if (flexColumns.length() > 1) {
-                    val col1 = flexColumns.optJSONObject(1)
-                    val runs1 = col1?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")?.optJSONObject("text")?.optJSONArray("runs")
-                    if (runs1 != null && runs1.length() > 0) {
-                        uploader = runs1.getJSONObject(0).optString("text", "Unknown")
-
-                        for (j in 1 until runs1.length()) {
-                            val textVal = runs1.getJSONObject(j).optString("text", "").trim()
-                            if (textVal.contains(":")) {
+                // Scan all flex columns for Artist, Album, and Duration
+                for (c in 1 until flexColumns.length()) {
+                    val col = flexColumns.optJSONObject(c)
+                    val runs = col?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")?.optJSONObject("text")?.optJSONArray("runs")
+                    if (runs != null && runs.length() > 0) {
+                        if (c == 1 && uploader == "Unknown") {
+                            uploader = runs.getJSONObject(0).optString("text", "Unknown")
+                        }
+                        for (j in 0 until runs.length()) {
+                            val textVal = runs.getJSONObject(j).optString("text", "").trim()
+                            if (textVal.matches(Regex("\\d+:\\d+(:\\d+)?"))) {
                                 duration = parseDurationToSeconds(textVal)
                             }
+                        }
+                    }
+                }
+            }
+
+            // Also check fixedColumns for Duration
+            val fixedColumns = itemObj.optJSONArray("fixedColumns")
+            if (fixedColumns != null && fixedColumns.length() > 0) {
+                for (k in 0 until fixedColumns.length()) {
+                    val col = fixedColumns.optJSONObject(k)
+                    val runs = col?.optJSONObject("musicResponsiveListItemFixedColumnRenderer")?.optJSONObject("text")?.optJSONArray("runs")
+                    if (runs != null && runs.length() > 0) {
+                        val textVal = runs.getJSONObject(0).optString("text", "").trim()
+                        if (textVal.matches(Regex("\\d+:\\d+(:\\d+)?"))) {
+                            duration = parseDurationToSeconds(textVal)
                         }
                     }
                 }

@@ -52,6 +52,8 @@ fun FullPlayerSheet(
     isShuffleActive: Boolean,
     isRepeatActive: Boolean,
     dominantColor: Color,
+    durationMs: Long = 0L,
+    currentPositionMs: Long = 0L,
     onCollapse: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -155,9 +157,10 @@ fun FullPlayerSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        val currentMs = (progress * track.durationSec * 1000).toLong()
+                        val totalDurationMs = if (durationMs > 0) durationMs else (track.durationSec.toLong() * 1000L)
+                        val currentMs = if (currentPositionMs > 0) currentPositionMs else (progress * totalDurationMs).toLong()
                         Text(text = DurationFormatter.formatMs(currentMs), style = StreamifyType.SeekbarTime, color = StreamifyColors.TextSub)
-                        Text(text = DurationFormatter.formatSec(track.durationSec.toLong()), style = StreamifyType.SeekbarTime, color = StreamifyColors.TextSub)
+                        Text(text = DurationFormatter.formatMs(totalDurationMs), style = StreamifyType.SeekbarTime, color = StreamifyColors.TextSub)
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -368,14 +371,15 @@ fun FullPlayerSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val currentMs = (progress * track.durationSec * 1000).toLong()
+                    val totalDurationMs = if (durationMs > 0) durationMs else (track.durationSec.toLong() * 1000L)
+                    val currentMs = if (currentPositionMs > 0) currentPositionMs else (progress * totalDurationMs).toLong()
                     Text(
                         text = DurationFormatter.formatMs(currentMs),
                         style = StreamifyType.SeekbarTime,
                         color = StreamifyColors.TextSub
                     )
                     Text(
-                        text = DurationFormatter.formatSec(track.durationSec.toLong()),
+                        text = DurationFormatter.formatMs(totalDurationMs),
                         style = StreamifyType.SeekbarTime,
                         color = StreamifyColors.TextSub
                     )

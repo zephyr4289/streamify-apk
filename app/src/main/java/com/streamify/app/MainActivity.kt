@@ -191,6 +191,8 @@ class MainActivity : ComponentActivity() {
                                         track = playerState.currentTrack,
                                         isPlaying = playerState.isPlaying,
                                         progress = progress,
+                                        durationMs = playerState.duration,
+                                        currentPositionMs = playerState.currentPosition,
                                         isShuffleActive = playerState.isShuffleActive,
                                         isRepeatActive = playerState.isRepeatActive,
                                         dominantColor = dominantColor,
