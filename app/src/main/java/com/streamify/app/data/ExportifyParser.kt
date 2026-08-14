@@ -1,9 +1,10 @@
 package com.streamify.app.data
 
-import android.content.Context
 import android.os.Environment
+import com.streamify.app.data.network.NetworkEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -11,9 +12,9 @@ import java.io.File
 data class ParsedTrackItem(
     val title: String,
     val artist: String,
-    val album: String,
-    val durationSec: Int,
-    val coverUrl: String
+    val album: String = "Streamify",
+    val durationSec: Int = 0,
+    val coverUrl: String = ""
 )
 
 data class DiscoveredPlaylistFile(
@@ -31,19 +32,26 @@ object ExportifyParser {
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
             File("/storage/emulated/0/Download"),
             File("/sdcard/Download"),
-            File("/storage/emulated/0/Music")
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+            File("/storage/emulated/0/Music"),
+            File("/sdcard/Music")
         ).filter { it.exists() && it.isDirectory }
 
         val seenPaths = mutableSetOf<String>()
 
         for (dir in searchDirs) {
-            val jsonFiles = dir.listFiles { f -> f.isFile && f.extension.equals("json", ignoreCase = true) } ?: continue
-            for (f in jsonFiles) {
+            val validFiles = dir.listFiles { f -> 
+                f.isFile && (f.extension.equals("json", true) || 
+                             f.extension.equals("m3u", true) || 
+                             f.extension.equals("m3u8", true) || 
+                             f.extension.equals("csv", true)) 
+            } ?: continue
+
+            for (f in validFiles) {
                 if (f.absolutePath in seenPaths) continue
                 seenPaths.add(f.absolutePath)
 
-                // Check if valid playlist format
-                val (playlistName, tracks) = parsePlaylistJson(f)
+                val (playlistName, tracks) = parseUniversalFile(f)
                 if (tracks.isNotEmpty()) {
                     foundList.add(
                         DiscoveredPlaylistFile(
@@ -59,18 +67,85 @@ object ExportifyParser {
         foundList
     }
 
-    suspend fun parsePlaylistJson(file: File): Pair<String, List<ParsedTrackItem>> = withContext(Dispatchers.IO) {
+    suspend fun parseUniversalFile(file: File): Pair<String, List<ParsedTrackItem>> = withContext(Dispatchers.IO) {
         if (!file.exists() || !file.canRead()) return@withContext Pair("", emptyList())
-
         try {
             val content = file.readText(Charsets.UTF_8).trim()
             if (content.isBlank()) return@withContext Pair("", emptyList())
 
+            val ext = file.extension.lowercase()
+            return@withContext when (ext) {
+                "m3u", "m3u8" -> Pair(file.nameWithoutExtension, parseM3U(content))
+                "csv" -> Pair(file.nameWithoutExtension, parseCSV(content))
+                else -> parsePlaylistJson(file)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return@withContext Pair("", emptyList())
+        }
+    }
+
+    private fun parseM3U(text: String): List<ParsedTrackItem> {
+        val tracks = mutableListOf<ParsedTrackItem>()
+        val lines = text.lines()
+        for (i in lines.indices) {
+            val line = lines[i].trim()
+            if (line.startsWith("#EXTINF:", ignoreCase = true)) {
+                val info = line.substringAfter(":").split(",", limit = 2)
+                val durationSec = info.getOrNull(0)?.trim()?.toIntOrNull() ?: 0
+                val meta = info.getOrNull(1)?.split(" - ", limit = 2)
+                if (meta != null && meta.size == 2) {
+                    tracks.add(
+                        ParsedTrackItem(
+                            title = meta[1].trim(),
+                            artist = meta[0].trim(),
+                            album = "Streamify",
+                            durationSec = durationSec
+                        )
+                    )
+                } else if (meta != null && meta.isNotEmpty()) {
+                    tracks.add(
+                        ParsedTrackItem(
+                            title = meta[0].trim(),
+                            artist = "Unknown Artist",
+                            album = "Streamify",
+                            durationSec = durationSec
+                        )
+                    )
+                }
+            }
+        }
+        return tracks
+    }
+
+    private fun parseCSV(text: String): List<ParsedTrackItem> {
+        val tracks = mutableListOf<ParsedTrackItem>()
+        val lines = text.lines().filter { it.isNotBlank() }
+        if (lines.isEmpty()) return tracks
+
+        // Header detection: Title, Artist, Album, Duration
+        val header = lines.first().lowercase()
+        val titleIdx = if (header.contains("track")) header.split(",").indexOfFirst { it.contains("track") } else 0
+        val artistIdx = header.split(",").indexOfFirst { it.contains("artist") }.coerceAtLeast(1)
+
+        for (i in 1 until lines.size) {
+            val parts = lines[i].split(",").map { it.replace("\"", "").trim() }
+            if (parts.size > titleIdx && parts[titleIdx].isNotBlank()) {
+                val title = parts[titleIdx]
+                val artist = if (parts.size > artistIdx) parts[artistIdx] else "Unknown Artist"
+                tracks.add(ParsedTrackItem(title = title, artist = artist))
+            }
+        }
+        return tracks
+    }
+
+    suspend fun parsePlaylistJson(file: File): Pair<String, List<ParsedTrackItem>> = withContext(Dispatchers.IO) {
+        try {
+            val content = file.readText(Charsets.UTF_8).trim()
             val tracks = mutableListOf<ParsedTrackItem>()
             var playlistName = file.nameWithoutExtension
 
             if (content.startsWith("[")) {
-                // Array of track objects (Exportify / Soundiiz format)
                 val jsonArray = JSONArray(content)
                 for (i in 0 until jsonArray.length()) {
                     val obj = jsonArray.optJSONObject(i) ?: continue
@@ -94,18 +169,84 @@ object ExportifyParser {
                     }
                 }
             }
-
-            return@withContext Pair(playlistName, tracks)
+            Pair(playlistName, tracks)
         } catch (e: Exception) {
-            e.printStackTrace()
-            return@withContext Pair("", emptyList())
+            Pair("", emptyList())
         }
     }
 
-    private fun extractTrackFromObject(obj: JSONObject): ParsedTrackItem? {
-        // Direct format or nested "track" object (Spotify API)
-        val targetObj = obj.optJSONObject("track") ?: obj
+    // Pure Kotlin Native Spotify Ingestion (<300ms)
+    suspend fun parseSpotifyUrl(url: String): List<ParsedTrackItem> = withContext(Dispatchers.IO) {
+        val tracks = mutableListOf<ParsedTrackItem>()
+        val cleanUrl = url.trim()
+        val itemType = if (cleanUrl.contains("/playlist/")) "playlist" else if (cleanUrl.contains("/album/")) "album" else "track"
+        val itemId = cleanUrl.substringAfterLast("/").substringBefore("?")
 
+        if (itemId.isBlank()) return@withContext emptyList()
+
+        try {
+            // 1. Fetch anonymous web access token
+            val tokenReq = Request.Builder()
+                .url("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
+                .header("User-Agent", "Mozilla/5.0")
+                .get()
+                .build()
+
+            var token = ""
+            NetworkEngine.client.newCall(tokenReq).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    token = JSONObject(body).optString("accessToken", "")
+                }
+            }
+
+            if (token.isNotBlank()) {
+                var offset = 0
+                val endpoint = if (itemType == "playlist") {
+                    "https://api.spotify.com/v1/playlists/$itemId/tracks?limit=100&offset="
+                } else if (itemType == "album") {
+                    "https://api.spotify.com/v1/albums/$itemId/tracks?limit=100&offset="
+                } else {
+                    "https://api.spotify.com/v1/tracks/$itemId"
+                }
+
+                if (itemType == "track") {
+                    val req = Request.Builder().url(endpoint).header("Authorization", "Bearer $token").get().build()
+                    NetworkEngine.client.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val obj = JSONObject(resp.body?.string() ?: "")
+                            extractTrackFromObject(obj)?.let { tracks.add(it) }
+                        }
+                    }
+                } else {
+                    while (true) {
+                        val req = Request.Builder().url("$endpoint$offset").header("Authorization", "Bearer $token").get().build()
+                        val resString = NetworkEngine.client.newCall(req).execute().use { it.body?.string() ?: "" }
+                        if (resString.isBlank()) break
+                        val json = JSONObject(resString)
+                        val items = json.optJSONArray("items") ?: break
+                        if (items.length() == 0) break
+
+                        for (i in 0 until items.length()) {
+                            val itemObj = items.getJSONObject(i)
+                            val tObj = if (itemType == "playlist") itemObj.optJSONObject("track") ?: itemObj else itemObj
+                            extractTrackFromObject(tObj)?.let { tracks.add(it) }
+                        }
+
+                        if (items.length() < 100) break
+                        offset += 100
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return@withContext tracks
+    }
+
+    private fun extractTrackFromObject(obj: JSONObject): ParsedTrackItem? {
+        val targetObj = obj.optJSONObject("track") ?: obj
         val title = targetObj.optString("name", targetObj.optString("title", targetObj.optString("Track Name", ""))).trim()
         if (title.isBlank()) return null
 
@@ -135,8 +276,6 @@ object ExportifyParser {
             durationSec = (targetObj.optLong("duration_ms", 0L) / 1000).toInt()
         } else if (targetObj.has("duration")) {
             durationSec = targetObj.optInt("duration", 0)
-        } else if (targetObj.has("Duration (ms)")) {
-            durationSec = (targetObj.optLong("Duration (ms)", 0L) / 1000).toInt()
         }
 
         var coverUrl = targetObj.optString("cover_url", targetObj.optString("coverUrl", ""))

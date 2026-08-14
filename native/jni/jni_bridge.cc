@@ -382,3 +382,21 @@ Java_com_streamify_app_data_NativeBridge_processLimiterFloats(JNIEnv* env, jobje
         env->ReleaseFloatArrayElements(buffer, pcm, 0);
     }
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_streamify_app_data_NativeBridge_findFuzzyTrackMatch(JNIEnv* env, jobject /* this */, jstring title, jstring artist) {
+    const char* cTitle = env->GetStringUTFChars(title, 0);
+    const char* cArtist = env->GetStringUTFChars(artist, 0);
+
+    int id = StreamifyDB::getInstance().findFuzzyTrackMatch(cTitle, cArtist);
+
+    env->ReleaseStringUTFChars(title, cTitle);
+    env->ReleaseStringUTFChars(artist, cArtist);
+    return id;
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_streamify_app_data_NativeBridge_getTracksBatch(JNIEnv* env, jobject /* this */, jint offset, jint limit) {
+    std::vector<StreamifyTrack> tracks = StreamifyDB::getInstance().getTracksBatch(offset, limit);
+    return convertTrackList(env, tracks);
+}

@@ -45,6 +45,8 @@ public:
     int upsertStreamedTrack(const std::string& filepath, const std::string& title, const std::string& artist, const std::string& album, int duration_sec, const std::string& cover_art_path, const std::string& lyrics_path, double bpm, const std::string& key);
     bool recordTrackPlay(int track_id);
     std::vector<StreamifyTrack> getTopPlayedTracks(int limit = 20);
+    int findFuzzyTrackMatch(const std::string& title, const std::string& artist);
+    std::vector<StreamifyTrack> getTracksBatch(int offset, int limit);
 
     // Multi-User Profile & Session Methods
     std::optional<StreamifyUser> registerOrLoginUser(const std::string& username, const std::string& pin);

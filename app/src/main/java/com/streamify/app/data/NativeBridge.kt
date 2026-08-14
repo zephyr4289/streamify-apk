@@ -61,4 +61,8 @@ object NativeBridge {
     // Native DSP Soft-Knee Limiter (Project Sonic Maxx)
     external fun processLimiterShorts(buffer: ShortArray, length: Int, threshold: Float, kneeWidth: Float)
     external fun processLimiterFloats(buffer: FloatArray, length: Int, threshold: Float, kneeWidth: Float)
+
+    // Universal Migration & Fuzzy Matcher (Project Janus)
+    external fun findFuzzyTrackMatch(title: String, artist: String): Int
+    external fun getTracksBatch(offset: Int, limit: Int): Array<TrackNative>
 }

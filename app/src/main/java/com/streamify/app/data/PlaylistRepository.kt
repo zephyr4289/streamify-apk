@@ -125,6 +125,45 @@ object PlaylistRepository {
         playlist.trackIds.mapNotNull { trackMap[it] }
     }
 
+    suspend fun importAndLinkPlaylist(
+        playlistName: String,
+        importedTracks: List<ParsedTrackItem>
+    ): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        if (importedTracks.isEmpty()) return@withContext Pair(0, 0)
+        
+        var playlist = _playlists.value.find { it.name.equals(playlistName, ignoreCase = true) }
+        if (playlist == null) {
+            playlist = createPlaylist(playlistName, "Imported from universal playlist source")
+        }
+
+        var linkedCount = 0
+        var queuedCount = 0
+
+        for (item in importedTracks) {
+            val localTrackId = NativeBridge.findFuzzyTrackMatch(item.title, item.artist)
+            if (localTrackId > 0) {
+                addTrackToPlaylist(playlist.id, localTrackId)
+                linkedCount++
+            } else {
+                // Enqueue missing track for background download
+                try {
+                    val searchUrl = "https://www.youtube.com/results?search_query=" + java.net.URLEncoder.encode("${item.title} ${item.artist}", "UTF-8")
+                    com.streamify.app.viewmodel.IngestionViewModel.enqueueDownloadDirect(
+                        url = searchUrl,
+                        title = item.title,
+                        artist = item.artist,
+                        album = item.album,
+                        quality = "320"
+                    )
+                    queuedCount++
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+        Pair(linkedCount, queuedCount)
+    }
+
     suspend fun exportPlaylistToM3U8(playlistId: String, allTracks: List<Track>, context: Context): File? = withContext(Dispatchers.IO) {
         val playlist = _playlists.value.find { it.id == playlistId } ?: return@withContext null
         val trackMap = allTracks.associateBy { it.id }
@@ -144,7 +183,19 @@ object PlaylistRepository {
 
             for (t in playlistTracks) {
                 sb.append("#EXTINF:${t.durationSec},${t.artist} - ${t.title}\n")
-                sb.append("${t.filepath}\n\n")
+                
+                // Compute relative path for universal car & portable USB playback
+                val audioFile = File(t.filepath)
+                val relativePath = try {
+                    if (audioFile.exists() && audioFile.parentFile != null) {
+                        exportDir.toURI().relativize(audioFile.toURI()).path
+                    } else {
+                        t.filepath
+                    }
+                } catch (e: Exception) {
+                    t.filepath
+                }
+                sb.append("$relativePath\n\n")
             }
 
             m3u8File.writeText(sb.toString(), Charsets.UTF_8)

@@ -2,12 +2,13 @@ package com.streamify.app.data
 
 import android.content.Context
 import android.os.Environment
-import com.streamify.app.data.models.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -16,24 +17,51 @@ object BackupManager {
 
     suspend fun exportLibraryBackup(context: Context): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val allTracks = TrackRepository.getAllTracks()
+            val backupDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "Streamify")
+            if (!backupDir.exists()) backupDir.mkdirs()
+
+            val backupFile = File(backupDir, "streamify_backup_${System.currentTimeMillis()}.json")
+            val writer = OutputStreamWriter(FileOutputStream(backupFile), Charsets.UTF_8)
+
+            writer.write("{\n")
+            writer.write("  \"version\": 1,\n")
+            writer.write("  \"exportTimestamp\": ${System.currentTimeMillis()},\n")
+            writer.write("  \"date\": \"${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}\",\n")
+
+            // 1. Stream Liked IDs
             val likedIds = NativeBridge.getLikedTracks(1).map { it.id }
+            writer.write("  \"likedTrackIds\": [${likedIds.joinToString(",")}],\n")
+
+            // 2. Stream Playlists
             val playlists = PlaylistRepository.getPlaylists()
+            val playlistsArray = JSONArray()
+            playlists.forEach { p ->
+                playlistsArray.put(JSONObject().apply {
+                    put("id", p.id)
+                    put("name", p.name)
+                    put("description", p.description)
+                    val tIds = JSONArray()
+                    p.trackIds.forEach { tIds.put(it) }
+                    put("trackIds", tIds)
+                })
+            }
+            writer.write("  \"playlists\": ${playlistsArray.toString()},\n")
 
-            val rootJson = JSONObject().apply {
-                put("version", 1)
-                put("exportTimestamp", System.currentTimeMillis())
-                put("date", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()))
+            // 3. Stream Tracks in 500-track chunks to eliminate OOM
+            writer.write("  \"tracks\": [\n")
+            var offset = 0
+            val chunkSize = 500
+            var isFirstTrack = true
 
-                // Liked IDs
-                val likedArray = JSONArray()
-                likedIds.forEach { likedArray.put(it) }
-                put("likedTrackIds", likedArray)
+            while (true) {
+                val batch = NativeBridge.getTracksBatch(offset, chunkSize)
+                if (batch.isEmpty()) break
 
-                // Tracks
-                val tracksArray = JSONArray()
-                allTracks.forEach { track ->
-                    tracksArray.put(JSONObject().apply {
+                for (track in batch) {
+                    if (!isFirstTrack) writer.write(",\n")
+                    isFirstTrack = false
+
+                    val trackObj = JSONObject().apply {
                         put("id", track.id)
                         put("title", track.title)
                         put("artist", track.artist)
@@ -42,31 +70,17 @@ object BackupManager {
                         put("filepath", track.filepath)
                         put("bpm", track.bpm.toDouble())
                         put("source", track.source)
-                        put("isLiked", track.isLiked)
-                    })
+                    }
+                    writer.write("    " + trackObj.toString())
                 }
-                put("tracks", tracksArray)
 
-                // Playlists
-                val playlistsArray = JSONArray()
-                playlists.forEach { p ->
-                    playlistsArray.put(JSONObject().apply {
-                        put("id", p.id)
-                        put("name", p.name)
-                        put("description", p.description)
-                        val tIds = JSONArray()
-                        p.trackIds.forEach { tIds.put(it) }
-                        put("trackIds", tIds)
-                    })
-                }
-                put("playlists", playlistsArray)
+                if (batch.size < chunkSize) break
+                offset += chunkSize
             }
 
-            val backupDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "Streamify")
-            if (!backupDir.exists()) backupDir.mkdirs()
-
-            val backupFile = File(backupDir, "streamify_backup_${System.currentTimeMillis()}.json")
-            backupFile.writeText(rootJson.toString(2))
+            writer.write("\n  ]\n}")
+            writer.flush()
+            writer.close()
 
             Result.success(backupFile.absolutePath)
         } catch (e: Exception) {
@@ -90,13 +104,9 @@ object BackupManager {
                     val album = t.optString("album", "Streamify")
                     val duration = t.optInt("durationSec", 0)
                     val bpm = t.optDouble("bpm", 120.0).toFloat()
-                    val isLiked = t.optBoolean("isLiked", false)
 
                     if (filepath.isNotBlank()) {
                         val trackId = NativeBridge.insertTrack(filepath, title, artist, album, duration, bpm)
-                        if (isLiked && trackId > 0) {
-                            NativeBridge.toggleLike(1, trackId.toInt())
-                        }
                         importedCount++
                     }
                 }
