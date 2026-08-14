@@ -10,10 +10,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BluetoothAudio
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Subtitles
@@ -247,21 +251,36 @@ fun FullPlayerSheet(
 
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
                 
-                // Device Destination Indicator
+                // Dynamic Audio Route Indicator
+                val outputDevice by com.streamify.app.service.AudioDeviceManager.currentDevice.collectAsState()
+                val isOnline = track.filepath.startsWith("http://") || track.filepath.startsWith("https://") || track.source.contains("online", ignoreCase = true)
+                val routingText = if (isOnline) {
+                    if (outputDevice.isBluetooth) "Bluetooth • ${outputDevice.name} (HQ Stream)"
+                    else "Online Stream • M4A High-Bitrate"
+                } else {
+                    if (outputDevice.isBluetooth) "Bluetooth • ${outputDevice.name}"
+                    else if (outputDevice.isHeadphones) "Headphones • Lossless"
+                    else "Phone Speaker • Streamify Engine"
+                }
+                val routingIcon = if (outputDevice.isBluetooth) Icons.Filled.BluetoothAudio
+                else if (outputDevice.isHeadphones) Icons.Filled.Headphones
+                else if (isOnline) Icons.Filled.CloudQueue
+                else Icons.Filled.Speaker
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Info,
+                        imageVector = routingIcon,
                         contentDescription = "Device",
                         tint = StreamifyColors.Primary,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(StreamifyDimens.SpaceXS))
                     Text(
-                        text = "This Device (Local JNI)",
+                        text = routingText,
                         style = StreamifyType.Caption,
                         color = StreamifyColors.Primary
                     )
@@ -288,18 +307,45 @@ fun FullPlayerSheet(
                                 color = StreamifyColors.TextSub
                             )
                             Spacer(modifier = Modifier.width(12.dp))
-                            // Neural Engine Extraction Badge
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(StreamifyColors.Primary.copy(alpha = 0.2f))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            
+                            // Dynamic Neural Engine Extraction Badge / Pending Clock State
+                            val isNeuralProcessed = track.isProcessed && track.bpm > 0f
+                            Surface(
+                                color = if (isNeuralProcessed) StreamifyColors.Primary.copy(alpha = 0.18f) else StreamifyColors.BgElevated,
+                                shape = RoundedCornerShape(6.dp)
                             ) {
-                                Text(
-                                    text = if (track.isProcessed) "NEURAL ENGINE • ${track.bpm.toInt()} BPM" else "AI ANALYZED • ${track.bpm.toInt()} BPM",
-                                    style = StreamifyType.Caption,
-                                    color = StreamifyColors.Primary
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isNeuralProcessed) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Bolt,
+                                            contentDescription = null,
+                                            tint = StreamifyColors.Primary,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "NEURAL ENGINE • ${track.bpm.toInt()} BPM${if (track.key.isNotBlank()) " • " + track.key else ""}",
+                                            style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                                            color = StreamifyColors.Primary
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Filled.Schedule,
+                                            contentDescription = null,
+                                            tint = StreamifyColors.TextSub,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Pending Acoustic Analysis",
+                                            style = StreamifyType.Caption,
+                                            color = StreamifyColors.TextSub
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

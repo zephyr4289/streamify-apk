@@ -70,13 +70,21 @@ class IngestionWorker(
             NativeBridge.setTotalAiTasks(newFiles.size)
 
             newFiles.forEachIndexed { index, file ->
+                val finalAlbum = if (file.album.isNotBlank() && !file.album.equals("<unknown>", ignoreCase = true)) {
+                    file.album
+                } else if (file.dataPath.lowercase().contains("streamify")) {
+                    "Streamify"
+                } else {
+                    "Local Storage"
+                }
+
                 val trackId = NativeBridge.insertTrack(
                     filepath = file.dataPath,
                     title = file.title,
                     artist = file.artist,
-                    album = "Local Storage",
+                    album = finalAlbum,
                     durationSec = (file.durationMs / 1000).toInt(),
-                    bpm = 120.0f
+                    bpm = 0.0f
                 ).toInt()
 
                 if (trackId > 0) {

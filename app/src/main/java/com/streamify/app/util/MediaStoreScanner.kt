@@ -13,6 +13,7 @@ object MediaStoreScanner {
         val id: Long,
         val title: String,
         val artist: String,
+        val album: String,
         val dataPath: String,
         val durationMs: Long
     )
@@ -61,6 +62,7 @@ object MediaStoreScanner {
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.DURATION
         )
@@ -71,6 +73,7 @@ object MediaStoreScanner {
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+            val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
             val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
             val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
 
@@ -78,11 +81,12 @@ object MediaStoreScanner {
                 val id = cursor.getLong(idColumn)
                 val title = cursor.getString(titleColumn) ?: "Unknown Title"
                 val artist = cursor.getString(artistColumn) ?: "Unknown Artist"
+                val album = cursor.getString(albumColumn) ?: ""
                 val dataPath = cursor.getString(dataColumn) ?: continue
                 val durationMs = cursor.getLong(durationColumn)
 
                 if (isMusicFile(dataPath, title)) {
-                    audioFiles.add(LocalAudioFile(id, title, artist, dataPath, durationMs))
+                    audioFiles.add(LocalAudioFile(id, title, artist, album, dataPath, durationMs))
                 }
             }
         }

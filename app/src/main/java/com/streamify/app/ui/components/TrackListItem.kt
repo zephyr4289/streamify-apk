@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -80,19 +81,40 @@ fun TrackListItem(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                if (track.isProcessed) {
+                if (track.album.equals("Streamify", ignoreCase = true) || track.source.contains("streamify", ignoreCase = true) || track.filepath.lowercase().contains("streamify")) {
                     Spacer(modifier = Modifier.width(StreamifyDimens.SpaceXS))
                     androidx.compose.material3.Surface(
-                        color = StreamifyColors.Primary.copy(alpha = 0.2f),
+                        color = StreamifyColors.Primary.copy(alpha = 0.15f),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
                     ) {
                         Text(
-                            text = "AI",
+                            text = "Streamify",
                             style = StreamifyType.Caption,
                             color = StreamifyColors.Primary,
                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
+                } else if (track.isProcessed && track.bpm > 0f) {
+                    Spacer(modifier = Modifier.width(StreamifyDimens.SpaceXS))
+                    androidx.compose.material3.Surface(
+                        color = StreamifyColors.Primary.copy(alpha = 0.15f),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "${track.bpm.toInt()} BPM",
+                            style = StreamifyType.Caption,
+                            color = StreamifyColors.Primary,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                } else if (track.id > 0 && !track.isProcessed) {
+                    Spacer(modifier = Modifier.width(StreamifyDimens.SpaceXS))
+                    androidx.compose.material3.Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Filled.Schedule,
+                        contentDescription = "Pending Analysis",
+                        tint = StreamifyColors.TextDimmed,
+                        modifier = Modifier.size(13.dp)
+                    )
                 }
             }
         }

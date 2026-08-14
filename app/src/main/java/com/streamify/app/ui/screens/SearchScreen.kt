@@ -45,6 +45,7 @@ fun SearchScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val currentTrack by playerViewModel.currentTrack.collectAsState()
+    val resolvingTrackUrl by viewModel.resolvingTrackUrl.collectAsState()
     var query by remember { mutableStateOf("") }
     var pendingDownloadTrack by remember { mutableStateOf<com.streamify.app.viewmodel.OnlineSearchResult?>(null) }
     var selectedOptionsTrack by remember { mutableStateOf<com.streamify.app.data.models.Track?>(null) }
@@ -266,6 +267,7 @@ fun SearchScreen(
                             Text("YouTube Results", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain, modifier = Modifier.padding(StreamifyDimens.SpaceLG))
                         }
                         items(state.onlineResults, key = { it.url }) { onlineTrack ->
+                            val isResolving = resolvingTrackUrl == onlineTrack.url
                             val mockTrack = com.streamify.app.data.models.Track(
                                 id = 0, title = onlineTrack.title, artist = onlineTrack.uploader,
                                 album = "Streamify", durationSec = onlineTrack.duration,
@@ -275,11 +277,10 @@ fun SearchScreen(
                             TrackListItem(
                                 track = mockTrack,
                                 onClick = { 
-                                    Toast.makeText(context, "Streaming track...", Toast.LENGTH_SHORT).show()
                                     viewModel.playOnlineTrack(onlineTrack, playerViewModel, ingestionViewModel, context)
                                 },
                                 onOptionsClick = { selectedOptionsTrack = mockTrack },
-                                isPlaying = currentTrack?.id == mockTrack.id && mockTrack.id != 0
+                                isPlaying = (currentTrack?.id == mockTrack.id && mockTrack.id != 0) || isResolving
                             )
                         }
                     } 

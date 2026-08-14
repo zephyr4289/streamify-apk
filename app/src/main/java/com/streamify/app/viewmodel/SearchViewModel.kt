@@ -71,6 +71,10 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
     private val searchCache = android.util.LruCache<String, List<OnlineSearchResult>>(100)
     private val streamUrlCache = android.util.LruCache<String, Pair<String, Long>>(50)
     private var historyJob: kotlinx.coroutines.Job? = null
+    private var streamJob: kotlinx.coroutines.Job? = null
+
+    private val _resolvingTrackUrl = MutableStateFlow<String?>(null)
+    val resolvingTrackUrl: StateFlow<String?> = _resolvingTrackUrl.asStateFlow()
 
     fun search(query: String) {
         searchJob?.cancel()
@@ -181,60 +185,70 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         ingestionViewModel: com.streamify.app.viewmodel.IngestionViewModel,
         context: android.content.Context
     ) {
-        viewModelScope.launch {
-            // Check stream URL cache (TTL 2 hours for instant 0ms stream start)
-            val now = System.currentTimeMillis()
-            val cachedEntry = streamUrlCache.get(onlineTrack.url)
-            val directUrl = if (cachedEntry != null && (now - cachedEntry.second) < 7200000L) {
-                cachedEntry.first
-            } else {
-                val rawStreamResult = withContext(Dispatchers.IO) {
-                    try {
-                        val py = Python.getInstance()
-                        val searchModule = py.getModule("download_engine.search")
-                        searchModule.callAttr("get_stream_url", onlineTrack.url).toString()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        ""
+        streamJob?.cancel()
+        streamJob = viewModelScope.launch {
+            _resolvingTrackUrl.value = onlineTrack.url
+            try {
+                // Check stream URL cache (TTL 2 hours for instant 0ms stream start)
+                val now = System.currentTimeMillis()
+                val cachedEntry = streamUrlCache.get(onlineTrack.url)
+                val directUrl = if (cachedEntry != null && (now - cachedEntry.second) < 7200000L) {
+                    cachedEntry.first
+                } else {
+                    val rawStreamResult = withContext(Dispatchers.IO) {
+                        try {
+                            val py = Python.getInstance()
+                            val searchModule = py.getModule("download_engine.search")
+                            searchModule.callAttr("get_stream_url", onlineTrack.url).toString()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            ""
+                        }
                     }
-                }
 
-                val resolved = try {
-                    if (rawStreamResult.trim().startsWith("{")) {
-                        val jsonObj = org.json.JSONObject(rawStreamResult)
-                        jsonObj.optString("url", "")
-                    } else {
+                    val resolved = try {
+                        if (rawStreamResult.trim().startsWith("{")) {
+                            val jsonObj = org.json.JSONObject(rawStreamResult)
+                            jsonObj.optString("url", "")
+                        } else {
+                            rawStreamResult
+                        }
+                    } catch (e: Exception) {
                         rawStreamResult
                     }
-                } catch (e: Exception) {
-                    rawStreamResult
+                    if (resolved.isNotBlank()) {
+                        streamUrlCache.put(onlineTrack.url, Pair(resolved, now))
+                    }
+                    resolved
                 }
-                if (resolved.isNotBlank()) {
-                    streamUrlCache.put(onlineTrack.url, Pair(resolved, now))
-                }
-                resolved
-            }
 
-            if (directUrl.isNotBlank()) {
-                // Construct a transient track and stream it immediately
-                val transientTrack = Track(
-                    id = -(onlineTrack.url.hashCode()), // Negative ID for transient online tracks
-                    title = onlineTrack.title,
-                    artist = onlineTrack.uploader,
-                    album = "Online Stream",
-                    durationSec = onlineTrack.duration,
-                    filepath = directUrl,
-                    coverArtPath = onlineTrack.thumbnail,
-                    bpm = 0f,
-                    key = "",
-                    lyricsPath = null,
-                    source = "online_stream"
-                )
-                playerViewModel.playTrack(transientTrack, listOf(transientTrack))
-            } else {
-                withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(context, "Could not resolve audio stream. Please try another track.", android.widget.Toast.LENGTH_SHORT).show()
+                if (directUrl.isNotBlank()) {
+                    // Construct a transient track and stream it immediately
+                    val transientTrack = Track(
+                        id = -(onlineTrack.url.hashCode()), // Negative ID for transient online tracks
+                        title = onlineTrack.title,
+                        artist = onlineTrack.uploader,
+                        album = "Online Stream",
+                        durationSec = onlineTrack.duration,
+                        filepath = directUrl,
+                        coverArtPath = onlineTrack.thumbnail,
+                        bpm = 0f,
+                        key = "",
+                        lyricsPath = null,
+                        source = "online_stream"
+                    )
+                    playerViewModel.playTrack(transientTrack, listOf(transientTrack))
+                } else {
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(context, "Could not resolve audio stream. Please try another track.", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Ignore intentional user cancellation
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                _resolvingTrackUrl.value = null
             }
         }
     }
