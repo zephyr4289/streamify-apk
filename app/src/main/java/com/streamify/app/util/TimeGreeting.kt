@@ -2,16 +2,32 @@ package com.streamify.app.util
 
 import java.util.Calendar
 
+enum class TimeOfDay {
+    MORNING,
+    AFTERNOON,
+    EVENING,
+    NIGHT
+}
+
 object TimeGreeting {
     fun getGreeting(): String {
-        val c = Calendar.getInstance()
-        val timeOfDay = c.get(Calendar.HOUR_OF_DAY)
+        return when (getCurrentTimeOfDay()) {
+            TimeOfDay.MORNING -> "Good morning"
+            TimeOfDay.AFTERNOON -> "Good afternoon"
+            TimeOfDay.EVENING -> "Good evening"
+            TimeOfDay.NIGHT -> "Good night"
+        }
+    }
 
-        return when (timeOfDay) {
-            in 0..11 -> "Good morning"
-            in 12..15 -> "Good afternoon"
-            in 16..20 -> "Good evening"
-            else -> "Good night"
+    fun getCurrentTimeOfDay(): TimeOfDay {
+        val c = Calendar.getInstance()
+        val hour = c.get(Calendar.HOUR_OF_DAY)
+        return when (hour) {
+            in 5..11 -> TimeOfDay.MORNING
+            in 12..16 -> TimeOfDay.AFTERNOON
+            in 17..21 -> TimeOfDay.EVENING
+            else -> TimeOfDay.NIGHT
         }
     }
 }
+

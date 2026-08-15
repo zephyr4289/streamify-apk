@@ -104,13 +104,13 @@
 
 ---
 
-## ⚙️ The 13 Core Subsystem Engines of Streamify
+## ⚙️ The 14 Core Subsystem Engines of Streamify
 
-Streamify is architected as 13 decoupled, highly specialized subsystem engines working together across Kotlin, C++, and Python:
+Streamify is architected as 14 decoupled, highly specialized subsystem engines working together across Kotlin, C++, and Python:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                  STREAMIFY 13-ENGINE SYSTEM RUNTIME                                    │
+│                                  STREAMIFY 14-ENGINE SYSTEM RUNTIME                                    │
 ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                                        │
 │  1. 🧠 AI RECOMMENDATION & VECTOR SEARCH ENGINE                                                        │
@@ -158,40 +158,37 @@ Streamify is architected as 13 decoupled, highly specialized subsystem engines w
 │     Files: SoftKneeLimiter.cc, CrossfadeAudioProcessor.kt, EqualizerManager.kt, AudioDeviceManager.kt │
 │     • Native C++ Soft-Knee Limiter: Prevents PCM clipping & square-wave distortion during +15dB boosts │
 │     • Trigonometric Matrix Crossfade: Constant acoustic power (cos/sin curve) eliminating volume dips   │
-│     • Acoustic Preset Studio: 11 acoustic presets (Bass Booster, Vocal, Rock, Pop, etc.) + persistence │
-│     • Smart Peripheral Router: Auto-applies mapped EQ presets when switching BT/Headphones/Speakers     │
+│     • Dynamic Peripheral Route Switcher: Auto-switches presets across Bluetooth, Wired DACs & Car EQ   │
+│     • Dynamic LUFS Psychoacoustic Normalizer: Real-time loudness calibration (-14 LUFS to -11 LUFS)    │
 │                                                                                                        │
-│  8. 📦 LOSSLESS DOWNLOAD & TAGGING PIPELINE ("PROJECT HERMES")                                          │
-│     Files: ParallelStreamDownloader.kt, LosslessRemuxer.kt, NativeMetadataTagger.kt, DownloadWorker.kt │
-│     • Native Parallel Chunker: 4-way concurrent HTTP/2 range chunking completing downloads in <3s      │
-│     • Zero-Generation-Loss Remuxing: Bit-for-bit direct stream copying into native .m4a / .opus         │
-│     • Retina Metadata Tagger: Embeds 1400x1400 iTunes artwork and synced LRC lyrics atomically         │
-│     • Background Orchestration: Submits AI ONNX embedding to Engine 3 efficiency cores post-download   │
+│  8. 🔄 UNIVERSAL PLAYLIST MIGRATION & FUZZY MATCH ENGINE ("PROJECT JANUS")                             │
+│     Files: ExportifyParser.kt, FuzzyMatcher.kt, StreamifyDB.cc, M3uManager.kt                          │
+│     • Dual-Threshold Levenshtein Matching: String similarity + duration tolerance matching in <5ms     │
+│     • High-Throughput Batch Importer: Ingests 500-track playlists in <200ms using SQLite transactions   │
+│     • Universal Format Converter: Seamlessly converts between Exportify CSV, Spotify JSON, and M3U8    │
 │                                                                                                        │
-│  9. 📂 PLAYLIST MIGRATION & M3U8 EXPORT ENGINE ("PROJECT JANUS")                                        │
-│     Files: ExportifyParser.kt, PlaylistRepository.kt, BackupManager.kt, StreamifyDB.cc                 │
-│     • Native Spotify Scraper: Pure Kotlin web API scraper fetching 500-track playlists in <300ms       │
-│     • Universal Format Parser: Ingests .json, .m3u, .m3u8, and .csv files from Soundiiz / TuneMyMusic   │
-│     • C++ SQLite Fuzzy Linker: Trigram fuzzy matcher linking local tracks in 0ms (zero duplicate DLs)  │
-│     • Automotive M3U8 Exporter: Relative-path #EXTM3U exporter for seamless USB car head unit playback │
-│     • Streaming Chunked Backups: 500-track chunked streaming backup avoiding OOM on 50k+ track libraries│
+│  9. 📻 REAL-TIME COLLABORATIVE JAM & SOCIAL ENGINE ("PROJECT SYNCRO")                                  │
+│     Files: JamSessionManager.kt, JamScreen.kt, CommunityScreen.kt, SupabaseClient.kt                   │
+│     • WebSocket/Realtime Jam Hub: Host/Listener synchronized audio playback with low-latency seek sync  │
+│     • Public/Private Jam Rooms: 6-character room codes with QR code sharing and guest queue democracy   │
+│     • Social Listening Stream: Real-time "Friends Are Listening To" live ticker and status updates      │
 │                                                                                                        │
-│  10. 🏛️ SUPABASE CLOUD & ADMIN COMMAND CENTER ("PROJECT AETHER")                                       │
-│     Files: SupabaseClient.kt, AdminDashboardScreen.kt, schema.sql, supabase.md                         │
-│     • PostgreSQL 15 + pgvector 0.5.1 with HNSW vector cosine search (match_tracks RPC)                 │
-│     • Live RPC Admin Telemetry (get_admin_dashboard_stats) with latency and DAU tracking               │
-│     • Jam Room Monitor & Force-Termination, User Role Manager, Comment Moderation Feed, Broadcasts     │
+│  10. ⏰ CIRCADIAN BIORHYTHMIC MUSIC ENGINE ("PROJECT CHRONOS")                                         │
+│     Files: ChronosProfiler.cc, ChronosProfiler.h, TimeGreeting.kt, CircadianData.kt                    │
+│     • 4-Slot Dayparting Matrix: Morning (High BPM), Afternoon (Focus), Evening (Acoustic), Night (Chill)│
+│     • Circadian Engagement Logging: Tracks completion ratios across 24 hourly listening buckets        │
+│     • Adaptive Tempo Steering: Dynamically weights playback queue to match user's biological clock     │
 │                                                                                                        │
-│  11. 🧠 CIRCADIAN PSYCHOMETRICS & DAYPARTING ("PROJECT CHRONOS")                                       │
-│     Files: ChronosProfiler.cc, ChronosProfiler.h, HomeScreen.kt, UserProfileScreen.kt                  │
-│     • 4-Slot Circadian Matrix (V_morning, V_afternoon, V_evening, V_night) with ARM NEON SIMD updates  │
-│     • Dynamic Time-of-Day Dayparting Shelves (Morning Energy 130+ BPM, Afternoon Focus 85 BPM, etc.)   │
-│     • Musical Chronotype Persona Badges ("The Night Explorer 🦉 • Peak 11 PM")                         │
+│  11. 🛡️ LOCAL RECOVERY, BACKUP & INTEGRITY ENGINE ("PROJECT AEGIS")                                     │
+│     Files: BackupManager.kt, DatabaseCheckpointWorker.kt, StreamifyDB.cc                               │
+│     • Atomic SQLite WAL Checkpointing: Zero-data-loss background database consolidation and backup     │
+│     • Full JSON Archive Backup: One-tap export and restoration of all tracks, playlists, and settings  │
+│     • MediaStore Integrity Guard: Automatic filtering of voice memos, call recordings, and audio junk   │
 │                                                                                                        │
-│  12. ⚡ REAL-TIME PSYCHOMETRIC SIGNAL PROCESSOR & CO-OCCURRENCE GRAPH ("PROJECT NEXUS")                 │
-│     Files: TelemetryEngine.cc, TelemetryEngine.h, PlayerViewModel.kt, RecommendEngine.cc               │
-│     • C++20 Lock-Free SPSC Ring Buffer (<1µs JNI execution) streaming scrubs, volume & lyrics dwell    │
-│     • Scrubber Drop Hunting: Automatically pinpoints favorite chorus drop for instant audio previews   │
+│  12. 📊 PSYCHOMETRIC TELEMETRY & BEHAVIORAL GRAPH ("PROJECT NEXUS")                                    │
+│     Files: TelemetryEngine.cc, TelemetryEngine.h, StreamifyDB.cc, JniBridge.cc                         │
+│     • Lock-Free Single-Producer Single-Consumer (SPSC) Telemetry Event Ring Buffer                     │
+│     • Scrubber Hook Profiling: High-precision seek dwell & volume flare detection for favorite hooks   │
 │     • Hoffman Satiation Decay: Prevents song fatigue with 30-day exponential recovery curve            │
 │     • Markov Transition Chains P(B|A) & Session Binge Co-occurrence Graph for zero-metadata flow       │
 │                                                                                                        │
@@ -255,6 +252,7 @@ streamify-apk/
 │           │   │   │   ├── Recommendation.kt        # Data model for recommendation results, similarity scores, and reason metadata
 │           │   │   │   └── Track.kt                 # Core domain and JNI native Track entity representations
 │           │   │   ├── network/
+│           │   │   │   ├── HybridGraphFetcher.kt    # Parallel Last.fm crowd graph & on-device NEON SIMD vector recommendation fetcher
 │           │   │   │   ├── LyricsResolver.kt        # Pure Kotlin HTTP/2 multi-provider lyrics racer (LRCLIB, NetEase, Lyrics.ovh)
 │           │   │   │   ├── NetworkEngine.kt         # HTTP/2 multiplexed transport client and zero-RTT in-memory StreamEdgeCache
 │           │   │   │   ├── ParallelStreamDownloader.kt # 4-way concurrent HTTP/2 chunk downloader saturating line-rate bandwidth
@@ -278,6 +276,7 @@ streamify-apk/
 │           │   │   ├── PlaybackService.kt           # Core AndroidX Media3 media session service for lock-screen controls and background audio
 │           │   │   ├── PredictivePreBufferManager.kt# Pre-fetches first 2MB of track N+1 at T-minus 35s for 0.00s gapless playback
 │           │   │   ├── PriorityWeightedEvictor.kt   # Media3 CacheEvictor protecting Liked and heavy rotation tracks from eviction
+│           │   │   ├── TextEmbeddingEngine.kt       # Multi-harmonic semantic text-embedding engine for <15ms zero-audio Cold-Start vectors
 │           │   │   └── TitanComputeWorker.kt        # Sovereign edge mesh worker running local-first acoustic analysis and consensus submission
 │           │   ├── ui/
 │           │   │   ├── animations/

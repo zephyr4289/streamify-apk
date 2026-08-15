@@ -89,6 +89,16 @@ public:
     int getRecentPlayCount(int track_id, int64_t window_ms);
     int64_t getLastPlayedMs(int track_id);
 
+    // Hybrid Asymmetric Recommendation Engine (K-Means & Last.fm Similarity)
+    bool saveClusterCentroid(int cluster_id, const std::vector<float>& centroid, int track_count);
+    std::vector<std::pair<int, std::vector<float>>> getClusterCentroids();
+    bool assignTrackToCluster(int track_id, int cluster_id, float distance_to_centroid);
+    std::vector<int> getTracksInClusters(const std::vector<int>& cluster_ids, int limit = 100);
+    bool updateTrackEmbedding(int track_id, const float* embedding_512);
+    std::vector<float> getTrackEmbedding(int track_id);
+    bool cacheSimilarTracks(int track_id, const std::vector<std::string>& titles, const std::vector<std::string>& artists, const std::vector<std::string>& mbids, const std::vector<float>& weights);
+    std::vector<std::pair<std::string, float>> getCachedSimilarTracks(int track_id);
+
 private:
     StreamifyDB() = default;
     ~StreamifyDB();

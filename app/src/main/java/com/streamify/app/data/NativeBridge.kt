@@ -95,4 +95,24 @@ object NativeBridge {
 
     // Project Titan: Distributed Edge Compute & Proof-of-Compute
     external fun generateProofOfCompute(buffer: FloatArray, length: Int, nonce: String): String
+
+    // Hybrid Asymmetric Recommendation Engine (K-Means & Last.fm Similarity)
+    external fun getTargetBpmForTimeSlot(slotOrdinal: Int): Float
+    external fun getVectorRecommendations(
+        currentTrackId: Int,
+        timeWeight: Float,
+        deviceWeight: Float,
+        bpmTarget: Float,
+        limit: Int
+    ): Array<RecommendationNative>
+    external fun updateTrackEmbedding(trackId: Int, embedding: FloatArray): Boolean
+    external fun getTrackEmbedding(trackId: Int): FloatArray?
+    external fun cacheSimilarTracks(
+        trackId: Int,
+        titles: Array<String>,
+        artists: Array<String>,
+        mbids: Array<String>,
+        weights: FloatArray
+    ): Boolean
 }
+

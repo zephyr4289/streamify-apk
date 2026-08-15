@@ -29,6 +29,7 @@ StreamifyDB& StreamifyDB::getInstance() {
 
 StreamifyDB::~StreamifyDB() {
     std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    finalizeStatements();
     if (shared_db_) {
         sqlite3_close_v2(shared_db_);
         shared_db_ = nullptr;
@@ -132,6 +133,27 @@ bool StreamifyDB::init(const std::string& db_path) {
             transition_count INTEGER DEFAULT 1,
             PRIMARY KEY (track_a_id, track_b_id, track_c_id)
         );
+        CREATE TABLE IF NOT EXISTS vector_clusters (
+            cluster_id INTEGER PRIMARY KEY,
+            centroid BLOB,
+            track_count INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS track_clusters (
+            track_id INTEGER,
+            cluster_id INTEGER,
+            distance_to_centroid REAL,
+            PRIMARY KEY (track_id, cluster_id)
+        );
+        CREATE TABLE IF NOT EXISTS similar_tracks (
+            track_id INTEGER,
+            similar_track_mbid TEXT,
+            similar_title TEXT,
+            similar_artist TEXT,
+            lastfm_weight REAL,
+            is_resolved INTEGER DEFAULT 0,
+            cached_at INTEGER,
+            PRIMARY KEY (track_id, similar_title, similar_artist)
+        );
         CREATE INDEX IF NOT EXISTS idx_tracks_filepath ON tracks(filepath);
         CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title);
         CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
@@ -142,6 +164,8 @@ bool StreamifyDB::init(const std::string& db_path) {
         CREATE INDEX IF NOT EXISTS idx_cooccur_a ON track_cooccurrence(track_a_id, weight DESC);
         CREATE INDEX IF NOT EXISTS idx_markov_from ON markov_transitions(from_track_id, transition_count DESC);
         CREATE INDEX IF NOT EXISTS idx_markov_2nd ON markov_transitions_2nd(track_a_id, track_b_id, transition_count DESC);
+        CREATE INDEX IF NOT EXISTS idx_track_clusters_cid ON track_clusters(cluster_id, distance_to_centroid ASC);
+        CREATE INDEX IF NOT EXISTS idx_similar_tracks_tid ON similar_tracks(track_id, lastfm_weight DESC);
     )";
 
     char* err = nullptr;
@@ -155,6 +179,8 @@ bool StreamifyDB::init(const std::string& db_path) {
     // Safe column migrations for existing databases
     sqlite3_exec(db, "ALTER TABLE tracks ADD COLUMN play_count INTEGER DEFAULT 1;", nullptr, nullptr, nullptr);
     sqlite3_exec(db, "ALTER TABLE tracks ADD COLUMN last_played_timestamp INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
+    sqlite3_exec(db, "ALTER TABLE tracks ADD COLUMN embedding BLOB;", nullptr, nullptr, nullptr);
+    sqlite3_exec(db, "ALTER TABLE tracks ADD COLUMN mbid TEXT DEFAULT '';", nullptr, nullptr, nullptr);
 
     // Ensure default user ID=1 exists
     const char* bootstrap_user = "INSERT OR IGNORE INTO users (id, username, pin_hash) VALUES (1, 'default_user', 'default_hash');";
@@ -168,15 +194,6 @@ void StreamifyDB::finalizeStatements() {
     if (stmt_get_track_by_vec_) { sqlite3_finalize(stmt_get_track_by_vec_); stmt_get_track_by_vec_ = nullptr; }
     if (stmt_record_play_) { sqlite3_finalize(stmt_record_play_); stmt_record_play_ = nullptr; }
     if (stmt_user_liked_ids_) { sqlite3_finalize(stmt_user_liked_ids_); stmt_user_liked_ids_ = nullptr; }
-}
-
-StreamifyDB::~StreamifyDB() {
-    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
-    finalizeStatements();
-    if (shared_db_) {
-        sqlite3_close(shared_db_);
-        shared_db_ = nullptr;
-    }
 }
 
 sqlite3* StreamifyDB::getConnection() {
@@ -1286,4 +1303,196 @@ float StreamifyDB::get2ndOrderMarkovProbability(int track_a, int track_b, int tr
 
     if (denominator <= 0.0f) return 0.0f;
     return numerator / denominator;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HYBRID ASYMMETRIC RECOMMENDATION ENGINE (K-MEANS & LAST.FM)
+// ═══════════════════════════════════════════════════════════════
+
+bool StreamifyDB::saveClusterCentroid(int cluster_id, const std::vector<float>& centroid, int track_count) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db || centroid.empty()) return false;
+
+    const char* sql = "INSERT INTO vector_clusters (cluster_id, centroid, track_count) VALUES (?, ?, ?) "
+                      "ON CONFLICT(cluster_id) DO UPDATE SET centroid=excluded.centroid, track_count=excluded.track_count;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, cluster_id);
+    sqlite3_bind_blob(stmt, 2, centroid.data(), centroid.size() * sizeof(float), SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, track_count);
+
+    bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return success;
+}
+
+std::vector<std::pair<int, std::vector<float>>> StreamifyDB::getClusterCentroids() {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    std::vector<std::pair<int, std::vector<float>>> result;
+    sqlite3* db = getConnection();
+    if (!db) return result;
+
+    const char* sql = "SELECT cluster_id, centroid FROM vector_clusters ORDER BY cluster_id ASC;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int cluster_id = sqlite3_column_int(stmt, 0);
+        const void* blob_data = sqlite3_column_blob(stmt, 1);
+        int blob_bytes = sqlite3_column_bytes(stmt, 1);
+        int float_count = blob_bytes / sizeof(float);
+
+        if (blob_data && float_count == 512) {
+            const float* float_ptr = static_cast<const float*>(blob_data);
+            std::vector<float> vec(float_ptr, float_ptr + float_count);
+            result.push_back({cluster_id, std::move(vec)});
+        }
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+bool StreamifyDB::assignTrackToCluster(int track_id, int cluster_id, float distance_to_centroid) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return false;
+
+    const char* sql = "INSERT INTO track_clusters (track_id, cluster_id, distance_to_centroid) VALUES (?, ?, ?) "
+                      "ON CONFLICT(track_id, cluster_id) DO UPDATE SET distance_to_centroid=excluded.distance_to_centroid;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, track_id);
+    sqlite3_bind_int(stmt, 2, cluster_id);
+    sqlite3_bind_double(stmt, 3, static_cast<double>(distance_to_centroid));
+
+    bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return success;
+}
+
+std::vector<int> StreamifyDB::getTracksInClusters(const std::vector<int>& cluster_ids, int limit) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    std::vector<int> result;
+    if (cluster_ids.empty()) return result;
+
+    sqlite3* db = getConnection();
+    if (!db) return result;
+
+    std::string sql = "SELECT DISTINCT track_id FROM track_clusters WHERE cluster_id IN (";
+    for (size_t i = 0; i < cluster_ids.size(); ++i) {
+        sql += (i == 0) ? "?" : ", ?";
+    }
+    sql += ") ORDER BY distance_to_centroid ASC LIMIT ?;";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return result;
+
+    int bind_idx = 1;
+    for (int cid : cluster_ids) {
+        sqlite3_bind_int(stmt, bind_idx++, cid);
+    }
+    sqlite3_bind_int(stmt, bind_idx, limit);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        result.push_back(sqlite3_column_int(stmt, 0));
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+bool StreamifyDB::updateTrackEmbedding(int track_id, const float* embedding_512) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db || !embedding_512) return false;
+
+    const char* sql = "UPDATE tracks SET embedding = ? WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_blob(stmt, 1, embedding_512, 512 * sizeof(float), SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, track_id);
+
+    bool success = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return success;
+}
+
+std::vector<float> StreamifyDB::getTrackEmbedding(int track_id) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    std::vector<float> result;
+    sqlite3* db = getConnection();
+    if (!db) return result;
+
+    const char* sql = "SELECT embedding FROM tracks WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+
+    sqlite3_bind_int(stmt, 1, track_id);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const void* blob_data = sqlite3_column_blob(stmt, 0);
+        int blob_bytes = sqlite3_column_bytes(stmt, 0);
+        int float_count = blob_bytes / sizeof(float);
+        if (blob_data && float_count == 512) {
+            const float* float_ptr = static_cast<const float*>(blob_data);
+            result.assign(float_ptr, float_ptr + 512);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+bool StreamifyDB::cacheSimilarTracks(int track_id, const std::vector<std::string>& titles, const std::vector<std::string>& artists, const std::vector<std::string>& mbids, const std::vector<float>& weights) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return false;
+
+    sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+
+    const char* sql = "INSERT INTO similar_tracks (track_id, similar_track_mbid, similar_title, similar_artist, lastfm_weight, is_resolved, cached_at) "
+                      "VALUES (?, ?, ?, ?, ?, 0, strftime('%s', 'now')) "
+                      "ON CONFLICT(track_id, similar_title, similar_artist) DO UPDATE SET lastfm_weight=excluded.lastfm_weight, cached_at=excluded.cached_at;";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        for (size_t i = 0; i < titles.size(); ++i) {
+            sqlite3_bind_int(stmt, 1, track_id);
+            sqlite3_bind_text(stmt, 2, i < mbids.size() ? mbids[i].c_str() : "", -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 3, titles[i].c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 4, i < artists.size() ? artists[i].c_str() : "", -1, SQLITE_TRANSIENT);
+            sqlite3_bind_double(stmt, 5, i < weights.size() ? static_cast<double>(weights[i]) : 0.0);
+
+            sqlite3_step(stmt);
+            sqlite3_reset(stmt);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+    return true;
+}
+
+std::vector<std::pair<std::string, float>> StreamifyDB::getCachedSimilarTracks(int track_id) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    std::vector<std::pair<std::string, float>> result;
+    sqlite3* db = getConnection();
+    if (!db) return result;
+
+    const char* sql = "SELECT similar_title, similar_artist, lastfm_weight FROM similar_tracks WHERE track_id = ? ORDER BY lastfm_weight DESC LIMIT 50;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+
+    sqlite3_bind_int(stmt, 1, track_id);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const char* artist = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        float weight = static_cast<float>(sqlite3_column_double(stmt, 2));
+
+        std::string key = (title ? std::string(title) : "") + "::" + (artist ? std::string(artist) : "");
+        result.push_back({key, weight});
+    }
+    sqlite3_finalize(stmt);
+    return result;
 }

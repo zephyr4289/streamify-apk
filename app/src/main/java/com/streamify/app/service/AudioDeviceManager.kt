@@ -12,6 +12,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class AudioDeviceType {
+    BLUETOOTH_CAR,
+    WIRED_DAC,
+    SPEAKER,
+    BLUETOOTH_HEADPHONES
+}
+
 data class AudioOutputDevice(
     val name: String,
     val isBluetooth: Boolean = false,
@@ -23,6 +30,17 @@ object AudioDeviceManager {
 
     private val _currentDevice = MutableStateFlow(AudioOutputDevice("Phone Speaker", isSpeaker = true))
     val currentDevice: StateFlow<AudioOutputDevice> = _currentDevice.asStateFlow()
+
+    fun getCurrentDeviceType(): AudioDeviceType {
+        val dev = _currentDevice.value
+        val nameLower = dev.name.lowercase()
+        return when {
+            nameLower.contains("car") || nameLower.contains("auto") -> AudioDeviceType.BLUETOOTH_CAR
+            dev.isBluetooth -> AudioDeviceType.BLUETOOTH_HEADPHONES
+            dev.isHeadphones || nameLower.contains("dac") || nameLower.contains("usb") -> AudioDeviceType.WIRED_DAC
+            else -> AudioDeviceType.SPEAKER
+        }
+    }
 
     private var isReceiverRegistered = false
 

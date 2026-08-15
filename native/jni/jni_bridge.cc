@@ -88,15 +88,26 @@ jobjectArray convertTrackList(JNIEnv* env, const std::vector<StreamifyTrack>& tr
     return trackArray;
 }
 
+#include "../engine/RecommendEngine.h"
+#include "../engine/VectorStore.h"
+
 jobjectArray convertRecList(JNIEnv* env, const std::vector<Recommendation>& recs) {
     jclass recClass = g_recClass ? g_recClass : env->FindClass("com/streamify/app/data/models/RecommendationNative");
-    jmethodID constructor = g_recConstructor ? g_recConstructor : env->GetMethodID(recClass, "<init>", "(IF)V");
+    jmethodID constructor4 = env->GetMethodID(recClass, "<init>", "(IFFF)V");
+    jmethodID constructor2 = env->GetMethodID(recClass, "<init>", "(IF)V");
 
     jobjectArray resultArray = env->NewObjectArray(recs.size(), recClass, nullptr);
     for (size_t i = 0; i < recs.size(); ++i) {
-        jobject obj = env->NewObject(recClass, constructor, recs[i].trackId, recs[i].score);
-        env->SetObjectArrayElement(resultArray, i, obj);
-        env->DeleteLocalRef(obj);
+        jobject obj = nullptr;
+        if (constructor4) {
+            obj = env->NewObject(recClass, constructor4, recs[i].trackId, recs[i].score, recs[i].vectorScore, recs[i].bpmMatchScore);
+        } else if (constructor2) {
+            obj = env->NewObject(recClass, constructor2, recs[i].trackId, recs[i].score);
+        }
+        if (obj) {
+            env->SetObjectArrayElement(resultArray, i, obj);
+            env->DeleteLocalRef(obj);
+        }
     }
     return resultArray;
 }
@@ -526,3 +537,144 @@ Java_com_streamify_app_data_NativeBridge_generateProofOfCompute(JNIEnv* env, job
     env->ReleaseFloatArrayElements(buffer, pcm, 0);
     return env->NewStringUTF(proof.c_str());
 }
+
+// ═══════════════════════════════════════════════════════════════
+// HYBRID ASYMMETRIC RECOMMENDATION ENGINE JNI EXPORTS
+// ═══════════════════════════════════════════════════════════════
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_streamify_app_data_NativeBridge_getTargetBpmForTimeSlot(JNIEnv* /* env */, jobject /* this */, jint slotOrdinal) {
+    return RecommendEngine::getInstance().getTargetBpmForTimeSlot(slotOrdinal);
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_streamify_app_data_NativeBridge_getVectorRecommendations(
+    JNIEnv* env,
+    jobject /* this */,
+    jint currentTrackId,
+    jfloat timeWeight,
+    jfloat deviceWeight,
+    jfloat bpmTarget,
+    jint limit
+) {
+    auto& db = StreamifyDB::getInstance();
+    auto& recEngine = RecommendEngine::getInstance();
+    auto& vecStore = VectorStore::getInstance();
+
+    std::vector<float> baseVec = db.getTrackEmbedding(currentTrackId);
+    if (baseVec.empty()) {
+        auto optTrack = db.getTrackById(currentTrackId);
+        if (optTrack && optTrack->vector_offset >= 0) {
+            baseVec = vecStore.getVectorAt(optTrack->vector_offset);
+        }
+    }
+
+    if (baseVec.empty()) {
+        auto all = db.getAllTracks();
+        std::vector<Recommendation> fallback;
+        for (const auto& t : all) {
+            if (t.id != currentTrackId) {
+                Recommendation r;
+                r.trackId = t.id;
+                r.score = 1.0f;
+                r.vectorScore = 0.5f;
+                r.bpmMatchScore = 0.5f;
+                fallback.push_back(r);
+                if (fallback.size() >= static_cast<size_t>(limit)) break;
+            }
+        }
+        return convertRecList(env, fallback);
+    }
+
+    // 1. Compute Contextual Vector
+    std::vector<float> ctxVec = recEngine.computeContextualVector(baseVec, timeWeight, deviceWeight);
+
+    // 2. K-Means: Find 2 closest clusters
+    std::vector<int> topClusters = recEngine.findClosestClusters(ctxVec, 2);
+
+    // 3. Get candidate tracks in those clusters
+    std::vector<int> candidates = db.getTracksInClusters(topClusters, 100);
+    if (candidates.size() < 10) {
+        auto all = db.getAllTracks();
+        for (const auto& t : all) {
+            if (t.id != currentTrackId) candidates.push_back(t.id);
+        }
+    }
+
+    // 4. NEON SIMD Ranking + Ellis-Gaussian BPM + Satiation
+    auto scoredRecs = recEngine.rankHybridCandidates(ctxVec, candidates, bpmTarget, 0.20f, limit);
+    return convertRecList(env, scoredRecs);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_updateTrackEmbedding(JNIEnv* env, jobject /* this */, jint trackId, jfloatArray embedding) {
+    if (!embedding) return JNI_FALSE;
+    jsize len = env->GetArrayLength(embedding);
+    if (len < 512) return JNI_FALSE;
+
+    jfloat* ptr = env->GetFloatArrayElements(embedding, nullptr);
+    if (!ptr) return JNI_FALSE;
+
+    bool ok = StreamifyDB::getInstance().updateTrackEmbedding(trackId, ptr);
+    env->ReleaseFloatArrayElements(embedding, ptr, 0);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_streamify_app_data_NativeBridge_getTrackEmbedding(JNIEnv* env, jobject /* this */, jint trackId) {
+    std::vector<float> vec = StreamifyDB::getInstance().getTrackEmbedding(trackId);
+    if (vec.size() < 512) return nullptr;
+
+    jfloatArray result = env->NewFloatArray(512);
+    env->SetFloatArrayRegion(result, 0, 512, vec.data());
+    return result;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_cacheSimilarTracks(
+    JNIEnv* env,
+    jobject /* this */,
+    jint trackId,
+    jobjectArray titles,
+    jobjectArray artists,
+    jobjectArray mbids,
+    jfloatArray weights
+) {
+    if (!titles || !artists || !weights) return JNI_FALSE;
+    jsize count = env->GetArrayLength(titles);
+    if (count <= 0) return JNI_FALSE;
+
+    std::vector<std::string> titleVec(count);
+    std::vector<std::string> artistVec(count);
+    std::vector<std::string> mbidVec(count);
+    std::vector<float> weightVec(count);
+
+    jfloat* wPtr = env->GetFloatArrayElements(weights, nullptr);
+    for (jsize i = 0; i < count; ++i) {
+        jstring tStr = static_cast<jstring>(env->GetObjectArrayElement(titles, i));
+        jstring aStr = static_cast<jstring>(env->GetObjectArrayElement(artists, i));
+        jstring mStr = mbids ? static_cast<jstring>(env->GetObjectArrayElement(mbids, i)) : nullptr;
+
+        const char* tChars = tStr ? env->GetStringUTFChars(tStr, nullptr) : "";
+        const char* aChars = aStr ? env->GetStringUTFChars(aStr, nullptr) : "";
+        const char* mChars = mStr ? env->GetStringUTFChars(mStr, nullptr) : "";
+
+        titleVec[i] = tChars ? tChars : "";
+        artistVec[i] = aChars ? aChars : "";
+        mbidVec[i] = mChars ? mChars : "";
+        weightVec[i] = wPtr ? wPtr[i] : 0.0f;
+
+        if (tStr && tChars) env->ReleaseStringUTFChars(tStr, tChars);
+        if (aStr && aChars) env->ReleaseStringUTFChars(aStr, aChars);
+        if (mStr && mChars) env->ReleaseStringUTFChars(mStr, mChars);
+
+        if (tStr) env->DeleteLocalRef(tStr);
+        if (aStr) env->DeleteLocalRef(aStr);
+        if (mStr) env->DeleteLocalRef(mStr);
+    }
+    if (wPtr) env->ReleaseFloatArrayElements(weights, wPtr, 0);
+
+    bool ok = StreamifyDB::getInstance().cacheSimilarTracks(trackId, titleVec, artistVec, mbidVec, weightVec);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+

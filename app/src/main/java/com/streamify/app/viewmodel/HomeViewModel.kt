@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 sealed class HomeUiState {
     object Loading : HomeUiState()
     data class Success(
+        val hybridRecommendations: List<Track> = emptyList(),
         val sessionRecommendations: List<Track>,
         val circadianRecommendations: List<Track>,
         val circadianSlotTitle: String,
@@ -28,7 +29,10 @@ sealed class HomeUiState {
     data class Error(val message: String) : HomeUiState()
 }
 
-class HomeViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
+class HomeViewModel(
+    private val repository: TrackRepository = TrackRepository,
+    private val hybridFetcher: com.streamify.app.data.network.HybridGraphFetcher = com.streamify.app.data.network.HybridGraphFetcher()
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -90,7 +94,19 @@ class HomeViewModel(private val repository: TrackRepository = TrackRepository) :
                 val topPlayed = try { repository.getTopPlayedTracks(20) } catch (e: Exception) { emptyList() }
                 val recent = allTracks.takeLast(6)
 
-                // 5. Online 2-Hop Graph Discovery
+                // 5. Hybrid Asymmetric Crowd + SIMD Recommendation Shelf
+                val seedTrack = sessionRecs.firstOrNull() ?: allTracks.firstOrNull()
+                val hybridRecs = if (seedTrack != null) {
+                    try {
+                        val timeOfDay = com.streamify.app.util.TimeGreeting.getCurrentTimeOfDay()
+                        val audioDevice = com.streamify.app.service.AudioDeviceManager.getCurrentDeviceType()
+                        hybridFetcher.getHybridRecommendations(seedTrack, timeOfDay, audioDevice, limit = 8)
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                } else emptyList()
+
+                // 6. Online 2-Hop Graph Discovery
                 val topArtists = ReRanker.extractTopArtists(sessionRecs.ifEmpty { topPlayed.ifEmpty { allTracks } }, limit = 2)
                 val onlineDiscoveries = mutableListOf<Track>()
 
@@ -118,6 +134,7 @@ class HomeViewModel(private val repository: TrackRepository = TrackRepository) :
 
                 withContext(Dispatchers.Main) {
                     _uiState.value = HomeUiState.Success(
+                        hybridRecommendations = hybridRecs,
                         sessionRecommendations = sessionRecs,
                         circadianRecommendations = circadianRecs,
                         circadianSlotTitle = slotTitle,

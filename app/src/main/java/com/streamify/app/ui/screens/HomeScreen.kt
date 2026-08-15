@@ -326,6 +326,49 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXL))
                     }
 
+                    // 0. Hybrid Asymmetric Radar Shelf (Global Crowd + On-Device NEON SIMD)
+                    if (state.hybridRecommendations.isNotEmpty()) {
+                        item {
+                            AnimatedVisibility(
+                                visible = isVisible,
+                                enter = fadeIn(tween(400, delayMillis = 200)) + slideInVertically(tween(400, delayMillis = 200)) { 50 }
+                            ) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "Hybrid Radar ⚡",
+                                                style = StreamifyType.HeadlineMedium,
+                                                color = StreamifyColors.TextMain
+                                            )
+                                            Text(
+                                                text = "Last.fm Crowd Graph × NEON SIMD Context",
+                                                style = StreamifyType.Caption,
+                                                color = Color(0xFF00E5FF)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
+                                    ) {
+                                        items(state.hybridRecommendations, key = { "hybrid_${it.id}" }) { track ->
+                                            TrackCard(
+                                                track = track,
+                                                onClick = { onTrackClick(track, state.hybridRecommendations) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXL))
+                                }
+                            }
+                        }
+                    }
+
                     // 1. Session-Aware "Jump Back In • Current Vibe"
                     if (state.sessionRecommendations.isNotEmpty()) {
                         item {

@@ -398,3 +398,244 @@ std::vector<Recommendation> RecommendEngine::getCircadianRecommendations(int hou
 
     return candidates;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// HYBRID ASYMMETRIC ENGINE: CONTEXTUAL VECTOR, CLUSTERS & RANKING
+// ═══════════════════════════════════════════════════════════════
+
+#if defined(__ARM_NEON) || defined(__aarch64__)
+#include <arm_neon.h>
+#endif
+
+RecommendEngine::RecommendEngine() {
+    time_prototype_vector_.resize(512);
+    device_prototype_vector_.resize(512);
+    for (int i = 0; i < 512; ++i) {
+        time_prototype_vector_[i] = std::sin(i * 0.05f) * 0.5f;
+        device_prototype_vector_[i] = std::cos(i * 0.03f) * 0.5f;
+    }
+}
+
+void RecommendEngine::ensureCentroidsLoaded() {
+    if (centroids_loaded_) return;
+    auto& db = StreamifyDB::getInstance();
+    auto loaded = db.getClusterCentroids();
+    if (loaded.size() >= 16) {
+        for (const auto& item : loaded) {
+            if (item.first >= 0 && item.first < 16 && item.second.size() == 512) {
+                cluster_centroids_[item.first] = item.second;
+            }
+        }
+        centroids_loaded_ = true;
+    } else {
+        for (int c = 0; c < 16; ++c) {
+            cluster_centroids_[c].resize(512);
+            float norm = 0.0f;
+            for (int i = 0; i < 512; ++i) {
+                float val = std::sin((i + c * 32) * 0.1f) + std::cos((i * (c + 1)) * 0.05f);
+                cluster_centroids_[c][i] = val;
+                norm += val * val;
+            }
+            norm = std::sqrt(norm) + 1e-7f;
+            for (int i = 0; i < 512; ++i) {
+                cluster_centroids_[c][i] /= norm;
+            }
+            db.saveClusterCentroid(c, cluster_centroids_[c], 0);
+        }
+        centroids_loaded_ = true;
+    }
+}
+
+std::vector<float> RecommendEngine::computeContextualVector(const std::vector<float>& sessionVector, float timeWeight, float deviceWeight) {
+    std::vector<float> result(512, 0.0f);
+    if (sessionVector.size() < 512) return result;
+
+    float wSession = 0.70f;
+    float wTime = 0.15f * timeWeight;
+    float wDevice = 0.15f * deviceWeight;
+
+    float totalWeight = wSession + wTime + wDevice;
+    if (totalWeight <= 0.0f) totalWeight = 1.0f;
+    wSession /= totalWeight;
+    wTime /= totalWeight;
+    wDevice /= totalWeight;
+
+#if defined(__ARM_NEON) || defined(__aarch64__)
+    for (int i = 0; i < 512; i += 4) {
+        float32x4_t v_session = vld1q_f32(&sessionVector[i]);
+        float32x4_t v_time = vld1q_f32(&time_prototype_vector_[i]);
+        float32x4_t v_device = vld1q_f32(&device_prototype_vector_[i]);
+
+        float32x4_t v_res = vmulq_n_f32(v_session, wSession);
+        v_res = vmlaq_n_f32(v_res, v_time, wTime);
+        v_res = vmlaq_n_f32(v_res, v_device, wDevice);
+
+        vst1q_f32(&result[i], v_res);
+    }
+#else
+    for (int i = 0; i < 512; ++i) {
+        result[i] = (sessionVector[i] * wSession) + (time_prototype_vector_[i] * wTime) + (device_prototype_vector_[i] * wDevice);
+    }
+#endif
+
+    float norm = 0.0f;
+    for (float val : result) norm += val * val;
+    norm = std::sqrt(norm) + 1e-7f;
+    for (float& val : result) val /= norm;
+
+    return result;
+}
+
+std::vector<int> RecommendEngine::findClosestClusters(const std::vector<float>& queryVector, int topK) {
+    ensureCentroidsLoaded();
+    if (queryVector.size() < 512) return {0, 1};
+
+    std::vector<std::pair<float, int>> clusterScores;
+    clusterScores.reserve(16);
+
+    for (int c = 0; c < 16; ++c) {
+        float dotProduct = 0.0f;
+        float normA = 0.0f;
+        float normB = 0.0f;
+
+#if defined(__ARM_NEON) || defined(__aarch64__)
+        for (int i = 0; i < 512; i += 4) {
+            float32x4_t v_query = vld1q_f32(&queryVector[i]);
+            float32x4_t v_centroid = vld1q_f32(&cluster_centroids_[c][i]);
+
+            float32x4_t v_dot = vmulq_f32(v_query, v_centroid);
+            float32x2_t v_dot2 = vpadd_f32(vget_low_f32(v_dot), vget_high_f32(v_dot));
+            dotProduct += vget_lane_f32(v_dot2, 0) + vget_lane_f32(v_dot2, 1);
+
+            float32x4_t v_sqA = vmulq_f32(v_query, v_query);
+            float32x2_t v_sqA2 = vpadd_f32(vget_low_f32(v_sqA), vget_high_f32(v_sqA));
+            normA += vget_lane_f32(v_sqA2, 0) + vget_lane_f32(v_sqA2, 1);
+
+            float32x4_t v_sqB = vmulq_f32(v_centroid, v_centroid);
+            float32x2_t v_sqB2 = vpadd_f32(vget_low_f32(v_sqB), vget_high_f32(v_sqB));
+            normB += vget_lane_f32(v_sqB2, 0) + vget_lane_f32(v_sqB2, 1);
+        }
+#else
+        for (int i = 0; i < 512; ++i) {
+            dotProduct += queryVector[i] * cluster_centroids_[c][i];
+            normA += queryVector[i] * queryVector[i];
+            normB += cluster_centroids_[c][i] * cluster_centroids_[c][i];
+        }
+#endif
+
+        float cosineSim = dotProduct / (std::sqrt(normA) * std::sqrt(normB) + 1e-7f);
+        clusterScores.push_back({cosineSim, c});
+    }
+
+    std::sort(clusterScores.begin(), clusterScores.end(), [](const auto& a, const auto& b) {
+        return a.first > b.first;
+    });
+
+    std::vector<int> result;
+    for (int i = 0; i < topK && i < static_cast<int>(clusterScores.size()); ++i) {
+        result.push_back(clusterScores[i].second);
+    }
+    return result;
+}
+
+std::vector<Recommendation> RecommendEngine::rankHybridCandidates(
+    const std::vector<float>& queryVector,
+    const std::vector<int>& candidateTrackIds,
+    float bpmTarget,
+    float satiationPenaltyWeight,
+    int limit
+) {
+    auto& db = StreamifyDB::getInstance();
+    auto& vecStore = VectorStore::getInstance();
+
+    float queryNorm = 0.0f;
+    for (float v : queryVector) queryNorm += v * v;
+    queryNorm = std::sqrt(queryNorm) + 1e-7f;
+
+    std::vector<int> likedIds = db.getUserLikedTrackIds(1);
+    std::unordered_set<int> likedSet(likedIds.begin(), likedIds.end());
+
+    std::vector<Recommendation> scored;
+    scored.reserve(candidateTrackIds.size());
+
+    for (int tid : candidateTrackIds) {
+        auto optTrack = db.getTrackById(tid);
+        if (!optTrack) continue;
+
+        // Try getting embedding from db blob or vecStore
+        std::vector<float> trackVec = db.getTrackEmbedding(tid);
+        if (trackVec.empty() && optTrack->vector_offset >= 0) {
+            trackVec = vecStore.getVectorAt(optTrack->vector_offset);
+        }
+
+        float cosineSim = 0.0f;
+        if (trackVec.size() >= 512 && queryVector.size() >= 512) {
+            float dot = 0.0f;
+            float normB = 0.0f;
+#if defined(__ARM_NEON) || defined(__aarch64__)
+            for (int i = 0; i < 512; i += 4) {
+                float32x4_t v_q = vld1q_f32(&queryVector[i]);
+                float32x4_t v_t = vld1q_f32(&trackVec[i]);
+
+                float32x4_t v_dot = vmulq_f32(v_q, v_t);
+                float32x2_t v_dot2 = vpadd_f32(vget_low_f32(v_dot), vget_high_f32(v_dot));
+                dot += vget_lane_f32(v_dot2, 0) + vget_lane_f32(v_dot2, 1);
+
+                float32x4_t v_sq = vmulq_f32(v_t, v_t);
+                float32x2_t v_sq2 = vpadd_f32(vget_low_f32(v_sq), vget_high_f32(v_sq));
+                normB += vget_lane_f32(v_sq2, 0) + vget_lane_f32(v_sq2, 1);
+            }
+#else
+            for (int i = 0; i < 512; ++i) {
+                dot += queryVector[i] * trackVec[i];
+                normB += trackVec[i] * trackVec[i];
+            }
+#endif
+            cosineSim = dot / (queryNorm * (std::sqrt(normB) + 1e-7f));
+        }
+
+        // Gaussian BPM Alignment Score (sigma = 20 BPM)
+        float bpmDiff = std::abs(static_cast<float>(optTrack->bpm) - bpmTarget);
+        float bpmScore = std::exp(-0.5f * std::pow(bpmDiff / 20.0f, 2.0f));
+
+        // Satiation Penalty
+        float satiation = db.getTrackSatiationPenalty(tid);
+        float baseAffinity = (likedSet.count(tid) > 0) ? 0.15f : 0.05f;
+
+        // 60% Vector + 25% BPM + 15% Base - Satiation
+        float finalScore = (0.60f * cosineSim) + (0.25f * bpmScore) + baseAffinity - (satiation * satiationPenaltyWeight);
+
+        Recommendation rec;
+        rec.trackId = tid;
+        rec.score = finalScore;
+        rec.vectorScore = cosineSim;
+        rec.bpmMatchScore = bpmScore;
+        scored.push_back(rec);
+    }
+
+    size_t targetK = std::min(scored.size(), static_cast<size_t>(limit));
+    if (targetK > 0) {
+        std::partial_sort(
+            scored.begin(),
+            scored.begin() + targetK,
+            scored.end(),
+            [](const Recommendation& a, const Recommendation& b) {
+                return a.score > b.score;
+            }
+        );
+        scored.resize(targetK);
+    }
+
+    return scored;
+}
+
+float RecommendEngine::getTargetBpmForTimeSlot(int slotOrdinal) {
+    switch (slotOrdinal) {
+        case 0: return 130.0f; // Morning (Energy)
+        case 1: return 115.0f; // Afternoon (Focus)
+        case 2: return 100.0f; // Evening (Unwind)
+        case 3: return 85.0f;  // Night (Mellow)
+        default: return 115.0f;
+    }
+}
+
