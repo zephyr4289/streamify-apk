@@ -1,161 +1,154 @@
 package com.streamify.app.ui.screens
 
-import android.os.Build
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.LyricsLine
-import com.streamify.app.ui.theme.StreamifyColors
-import kotlinx.coroutines.launch
+import com.streamify.app.ui.components.YtLyricLineItem
+import com.streamify.app.ui.components.YtLyricsHeader
+import com.streamify.app.ui.theme.*
 
 @Composable
 fun LyricsScreen(
     lyrics: List<LyricsLine>,
     currentPositionMs: Long,
-    dominantColor: Color = StreamifyColors.BgBase,
-    onSeek: (Long) -> Unit
+    dominantColor: Color = BgBase,
+    onSeek: (Long) -> Unit,
+    onClose: (() -> Unit)? = null
 ) {
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
 
-    var activeIndex by remember { mutableStateOf(-1) }
-    val density = LocalDensity.current
-    val scrollOffsetPx = remember(density) { with(density) { (-220).dp.roundToPx() } }
+    // 1. Calculate Active Index Mathematically
+    val activeIndex = remember(currentPositionMs, lyrics) {
+        val idx = lyrics.indexOfLast { it.timeMs <= currentPositionMs }
+        if (idx >= 0) idx else 0
+    }
 
-    LaunchedEffect(currentPositionMs, lyrics) {
-        val index = lyrics.indexOfLast { it.timeMs <= currentPositionMs }
-        if (index != activeIndex && index >= 0) {
-            activeIndex = index
-            coroutineScope.launch {
-                listState.animateScrollToItem(index, scrollOffset = scrollOffsetPx)
+    // 2. 120fps Mathematical Focal Auto-Scroll Engine (35% from top)
+    LaunchedEffect(activeIndex) {
+        if (lyrics.isNotEmpty() && activeIndex in lyrics.indices && !listState.isScrollInProgress) {
+            val viewportHeight = listState.layoutInfo.viewportSize.height
+            if (viewportHeight > 0) {
+                val focalOffset = viewportHeight * 0.35f
+                val itemInfo = listState.layoutInfo.visibleItemsInfo.find { it.index == activeIndex }
+                if (itemInfo != null) {
+                    val targetDelta = (itemInfo.offset - focalOffset)
+                    listState.animateScrollBy(
+                        value = targetDelta,
+                        animationSpec = tween(durationMillis = 350)
+                    )
+                } else {
+                    listState.animateScrollToItem(
+                        index = activeIndex,
+                        scrollOffset = (-focalOffset).toInt()
+                    )
+                }
             }
         }
     }
 
-    val animatedColor by animateColorAsState(
-        targetValue = dominantColor,
-        animationSpec = tween(1500),
-        label = "bgColor"
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
+            .background(BgBase)
+            .statusBarsPadding()
+    ) {
+        // Subtle Ambient Glow Canvas
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRect(
+                brush = Brush.radialGradient(
                     colors = listOf(
-                        animatedColor.copy(alpha = 0.85f),
-                        StreamifyColors.BgBase
-                    )
+                        dominantColor.copy(alpha = 0.22f),
+                        BgBase.copy(alpha = 0.85f),
+                        BgBase
+                    ),
+                    center = Offset(size.width / 2, size.height * 0.25f),
+                    radius = size.width * 1.1f
                 )
             )
-            .padding(top = 48.dp, start = 20.dp, end = 20.dp)
-    ) {
-        if (lyrics.isEmpty()) {
-            Text(
-                text = "Looking for synchronized lyrics...",
-                color = StreamifyColors.TextSub,
-                modifier = Modifier.padding(top = 32.dp)
+        }
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Top Bar
+            YtLyricsHeader(
+                source = "Musixmatch / LRCLIB",
+                onClose = onClose
             )
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 180.dp, bottom = 320.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                itemsIndexed(lyrics) { index, line ->
-                    val isActive = index == activeIndex
-                    val isPast = index < activeIndex
 
-                    val targetScale = if (isActive) 1.15f else 0.95f
-                    val targetAlpha = when {
-                        isActive -> 1.0f
-                        isPast -> 0.45f
-                        else -> 0.25f
-                    }
-
-                    val animatedScale by animateFloatAsState(
-                        targetValue = targetScale,
-                        animationSpec = spring(
-                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
-                        ),
-                        label = "scale"
-                    )
-
-                    val animatedAlpha by animateFloatAsState(
-                        targetValue = targetAlpha,
-                        animationSpec = tween(300),
-                        label = "alpha"
-                    )
-
-                    val nextLineTimeMs = if (index < lyrics.size - 1) lyrics[index + 1].timeMs else line.timeMs + 5000L
-                    val lineProgress = if (isActive && currentPositionMs >= line.timeMs) {
-                        val duration = (nextLineTimeMs - line.timeMs).toFloat()
-                        if (duration > 0) ((currentPositionMs - line.timeMs) / duration).coerceIn(0f, 1f) else 1f
-                    } else if (isPast) 1f else 0f
-
-                    val brush = if (isActive || isPast) {
-                        Brush.horizontalGradient(
-                            0.0f to StreamifyColors.TextMain,
-                            (lineProgress - 0.04f).coerceAtLeast(0f) to StreamifyColors.TextMain,
-                            (lineProgress + 0.04f).coerceAtMost(1f) to StreamifyColors.TextMain.copy(alpha = 0.35f),
-                            1.0f to StreamifyColors.TextMain.copy(alpha = 0.35f)
+            if (lyrics.isEmpty()) {
+                // Empty / Searching Lyrics State
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 120.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Filled.MusicNote,
+                            contentDescription = null,
+                            tint = TextTertiary,
+                            modifier = Modifier.size(48.dp)
                         )
-                    } else {
-                        Brush.horizontalGradient(
-                            0.0f to StreamifyColors.TextMain.copy(alpha = animatedAlpha),
-                            1.0f to StreamifyColors.TextMain.copy(alpha = animatedAlpha)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Looking for synchronized lyrics...",
+                            style = LocalAppTypography.current.songTitle,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Lyrics will appear when available",
+                            style = LocalAppTypography.current.songArtist,
+                            color = TextTertiary
+                        )
+                    }
+                }
+            } else {
+                // Lyrics Scrollable Column
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 40.dp, bottom = 160.dp)
+                ) {
+                    itemsIndexed(
+                        items = lyrics,
+                        key = { index, line -> "${index}_${line.timeMs}" }
+                    ) { index, line ->
+                        YtLyricLineItem(
+                            text = line.text,
+                            isActive = index == activeIndex,
+                            onClick = { onSeek(line.timeMs) }
                         )
                     }
 
-                    Text(
-                        text = line.text,
-                        fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Bold,
-                        fontSize = 26.sp,
-                        lineHeight = 34.sp,
-                        style = TextStyle(brush = brush),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer {
-                                scaleX = animatedScale
-                                scaleY = animatedScale
-                                transformOrigin = TransformOrigin(0f, 0.5f)
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    renderEffect = if (!isActive) {
-                                        android.graphics.RenderEffect.createBlurEffect(
-                                            5f, 5f, android.graphics.Shader.TileMode.CLAMP
-                                        ).asComposeRenderEffect()
-                                    } else null
-                                }
-                            }
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { onSeek(line.timeMs) }
-                    )
+                    // Attribution Footer
+                    item(key = "attribution_footer") {
+                        Spacer(modifier = Modifier.height(32.dp))
+                        Text(
+                            text = "Lyrics provided by Musixmatch / LRCLIB • May not be 100% accurate",
+                            style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                            color = TextTertiary,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
+                        )
+                    }
                 }
             }
         }
