@@ -195,14 +195,14 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 savePlayerState(context)
                 
                 // Auto-Fetch Lyrics if missing using Chaquopy robust engine
-                val currentT = _playerState.value.currentTrack
-                if (currentT != null && currentT.id > 0 && currentT.lyricsPath.isNullOrBlank()) {
+                val playingTrack = _playerState.value.currentTrack
+                if (playingTrack != null && playingTrack.id > 0 && playingTrack.lyricsPath.isNullOrBlank()) {
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         try {
                             val lyricsText = try {
                                 val py = com.chaquo.python.Python.getInstance()
                                 val lyricsModule = py.getModule("download_engine.lyrics")
-                                lyricsModule.callAttr("fetch_lyrics", currentT.title, currentT.artist, currentT.durationSec).toString()
+                                lyricsModule.callAttr("fetch_lyrics", playingTrack.title, playingTrack.artist, playingTrack.durationSec).toString()
                             } catch (e: Exception) {
                                 ""
                             }
@@ -211,11 +211,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                 val lyricsDir = java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), ".Streamify/lyrics")
                                 if (!lyricsDir.exists()) lyricsDir.mkdirs()
                                 
-                                val lrcFile = java.io.File(lyricsDir, "${currentT.id}.lrc")
+                                val lrcFile = java.io.File(lyricsDir, "${playingTrack.id}.lrc")
                                 lrcFile.writeText(lyricsText)
                                 
                                 withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                    val updatedTrack = currentT.copy(lyricsPath = lrcFile.absolutePath)
+                                    val updatedTrack = playingTrack.copy(lyricsPath = lrcFile.absolutePath)
                                     _playerState.value = _playerState.value.copy(currentTrack = updatedTrack)
                                 }
                             }

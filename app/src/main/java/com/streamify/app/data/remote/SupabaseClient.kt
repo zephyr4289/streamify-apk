@@ -405,7 +405,7 @@ object SupabaseClient {
                         val streamUrl = to.optString("stream_url", "")
                         val coverUrl = to.optString("cover_url", "")
                         val duration = to.optInt("duration_sec", 0)
-                        val bpm = to.optDouble("bpm", 120.0)
+                        val bpm = to.optDouble("bpm", 120.0).toFloat()
                         val key = to.optString("key_signature", "C")
 
                         if (title.isNotBlank()) {

@@ -21,6 +21,11 @@ class TextEmbeddingEngine(private val context: Context) {
         l2Normalize(raw)
     }
 
+    fun generateEmbedding(input: String): FloatArray {
+        val raw = generateSemanticHashVector(input)
+        return l2Normalize(raw)
+    }
+
     /**
      * Batch embed: Process a list of tracks in parallel
      */

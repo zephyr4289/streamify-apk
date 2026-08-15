@@ -70,7 +70,7 @@ object TrackRepository {
             durationSec = track.durationSec,
             coverArtPath = track.coverArtPath ?: "",
             lyricsPath = track.lyricsPath ?: "",
-            bpm = track.bpm.toDouble(),
+            bpm = track.bpm,
             key = track.key
         )
 
