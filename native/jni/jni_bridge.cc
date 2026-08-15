@@ -1,8 +1,11 @@
 #include <jni.h>
 #include <string>
 #include <vector>
+#include <ctime>
 #include "../engine/StreamifyDB.h"
 #include "../engine/TaskOrchestrator.h"
+#include "../engine/TelemetryEngine.h"
+#include "../engine/ChronosProfiler.h"
 
 // Cached Global JNI References for zero lookup overhead
 static jclass g_trackClass = nullptr;
@@ -461,4 +464,19 @@ Java_com_streamify_app_data_NativeBridge_getCooccurrenceRecommendations(JNIEnv* 
         env->SetIntArrayRegion(result, 0, candidates.size(), candidates.data());
     }
     return result;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_pushTelemetryEvent(JNIEnv* /* env */, jobject /* this */, jint type, jlong trackId, jfloat value) {
+    TelemetryEngine::getInstance().pushEvent(static_cast<TelemetryEventType>(type), trackId, value);
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_streamify_app_data_NativeBridge_getMarkovProbability(JNIEnv* /* env */, jobject /* this */, jint fromTrackId, jint toTrackId) {
+    return StreamifyDB::getInstance().getMarkovProbability(fromTrackId, toTrackId);
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_streamify_app_data_NativeBridge_getSatiationPenalty(JNIEnv* /* env */, jobject /* this */, jint trackId) {
+    return ChronosProfiler::getInstance().calculateSatiationPenalty(trackId, std::time(nullptr) * 1000LL);
 }

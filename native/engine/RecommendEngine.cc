@@ -1,9 +1,12 @@
 #include "RecommendEngine.h"
 #include "StreamifyDB.h"
 #include "VectorStore.h"
+#include "ChronosProfiler.h"
+#include "TelemetryEngine.h"
 #include <unordered_set>
 #include <algorithm>
 #include <cmath>
+#include <ctime>
 #include <cctype>
 
 static bool equalsIgnoreCase(const std::string& a, const std::string& b) {
@@ -126,20 +129,23 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
                 l_boost = liked_boost;
             }
 
-            // Transition Probability Boost & Skip Penalty
+            // Transition & Markov Chain Probability
             float transition_prob = db.getTransitionProbability(1, currentTrackId, track_id);
+            float markov_prob = db.getMarkovProbability(currentTrackId, track_id);
+            float effective_markov = std::max(transition_prob, markov_prob);
+
             int skip_count = db.getTrackTotalSkipCount(1, track_id);
             float skip_penalty = std::min(1.0f, skip_count * skip_penalty_factor);
 
-            // Project Nexus: Co-occurrence graph boost & Satiation burnout penalty
+            // Project Nexus & Chronos: Co-occurrence graph boost & Satiation burnout penalty
             float cooccur_boost = 0.0f;
             auto cooccurList = db.getCooccurrenceCandidates(currentTrackId, 10);
             if (std::find(cooccurList.begin(), cooccurList.end(), track_id) != cooccurList.end()) {
                 cooccur_boost = 0.35f;
             }
-            float satiation_penalty = db.getTrackSatiationPenalty(track_id);
+            float satiation_penalty = ChronosProfiler::getInstance().calculateSatiationPenalty(track_id, std::time(nullptr) * 1000LL);
 
-            float final_score = cosine_sim + (beta_bpm * bpm_score) + a_boost + k_boost + l_boost + (transition_prob * 0.30f) + cooccur_boost - skip_penalty - satiation_penalty;
+            float final_score = (0.45f * cosine_sim) + (0.25f * effective_markov) + (0.15f * bpm_score) + a_boost + k_boost + l_boost + (0.15f * cooccur_boost) - skip_penalty - (0.15f * satiation_penalty);
             candidates.push_back({track_id, final_score});
             candidate_ids_added.insert(track_id);
         }

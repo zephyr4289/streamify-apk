@@ -162,6 +162,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     val durSec = if (ctrl.duration > 0) (ctrl.duration / 1000L).toInt() else (_playerState.value.currentTrack?.durationSec ?: 0)
                     val ratio = if (durSec > 0) (posSec.toFloat() / durSec.toFloat()).coerceIn(0f, 1f) else 0.5f
 
+                    NativeBridge.pushTelemetryEvent(NativeBridge.EVENT_PLAY_TRANSITION, lastPlayedTrackId!!.toLong(), newTrackId.toFloat())
                     viewModelScope.launch {
                         if (wasSkipped && ctrl.currentPosition < 10000) {
                             repository.logSkipEvent(lastPlayedTrackId!!, newTrackId)
@@ -392,28 +393,22 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         _playerState.value = _playerState.value.copy(currentPosition = positionMs)
         
         val currentT = _playerState.value.currentTrack
-        if (currentT != null && currentT.id > 0 && positionMs > 5000L) {
-            viewModelScope.launch {
-                repository.logHookTelemetry(currentT.id, positionMs, 0, 0)
-            }
+        if (currentT != null && currentT.id > 0) {
+            NativeBridge.pushTelemetryEvent(NativeBridge.EVENT_SCRUB_SEEK, currentT.id.toLong(), positionMs.toFloat())
         }
     }
 
     fun logLyricsDwell(dwellSeconds: Int) {
         val currentT = _playerState.value.currentTrack
         if (currentT != null && currentT.id > 0 && dwellSeconds > 0) {
-            viewModelScope.launch {
-                repository.logHookTelemetry(currentT.id, 0L, dwellSeconds, 0)
-            }
+            NativeBridge.pushTelemetryEvent(NativeBridge.EVENT_LYRICS_DWELL, currentT.id.toLong(), dwellSeconds.toFloat())
         }
     }
 
     fun logVolumeFlare() {
         val currentT = _playerState.value.currentTrack
         if (currentT != null && currentT.id > 0) {
-            viewModelScope.launch {
-                repository.logHookTelemetry(currentT.id, 0L, 0, 1)
-            }
+            NativeBridge.pushTelemetryEvent(NativeBridge.EVENT_VOLUME_CHANGE, currentT.id.toLong(), 1.0f)
         }
     }
     

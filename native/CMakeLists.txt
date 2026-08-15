@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22.1)
 project("streamify_core")
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if (ANDROID_ABI STREQUAL "arm64-v8a")
@@ -15,6 +15,8 @@ add_library(streamify_core SHARED
     engine/RecommendEngine.cc
     engine/EventTracker.cc
     engine/TaskOrchestrator.cc
+    engine/TelemetryEngine.cc
+    engine/ChronosProfiler.cc
     ingest/AudioPipeline.cc
     dsp/SoftKneeLimiter.cc
     dsp/kissfft/kiss_fft.c

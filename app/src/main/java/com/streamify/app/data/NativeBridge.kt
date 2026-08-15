@@ -76,4 +76,14 @@ object NativeBridge {
     external fun recordTrackCooccurrence(trackAId: Int, trackBId: Int): Boolean
     external fun getFavoriteSeekMs(trackId: Int): Long
     external fun getCooccurrenceRecommendations(trackId: Int, limit: Int): IntArray
+
+    // C++20 Lock-Free Psychometric Event Queue
+    const val EVENT_SCRUB_SEEK = 1
+    const val EVENT_VOLUME_CHANGE = 2
+    const val EVENT_LYRICS_DWELL = 3
+    const val EVENT_PLAY_TRANSITION = 4
+
+    external fun pushTelemetryEvent(type: Int, trackId: Long, value: Float)
+    external fun getMarkovProbability(fromTrackId: Int, toTrackId: Int): Float
+    external fun getSatiationPenalty(trackId: Int): Float
 }

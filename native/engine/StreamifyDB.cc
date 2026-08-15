@@ -119,6 +119,12 @@ bool StreamifyDB::init(const std::string& db_path) {
             last_paired_timestamp INTEGER DEFAULT 0,
             PRIMARY KEY (track_a_id, track_b_id)
         );
+        CREATE TABLE IF NOT EXISTS markov_transitions (
+            from_track_id INTEGER,
+            to_track_id INTEGER,
+            transition_count INTEGER DEFAULT 1,
+            PRIMARY KEY (from_track_id, to_track_id)
+        );
         CREATE INDEX IF NOT EXISTS idx_tracks_filepath ON tracks(filepath);
         CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title);
         CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
@@ -127,6 +133,7 @@ bool StreamifyDB::init(const std::string& db_path) {
         CREATE INDEX IF NOT EXISTS idx_tracks_play_count ON tracks(play_count DESC, last_played_timestamp DESC);
         CREATE INDEX IF NOT EXISTS idx_engagement_hour ON user_engagement_log(hour_of_day, action_type);
         CREATE INDEX IF NOT EXISTS idx_cooccur_a ON track_cooccurrence(track_a_id, weight DESC);
+        CREATE INDEX IF NOT EXISTS idx_markov_from ON markov_transitions(from_track_id, transition_count DESC);
     )";
 
     char* err = nullptr;
@@ -1104,4 +1111,90 @@ float StreamifyDB::getTrackSatiationPenalty(int track_id) {
     if (count >= 20) return 0.85f; // Heavy penalty
     if (count >= 12) return 0.40f; // Moderate cooldown
     return 0.0f;
+}
+
+bool StreamifyDB::recordMarkovTransition(int from_track_id, int to_track_id) {
+    if (from_track_id <= 0 || to_track_id <= 0 || from_track_id == to_track_id) return false;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return false;
+
+    const char* sql = "INSERT INTO markov_transitions (from_track_id, to_track_id, transition_count) VALUES (?, ?, 1) "
+                      "ON CONFLICT(from_track_id, to_track_id) DO UPDATE SET transition_count = markov_transitions.transition_count + 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, from_track_id);
+    sqlite3_bind_int(stmt, 2, to_track_id);
+
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+float StreamifyDB::getMarkovProbability(int from_track_id, int to_track_id) {
+    if (from_track_id <= 0 || to_track_id <= 0) return 0.0f;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return 0.0f;
+
+    // Get specific transition count
+    int pairCount = 0;
+    const char* pair_sql = "SELECT transition_count FROM markov_transitions WHERE from_track_id = ? AND to_track_id = ?;";
+    sqlite3_stmt* p_stmt = nullptr;
+    if (sqlite3_prepare_v2(db, pair_sql, -1, &p_stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(p_stmt, 1, from_track_id);
+        sqlite3_bind_int(p_stmt, 2, to_track_id);
+        if (sqlite3_step(p_stmt) == SQLITE_ROW) {
+            pairCount = sqlite3_column_int(p_stmt, 0);
+        }
+        sqlite3_finalize(p_stmt);
+    }
+    if (pairCount <= 0) return 0.0f;
+
+    // Get total transitions from this track
+    int totalTransitions = 0;
+    const char* total_sql = "SELECT SUM(transition_count) FROM markov_transitions WHERE from_track_id = ?;";
+    sqlite3_stmt* t_stmt = nullptr;
+    if (sqlite3_prepare_v2(db, total_sql, -1, &t_stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(t_stmt, 1, from_track_id);
+        if (sqlite3_step(t_stmt) == SQLITE_ROW) {
+            totalTransitions = sqlite3_column_int(t_stmt, 0);
+        }
+        sqlite3_finalize(t_stmt);
+    }
+
+    if (totalTransitions <= 0) return 0.0f;
+    return static_cast<float>(pairCount) / static_cast<float>(totalTransitions);
+}
+
+int StreamifyDB::getRecentPlayCount(int track_id, int64_t window_ms) {
+    if (track_id <= 0) return 0;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return 0;
+
+    int now = static_cast<int>(std::time(nullptr));
+    int window_sec = static_cast<int>(window_ms / 1000);
+    int cutoff = now - window_sec;
+
+    const char* sql = "SELECT COUNT(*) FROM user_engagement_log WHERE track_id = ? AND created_at >= datetime(?, 'unixepoch');";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0;
+
+    sqlite3_bind_int(stmt, 1, track_id);
+    sqlite3_bind_int(stmt, 2, cutoff);
+
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+int64_t StreamifyDB::getLastPlayedMs(int track_id) {
+    auto track = getTrackById(track_id);
+    if (!track) return 0;
+    return track->last_played_timestamp * 1000;
 }

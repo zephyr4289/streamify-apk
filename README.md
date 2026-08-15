@@ -176,6 +176,25 @@ Streamify is architected as 9 decoupled, highly specialized subsystem engines wo
 │     • Automotive M3U8 Exporter: Relative-path #EXTM3U exporter for seamless USB car head unit playback │
 │     • Streaming Chunked Backups: 500-track chunked streaming backup avoiding OOM on 50k+ track libraries│
 │                                                                                                        │
+│  10. 🏛️ SUPABASE CLOUD & ADMIN COMMAND CENTER ("PROJECT AETHER")                                       │
+│     Files: SupabaseClient.kt, AdminDashboardScreen.kt, schema.sql, supabase.md                         │
+│     • PostgreSQL 15 + pgvector 0.5.1 with HNSW vector cosine search (match_tracks RPC)                 │
+│     • Live RPC Admin Telemetry (get_admin_dashboard_stats) with latency and DAU tracking               │
+│     • Jam Room Monitor & Force-Termination, User Role Manager, Comment Moderation Feed, Broadcasts     │
+│                                                                                                        │
+│  11. 🧠 CIRCADIAN PSYCHOMETRICS & DAYPARTING ("PROJECT CHRONOS")                                       │
+│     Files: ChronosProfiler.cc, ChronosProfiler.h, HomeScreen.kt, UserProfileScreen.kt                  │
+│     • 4-Slot Circadian Matrix (V_morning, V_afternoon, V_evening, V_night) with ARM NEON SIMD updates  │
+│     • Dynamic Time-of-Day Dayparting Shelves (Morning Energy 130+ BPM, Afternoon Focus 85 BPM, etc.)   │
+│     • Musical Chronotype Persona Badges ("The Night Explorer 🦉 • Peak 11 PM")                         │
+│                                                                                                        │
+│  12. ⚡ REAL-TIME PSYCHOMETRIC SIGNAL PROCESSOR & CO-OCCURRENCE GRAPH ("PROJECT NEXUS")                 │
+│     Files: TelemetryEngine.cc, TelemetryEngine.h, PlayerViewModel.kt, RecommendEngine.cc               │
+│     • C++20 Lock-Free SPSC Ring Buffer (<1µs JNI execution) streaming scrubs, volume & lyrics dwell    │
+│     • Scrubber Drop Hunting: Automatically pinpoints favorite chorus drop for instant audio previews   │
+│     • Hoffman Satiation Decay: Prevents song fatigue with 30-day exponential recovery curve            │
+│     • Markov Transition Chains P(B|A) & Session Binge Co-occurrence Graph for zero-metadata flow       │
+│                                                                                                        │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
