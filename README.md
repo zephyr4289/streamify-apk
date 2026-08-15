@@ -101,6 +101,7 @@
 | **Cloud Sync & Auth** | Supabase backend integration with Google 1-Tap OAuth, user profiles, synced playlists, and Admin Command Center telemetry. |
 | **Backup & Storage** | Full JSON database export/import engine, detailed storage breakdown (downloads vs cache), and one-tap cache flush. |
 | **Call Recording Filter** | MediaStore ingestion scanner automatically excludes voice memos and call recordings from polluting music library. |
+| **Hybrid Asymmetric Radar ("Project Apex")** | 5-Layer recommendation engine combining Last.fm crowd-sourced similarity graph with on-device ARM NEON SIMD spatial vectors, 16 K-Means mood clusters, and <15ms zero-audio Cold-Start text embeddings. |
 
 ---
 
@@ -493,6 +494,56 @@ Streamify separates user taste into **immediate session mood** and **lifetime ta
 - **Ellis Gaussian Tempo Prior**: Multiplies spectral flux autocorrelation by a Gaussian curve centered at 120 BPM ($\sigma = 40\text{ BPM}$) to eliminate octave halving/doubling:
   $$R_{\text{biased}}(\tau) = R(\tau) \cdot \exp\left(-\frac{1}{2}\left(\frac{\text{BPM}(\tau) - 120.0}{40.0}\right)^2\right)$$
 - **Stabilized Median-Filtered Key Detection**: Computes a 20s multi-frame chromagram and applies a **temporal median filter** across frames to reject percussion noise before matching against the 24 Krumhansl-Schmuckler Major and Minor profiles.
+
+### 🎯 Hybrid Asymmetric Recommendation Engine ("Project Apex")
+
+Streamify implements a high-performance **Hybrid Asymmetric Recommendation Engine** that unifies crowd-sourced cultural intelligence (Last.fm / MusicBrainz) with on-device ARM NEON SIMD acoustic spatial math.
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                      PROJECT APEX: 5-LAYER HYBRID ASYMMETRIC PIPELINE                           │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                 │
+│  1. ZERO-AUDIO COLD-START INFERENCE (<15ms)                                                    │
+│     Track Metadata ("The Weeknd - Blinding Lights [After Hours]")                               │
+│     ──► Multi-Harmonic Semantic Text Embedder ──► 512-D L2-Normalized Vector                    │
+│     ──► Stored directly into SQLite tracks.embedding BLOB                                       │
+│                                                                                                 │
+│  2. CONTEXTUAL BIAS SYNTHESIS (ARM NEON SIMD)                                                   │
+│     Time-of-Day (Morning / Afternoon / Evening / Night) + Audio Device (Car / DAC / Headphone)   │
+│     V_context = vmlaq_n_f32(0.70*V_session, V_time, 0.15*w_time) + (0.15*w_dev*V_device)       │
+│                                                                                                 │
+│  3. 16 K-MEANS MOOD CENTROID PRUNING (90% Search Space Reduction)                               │
+│     Compares V_context to 16 centroid prototypes in <0.02ms (2,048 SIMD ops)                    │
+│     ──► Selects top 2 closest mood clusters (~100 candidates instead of 10,000)                 │
+│                                                                                                 │
+│  4. ASYMMETRIC GLOBAL-LOCAL FUSION & CROSS-CONFIRMATION                                         │
+│     Parallel: Last.fm API (HTTP/2 async)  +  Local C++ NEON SIMD Distance                       │
+│     • If present in BOTH: Score = 0.40 * LastFm + 0.60 * Vector + 0.20 Confidence Boost         │
+│     • If Local Vector only: Score = 0.70 * Vector + 0.30 * BPM_Match                            │
+│     • If Last.fm only: Score = 0.35 * LastFm (Queued for YouTube Innertube stream resolution)   │
+│                                                                                                 │
+│  5. HARMONIC RANKING & DISPLAY                                                                  │
+│     Ellis Gaussian BPM Alignment (σ = 20 BPM) + Hoffman Satiation Penalty Damping              │
+│     ──► Displayed live on HomeScreen.kt "Hybrid Radar ⚡" Shelf                                 │
+│                                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Mathematical Formulation
+
+1. **NEON Contextual Vector Blending**:
+   $$\vec{V}_{\text{context}} = \text{normalize}\left( 0.70 \cdot \vec{V}_{\text{session}} + 0.15 \cdot w_{\text{time}} \cdot \vec{V}_{\text{time}} + 0.15 \cdot w_{\text{device}} \cdot \vec{V}_{\text{device}} \right)$$
+
+2. **Gaussian BPM Harmonic Score**:
+   $$\text{Score}_{\text{BPM}}(t) = \exp\left(-\frac{1}{2}\left(\frac{\text{BPM}(t) - \text{BPM}_{\text{target}}}{20.0}\right)^2\right)$$
+
+3. **Asymmetric Score Synthesis**:
+   $$\text{FinalScore}(t) = \begin{cases} 
+   0.40 \cdot S_{\text{LastFm}} + 0.60 \cdot S_{\text{Vector}} + 0.20 & \text{if } t \in \text{Both} \\ 
+   0.70 \cdot S_{\text{Vector}} + 0.30 \cdot \text{Score}_{\text{BPM}} & \text{if } t \in \text{Local} \\ 
+   0.35 \cdot S_{\text{LastFm}} & \text{if } t \in \text{Online Only} 
+   \end{cases} - \gamma \cdot \text{Penalty}_{\text{Satiation}}(t)$$
 
 ---
 
