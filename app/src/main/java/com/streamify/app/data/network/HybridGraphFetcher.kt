@@ -42,7 +42,7 @@ data class HybridScore(
 )
 
 class HybridGraphFetcher(
-    private val client: OkHttpClient = NetworkEngine.okHttpClient,
+    private val client: OkHttpClient = NetworkEngine.client,
     private val nativeBridge: NativeBridge = NativeBridge,
     private val trackRepository: TrackRepository = TrackRepository
 ) {
@@ -146,14 +146,15 @@ class HybridGraphFetcher(
                 finalTracks.add(
                     Track(
                         id = if (score.trackId != 0) score.trackId else score.title.hashCode(),
+                        filepath = "https://music.youtube.com/search?q=${URLEncoder.encode("${score.artist} ${score.title}", "UTF-8")}",
                         title = score.title,
                         artist = score.artist,
                         album = "Streamify Radio",
                         durationSec = 210,
                         bpm = 120f,
                         key = "C",
-                        coverArtUri = "",
-                        lyricsUri = "",
+                        coverArtPath = null,
+                        lyricsPath = null,
                         source = "online_stream",
                         isLiked = false
                     )

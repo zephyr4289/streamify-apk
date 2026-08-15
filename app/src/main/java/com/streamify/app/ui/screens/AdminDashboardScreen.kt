@@ -697,7 +697,7 @@ fun AdminDashboardScreen(
                                             }
                                         }
                                     }) {
-                                        Icon(Icons.Filled.Delete, contentDescription = "Terminate", tint = StreamifyColors.Error)
+                                        Icon(Icons.Filled.Delete, contentDescription = "Terminate", tint = StreamifyColors.ErrorRed)
                                     }
                                 }
 
@@ -755,7 +755,7 @@ fun AdminDashboardScreen(
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text("on ${comment.trackTitle}", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("@ ${com.streamify.app.ui.components.formatTimestamp(comment.timestampMs)}", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
+                                        Text("@ ${(comment.timestampMs / 1000)}s", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(comment.commentText, style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
@@ -772,7 +772,7 @@ fun AdminDashboardScreen(
                                         }
                                     }
                                 }) {
-                                    Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete", tint = StreamifyColors.Error)
+                                    Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = StreamifyColors.ErrorRed)
                                 }
                             }
                         }

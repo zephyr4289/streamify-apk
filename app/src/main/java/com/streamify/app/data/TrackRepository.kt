@@ -237,7 +237,7 @@ object TrackRepository {
         val ids = NativeBridge.getCooccurrenceRecommendations(trackId, limit)
         if (ids.isEmpty()) return@withContext emptyList()
         val all = getAllTracks().associateBy { it.id }
-        ids.mapNotNull { all[it] }
+        ids.toList().mapNotNull { all[it] }
     }
 }
 
