@@ -207,7 +207,7 @@ fun FullPlayerSheet(
                     Text("Now Playing", style = StreamifyType.Caption, color = StreamifyColors.TextMain)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { onJamClick?.invoke() }) {
-                            Icon(Icons.Filled.Podcasts, contentDescription = "Jam", tint = StreamifyColors.Primary)
+                            Icon(Icons.Filled.Share, contentDescription = "Jam", tint = StreamifyColors.Primary)
                         }
                     }
                 }
@@ -419,7 +419,7 @@ fun FullPlayerSheet(
                         // Song Radio (pgvector AI recommendations)
                         IconButton(onClick = { onRadioClick?.invoke() }) {
                             Icon(
-                                imageVector = Icons.Filled.Radio,
+                                imageVector = Icons.Filled.AutoAwesome,
                                 contentDescription = "Song Radio",
                                 tint = StreamifyColors.Primary
                             )
@@ -428,7 +428,7 @@ fun FullPlayerSheet(
                         // Comments Sheet Trigger
                         IconButton(onClick = { showCommentsSheet = true }) {
                             Icon(
-                                imageVector = Icons.Filled.ChatBubbleOutline,
+                                imageVector = Icons.Filled.Send,
                                 contentDescription = "Reactions",
                                 tint = StreamifyColors.TextSub
                             )

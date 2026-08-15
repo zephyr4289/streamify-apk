@@ -83,7 +83,7 @@ class JamViewModel : ViewModel() {
         syncJob = viewModelScope.launch {
             while (isActive) {
                 delay(2000)
-                val stateRes = SupabaseClient.getJamSessionState(code)
+                val stateRes = SupabaseClient.joinJamSession(code)
                 stateRes.onSuccess { session ->
                     val isHost = session.hostUserId == SupabaseClient.currentUser.value?.id
                     _uiState.value = JamUiState.Active(session, isHost)
@@ -94,6 +94,7 @@ class JamViewModel : ViewModel() {
                         val currentLocalId = playerViewModel.playerState.value.currentTrack?.id ?: 0
 
                         if (remoteTrackId != 0 && remoteTrackId != currentLocalId) {
+                            val art = session.currentTrackJson.optString("coverArtPath", "")
                             val track = Track(
                                 id = remoteTrackId,
                                 title = session.currentTrackJson.optString("title", "Jam Track"),
@@ -102,9 +103,9 @@ class JamViewModel : ViewModel() {
                                 durationSec = session.currentTrackJson.optInt("durationSec", 180),
                                 bpm = 120f,
                                 key = "",
-                                coverArtPath = session.currentTrackJson.optString("coverArtPath").takeIf { it.isNotBlank() },
+                                coverArtPath = if (art.isNotBlank()) art else null,
                                 lyricsPath = null,
-                                filepath = session.currentTrackJson.optString("filepath"),
+                                filepath = session.currentTrackJson.optString("filepath", ""),
                                 source = "jam"
                             )
                             playerViewModel.playTrack(track, listOf(track))

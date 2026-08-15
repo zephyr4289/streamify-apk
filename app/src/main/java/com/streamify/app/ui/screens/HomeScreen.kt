@@ -215,7 +215,7 @@ fun HomeScreen(
                             shape = CircleShape
                         ) {
                             Icon(
-                                Icons.Default.Podcasts,
+                                Icons.Filled.Share,
                                 contentDescription = null,
                                 tint = StreamifyColors.Primary,
                                 modifier = Modifier.padding(10.dp).size(24.dp)

@@ -228,7 +228,9 @@ fun JamSessionScreen(
                             ) {
                                 TrackCoverArt(
                                     coverArtPath = playerState.currentTrack?.coverArtPath,
-                                    size = 56.dp
+                                    title = playerState.currentTrack?.title ?: "",
+                                    artist = playerState.currentTrack?.artist ?: "",
+                                    modifier = Modifier.size(56.dp)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
@@ -245,7 +247,9 @@ fun JamSessionScreen(
                                         maxLines = 1
                                     )
                                 }
-                                NowPlayingIndicator(isPlaying = playerState.isPlaying)
+                                if (playerState.isPlaying) {
+                                    NowPlayingIndicator(modifier = Modifier.size(24.dp))
+                                }
                             }
                         }
                     }
