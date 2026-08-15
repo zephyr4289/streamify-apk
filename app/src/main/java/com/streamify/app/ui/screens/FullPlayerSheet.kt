@@ -2,35 +2,39 @@ package com.streamify.app.ui.screens
 
 import android.content.res.Configuration
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Repeat
+import androidx.compose.material.icons.outlined.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.streamify.app.data.models.Track
-import com.streamify.app.ui.components.HeartButton
-import com.streamify.app.ui.components.MarqueeText
-import com.streamify.app.ui.components.PlayerBackground
-import com.streamify.app.ui.components.PlayerControls
-import com.streamify.app.ui.components.PlayerSeekBar
-import com.streamify.app.ui.components.TrackCoverArt
-import com.streamify.app.ui.theme.StreamifyColors
-import com.streamify.app.ui.theme.StreamifyDimens
-import com.streamify.app.ui.theme.StreamifyShapes
-import com.streamify.app.ui.theme.StreamifyType
-import com.streamify.app.util.DurationFormatter
+import com.streamify.app.ui.components.*
+import com.streamify.app.ui.theme.*
+import com.streamify.app.viewmodel.CommunityViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,22 +66,40 @@ fun FullPlayerSheet(
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    var isVideoMode by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
-    val communityViewModel: com.streamify.app.viewmodel.CommunityViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val communityViewModel: CommunityViewModel = viewModel()
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        PlayerBackground(dominantColor = dominantColor)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BgBase)
+    ) {
+        // 1. Extreme Performance: GPU Radial Gradient Ambient Glow (0.01ms Single Draw Call)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        dominantColor.copy(alpha = 0.35f),
+                        BgBase.copy(alpha = 0.85f),
+                        BgBase
+                    ),
+                    center = Offset(size.width / 2, size.height * 0.28f),
+                    radius = size.width * 1.15f
+                )
+            )
+        }
 
         if (isLandscape) {
             // Adaptive Landscape / Tablet Layout
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = StreamifyDimens.SpaceXL, vertical = 12.dp),
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Column: Album Art & Header
+                // Left Column: Album Art & Collapse
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -89,21 +111,31 @@ fun FullPlayerSheet(
                         onClick = onCollapse,
                         modifier = Modifier.align(Alignment.Start)
                     ) {
-                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse", tint = StreamifyColors.TextMain)
+                        Icon(
+                            imageVector = Icons.Filled.ExpandMore,
+                            contentDescription = "Collapse",
+                            tint = TextMain,
+                            modifier = Modifier.size(32.dp)
+                        )
                     }
-                    
+
                     Spacer(modifier = Modifier.weight(1f))
 
-                    TrackCoverArt(
-                        coverArtPath = track.coverArtPath,
-                        title = track.title,
-                        artist = track.artist,
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth(0.85f)
                             .aspectRatio(1f)
-                            .shadow(24.dp, StreamifyShapes.CardShape, spotColor = dominantColor),
-                        shape = StreamifyShapes.CardShape
-                    )
+                            .clip(LocalAppShapes.current.thumbnailLarge)
+                            .background(BgCard),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = track.coverArtPath,
+                            contentDescription = track.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
 
                     Spacer(modifier = Modifier.weight(1f))
                 }
@@ -116,52 +148,91 @@ fun FullPlayerSheet(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.Center
                 ) {
+                    Text(
+                        text = track.title,
+                        style = LocalAppTypography.current.playerTitle,
+                        color = TextMain,
+                        maxLines = 1,
+                        modifier = Modifier.basicMarquee()
+                    )
+                    Text(
+                        text = "${track.artist}${if (track.album.isNotBlank() && track.album != "Streamify") " • " + track.album else ""}",
+                        style = LocalAppTypography.current.playerArtist,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    YtPlayerSeekBar(
+                        progress = progress,
+                        durationMs = durationMs,
+                        currentPositionMs = currentPositionMs,
+                        onSeek = onSeek
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Playback Controls Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = StreamifyDimens.SpaceMD)) {
-                            MarqueeText(
-                                text = track.title,
-                                style = StreamifyType.PlayerTitle,
-                                color = StreamifyColors.TextMain
-                            )
-                            Text(
-                                text = track.artist,
-                                style = StreamifyType.PlayerArtist,
-                                color = StreamifyColors.TextSub
+                        IconButton(onClick = onShuffleToggle) {
+                            Icon(
+                                imageVector = if (isShuffleActive) Icons.Filled.Shuffle else Icons.Outlined.Shuffle,
+                                contentDescription = "Shuffle",
+                                tint = if (isShuffleActive) ActiveControl else TextSecondary,
+                                modifier = Modifier.size(26.dp)
                             )
                         }
-                        HeartButton(isLiked = track.isLiked, onToggle = onToggleLike)
+
+                        IconButton(onClick = onPrevious) {
+                            Icon(
+                                imageVector = Icons.Filled.SkipPrevious,
+                                contentDescription = "Previous",
+                                tint = TextMain,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(CircleShape)
+                                .background(ActiveControl),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            IconButton(onClick = onPlayPause) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = "PlayPause",
+                                    tint = TextOnActiveChip,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+
+                        IconButton(onClick = onNext) {
+                            Icon(
+                                imageVector = Icons.Filled.SkipNext,
+                                contentDescription = "Next",
+                                tint = TextMain,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+
+                        IconButton(onClick = onRepeatToggle) {
+                            Icon(
+                                imageVector = if (isRepeatActive) Icons.Filled.Repeat else Icons.Outlined.Repeat,
+                                contentDescription = "Repeat",
+                                tint = if (isRepeatActive) ActiveControl else TextSecondary,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    PlayerSeekBar(progress = progress, onSeek = onSeek)
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        val totalDurationMs = if (durationMs > 0) durationMs else (track.durationSec.toLong() * 1000L)
-                        val currentMs = if (currentPositionMs > 0) currentPositionMs else (progress * totalDurationMs).toLong()
-                        Text(text = DurationFormatter.formatMs(currentMs), style = StreamifyType.SeekbarTime, color = StreamifyColors.TextSub)
-                        Text(text = DurationFormatter.formatMs(totalDurationMs), style = StreamifyType.SeekbarTime, color = StreamifyColors.TextSub)
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    PlayerControls(
-                        isPlaying = isPlaying,
-                        isShuffleActive = isShuffleActive,
-                        isRepeatActive = isRepeatActive,
-                        onPlayPause = onPlayPause,
-                        onSkipNext = onNext,
-                        onSkipPrevious = onPrevious,
-                        onShuffleToggle = onShuffleToggle,
-                        onRepeatToggle = onRepeatToggle
-                    )
                 }
             }
         } else {
@@ -169,285 +240,227 @@ fun FullPlayerSheet(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = StreamifyDimens.SpaceXL)
-                    .padding(top = 12.dp, bottom = StreamifyDimens.SpaceHuge)
-                    .verticalScroll(rememberScrollState())
+                    .padding(top = 16.dp, bottom = 8.dp)
             ) {
-                // Pull indicator handle
-                Box(
-                    modifier = Modifier
-                        .width(48.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.4f))
-                        .align(Alignment.CenterHorizontally)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                // Header with Jam and Options
+                // --- TOP BAR (Collapse Chevron, Song/Video Switcher, Actions) ---
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onCollapse) {
-                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse", tint = StreamifyColors.TextMain)
+                        Icon(
+                            imageVector = Icons.Filled.ExpandMore,
+                            contentDescription = "Collapse",
+                            tint = TextMain,
+                            modifier = Modifier.size(32.dp)
+                        )
                     }
-                    Text("Now Playing", style = StreamifyType.Caption, color = StreamifyColors.TextMain)
+
+                    YtSongVideoSwitcher(
+                        isVideo = isVideoMode,
+                        onToggle = { isVideoMode = it }
+                    )
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { onJamClick?.invoke() }) {
-                            Icon(Icons.Filled.Share, contentDescription = "Jam", tint = StreamifyColors.Primary)
+                            Icon(
+                                imageVector = Icons.Filled.Cast,
+                                contentDescription = "Cast",
+                                tint = TextMain,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        IconButton(onClick = { /* Additional options */ }) {
+                            Icon(
+                                imageVector = Icons.Filled.MoreVert,
+                                contentDescription = "Options",
+                                tint = TextMain,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // --- HERO 1:1 ALBUM ARTWORK ---
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .aspectRatio(1f)
+                        .clip(LocalAppShapes.current.thumbnailLarge)
+                        .background(BgCard),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!track.coverArtPath.isNullOrBlank()) {
+                        AsyncImage(
+                            model = track.coverArtPath,
+                            contentDescription = track.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.MusicNote,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(64.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // --- METADATA & NEURAL DSP PILL ---
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = track.title,
+                            style = LocalAppTypography.current.playerTitle,
+                            color = TextMain,
+                            maxLines = 1,
+                            modifier = Modifier.basicMarquee()
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${track.artist}${if (track.album.isNotBlank() && track.album != "Streamify") " • " + track.album else ""}",
+                                style = LocalAppTypography.current.playerArtist,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            if (track.isProcessed && track.bpm > 0f) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = BgSurfaceElevated,
+                                    modifier = Modifier.padding(top = 1.dp)
+                                ) {
+                                    Text(
+                                        text = "${track.bpm.toInt()} BPM${if (track.key.isNotBlank()) " • " + track.key else ""}",
+                                        style = LocalAppTypography.current.chipText.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                                        color = ActiveControl,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Album Art
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Crossfade(targetState = track.coverArtPath, label = "art_crossfade_portrait") { artPath ->
-                    TrackCoverArt(
-                        coverArtPath = artPath,
-                        title = track.title,
-                        artist = track.artist,
-                        modifier = Modifier
-                            .fillMaxWidth(if (configuration.screenWidthDp > 600) 0.7f else 1f)
-                            .aspectRatio(1f)
-                            .shadow(
-                                elevation = 24.dp,
-                                shape = StreamifyShapes.CardShape,
-                                spotColor = dominantColor
-                            ),
-                        shape = StreamifyShapes.CardShape
-                    )
-                }
-                }
+                // --- YOUTUBE MUSIC ACTION PILLS RAIL ---
+                YtPlayerActionPills(
+                    isLiked = track.isLiked,
+                    onToggleLike = onToggleLike,
+                    onCommentsClick = { showCommentsSheet = true },
+                    onRadioClick = onRadioClick,
+                    onJamClick = onJamClick,
+                    onDownloadClick = { /* Download */ }
+                )
 
-                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
-                
-                // Dynamic Audio Route Indicator
-                val outputDevice by com.streamify.app.service.AudioDeviceManager.currentDevice.collectAsState()
-                val isOnline = track.filepath.startsWith("http://") || track.filepath.startsWith("https://") || track.source.contains("online", ignoreCase = true)
-                val routingText = if (isOnline) {
-                    if (outputDevice.isBluetooth) "Bluetooth • ${outputDevice.name} (HQ Stream)"
-                    else "Online Stream • M4A High-Bitrate"
-                } else {
-                    if (outputDevice.isBluetooth) "Bluetooth • ${outputDevice.name}"
-                    else if (outputDevice.isHeadphones) "Headphones • Lossless"
-                    else "Phone Speaker • Streamify Engine"
-                }
-                val routingIcon = if (outputDevice.isBluetooth) Icons.Filled.BluetoothAudio
-                else if (outputDevice.isHeadphones) Icons.Filled.Headphones
-                else if (isOnline) Icons.Filled.CloudQueue
-                else Icons.Filled.Speaker
+                Spacer(modifier = Modifier.weight(1f))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = routingIcon,
-                        contentDescription = "Device",
-                        tint = StreamifyColors.Primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(StreamifyDimens.SpaceXS))
-                    Text(
-                        text = routingText,
-                        style = StreamifyType.Caption,
-                        color = StreamifyColors.Primary
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceHuge))
-
-                // Track Info & Like
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = StreamifyDimens.SpaceMD)) {
-                        MarqueeText(
-                            text = track.title,
-                            style = StreamifyType.PlayerTitle,
-                            color = StreamifyColors.TextMain
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = track.artist,
-                                style = StreamifyType.PlayerArtist,
-                                color = StreamifyColors.TextSub
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            
-                            // Dynamic Neural Engine Extraction Badge / Pending Clock State
-                            val isNeuralProcessed = track.isProcessed && track.bpm > 0f
-                            Surface(
-                                color = if (isNeuralProcessed) StreamifyColors.Primary.copy(alpha = 0.18f) else StreamifyColors.BgElevated,
-                                shape = RoundedCornerShape(6.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (isNeuralProcessed) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Bolt,
-                                            contentDescription = null,
-                                            tint = StreamifyColors.Primary,
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "NEURAL • ${track.bpm.toInt()} BPM${if (track.key.isNotBlank()) " • " + track.key else ""}",
-                                            style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
-                                            color = StreamifyColors.Primary
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Filled.Schedule,
-                                            contentDescription = null,
-                                            tint = StreamifyColors.TextSub,
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Acoustic Signal Processing",
-                                            style = StreamifyType.Caption,
-                                            color = StreamifyColors.TextSub
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    HeartButton(
-                        isLiked = track.isLiked,
-                        onToggle = onToggleLike
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXL))
-
-                // Seekbar
-                PlayerSeekBar(
+                // --- PRECISION CANVAS SEEKBAR ---
+                YtPlayerSeekBar(
                     progress = progress,
+                    durationMs = durationMs,
+                    currentPositionMs = currentPositionMs,
                     onSeek = onSeek
                 )
-                
-                // Time labels
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // --- PLAYBACK CONTROLS (Shuffle, Prev, 64dp Play/Pause, Next, Repeat) ---
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    val totalDurationMs = if (durationMs > 0) durationMs else (track.durationSec.toLong() * 1000L)
-                    val currentMs = if (currentPositionMs > 0) currentPositionMs else (progress * totalDurationMs).toLong()
-                    Text(
-                        text = DurationFormatter.formatMs(currentMs),
-                        style = StreamifyType.SeekbarTime,
-                        color = StreamifyColors.TextSub
-                    )
-                    Text(
-                        text = DurationFormatter.formatMs(totalDurationMs),
-                        style = StreamifyType.SeekbarTime,
-                        color = StreamifyColors.TextSub
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
-
-                // Controls
-                PlayerControls(
-                    isPlaying = isPlaying,
-                    isShuffleActive = isShuffleActive,
-                    isRepeatActive = isRepeatActive,
-                    onPlayPause = onPlayPause,
-                    onSkipNext = onNext,
-                    onSkipPrevious = onPrevious,
-                    onShuffleToggle = onShuffleToggle,
-                    onRepeatToggle = onRepeatToggle
-                )
-
-                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
-
-                // Bottom Action Bar (Audio Device Switcher, Queue, Infinity Radio, Lyrics)
-                val audioDevice by com.streamify.app.service.AudioDeviceManager.currentDevice.collectAsState()
-                val context = androidx.compose.ui.platform.LocalContext.current
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Spotify Connect Audio Device Pill
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { com.streamify.app.service.AudioDeviceManager.openSystemAudioSettings(context) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    IconButton(onClick = onShuffleToggle) {
                         Icon(
-                            imageVector = if (audioDevice.isBluetooth) Icons.Filled.BluetoothAudio else Icons.Filled.Speaker,
-                            contentDescription = "Audio Output Device",
-                            tint = if (audioDevice.isBluetooth) StreamifyColors.Primary else StreamifyColors.TextSub,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = audioDevice.name,
-                            style = StreamifyType.Caption,
-                            color = if (audioDevice.isBluetooth) StreamifyColors.Primary else StreamifyColors.TextSub,
-                            maxLines = 1
+                            imageVector = if (isShuffleActive) Icons.Filled.Shuffle else Icons.Outlined.Shuffle,
+                            contentDescription = "Shuffle",
+                            tint = if (isShuffleActive) ActiveControl else TextSecondary,
+                            modifier = Modifier.size(26.dp)
                         )
                     }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Song Radio (pgvector AI recommendations)
-                        IconButton(onClick = { onRadioClick?.invoke() }) {
-                            Icon(
-                                imageVector = Icons.Filled.AutoAwesome,
-                                contentDescription = "Song Radio",
-                                tint = StreamifyColors.Primary
-                            )
-                        }
+                    IconButton(onClick = onPrevious) {
+                        Icon(
+                            imageVector = Icons.Filled.SkipPrevious,
+                            contentDescription = "Previous",
+                            tint = TextMain,
+                            modifier = Modifier.size(38.dp)
+                        )
+                    }
 
-                        // Comments Sheet Trigger
-                        IconButton(onClick = { showCommentsSheet = true }) {
+                    // 64dp YouTube Music White Play Button
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(ActiveControl),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        IconButton(onClick = onPlayPause) {
                             Icon(
-                                imageVector = Icons.Filled.Send,
-                                contentDescription = "Reactions",
-                                tint = StreamifyColors.TextSub
+                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = "PlayPause",
+                                tint = TextOnActiveChip,
+                                modifier = Modifier.size(34.dp)
                             )
                         }
+                    }
 
-                        // Queue
-                        IconButton(onClick = { onQueueClick?.invoke() }) {
-                            Icon(
-                                imageVector = Icons.Filled.QueueMusic,
-                                contentDescription = "Up Next Queue",
-                                tint = StreamifyColors.TextSub
-                            )
-                        }
-                        
-                        // Lyrics
-                        IconButton(onClick = { onLyricsClick?.invoke() }) {
-                            Icon(
-                                imageVector = Icons.Filled.Subtitles,
-                                contentDescription = "Lyrics",
-                                tint = StreamifyColors.TextSub
-                            )
-                        }
+                    IconButton(onClick = onNext) {
+                        Icon(
+                            imageVector = Icons.Filled.SkipNext,
+                            contentDescription = "Next",
+                            tint = TextMain,
+                            modifier = Modifier.size(38.dp)
+                        )
+                    }
+
+                    IconButton(onClick = onRepeatToggle) {
+                        Icon(
+                            imageVector = if (isRepeatActive) Icons.Filled.Repeat else Icons.Outlined.Repeat,
+                            contentDescription = "Repeat",
+                            tint = if (isRepeatActive) ActiveControl else TextSecondary,
+                            modifier = Modifier.size(26.dp)
+                        )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // --- BOTTOM SHEET ANCHOR TABS (UP NEXT | LYRICS | RELATED) ---
+                YtPlayerBottomTabs(
+                    activeTab = "UP NEXT",
+                    onQueueClick = { onQueueClick?.invoke() },
+                    onLyricsClick = { onLyricsClick?.invoke() },
+                    onRelatedClick = { onRadioClick?.invoke() }
+                )
             }
         }
     }
 
     if (showCommentsSheet) {
-        com.streamify.app.ui.components.CommentsSheet(
+        CommentsSheet(
             track = track,
             currentPositionMs = currentPositionMs,
             communityViewModel = communityViewModel,
