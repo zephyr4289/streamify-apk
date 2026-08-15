@@ -82,6 +82,11 @@ void TelemetryEngine::consumerLoop() {
                     if (ev.trackId > 0 && ev.value > 0.85f) {
                         // Volume flare emotional spike
                         StreamifyDB::getInstance().logHookTelemetry(static_cast<int>(ev.trackId), 0, 0, 1);
+                        
+                        // Adaptive target loudness adjustment: user wants louder output
+                        float curLufs = targetLufs_.load(std::memory_order_relaxed);
+                        float nextLufs = std::min(-10.0f, curLufs + 1.0f); // Boost target loudness up to -10 LUFS
+                        targetLufs_.store(nextLufs, std::memory_order_relaxed);
                     }
                     break;
                 }
@@ -110,4 +115,8 @@ void TelemetryEngine::consumerLoop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }
+}
+
+float TelemetryEngine::getDynamicTargetLufs() const {
+    return targetLufs_.load(std::memory_order_relaxed);
 }

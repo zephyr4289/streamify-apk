@@ -674,3 +674,45 @@ BEGIN
     RETURN TRUE;
 END;
 $$;
+
+-- 4. Second-Order Markov Chain Transition Graph
+CREATE TABLE IF NOT EXISTS public.track_markov_2nd (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    track_a_id TEXT NOT NULL,
+    track_b_id TEXT NOT NULL,
+    track_c_id TEXT NOT NULL,
+    transition_count INT DEFAULT 1,
+    last_transition_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(track_a_id, track_b_id, track_c_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_markov_2nd_pair ON public.track_markov_2nd(track_a_id, track_b_id, transition_count DESC);
+
+ALTER TABLE public.track_markov_2nd ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Markov 2nd graph viewable" ON public.track_markov_2nd FOR SELECT USING (TRUE);
+CREATE POLICY "Markov 2nd graph insertable" ON public.track_markov_2nd FOR ALL USING (TRUE);
+
+-- RPC: Record 2nd-Order Markov Transition
+CREATE OR REPLACE FUNCTION public.record_2nd_order_markov(
+    p_track_a TEXT,
+    p_track_b TEXT,
+    p_track_c TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    INSERT INTO public.track_markov_2nd (
+        track_a_id, track_b_id, track_c_id, transition_count, last_transition_at
+    )
+    VALUES (
+        p_track_a, p_track_b, p_track_c, 1, NOW()
+    )
+    ON CONFLICT (track_a_id, track_b_id, track_c_id) DO UPDATE
+    SET transition_count = track_markov_2nd.transition_count + 1,
+        last_transition_at = NOW();
+
+    RETURN TRUE;
+END;
+$$;

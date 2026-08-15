@@ -83,6 +83,9 @@ public:
     float getTrackSatiationPenalty(int track_id);
     bool recordMarkovTransition(int from_track_id, int to_track_id);
     float getMarkovProbability(int from_track_id, int to_track_id);
+    bool record2ndOrderMarkovTransition(int track_a, int track_b, int track_c);
+    float get2ndOrderMarkovProbability(int track_a, int track_b, int track_c, float alpha = 0.1f);
+    int getTotalUniqueTracks();
     int getRecentPlayCount(int track_id, int64_t window_ms);
     int64_t getLastPlayedMs(int track_id);
 

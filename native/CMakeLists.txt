@@ -19,6 +19,7 @@ add_library(streamify_core SHARED
     engine/ChronosProfiler.cc
     ingest/AudioPipeline.cc
     dsp/SoftKneeLimiter.cc
+    dsp/LufsNormalizer.cc
     dsp/kissfft/kiss_fft.c
     dsp/kissfft/kiss_fftr.c
     third_party/sqlite3/sqlite3.c

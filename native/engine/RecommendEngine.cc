@@ -129,10 +129,15 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
                 l_boost = liked_boost;
             }
 
-            // Transition & Markov Chain Probability
+            // Transition & 1st/2nd-Order Markov Chain Probability
             float transition_prob = db.getTransitionProbability(1, currentTrackId, track_id);
             float markov_prob = db.getMarkovProbability(currentTrackId, track_id);
-            float effective_markov = std::max(transition_prob, markov_prob);
+            float markov_2nd = 0.0f;
+            if (!recentHistory.empty()) {
+                int trackA = recentHistory.back();
+                markov_2nd = db.get2ndOrderMarkovProbability(trackA, currentTrackId, track_id, 0.1f);
+            }
+            float effective_markov = std::max(transition_prob, std::max(markov_prob, markov_2nd * 1.5f));
 
             int skip_count = db.getTrackTotalSkipCount(1, track_id);
             float skip_penalty = std::min(1.0f, skip_count * skip_penalty_factor);

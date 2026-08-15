@@ -24,40 +24,74 @@ struct TelemetryEvent {
     int64_t timestampMs{0};
 };
 
-// C++20 Lock-Free SPSC Ring Buffer (Capacity: 1024 events)
-class LockFreeTelemetryQueue {
+// Dmitry Vyukov Lock-Free Multi-Producer Multi-Consumer (MPMC) Bounded Ring Buffer
+template<typename T, size_t Capacity>
+class VyukovMPMCQueue {
 private:
-    static constexpr size_t BUFFER_CAPACITY = 1024;
-    std::array<TelemetryEvent, BUFFER_CAPACITY> buffer_;
-    std::atomic<size_t> head_{0};
-    std::atomic<size_t> tail_{0};
+    struct Cell {
+        std::atomic<size_t> sequence;
+        T data;
+    };
+
+    alignas(64) std::array<Cell, Capacity> buffer_;
+    alignas(64) std::atomic<size_t> enqueuePos_{0};
+    alignas(64) std::atomic<size_t> dequeuePos_{0};
 
 public:
-    LockFreeTelemetryQueue() = default;
-
-    bool push(const TelemetryEvent& event) {
-        size_t current_head = head_.load(std::memory_order_relaxed);
-        size_t next_head = (current_head + 1) % BUFFER_CAPACITY;
-        if (next_head == tail_.load(std::memory_order_acquire)) {
-            return false; // Queue full - avoid blocking
+    VyukovMPMCQueue() {
+        for (size_t i = 0; i < Capacity; ++i) {
+            buffer_[i].sequence.store(i, std::memory_order_relaxed);
         }
-        buffer_[current_head] = event;
-        head_.store(next_head, std::memory_order_release);
+    }
+
+    bool push(const T& item) {
+        Cell* cell;
+        size_t pos = enqueuePos_.load(std::memory_order_relaxed);
+        while (true) {
+            cell = &buffer_[pos % Capacity];
+            size_t seq = cell->sequence.load(std::memory_order_acquire);
+            intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos);
+            if (diff == 0) {
+                if (enqueuePos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
+                    break;
+                }
+            } else if (diff < 0) {
+                return false; // Queue full
+            } else {
+                pos = enqueuePos_.load(std::memory_order_relaxed);
+            }
+        }
+        cell->data = item;
+        cell->sequence.store(pos + 1, std::memory_order_release);
         return true;
     }
 
-    std::optional<TelemetryEvent> pop() {
-        size_t current_tail = tail_.load(std::memory_order_relaxed);
-        if (current_tail == head_.load(std::memory_order_acquire)) {
-            return std::nullopt; // Queue empty
+    std::optional<T> pop() {
+        Cell* cell;
+        size_t pos = dequeuePos_.load(std::memory_order_relaxed);
+        while (true) {
+            cell = &buffer_[pos % Capacity];
+            size_t seq = cell->sequence.load(std::memory_order_acquire);
+            intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos + 1);
+            if (diff == 0) {
+                if (dequeuePos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
+                    break;
+                }
+            } else if (diff < 0) {
+                return std::nullopt; // Queue empty
+            } else {
+                pos = dequeuePos_.load(std::memory_order_relaxed);
+            }
         }
-        TelemetryEvent event = buffer_[current_tail];
-        tail_.store((current_tail + 1) % BUFFER_CAPACITY, std::memory_order_release);
-        return event;
+        T item = cell->data;
+        cell->sequence.store(pos + Capacity, std::memory_order_release);
+        return item;
     }
 
     bool isEmpty() const {
-        return head_.load(std::memory_order_relaxed) == tail_.load(std::memory_order_relaxed);
+        size_t dPos = dequeuePos_.load(std::memory_order_relaxed);
+        size_t ePos = enqueuePos_.load(std::memory_order_relaxed);
+        return dPos >= ePos;
     }
 };
 
@@ -69,6 +103,8 @@ public:
     void startProcessing();
     void stopProcessing();
 
+    float getDynamicTargetLufs() const;
+
 private:
     TelemetryEngine();
     ~TelemetryEngine();
@@ -77,8 +113,9 @@ private:
 
     void consumerLoop();
 
-    LockFreeTelemetryQueue queue_;
+    VyukovMPMCQueue<TelemetryEvent, 1024> queue_;
     std::atomic<bool> isRunning_{false};
+    std::atomic<float> targetLufs_{-14.0f}; // Default EBU R128 target (-14 LUFS)
     std::thread workerThread_;
 
     // Drop hunting memory buffer per track

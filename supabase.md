@@ -347,3 +347,32 @@ CREATE TABLE public.track_cooccurrence_graph (
 );
 ```
 Used by the next-track recommendation engine to discover seamless track transitions purely through listener behavior.
+
+---
+
+## 9. Second-Order Markov Chains & Dynamic Normalization
+
+### `public.track_markov_2nd`
+Models the second-order transition probability matrix $P(C \mid A, B)$ with additive Laplace smoothing:
+$$P(C \mid A, B) = \frac{\text{Count}(A, B, C) + \alpha}{\text{Count}(A, B) + (\alpha \cdot |V|)}$$
+
+```sql
+CREATE TABLE public.track_markov_2nd (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    track_a_id TEXT NOT NULL,
+    track_b_id TEXT NOT NULL,
+    track_c_id TEXT NOT NULL,
+    transition_count INT DEFAULT 1,
+    last_transition_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(track_a_id, track_b_id, track_c_id)
+);
+```
+
+### Sinusoidal Circadian Interpolation
+During slot transition boundaries (e.g. 10:30 – 11:00 AM), the engine applies $\sin^2\left(t \cdot \frac{\pi}{2}\right)$ crossfading across the 512-D vectors to ensure $C^1$ smooth derivative continuity:
+$$V_{\text{target}} = (1 - w) \cdot V_{\text{slot\_A}} + w \cdot V_{\text{slot\_B}}, \quad w = \sin^2\left(\frac{t - 30}{30} \cdot \frac{\pi}{2}\right)$$
+
+### Psychoacoustic LUFS Normalizer & Volume Flare Feedback
+Short-term RMS energy is computed in native C++ using ARM NEON SIMD vector squaring (`vmulq_f32`, `vpadd_f32`) and converted to LUFS:
+$$\text{LUFS} = 20 \log_{10}(\text{RMS} + 10^{-7}), \quad \text{Gain} = \text{clamp}(\text{TargetLUFS} - \text{LUFS}, -12\text{dB}, +12\text{dB})$$
+When a **Volume Flare** event occurs, the target LUFS baseline dynamically increases (up to $-10\text{dB}$) to match listener intent.

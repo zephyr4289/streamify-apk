@@ -85,5 +85,11 @@ object NativeBridge {
 
     external fun pushTelemetryEvent(type: Int, trackId: Long, value: Float)
     external fun getMarkovProbability(fromTrackId: Int, toTrackId: Int): Float
+    external fun get2ndOrderMarkovProbability(trackA: Int, trackB: Int, trackC: Int, alpha: Float = 0.1f): Float
     external fun getSatiationPenalty(trackId: Int): Float
+
+    // Psychoacoustic Dynamic LUFS Normalizer
+    external fun processLufsNormalizerFloats(buffer: FloatArray, length: Int, targetLufs: Float)
+    external fun processLufsNormalizerShorts(buffer: ShortArray, length: Int, targetLufs: Float)
+    external fun getDynamicTargetLufs(): Float
 }

@@ -125,6 +125,13 @@ bool StreamifyDB::init(const std::string& db_path) {
             transition_count INTEGER DEFAULT 1,
             PRIMARY KEY (from_track_id, to_track_id)
         );
+        CREATE TABLE IF NOT EXISTS markov_transitions_2nd (
+            track_a_id INTEGER,
+            track_b_id INTEGER,
+            track_c_id INTEGER,
+            transition_count INTEGER DEFAULT 1,
+            PRIMARY KEY (track_a_id, track_b_id, track_c_id)
+        );
         CREATE INDEX IF NOT EXISTS idx_tracks_filepath ON tracks(filepath);
         CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title);
         CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
@@ -134,6 +141,7 @@ bool StreamifyDB::init(const std::string& db_path) {
         CREATE INDEX IF NOT EXISTS idx_engagement_hour ON user_engagement_log(hour_of_day, action_type);
         CREATE INDEX IF NOT EXISTS idx_cooccur_a ON track_cooccurrence(track_a_id, weight DESC);
         CREATE INDEX IF NOT EXISTS idx_markov_from ON markov_transitions(from_track_id, transition_count DESC);
+        CREATE INDEX IF NOT EXISTS idx_markov_2nd ON markov_transitions_2nd(track_a_id, track_b_id, transition_count DESC);
     )";
 
     char* err = nullptr;
@@ -1197,4 +1205,85 @@ int64_t StreamifyDB::getLastPlayedMs(int track_id) {
     auto track = getTrackById(track_id);
     if (!track) return 0;
     return track->last_played_timestamp * 1000;
+}
+
+int StreamifyDB::getTotalUniqueTracks() {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return 1000;
+
+    const char* sql = "SELECT COUNT(*) FROM tracks;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return 1000;
+
+    int count = 1000;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return std::max(10, count);
+}
+
+bool StreamifyDB::record2ndOrderMarkovTransition(int track_a, int track_b, int track_c) {
+    if (track_a <= 0 || track_b <= 0 || track_c <= 0) return false;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return false;
+
+    const char* sql = "INSERT INTO markov_transitions_2nd (track_a_id, track_b_id, track_c_id, transition_count) "
+                      "VALUES (?, ?, ?, 1) "
+                      "ON CONFLICT(track_a_id, track_b_id, track_c_id) DO UPDATE SET transition_count = markov_transitions_2nd.transition_count + 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, track_a);
+    sqlite3_bind_int(stmt, 2, track_b);
+    sqlite3_bind_int(stmt, 3, track_c);
+
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+float StreamifyDB::get2ndOrderMarkovProbability(int track_a, int track_b, int track_c, float alpha) {
+    if (track_a <= 0 || track_b <= 0 || track_c <= 0) return 0.0f;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return 0.0f;
+
+    // 1. Get count(A, B, C)
+    int countABC = 0;
+    const char* abc_sql = "SELECT transition_count FROM markov_transitions_2nd WHERE track_a_id = ? AND track_b_id = ? AND track_c_id = ?;";
+    sqlite3_stmt* stmt1 = nullptr;
+    if (sqlite3_prepare_v2(db, abc_sql, -1, &stmt1, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt1, 1, track_a);
+        sqlite3_bind_int(stmt1, 2, track_b);
+        sqlite3_bind_int(stmt1, 3, track_c);
+        if (sqlite3_step(stmt1) == SQLITE_ROW) {
+            countABC = sqlite3_column_int(stmt1, 0);
+        }
+        sqlite3_finalize(stmt1);
+    }
+
+    // 2. Get total count(A, B, *)
+    int countAB_total = 0;
+    const char* ab_sql = "SELECT SUM(transition_count) FROM markov_transitions_2nd WHERE track_a_id = ? AND track_b_id = ?;";
+    sqlite3_stmt* stmt2 = nullptr;
+    if (sqlite3_prepare_v2(db, ab_sql, -1, &stmt2, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt2, 1, track_a);
+        sqlite3_bind_int(stmt2, 2, track_b);
+        if (sqlite3_step(stmt2) == SQLITE_ROW) {
+            countAB_total = sqlite3_column_int(stmt2, 0);
+        }
+        sqlite3_finalize(stmt2);
+    }
+
+    int vocabSize = getTotalUniqueTracks();
+
+    // Laplace Smoothing: P(C | A, B) = (countABC + alpha) / (countAB_total + alpha * |V|)
+    float numerator = static_cast<float>(countABC) + alpha;
+    float denominator = static_cast<float>(countAB_total) + (alpha * static_cast<float>(vocabSize));
+
+    if (denominator <= 0.0f) return 0.0f;
+    return numerator / denominator;
 }

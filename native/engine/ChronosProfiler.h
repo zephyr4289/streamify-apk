@@ -16,6 +16,7 @@ public:
 
     void updateTasteProfile(int64_t trackId, const std::vector<float>& trackVector, int64_t timestampMs);
     std::vector<float> getSlotVector(int slot) const;
+    std::vector<float> getInterpolatedTasteVector(int64_t timestampMs) const;
 
     // Hoffman Satiation Decay & Dopamine Recovery Curve
     float calculateSatiationPenalty(int trackId, int64_t currentTimestampMs) const;

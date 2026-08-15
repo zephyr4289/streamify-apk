@@ -6,6 +6,7 @@
 #include "../engine/TaskOrchestrator.h"
 #include "../engine/TelemetryEngine.h"
 #include "../engine/ChronosProfiler.h"
+#include "../dsp/LufsNormalizer.h"
 
 // Cached Global JNI References for zero lookup overhead
 static jclass g_trackClass = nullptr;
@@ -479,4 +480,34 @@ Java_com_streamify_app_data_NativeBridge_getMarkovProbability(JNIEnv* /* env */,
 extern "C" JNIEXPORT jfloat JNICALL
 Java_com_streamify_app_data_NativeBridge_getSatiationPenalty(JNIEnv* /* env */, jobject /* this */, jint trackId) {
     return ChronosProfiler::getInstance().calculateSatiationPenalty(trackId, std::time(nullptr) * 1000LL);
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_streamify_app_data_NativeBridge_get2ndOrderMarkovProbability(JNIEnv* /* env */, jobject /* this */, jint trackA, jint trackB, jint trackC, jfloat alpha) {
+    return StreamifyDB::getInstance().get2ndOrderMarkovProbability(trackA, trackB, trackC, alpha);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_processLufsNormalizerFloats(JNIEnv* env, jobject /* this */, jfloatArray buffer, jint length, jfloat targetLufs) {
+    if (!buffer || length <= 0) return;
+    jfloat* pcm = env->GetFloatArrayElements(buffer, nullptr);
+    if (pcm) {
+        LufsNormalizer::getInstance().processFloats(pcm, length, targetLufs);
+        env->ReleaseFloatArrayElements(buffer, pcm, 0);
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_processLufsNormalizerShorts(JNIEnv* env, jobject /* this */, jshortArray buffer, jint length, jfloat targetLufs) {
+    if (!buffer || length <= 0) return;
+    jshort* pcm = env->GetShortArrayElements(buffer, nullptr);
+    if (pcm) {
+        LufsNormalizer::getInstance().processShorts(pcm, length, targetLufs);
+        env->ReleaseShortArrayElements(buffer, pcm, 0);
+    }
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_streamify_app_data_NativeBridge_getDynamicTargetLufs(JNIEnv* /* env */, jobject /* this */) {
+    return TelemetryEngine::getInstance().getDynamicTargetLufs();
 }
