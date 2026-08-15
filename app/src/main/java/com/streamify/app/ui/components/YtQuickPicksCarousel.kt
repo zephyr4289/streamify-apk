@@ -1,0 +1,110 @@
+package com.streamify.app.ui.components
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.streamify.app.data.models.Track
+import com.streamify.app.ui.theme.*
+
+@Composable
+fun YtQuickPicksCarousel(
+    columns: List<List<Track>>, // Pre-chunked List<List<Track>> for zero GC allocations
+    onTrackClick: (Track, List<Track>) -> Unit,
+    onTrackMoreClick: ((Track) -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val allTracksInCarousel = columns.flatten()
+
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        items(
+            items = columns,
+            key = { column -> column.firstOrNull()?.id ?: column.hashCode() },
+            contentType = { "quickPickColumn" }
+        ) { columnTracks ->
+            Column(
+                modifier = Modifier.width(320.dp)
+            ) {
+                columnTracks.forEach { track ->
+                    YtCompactTrackRow(
+                        track = track,
+                        onClick = { onTrackClick(track, allTracksInCarousel) },
+                        onMoreClick = { onTrackMoreClick?.invoke(track) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun YtCompactTrackRow(
+    track: Track,
+    onClick: () -> Unit,
+    onMoreClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        YtThumbnail(
+            url = track.coverArtPath,
+            size = 48.dp,
+            cornerRadius = 4.dp
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = track.title,
+                style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
+                color = TextMain,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "${track.artist}${if (track.album.isNotBlank() && track.album != "Streamify") " • " + track.album else ""}",
+                style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                color = TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        IconButton(
+            onClick = onMoreClick,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.MoreVert,
+                contentDescription = "More",
+                tint = TextSecondary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
