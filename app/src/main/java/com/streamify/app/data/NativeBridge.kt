@@ -5,7 +5,13 @@ import com.streamify.app.data.models.RecommendationNative
 import com.streamify.app.data.models.OrchestratorStatusNative
 
 object NativeBridge {
-    init { System.loadLibrary("streamify_core") }
+    init {
+        try {
+            System.loadLibrary("streamify_core")
+        } catch (e: Throwable) {
+            android.util.Log.e("StreamifyNative", "Failed to load streamify_core native library", e)
+        }
+    }
     external fun stringFromJNI(): String
     
     // Database

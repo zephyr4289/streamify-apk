@@ -36,35 +36,67 @@ class StreamifyApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         
-        if (!Python.isStarted()) {
-            Python.start(AndroidPlatform(this))
+        // 1. Safe Python start
+        try {
+            if (!Python.isStarted()) {
+                Python.start(AndroidPlatform(this))
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("StreamifyApp", "Chaquopy Python initialization failed or not available on this device", e)
         }
         
-        val dbPath = getDatabasePath("streamify.db").absolutePath
-        NativeBridge.initDatabase(dbPath)
+        // 2. Ensure database directory exists before C++ sqlite3_open_v2
+        try {
+            val dbFile = getDatabasePath("streamify.db")
+            dbFile.parentFile?.mkdirs()
+            NativeBridge.initDatabase(dbFile.absolutePath)
+        } catch (e: Throwable) {
+            android.util.Log.e("StreamifyApp", "Failed to initialize NativeBridge Database", e)
+        }
 
-        val vectorBinPath = java.io.File(filesDir, "vectors.bin").absolutePath
-        NativeBridge.initVectorStore(vectorBinPath)
+        // 3. Ensure files directory exists for VectorStore
+        try {
+            val vectorBinFile = java.io.File(filesDir, "vectors.bin")
+            vectorBinFile.parentFile?.mkdirs()
+            NativeBridge.initVectorStore(vectorBinFile.absolutePath)
+        } catch (e: Throwable) {
+            android.util.Log.e("StreamifyApp", "Failed to initialize NativeBridge VectorStore", e)
+        }
 
-        // Copy ONNX model from assets to filesDir if needed
-        val modelFile = java.io.File(filesDir, "clap_int8.onnx")
-        if (!modelFile.exists()) {
-            try {
-                assets.open("models/clap_int8.onnx").use { input ->
-                    java.io.FileOutputStream(modelFile).use { output ->
-                        input.copyTo(output)
+        // 4. Copy ONNX model from assets if present
+        try {
+            val modelFile = java.io.File(filesDir, "clap_int8.onnx")
+            if (!modelFile.exists()) {
+                try {
+                    assets.open("models/clap_int8.onnx").use { input ->
+                        java.io.FileOutputStream(modelFile).use { output ->
+                            input.copyTo(output)
+                        }
                     }
+                } catch (e: Throwable) {
+                    android.util.Log.w("StreamifyApp", "CLAP ONNX model not found in assets, skipping")
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
-        }
-        if (modelFile.exists()) {
-            NativeBridge.initAudioPipeline(modelFile.absolutePath)
+            if (modelFile.exists()) {
+                NativeBridge.initAudioPipeline(modelFile.absolutePath)
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("StreamifyApp", "Failed to initialize AudioPipeline", e)
         }
 
-        com.streamify.app.service.AudioDeviceManager.init(this)
-        com.streamify.app.data.remote.SupabaseClient.init(this)
+        // 5. Initialize device & remote services safely
+        try {
+            com.streamify.app.service.AudioDeviceManager.init(this)
+        } catch (e: Throwable) {
+            android.util.Log.e("StreamifyApp", "Failed to initialize AudioDeviceManager", e)
+        }
+
+        try {
+            com.streamify.app.data.remote.SupabaseClient.init(this)
+        } catch (e: Throwable) {
+            android.util.Log.e("StreamifyApp", "Failed to initialize SupabaseClient", e)
+        }
+
         createNotificationChannels()
     }
 
