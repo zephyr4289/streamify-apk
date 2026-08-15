@@ -76,10 +76,17 @@ private:
     StreamifyDB() = default;
     ~StreamifyDB();
     sqlite3* getConnection();
+    void finalizeStatements();
 
     std::string db_path_{"streamify.db"};
     sqlite3* shared_db_{nullptr};
     std::recursive_mutex db_mutex_;
+
+    // High-performance prepared statement caches
+    sqlite3_stmt* stmt_get_track_by_id_{nullptr};
+    sqlite3_stmt* stmt_get_track_by_vec_{nullptr};
+    sqlite3_stmt* stmt_record_play_{nullptr};
+    sqlite3_stmt* stmt_user_liked_ids_{nullptr};
 };
 
 #endif // STREAMIFY_DB_H

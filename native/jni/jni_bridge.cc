@@ -4,7 +4,44 @@
 #include "../engine/StreamifyDB.h"
 #include "../engine/TaskOrchestrator.h"
 
-// Helper to convert C++ Track to Java TrackNative
+// Cached Global JNI References for zero lookup overhead
+static jclass g_trackClass = nullptr;
+static jmethodID g_trackConstructor = nullptr;
+static jclass g_recClass = nullptr;
+static jmethodID g_recConstructor = nullptr;
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /* reserved */) {
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        return JNI_ERR;
+    }
+
+    jclass localTrackClass = env->FindClass("com/streamify/app/data/models/TrackNative");
+    if (localTrackClass) {
+        g_trackClass = reinterpret_cast<jclass>(env->NewGlobalRef(localTrackClass));
+        g_trackConstructor = env->GetMethodID(g_trackClass, "<init>", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IFLjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;)V");
+        env->DeleteLocalRef(localTrackClass);
+    }
+
+    jclass localRecClass = env->FindClass("com/streamify/app/data/models/RecommendationNative");
+    if (localRecClass) {
+        g_recClass = reinterpret_cast<jclass>(env->NewGlobalRef(localRecClass));
+        g_recConstructor = env->GetMethodID(g_recClass, "<init>", "(IF)V");
+        env->DeleteLocalRef(localRecClass);
+    }
+
+    return JNI_VERSION_1_6;
+}
+
+JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* vm, void* /* reserved */) {
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_OK) {
+        if (g_trackClass) env->DeleteGlobalRef(g_trackClass);
+        if (g_recClass) env->DeleteGlobalRef(g_recClass);
+    }
+}
+
+// Helper to convert C++ Track to Java TrackNative using pre-cached descriptors
 jobject convertTrack(JNIEnv* env, jclass trackClass, jmethodID constructor, const StreamifyTrack& t) {
     jstring filepath = env->NewStringUTF(t.filepath.c_str());
     jstring title = env->NewStringUTF(t.title.c_str());
@@ -35,8 +72,8 @@ jobject convertTrack(JNIEnv* env, jclass trackClass, jmethodID constructor, cons
 }
 
 jobjectArray convertTrackList(JNIEnv* env, const std::vector<StreamifyTrack>& tracks) {
-    jclass trackClass = env->FindClass("com/streamify/app/data/models/TrackNative");
-    jmethodID constructor = env->GetMethodID(trackClass, "<init>", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IFLjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;)V");
+    jclass trackClass = g_trackClass ? g_trackClass : env->FindClass("com/streamify/app/data/models/TrackNative");
+    jmethodID constructor = g_trackConstructor ? g_trackConstructor : env->GetMethodID(trackClass, "<init>", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IFLjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;)V");
     
     jobjectArray trackArray = env->NewObjectArray(tracks.size(), trackClass, nullptr);
     for (size_t i = 0; i < tracks.size(); ++i) {
@@ -45,6 +82,19 @@ jobjectArray convertTrackList(JNIEnv* env, const std::vector<StreamifyTrack>& tr
         env->DeleteLocalRef(trackObj);
     }
     return trackArray;
+}
+
+jobjectArray convertRecList(JNIEnv* env, const std::vector<Recommendation>& recs) {
+    jclass recClass = g_recClass ? g_recClass : env->FindClass("com/streamify/app/data/models/RecommendationNative");
+    jmethodID constructor = g_recConstructor ? g_recConstructor : env->GetMethodID(recClass, "<init>", "(IF)V");
+
+    jobjectArray resultArray = env->NewObjectArray(recs.size(), recClass, nullptr);
+    for (size_t i = 0; i < recs.size(); ++i) {
+        jobject obj = env->NewObject(recClass, constructor, recs[i].trackId, recs[i].score);
+        env->SetObjectArrayElement(resultArray, i, obj);
+        env->DeleteLocalRef(obj);
+    }
+    return resultArray;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -149,17 +199,7 @@ Java_com_streamify_app_data_NativeBridge_getRecommendations(JNIEnv* env, jobject
     env->ReleaseIntArrayElements(recentHistory, historyElements, 0);
 
     std::vector<Recommendation> recs = RecommendEngine::getInstance().getNextTracks(trackId, history, limit);
-
-    jclass recClass = env->FindClass("com/streamify/app/data/models/RecommendationNative");
-    jmethodID constructor = env->GetMethodID(recClass, "<init>", "(IF)V");
-
-    jobjectArray resultArray = env->NewObjectArray(recs.size(), recClass, nullptr);
-    for (size_t i = 0; i < recs.size(); ++i) {
-        jobject obj = env->NewObject(recClass, constructor, recs[i].trackId, recs[i].score);
-        env->SetObjectArrayElement(resultArray, i, obj);
-        env->DeleteLocalRef(obj);
-    }
-    return resultArray;
+    return convertRecList(env, recs);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -328,33 +368,13 @@ Java_com_streamify_app_data_NativeBridge_updateSessionVector(JNIEnv* /* env */, 
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_com_streamify_app_data_NativeBridge_getSessionRecommendations(JNIEnv* env, jobject /* this */, jint limit) {
     std::vector<Recommendation> recs = RecommendEngine::getInstance().getSessionRecommendations(limit);
-
-    jclass recClass = env->FindClass("com/streamify/app/data/models/RecommendationNative");
-    jmethodID constructor = env->GetMethodID(recClass, "<init>", "(IF)V");
-
-    jobjectArray resultArray = env->NewObjectArray(recs.size(), recClass, nullptr);
-    for (size_t i = 0; i < recs.size(); ++i) {
-        jobject obj = env->NewObject(recClass, constructor, recs[i].trackId, recs[i].score);
-        env->SetObjectArrayElement(resultArray, i, obj);
-        env->DeleteLocalRef(obj);
-    }
-    return resultArray;
+    return convertRecList(env, recs);
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_com_streamify_app_data_NativeBridge_getLongTermRecommendations(JNIEnv* env, jobject /* this */, jint userId, jint limit) {
     std::vector<Recommendation> recs = RecommendEngine::getInstance().getLongTermRecommendations(userId, limit);
-
-    jclass recClass = env->FindClass("com/streamify/app/data/models/RecommendationNative");
-    jmethodID constructor = env->GetMethodID(recClass, "<init>", "(IF)V");
-
-    jobjectArray resultArray = env->NewObjectArray(recs.size(), recClass, nullptr);
-    for (size_t i = 0; i < recs.size(); ++i) {
-        jobject obj = env->NewObject(recClass, constructor, recs[i].trackId, recs[i].score);
-        env->SetObjectArrayElement(resultArray, i, obj);
-        env->DeleteLocalRef(obj);
-    }
-    return resultArray;
+    return convertRecList(env, recs);
 }
 
 #include "../dsp/SoftKneeLimiter.h"

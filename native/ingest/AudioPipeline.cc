@@ -299,10 +299,17 @@ float AudioPipeline::extractBPM(const std::string& filepath) {
     
     ma_uint64 total_frames = 0;
     ma_decoder_get_length_in_pcm_frames(&decoder, &total_frames);
-    if (total_frames == 0) total_frames = 16000 * 30; // Approx 30s buffer
-    std::vector<float> pcm(total_frames);
+    
+    // Fast-path: Analyze 30s representative chorus window (25% mark)
+    const ma_uint64 max_analysis_frames = 16000 * 30;
+    if (total_frames > max_analysis_frames * 2) {
+        ma_uint64 seek_pos = total_frames / 4;
+        ma_decoder_seek_to_pcm_frame(&decoder, seek_pos);
+    }
+    
+    std::vector<float> pcm(max_analysis_frames);
     ma_uint64 frames_read = 0;
-    ma_decoder_read_pcm_frames(&decoder, pcm.data(), total_frames, &frames_read);
+    ma_decoder_read_pcm_frames(&decoder, pcm.data(), max_analysis_frames, &frames_read);
     pcm.resize(frames_read);
     ma_decoder_uninit(&decoder);
 
@@ -377,15 +384,23 @@ std::string AudioPipeline::extractKey(const std::string& filepath) {
         return "C";
     }
     
+    ma_uint64 total_frames = 0;
+    ma_decoder_get_length_in_pcm_frames(&decoder, &total_frames);
+    
     const int sampleRate = 16000;
-    ma_uint64 frames = sampleRate * 20; // Analyze 20s continuous section for temporal stabilization
-    std::vector<float> pcm(frames);
-    ma_uint64 read_frames = 0;
-    ma_decoder_read_pcm_frames(&decoder, pcm.data(), frames, &read_frames);
+    const ma_uint64 max_analysis_frames = sampleRate * 30; // 30s chorus segment
+    if (total_frames > max_analysis_frames * 2) {
+        ma_uint64 seek_pos = total_frames / 4;
+        ma_decoder_seek_to_pcm_frame(&decoder, seek_pos);
+    }
+    
+    std::vector<float> pcm(max_analysis_frames);
+    ma_uint64 frames_read = 0;
+    ma_decoder_read_pcm_frames(&decoder, pcm.data(), max_analysis_frames, &frames_read);
+    pcm.resize(frames_read);
     ma_decoder_uninit(&decoder);
     
-    if (read_frames < 2048) return "C";
-    pcm.resize(read_frames);
+    if (frames_read < 2048) return "C";
 
     const int nfft = 2048;
     const int hop_length = 1024;

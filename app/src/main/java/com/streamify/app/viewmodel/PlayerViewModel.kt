@@ -301,21 +301,25 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         positionPollingJob?.cancel()
         positionPollingJob = viewModelScope.launch {
             while (true) {
-                controller?.let {
-                    val playerDuration = if (it.duration > 0) it.duration else 0L
-                    val trackDuration = (_playerState.value.currentTrack?.durationSec?.toLong() ?: 0L) * 1000L
-                    val finalDuration = if (playerDuration > 0) playerDuration else if (trackDuration > 0) trackDuration else _playerState.value.duration
+                controller?.let { ctrl ->
+                    val curState = _playerState.value
+                    val playerDuration = if (ctrl.duration > 0) ctrl.duration else 0L
+                    val currentTrack = curState.currentTrack
+                    val trackDuration = (currentTrack?.durationSec?.toLong() ?: 0L) * 1000L
+                    val finalDuration = if (playerDuration > 0) playerDuration else if (trackDuration > 0) trackDuration else curState.duration
                     
-                    val currentTrack = _playerState.value.currentTrack
                     val updatedTrack = if (currentTrack != null && currentTrack.durationSec <= 0 && finalDuration > 0) {
                         currentTrack.copy(durationSec = (finalDuration / 1000).toInt())
                     } else currentTrack
 
-                    _playerState.value = _playerState.value.copy(
-                        currentPosition = it.currentPosition.coerceAtLeast(0L),
-                        duration = finalDuration,
-                        currentTrack = updatedTrack
-                    )
+                    val newPos = ctrl.currentPosition.coerceAtLeast(0L)
+                    if (curState.currentPosition != newPos || curState.duration != finalDuration || curState.currentTrack !== updatedTrack) {
+                        _playerState.value = curState.copy(
+                            currentPosition = newPos,
+                            duration = finalDuration,
+                            currentTrack = updatedTrack
+                        )
+                    }
                 }
                 delay(200)
             }

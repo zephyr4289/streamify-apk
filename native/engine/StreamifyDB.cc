@@ -114,6 +114,22 @@ bool StreamifyDB::init(const std::string& db_path) {
     return true;
 }
 
+void StreamifyDB::finalizeStatements() {
+    if (stmt_get_track_by_id_) { sqlite3_finalize(stmt_get_track_by_id_); stmt_get_track_by_id_ = nullptr; }
+    if (stmt_get_track_by_vec_) { sqlite3_finalize(stmt_get_track_by_vec_); stmt_get_track_by_vec_ = nullptr; }
+    if (stmt_record_play_) { sqlite3_finalize(stmt_record_play_); stmt_record_play_ = nullptr; }
+    if (stmt_user_liked_ids_) { sqlite3_finalize(stmt_user_liked_ids_); stmt_user_liked_ids_ = nullptr; }
+}
+
+StreamifyDB::~StreamifyDB() {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    finalizeStatements();
+    if (shared_db_) {
+        sqlite3_close(shared_db_);
+        shared_db_ = nullptr;
+    }
+}
+
 sqlite3* StreamifyDB::getConnection() {
     std::lock_guard<std::recursive_mutex> lock(db_mutex_);
     if (shared_db_ == nullptr) {
@@ -133,32 +149,35 @@ std::optional<StreamifyTrack> StreamifyDB::getTrackById(int track_id) {
     sqlite3* db = getConnection();
     if (!db) return std::nullopt;
 
-    const char* sql = "SELECT id, filepath, title, artist, album, duration_sec, bpm, key, vector_offset, cover_art_path, lyrics_path, source, is_processed, download_quality FROM tracks WHERE id = ?;";
-    sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    if (!stmt_get_track_by_id_) {
+        const char* sql = "SELECT id, filepath, title, artist, album, duration_sec, bpm, key, vector_offset, cover_art_path, lyrics_path, source, is_processed, download_quality FROM tracks WHERE id = ?;";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt_get_track_by_id_, nullptr) != SQLITE_OK) return std::nullopt;
+    }
 
-    sqlite3_bind_int(stmt, 1, track_id);
+    sqlite3_reset(stmt_get_track_by_id_);
+    sqlite3_clear_bindings(stmt_get_track_by_id_);
+    sqlite3_bind_int(stmt_get_track_by_id_, 1, track_id);
 
     std::optional<StreamifyTrack> track;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
+    if (sqlite3_step(stmt_get_track_by_id_) == SQLITE_ROW) {
         StreamifyTrack t;
-        t.id = sqlite3_column_int(stmt, 0);
-        t.filepath = sqlite3_column_text(stmt, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)) : "";
-        t.title = sqlite3_column_text(stmt, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
-        t.artist = sqlite3_column_text(stmt, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)) : "";
-        t.album = sqlite3_column_text(stmt, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)) : "Single";
-        t.duration_sec = sqlite3_column_int(stmt, 5);
-        t.bpm = sqlite3_column_double(stmt, 6);
-        t.key = sqlite3_column_text(stmt, 7) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7)) : "C";
-        t.vector_offset = sqlite3_column_int(stmt, 8);
-        t.cover_art_path = sqlite3_column_text(stmt, 9) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9)) : "";
-        t.lyrics_path = sqlite3_column_text(stmt, 10) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 10)) : "";
-        t.source = sqlite3_column_text(stmt, 11) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11)) : "";
-        t.is_processed = sqlite3_column_int(stmt, 12);
-        t.download_quality = sqlite3_column_text(stmt, 13) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13)) : "";
+        t.id = sqlite3_column_int(stmt_get_track_by_id_, 0);
+        t.filepath = sqlite3_column_text(stmt_get_track_by_id_, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_id_, 1)) : "";
+        t.title = sqlite3_column_text(stmt_get_track_by_id_, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_id_, 2)) : "";
+        t.artist = sqlite3_column_text(stmt_get_track_by_id_, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_id_, 3)) : "";
+        t.album = sqlite3_column_text(stmt_get_track_by_id_, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_id_, 4)) : "Single";
+        t.duration_sec = sqlite3_column_int(stmt_get_track_by_id_, 5);
+        t.bpm = sqlite3_column_double(stmt_get_track_by_id_, 6);
+        t.key = sqlite3_column_text(stmt_get_track_by_id_, 7) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_id_, 7)) : "C";
+        t.vector_offset = sqlite3_column_int(stmt_get_track_by_id_, 8);
+        t.cover_art_path = sqlite3_column_text(stmt_get_track_by_id_, 9) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_id_, 9)) : "";
+        t.lyrics_path = sqlite3_column_text(stmt_get_track_by_id_, 10) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_id_, 10)) : "";
+        t.source = sqlite3_column_text(stmt_get_track_by_id_, 11) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_id_, 11)) : "";
+        t.is_processed = sqlite3_column_int(stmt_get_track_by_id_, 12);
+        t.download_quality = sqlite3_column_text(stmt_get_track_by_id_, 13) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_id_, 13)) : "";
         track = t;
     }
-    sqlite3_finalize(stmt);
+    sqlite3_reset(stmt_get_track_by_id_);
     return track;
 }
 
@@ -167,32 +186,35 @@ std::optional<StreamifyTrack> StreamifyDB::getTrackByVectorOffset(int offset) {
     sqlite3* db = getConnection();
     if (!db) return std::nullopt;
 
-    const char* sql = "SELECT id, filepath, title, artist, album, duration_sec, bpm, key, vector_offset, cover_art_path, lyrics_path, source, is_processed, download_quality FROM tracks WHERE vector_offset = ?;";
-    sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    if (!stmt_get_track_by_vec_) {
+        const char* sql = "SELECT id, filepath, title, artist, album, duration_sec, bpm, key, vector_offset, cover_art_path, lyrics_path, source, is_processed, download_quality FROM tracks WHERE vector_offset = ?;";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt_get_track_by_vec_, nullptr) != SQLITE_OK) return std::nullopt;
+    }
 
-    sqlite3_bind_int(stmt, 1, offset);
+    sqlite3_reset(stmt_get_track_by_vec_);
+    sqlite3_clear_bindings(stmt_get_track_by_vec_);
+    sqlite3_bind_int(stmt_get_track_by_vec_, 1, offset);
 
     std::optional<StreamifyTrack> track;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
+    if (sqlite3_step(stmt_get_track_by_vec_) == SQLITE_ROW) {
         StreamifyTrack t;
-        t.id = sqlite3_column_int(stmt, 0);
-        t.filepath = sqlite3_column_text(stmt, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)) : "";
-        t.title = sqlite3_column_text(stmt, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
-        t.artist = sqlite3_column_text(stmt, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3)) : "";
-        t.album = sqlite3_column_text(stmt, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)) : "Single";
-        t.duration_sec = sqlite3_column_int(stmt, 5);
-        t.bpm = sqlite3_column_double(stmt, 6);
-        t.key = sqlite3_column_text(stmt, 7) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7)) : "C";
-        t.vector_offset = sqlite3_column_int(stmt, 8);
-        t.cover_art_path = sqlite3_column_text(stmt, 9) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 9)) : "";
-        t.lyrics_path = sqlite3_column_text(stmt, 10) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 10)) : "";
-        t.source = sqlite3_column_text(stmt, 11) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11)) : "";
-        t.is_processed = sqlite3_column_int(stmt, 12);
-        t.download_quality = sqlite3_column_text(stmt, 13) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13)) : "";
+        t.id = sqlite3_column_int(stmt_get_track_by_vec_, 0);
+        t.filepath = sqlite3_column_text(stmt_get_track_by_vec_, 1) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_vec_, 1)) : "";
+        t.title = sqlite3_column_text(stmt_get_track_by_vec_, 2) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_vec_, 2)) : "";
+        t.artist = sqlite3_column_text(stmt_get_track_by_vec_, 3) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_vec_, 3)) : "";
+        t.album = sqlite3_column_text(stmt_get_track_by_vec_, 4) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_vec_, 4)) : "Single";
+        t.duration_sec = sqlite3_column_int(stmt_get_track_by_vec_, 5);
+        t.bpm = sqlite3_column_double(stmt_get_track_by_vec_, 6);
+        t.key = sqlite3_column_text(stmt_get_track_by_vec_, 7) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_vec_, 7)) : "C";
+        t.vector_offset = sqlite3_column_int(stmt_get_track_by_vec_, 8);
+        t.cover_art_path = sqlite3_column_text(stmt_get_track_by_vec_, 9) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_vec_, 9)) : "";
+        t.lyrics_path = sqlite3_column_text(stmt_get_track_by_vec_, 10) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_vec_, 10)) : "";
+        t.source = sqlite3_column_text(stmt_get_track_by_vec_, 11) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_vec_, 11)) : "";
+        t.is_processed = sqlite3_column_int(stmt_get_track_by_vec_, 12);
+        t.download_quality = sqlite3_column_text(stmt_get_track_by_vec_, 13) ? reinterpret_cast<const char*>(sqlite3_column_text(stmt_get_track_by_vec_, 13)) : "";
         track = t;
     }
-    sqlite3_finalize(stmt);
+    sqlite3_reset(stmt_get_track_by_vec_);
     return track;
 }
 
