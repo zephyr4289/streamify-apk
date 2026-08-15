@@ -66,11 +66,14 @@ public:
     bool updateTrackBPM(int track_id, double bpm);
     bool updateTrackKey(int track_id, const std::string& key);
 
-    // Behavioral Transition Methods
+    // Behavioral Transition & Circadian Pattern Methods
     bool insertTransition(int user_id, int from_track_id, int to_track_id, const std::string& type);
     float getTransitionProbability(int user_id, int from_track_id, int to_track_id);
     int getSkipCount(int user_id, int from_track_id, int to_track_id);
     int getTrackTotalSkipCount(int user_id, int track_id);
+    bool logEngagement(int track_id, int duration_sec, float completion_ratio, int hour_of_day);
+    float getCircadianAvgBPM(int hour_of_day);
+    std::string getCircadianSlot(int hour_of_day);
 
 private:
     StreamifyDB() = default;

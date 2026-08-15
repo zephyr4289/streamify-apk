@@ -153,16 +153,22 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     }
                 }
                 
-                // AI Event Logging: Track change
+                // Project Chronos AI & Circadian Event Logging: Track change
                 if (lastPlayedTrackId != null && newTrackId != null && lastPlayedTrackId != newTrackId) {
                     val wasSkipped = reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK || 
                                      reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
+                    val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                    val posSec = (ctrl.currentPosition / 1000L).toInt()
+                    val durSec = if (ctrl.duration > 0) (ctrl.duration / 1000L).toInt() else (_playerState.value.currentTrack?.durationSec ?: 0)
+                    val ratio = if (durSec > 0) (posSec.toFloat() / durSec.toFloat()).coerceIn(0f, 1f) else 0.5f
+
                     viewModelScope.launch {
                         if (wasSkipped && ctrl.currentPosition < 10000) {
                             repository.logSkipEvent(lastPlayedTrackId!!, newTrackId)
                         } else {
                             repository.logPlayEvent(lastPlayedTrackId!!, newTrackId)
                         }
+                        repository.logEngagementEvent(lastPlayedTrackId!!, posSec, ratio, currentHour)
                     }
                 }
                 lastPlayedTrackId = newTrackId

@@ -87,12 +87,29 @@ bool StreamifyDB::init(const std::string& db_path) {
             event_type TEXT NOT NULL, -- 'play' or 'skip'
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS user_circadian_patterns (
+            user_id INTEGER,
+            hour_of_day INTEGER,
+            avg_bpm REAL DEFAULT 120.0,
+            play_count INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, hour_of_day)
+        );
+        CREATE TABLE IF NOT EXISTS user_engagement_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            track_id INTEGER NOT NULL,
+            duration_played_sec INTEGER DEFAULT 0,
+            completion_ratio REAL DEFAULT 0.0,
+            hour_of_day INTEGER DEFAULT 12,
+            action_type TEXT DEFAULT 'PLAY',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE INDEX IF NOT EXISTS idx_tracks_filepath ON tracks(filepath);
         CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title);
         CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
         CREATE INDEX IF NOT EXISTS idx_tracks_vector_offset ON tracks(vector_offset);
         CREATE INDEX IF NOT EXISTS idx_transitions_user ON user_transitions(user_id, from_track_id, event_type);
         CREATE INDEX IF NOT EXISTS idx_tracks_play_count ON tracks(play_count DESC, last_played_timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_engagement_hour ON user_engagement_log(hour_of_day, action_type);
     )";
 
     char* err = nullptr;
@@ -875,4 +892,76 @@ std::vector<StreamifyTrack> StreamifyDB::getTracksBatch(int offset, int limit) {
     }
     sqlite3_finalize(stmt);
     return tracks;
+}
+
+std::string StreamifyDB::getCircadianSlot(int hour_of_day) {
+    if (hour_of_day >= 6 && hour_of_day < 11) return "MORNING";
+    if (hour_of_day >= 11 && hour_of_day < 17) return "AFTERNOON";
+    if (hour_of_day >= 17 && hour_of_day < 22) return "EVENING";
+    return "NIGHT";
+}
+
+bool StreamifyDB::logEngagement(int track_id, int duration_sec, float completion_ratio, int hour_of_day) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return false;
+
+    std::string action = "COMPLETED";
+    if (completion_ratio < 0.10f || duration_sec < 8) action = "SKIP_IMMEDIATE";
+    else if (completion_ratio < 0.50f) action = "SKIP_PARTIAL";
+    else if (completion_ratio >= 0.85f) action = "COMPLETED";
+
+    const char* sql = "INSERT INTO user_engagement_log (track_id, duration_played_sec, completion_ratio, hour_of_day, action_type) VALUES (?, ?, ?, ?, ?);";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, track_id);
+    sqlite3_bind_int(stmt, 2, duration_sec);
+    sqlite3_bind_double(stmt, 3, static_cast<double>(completion_ratio));
+    sqlite3_bind_int(stmt, 4, hour_of_day);
+    sqlite3_bind_text(stmt, 5, action.c_str(), -1, SQLITE_STATIC);
+
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+
+    // Update hourly aggregate BPM
+    auto track = getTrackById(track_id);
+    if (track && track->bpm > 40.0 && action != "SKIP_IMMEDIATE") {
+        const char* bpm_sql = "INSERT INTO user_circadian_patterns (user_id, hour_of_day, avg_bpm, play_count) VALUES (1, ?, ?, 1) "
+                              "ON CONFLICT(user_id, hour_of_day) DO UPDATE SET avg_bpm = (user_circadian_patterns.avg_bpm * 0.8) + (EXCLUDED.avg_bpm * 0.2), play_count = user_circadian_patterns.play_count + 1;";
+        sqlite3_stmt* b_stmt = nullptr;
+        if (sqlite3_prepare_v2(db, bpm_sql, -1, &b_stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int(b_stmt, 1, hour_of_day);
+            sqlite3_bind_double(b_stmt, 2, track->bpm);
+            sqlite3_step(b_stmt);
+            sqlite3_finalize(b_stmt);
+        }
+    }
+
+    return ok;
+}
+
+float StreamifyDB::getCircadianAvgBPM(int hour_of_day) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return 120.0f;
+
+    const char* sql = "SELECT avg_bpm FROM user_circadian_patterns WHERE user_id = 1 AND hour_of_day = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return 120.0f;
+
+    sqlite3_bind_int(stmt, 1, hour_of_day);
+    float bpm = 120.0f;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        bpm = static_cast<float>(sqlite3_column_double(stmt, 0));
+    }
+    sqlite3_finalize(stmt);
+
+    if (bpm <= 0.0f) {
+        if (hour_of_day >= 6 && hour_of_day < 11) bpm = 130.0f; // High energy morning
+        else if (hour_of_day >= 11 && hour_of_day < 17) bpm = 85.0f; // Focus afternoon
+        else if (hour_of_day >= 17 && hour_of_day < 22) bpm = 118.0f; // Evening upbeat
+        else bpm = 95.0f; // Chill night
+    }
+    return bpm;
 }

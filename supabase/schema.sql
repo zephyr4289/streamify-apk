@@ -495,3 +495,70 @@ BEGIN
     LIMIT limit_count;
 END;
 $$;
+
+-- ============================================================================
+-- 12. PROJECT CHRONOS: USER LISTENING PATTERNS & CIRCADIAN INTELLIGENCE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS public.user_listening_patterns (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    slot_name TEXT NOT NULL, -- 'MORNING', 'AFTERNOON', 'EVENING', 'NIGHT'
+    avg_bpm REAL DEFAULT 120.0,
+    preferred_keys TEXT[] DEFAULT '{}',
+    top_genres TEXT[] DEFAULT '{}',
+    slot_embedding vector(512),
+    skip_ratio REAL DEFAULT 0.0,
+    total_slot_plays INT DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, slot_name)
+);
+
+CREATE TABLE IF NOT EXISTS public.user_musical_chronotype (
+    user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+    chronotype_title TEXT DEFAULT 'The Night Explorer 🦉',
+    peak_listening_hour INT DEFAULT 23,
+    weekly_diversity_score REAL DEFAULT 0.75,
+    dominant_bpm_range TEXT DEFAULT '110 - 130 BPM',
+    repeat_addiction_ratio REAL DEFAULT 0.20,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.user_listening_patterns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_musical_chronotype ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users manage own patterns" ON public.user_listening_patterns FOR ALL USING (auth.uid() = user_id OR TRUE);
+CREATE POLICY "Public patterns viewable" ON public.user_listening_patterns FOR SELECT USING (TRUE);
+
+CREATE POLICY "Users manage own chronotype" ON public.user_musical_chronotype FOR ALL USING (auth.uid() = user_id OR TRUE);
+CREATE POLICY "Public chronotype viewable" ON public.user_musical_chronotype FOR SELECT USING (TRUE);
+
+-- RPC: Upsert User Listening Pattern Slot
+CREATE OR REPLACE FUNCTION public.upsert_user_listening_pattern(
+    p_slot_name TEXT,
+    p_avg_bpm REAL,
+    p_top_genres TEXT[],
+    p_skip_ratio REAL,
+    p_plays_delta INT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    INSERT INTO public.user_listening_patterns (
+        user_id, slot_name, avg_bpm, top_genres, skip_ratio, total_slot_plays, updated_at
+    )
+    VALUES (
+        auth.uid(), p_slot_name, p_avg_bpm, p_top_genres, p_skip_ratio, p_plays_delta, NOW()
+    )
+    ON CONFLICT (user_id, slot_name) DO UPDATE
+    SET avg_bpm = (user_listening_patterns.avg_bpm * 0.8) + (EXCLUDED.avg_bpm * 0.2),
+        top_genres = EXCLUDED.top_genres,
+        skip_ratio = (user_listening_patterns.skip_ratio * 0.7) + (EXCLUDED.skip_ratio * 0.3),
+        total_slot_plays = user_listening_patterns.total_slot_plays + EXCLUDED.total_slot_plays,
+        updated_at = NOW();
+
+    RETURN TRUE;
+END;
+$$;

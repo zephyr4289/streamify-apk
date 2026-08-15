@@ -179,6 +179,41 @@ fun UserProfileScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Project Chronos: Musical Chronotype Card
+            Surface(
+                color = StreamifyColors.BgElevated,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF7358FF).copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Bedtime,
+                            contentDescription = null,
+                            tint = Color(0xFF7358FF),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("MUSICAL CHRONOTYPE", style = StreamifyType.Caption, color = Color(0xFF7358FF))
+                        Text("The Night Explorer 🦉", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                        Text("Peak listening at 11 PM • 124 BPM average", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Streamify Wrapped Banner Button

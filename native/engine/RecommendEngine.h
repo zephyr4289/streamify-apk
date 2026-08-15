@@ -16,6 +16,7 @@ public:
     void updateSessionVector(int trackId, float alpha = 0.45f);
     std::vector<Recommendation> getSessionRecommendations(int limit = 50);
     std::vector<Recommendation> getLongTermRecommendations(int userId = 1, int limit = 50);
+    std::vector<Recommendation> getCircadianRecommendations(int hour_of_day, int limit = 20);
     std::vector<Recommendation> getNextTracks(int currentTrackId, const std::vector<int>& recentHistory, int limit);
 
 private:

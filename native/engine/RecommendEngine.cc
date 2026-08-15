@@ -336,3 +336,46 @@ std::vector<Recommendation> RecommendEngine::getLongTermRecommendations(int user
     }
     return fallback;
 }
+
+std::vector<Recommendation> RecommendEngine::getCircadianRecommendations(int hour_of_day, int limit) {
+    auto& db = StreamifyDB::getInstance();
+    auto& vecStore = VectorStore::getInstance();
+
+    float targetBpm = db.getCircadianAvgBPM(hour_of_day);
+    std::vector<StreamifyTrack> allTracks = db.getAllTracks();
+    if (allTracks.empty()) return {};
+
+    std::vector<int> likedIds = db.getUserLikedTrackIds(1);
+    std::unordered_set<int> likedSet(likedIds.begin(), likedIds.end());
+
+    std::vector<Recommendation> candidates;
+    for (const auto& track : allTracks) {
+        float bpm_score = 0.5f;
+        if (track.bpm > 40.0f && targetBpm > 40.0f) {
+            float diff = std::abs(static_cast<float>(track.bpm) - targetBpm);
+            float ratio = diff / targetBpm;
+            bpm_score = std::max(0.0f, 1.0f - (ratio * 3.5f));
+        }
+
+        float liked_bonus = (likedSet.count(track.id) > 0) ? 0.35f : 0.0f;
+        float play_count_bonus = std::min(0.20f, track.play_count * 0.02f);
+        
+        float final_score = (bpm_score * 0.55f) + liked_bonus + play_count_bonus;
+        candidates.push_back({track.id, final_score});
+    }
+
+    size_t targetTopK = std::min(candidates.size(), static_cast<size_t>(limit));
+    if (targetTopK > 0) {
+        std::partial_sort(
+            candidates.begin(),
+            candidates.begin() + targetTopK,
+            candidates.end(),
+            [](const Recommendation& a, const Recommendation& b) {
+                return a.score > b.score;
+            }
+        );
+        candidates.resize(targetTopK);
+    }
+
+    return candidates;
+}

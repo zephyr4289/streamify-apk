@@ -369,6 +369,49 @@ fun HomeScreen(
                         }
                     }
 
+                    // Project Chronos Circadian Dayparting Shelf
+                    if (state.circadianRecommendations.isNotEmpty()) {
+                        item {
+                            AnimatedVisibility(
+                                visible = isVisible,
+                                enter = fadeIn(tween(400, delayMillis = 300)) + slideInVertically(tween(400, delayMillis = 300)) { 50 }
+                            ) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = state.circadianSlotTitle,
+                                                style = StreamifyType.HeadlineMedium,
+                                                color = StreamifyColors.TextMain
+                                            )
+                                            Text(
+                                                text = "Dynamic Circadian Rhythm Tuning",
+                                                style = StreamifyType.Caption,
+                                                color = StreamifyColors.Primary
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
+                                    ) {
+                                        items(state.circadianRecommendations, key = { it.id }) { track ->
+                                            TrackCard(
+                                                track = track,
+                                                onClick = { onTrackClick(track, state.circadianRecommendations) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXL))
+                                }
+                            }
+                        }
+                    }
+
                     // 2. Made For You Shelf
                     if (state.madeForYou.isNotEmpty()) {
                         item {

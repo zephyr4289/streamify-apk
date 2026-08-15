@@ -199,5 +199,22 @@ object TrackRepository {
         val all = getAllTracks().associateBy { it.id }
         recs.mapNotNull { rec -> all[rec.trackId] }
     }
+
+    suspend fun logEngagementEvent(trackId: Int, durationSec: Int, completionRatio: Float, hourOfDay: Int): Boolean = withContext(Dispatchers.IO) {
+        if (trackId > 0) {
+            NativeBridge.logEngagementEvent(trackId, durationSec, completionRatio, hourOfDay)
+        } else false
+    }
+
+    suspend fun getCircadianRecommendations(hourOfDay: Int, limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
+        val recs = NativeBridge.getCircadianRecommendations(hourOfDay, limit)
+        if (recs.isEmpty()) return@withContext emptyList()
+        val all = getAllTracks().associateBy { it.id }
+        recs.mapNotNull { rec -> all[rec.trackId] }
+    }
+
+    fun getCircadianSlot(hourOfDay: Int): String {
+        return NativeBridge.getCircadianSlot(hourOfDay)
+    }
 }
 

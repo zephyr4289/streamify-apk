@@ -420,3 +420,20 @@ Java_com_streamify_app_data_NativeBridge_getTracksBatch(JNIEnv* env, jobject /* 
     std::vector<StreamifyTrack> tracks = StreamifyDB::getInstance().getTracksBatch(offset, limit);
     return convertTrackList(env, tracks);
 }
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_logEngagementEvent(JNIEnv* /* env */, jobject /* this */, jint trackId, jint durationSec, jfloat completionRatio, jint hourOfDay) {
+    return StreamifyDB::getInstance().logEngagement(trackId, durationSec, completionRatio, hourOfDay);
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_streamify_app_data_NativeBridge_getCircadianRecommendations(JNIEnv* env, jobject /* this */, jint hourOfDay, jint limit) {
+    std::vector<Recommendation> recs = RecommendEngine::getInstance().getCircadianRecommendations(hourOfDay, limit);
+    return convertRecList(env, recs);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_getCircadianSlot(JNIEnv* env, jobject /* this */, jint hourOfDay) {
+    std::string slot = StreamifyDB::getInstance().getCircadianSlot(hourOfDay);
+    return env->NewStringUTF(slot.c_str());
+}

@@ -17,6 +17,8 @@ sealed class HomeUiState {
     object Loading : HomeUiState()
     data class Success(
         val sessionRecommendations: List<Track>,
+        val circadianRecommendations: List<Track>,
+        val circadianSlotTitle: String,
         val madeForYou: List<Track>,
         val onlineDiscoveries: List<Track>,
         val recent: List<Track>,
@@ -56,7 +58,25 @@ class HomeViewModel(private val repository: TrackRepository = TrackRepository) :
                     limit = 8
                 )
 
-                // 2. Multi-Modal Long-Term Profile (V_long)
+                // 2. Project Chronos Circadian Recommendation Shelf (V_slot & Time-of-day BPM)
+                val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                val rawCircadian = try { repository.getCircadianRecommendations(currentHour, 20) } catch (e: Exception) { emptyList() }
+                val circadianRecs = ReRanker.reRank(
+                    candidates = if (rawCircadian.isNotEmpty()) rawCircadian else allTracks,
+                    maxPerArtist = 2,
+                    explorationRatio = 0.20f,
+                    explorationPool = allTracks,
+                    limit = 8
+                )
+                val slotName = repository.getCircadianSlot(currentHour)
+                val slotTitle = when (slotName) {
+                    "MORNING" -> "Morning Energy • Wake & Move"
+                    "AFTERNOON" -> "Afternoon Flow • Focus & Lo-Fi"
+                    "EVENING" -> "Evening Horizon • Golden Hour Unwind"
+                    else -> "Late Night Drift • Deep Chill"
+                }
+
+                // 3. Multi-Modal Long-Term Profile (V_long)
                 val rawLongRecs = try { repository.getLongTermRecommendations(userId = 1, limit = 30) } catch (e: Exception) { emptyList() }
                 val madeForYou = ReRanker.reRank(
                     candidates = if (rawLongRecs.isNotEmpty()) rawLongRecs else allTracks,
@@ -66,11 +86,11 @@ class HomeViewModel(private val repository: TrackRepository = TrackRepository) :
                     limit = 8
                 )
 
-                // 3. Top Heavy Rotations
+                // 4. Top Heavy Rotations
                 val topPlayed = try { repository.getTopPlayedTracks(20) } catch (e: Exception) { emptyList() }
                 val recent = allTracks.takeLast(6)
 
-                // 4. Online 2-Hop Graph Discovery
+                // 5. Online 2-Hop Graph Discovery
                 val topArtists = ReRanker.extractTopArtists(sessionRecs.ifEmpty { topPlayed.ifEmpty { allTracks } }, limit = 2)
                 val onlineDiscoveries = mutableListOf<Track>()
 
@@ -99,6 +119,8 @@ class HomeViewModel(private val repository: TrackRepository = TrackRepository) :
                 withContext(Dispatchers.Main) {
                     _uiState.value = HomeUiState.Success(
                         sessionRecommendations = sessionRecs,
+                        circadianRecommendations = circadianRecs,
+                        circadianSlotTitle = slotTitle,
                         madeForYou = madeForYou,
                         onlineDiscoveries = onlineDiscoveries.take(8),
                         recent = recent,

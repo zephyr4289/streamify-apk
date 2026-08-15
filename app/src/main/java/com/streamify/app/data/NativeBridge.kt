@@ -65,4 +65,9 @@ object NativeBridge {
     // Universal Migration & Fuzzy Matcher (Project Janus)
     external fun findFuzzyTrackMatch(title: String, artist: String): Int
     external fun getTracksBatch(offset: Int, limit: Int): Array<TrackNative>
+
+    // Project Chronos: Circadian Listening Patterns
+    external fun logEngagementEvent(trackId: Int, durationSec: Int, completionRatio: Float, hourOfDay: Int): Boolean
+    external fun getCircadianRecommendations(hourOfDay: Int, limit: Int): Array<RecommendationNative>
+    external fun getCircadianSlot(hourOfDay: Int): String
 }
