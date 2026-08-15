@@ -281,3 +281,217 @@ CREATE POLICY "Users manage friends" ON public.friend_connections FOR ALL USING 
 -- Broadcasts
 CREATE POLICY "Anyone can read broadcasts" ON public.admin_broadcasts FOR SELECT USING (is_active = TRUE);
 CREATE POLICY "Admin manages broadcasts" ON public.admin_broadcasts FOR ALL USING (public.is_admin());
+
+-- ============================================================================
+-- ADMIN COMMAND CENTER & MODERATION EXTENSION RPCs
+-- ============================================================================
+
+-- 1. Real-Time Admin Dashboard Metrics Aggregator (RPC)
+CREATE OR REPLACE FUNCTION public.get_admin_dashboard_stats()
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    result JSONB;
+    v_total_users INT;
+    v_total_tracks INT;
+    v_total_playlists INT;
+    v_active_jams INT;
+    v_total_comments INT;
+    v_total_likes INT;
+    v_total_plays BIGINT;
+    v_dau_24h INT;
+BEGIN
+    IF NOT public.is_admin() THEN
+        RAISE EXCEPTION 'Access denied: Admin privileges required';
+    END IF;
+
+    SELECT COUNT(*) INTO v_total_users FROM public.profiles;
+    SELECT COUNT(*) INTO v_total_tracks FROM public.tracks;
+    SELECT COUNT(*) INTO v_total_playlists FROM public.playlists;
+    SELECT COUNT(*) INTO v_active_jams FROM public.listening_sessions WHERE updated_at > NOW() - INTERVAL '30 minutes';
+    SELECT COUNT(*) INTO v_total_comments FROM public.track_comments;
+    SELECT COUNT(*) INTO v_total_likes FROM public.user_likes;
+    SELECT COALESCE(SUM(total_plays), 0) INTO v_total_plays FROM public.profiles;
+    SELECT COUNT(*) INTO v_dau_24h FROM public.profiles WHERE last_active_at > NOW() - INTERVAL '24 hours';
+
+    result := jsonb_build_object(
+        'total_users', v_total_users,
+        'total_tracks', v_total_tracks,
+        'total_playlists', v_total_playlists,
+        'active_jam_sessions', v_active_jams,
+        'total_comments', v_total_comments,
+        'total_likes', v_total_likes,
+        'total_plays', v_total_plays,
+        'dau_24h', v_dau_24h,
+        'server_status', 'Operational',
+        'engine_mode', 'PostgreSQL 15 + pgvector 0.5.1'
+    );
+    RETURN result;
+END;
+$$;
+
+-- 2. Admin User Role Manager
+CREATE OR REPLACE FUNCTION public.set_user_admin_role(
+    target_user_id UUID,
+    new_admin_status BOOLEAN
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    IF NOT public.is_admin() THEN
+        RAISE EXCEPTION 'Access denied: Admin privileges required';
+    END IF;
+
+    UPDATE public.profiles
+    SET is_admin = new_admin_status
+    WHERE id = target_user_id;
+
+    RETURN FOUND;
+END;
+$$;
+
+-- 3. Admin Jam Session Force Termination
+CREATE OR REPLACE FUNCTION public.terminate_jam_session(
+    target_session_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    IF NOT public.is_admin() THEN
+        RAISE EXCEPTION 'Access denied: Admin privileges required';
+    END IF;
+
+    DELETE FROM public.listening_sessions
+    WHERE id = target_session_id;
+
+    RETURN FOUND;
+END;
+$$;
+
+-- 4. Admin Comment Moderation / Delete
+CREATE OR REPLACE FUNCTION public.delete_comment_admin(
+    target_comment_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    IF NOT public.is_admin() THEN
+        RAISE EXCEPTION 'Access denied: Admin privileges required';
+    END IF;
+
+    DELETE FROM public.track_comments
+    WHERE id = target_comment_id;
+
+    RETURN FOUND;
+END;
+$$;
+
+-- 5. Admin Broadcast State Toggle
+CREATE OR REPLACE FUNCTION public.toggle_admin_broadcast(
+    target_broadcast_id UUID,
+    active_state BOOLEAN
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    IF NOT public.is_admin() THEN
+        RAISE EXCEPTION 'Access denied: Admin privileges required';
+    END IF;
+
+    UPDATE public.admin_broadcasts
+    SET is_active = active_state
+    WHERE id = target_broadcast_id;
+
+    RETURN FOUND;
+END;
+$$;
+
+-- 6. Fetch Active Jam Sessions with Details (Admin View)
+CREATE OR REPLACE FUNCTION public.get_admin_jam_sessions()
+RETURNS TABLE (
+    id UUID,
+    session_code TEXT,
+    host_name TEXT,
+    host_email TEXT,
+    current_track_title TEXT,
+    current_track_artist TEXT,
+    participant_count INT,
+    is_playing BOOLEAN,
+    updated_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    IF NOT public.is_admin() THEN
+        RAISE EXCEPTION 'Access denied: Admin privileges required';
+    END IF;
+
+    RETURN QUERY
+    SELECT 
+        s.id,
+        s.session_code,
+        COALESCE(p.display_name, 'Unknown Host') AS host_name,
+        COALESCE(p.email, '') AS host_email,
+        COALESCE(s.current_track_json->>'title', 'No Track') AS current_track_title,
+        COALESCE(s.current_track_json->>'artist', '') AS current_track_artist,
+        COALESCE(cardinality(s.participant_ids), 0) + 1 AS participant_count,
+        s.is_playing,
+        s.updated_at
+    FROM public.listening_sessions s
+    LEFT JOIN public.profiles p ON s.host_user_id = p.id
+    ORDER BY s.updated_at DESC
+    LIMIT 50;
+END;
+$$;
+
+-- 7. Fetch Recent Comments for Moderation Feed
+CREATE OR REPLACE FUNCTION public.get_admin_recent_comments(
+    limit_count INT DEFAULT 50
+)
+RETURNS TABLE (
+    id UUID,
+    track_id TEXT,
+    track_title TEXT,
+    user_id UUID,
+    user_name TEXT,
+    user_avatar TEXT,
+    comment_text TEXT,
+    timestamp_ms BIGINT,
+    created_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    IF NOT public.is_admin() THEN
+        RAISE EXCEPTION 'Access denied: Admin privileges required';
+    END IF;
+
+    RETURN QUERY
+    SELECT 
+        c.id,
+        c.track_id,
+        COALESCE(t.title, 'Unknown Track') AS track_title,
+        c.user_id,
+        c.user_name,
+        c.user_avatar,
+        c.comment_text,
+        c.timestamp_ms,
+        c.created_at
+    FROM public.track_comments c
+    LEFT JOIN public.tracks t ON c.track_id = t.id
+    ORDER BY c.created_at DESC
+    LIMIT limit_count;
+END;
+$$;

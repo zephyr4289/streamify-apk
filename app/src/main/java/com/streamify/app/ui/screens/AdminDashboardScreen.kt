@@ -1,6 +1,7 @@
 package com.streamify.app.ui.screens
 
 import android.widget.Toast
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,12 +18,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.streamify.app.data.remote.AdminCommentItem
+import com.streamify.app.data.remote.AdminJamSession
 import com.streamify.app.data.remote.AdminTelemetry
 import com.streamify.app.data.remote.SupabaseClient
+import com.streamify.app.data.remote.UserProfile
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
@@ -65,25 +71,38 @@ fun AdminDashboardScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val user by SupabaseClient.currentUser.collectAsState()
 
+    var selectedTab by remember { mutableStateOf(0) }
     var telemetry by remember { mutableStateOf<AdminTelemetry?>(null) }
+    var jamSessions by remember { mutableStateOf<List<AdminJamSession>>(emptyList()) }
+    var recentComments by remember { mutableStateOf<List<AdminCommentItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var searchQuery by remember { mutableStateOf("") }
+    
     var broadcastMsg by remember { mutableStateOf("") }
     var showBroadcastDialog by remember { mutableStateOf(false) }
 
-    fun refreshTelemetry() {
+    fun refreshAll() {
         scope.launch {
             isLoading = true
-            val res = SupabaseClient.getAdminTelemetry()
-            telemetry = res.getOrNull()
+            val telemRes = SupabaseClient.getAdminTelemetry()
+            telemetry = telemRes.getOrNull()
+
+            val jamRes = SupabaseClient.getAdminJamSessions()
+            jamSessions = jamRes.getOrDefault(emptyList())
+
+            val commentRes = SupabaseClient.getAdminRecentComments(50)
+            recentComments = commentRes.getOrDefault(emptyList())
+
             isLoading = false
         }
     }
 
     LaunchedEffect(Unit) {
-        refreshTelemetry()
+        refreshAll()
     }
 
     Column(
@@ -126,204 +145,533 @@ fun AdminDashboardScreen(
                 }
             }
 
-            IconButton(onClick = { refreshTelemetry() }) {
+            IconButton(onClick = { refreshAll() }) {
                 Icon(Icons.Filled.Refresh, contentDescription = "Refresh", tint = StreamifyColors.Primary)
             }
         }
 
-        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = StreamifyDimens.SpaceLG),
-            verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG),
-            contentPadding = PaddingValues(bottom = 80.dp)
+        // Navigation Tabs
+        ScrollableTabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = StreamifyColors.BgBase,
+            contentColor = StreamifyColors.Primary,
+            edgePadding = StreamifyDimens.SpaceLG,
+            divider = {}
         ) {
-            // Live System Status Banner
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgElevated),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .clip(CircleShape)
-                                    .background(StreamifyColors.Primary)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text("PostgreSQL & Supabase Engine", style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
-                                Text(telemetry?.serverStatus ?: "Operational", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
-                            }
-                        }
-                        Text("${telemetry?.latencyMs ?: 24} ms", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
+            val tabs = listOf("Telemetry", "Users", "Jam Rooms", "Comments", "Broadcasts")
+            tabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = {
+                        Text(
+                            title,
+                            style = StreamifyType.TitleSmall,
+                            color = if (selectedTab == index) StreamifyColors.Primary else StreamifyColors.TextSub
+                        )
                     }
-                }
+                )
             }
+        }
 
-            // Telemetry Grid
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
+
+        when (selectedTab) {
+            // TAB 0: TELEMETRY & SYSTEM HEALTH
+            0 -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = StreamifyDimens.SpaceLG),
+                    verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG),
+                    contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    MetricCard(
-                        title = "Users",
-                        value = "${telemetry?.totalUsers ?: 1}",
-                        subtitle = "Active Profiles",
-                        icon = Icons.Filled.People,
-                        accentColor = Color(0xFF1DB954),
-                        modifier = Modifier.weight(1f)
-                    )
-                    MetricCard(
-                        title = "Jam Rooms",
-                        value = "${telemetry?.activeJamSessions ?: 0}",
-                        subtitle = "Live WebSockets",
-                        icon = Icons.Filled.Podcasts,
-                        accentColor = Color(0xFF7358FF),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
-                ) {
-                    MetricCard(
-                        title = "Cloud Catalog",
-                        value = "${telemetry?.totalTracks ?: 256}",
-                        subtitle = "Indexed Songs",
-                        icon = Icons.Filled.MusicNote,
-                        accentColor = Color(0xFFE8115B),
-                        modifier = Modifier.weight(1f)
-                    )
-                    MetricCard(
-                        title = "Playlists",
-                        value = "${telemetry?.totalPlaylists ?: 18}",
-                        subtitle = "Collaborative",
-                        icon = Icons.Filled.QueueMusic,
-                        accentColor = Color(0xFFBC5900),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            // Quick Actions
-            item {
-                Text("Admin Quick Actions", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
-                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
-                ) {
-                    Button(
-                        onClick = { showBroadcastDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Filled.Campaign, contentDescription = null, tint = Color.Black)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Broadcast", style = StreamifyType.TitleSmall, color = Color.Black)
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                com.streamify.app.data.TrackRepository.refresh()
-                                Toast.makeText(context, "Vector store & DB re-indexed", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = StreamifyColors.TextMain),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Filled.Sync, contentDescription = null, tint = StreamifyColors.TextMain)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Re-index", style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
-                    }
-                }
-            }
-
-            // User Explorer Section
-            item {
-                Text("Registered Profiles (${telemetry?.userList?.size ?: 0})", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
-            }
-
-            items(telemetry?.userList ?: emptyList()) { profile ->
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (profile.avatarUrl.isNotBlank()) {
-                            AsyncImage(
-                                model = profile.avatarUrl,
-                                contentDescription = null,
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgElevated),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
                                 modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                            )
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(StreamifyColors.BgElevated),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    text = profile.displayName.take(1).uppercase(),
-                                    style = StreamifyType.TitleMedium,
-                                    color = StreamifyColors.Primary
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .clip(CircleShape)
+                                            .background(StreamifyColors.Primary)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text("Database & Vector Engine", style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                                        Text(telemetry?.engineMode ?: "PostgreSQL 15 + pgvector", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                    }
+                                }
+                                Text("${telemetry?.latencyMs ?: 24} ms", style = StreamifyType.TitleMedium, color = StreamifyColors.Primary)
                             }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.width(12.dp))
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
+                        ) {
+                            MetricCard(
+                                title = "Users",
+                                value = "${telemetry?.totalUsers ?: 0}",
+                                subtitle = "${telemetry?.dau24h ?: 0} Active 24h",
+                                icon = Icons.Filled.People,
+                                accentColor = Color(0xFF1DB954),
+                                modifier = Modifier.weight(1f)
+                            )
+                            MetricCard(
+                                title = "Jam Rooms",
+                                value = "${telemetry?.activeJamSessions ?: 0}",
+                                subtitle = "Live Rooms",
+                                icon = Icons.Filled.Podcasts,
+                                accentColor = Color(0xFF7358FF),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(profile.displayName, style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
-                                if (profile.isAdmin || profile.email == "sireenyadav@gmail.com") {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Surface(
-                                        color = StreamifyColors.Primary.copy(alpha = 0.2f),
-                                        shape = RoundedCornerShape(4.dp)
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
+                        ) {
+                            MetricCard(
+                                title = "Cloud Songs",
+                                value = "${telemetry?.totalTracks ?: 0}",
+                                subtitle = "Indexed Vectors",
+                                icon = Icons.Filled.MusicNote,
+                                accentColor = Color(0xFFE8115B),
+                                modifier = Modifier.weight(1f)
+                            )
+                            MetricCard(
+                                title = "Playlists",
+                                value = "${telemetry?.totalPlaylists ?: 0}",
+                                subtitle = "Public & Collab",
+                                icon = Icons.Filled.QueueMusic,
+                                accentColor = Color(0xFFBC5900),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
+                        ) {
+                            MetricCard(
+                                title = "Comments",
+                                value = "${telemetry?.totalComments ?: 0}",
+                                subtitle = "Reactions",
+                                icon = Icons.Filled.Comment,
+                                accentColor = Color(0xFF2E77D0),
+                                modifier = Modifier.weight(1f)
+                            )
+                            MetricCard(
+                                title = "Total Plays",
+                                value = "${telemetry?.totalPlays ?: 0}",
+                                subtitle = "Streams",
+                                icon = Icons.Filled.PlayArrow,
+                                accentColor = Color(0xFFE91E63),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    // Admin Quick Actions
+                    item {
+                        Text("Admin Quick Actions", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
+                        ) {
+                            Button(
+                                onClick = { showBroadcastDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Filled.Campaign, contentDescription = null, tint = Color.Black)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Broadcast", style = StreamifyType.TitleSmall, color = Color.Black)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        com.streamify.app.data.TrackRepository.refresh()
+                                        Toast.makeText(context, "Local Vector store & DB re-indexed", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = StreamifyColors.TextMain),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Filled.Sync, contentDescription = null, tint = StreamifyColors.TextMain)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Re-index", style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // TAB 1: USERS EXPLORER & ROLES
+            1 -> {
+                val filteredUsers = remember(searchQuery, telemetry?.userList) {
+                    val list = telemetry?.userList ?: emptyList()
+                    if (searchQuery.isBlank()) list
+                    else list.filter {
+                        it.displayName.contains(searchQuery, ignoreCase = true) ||
+                        it.email.contains(searchQuery, ignoreCase = true)
+                    }
+                }
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = StreamifyDimens.SpaceLG),
+                    verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    item {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search users by name or email...") },
+                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = StreamifyColors.TextSub) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = StreamifyColors.BgElevated,
+                                unfocusedContainerColor = StreamifyColors.BgElevated,
+                                focusedBorderColor = StreamifyColors.Primary
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    item {
+                        Text("Registered Profiles (${filteredUsers.size})", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                    }
+
+                    items(filteredUsers) { profile ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (profile.avatarUrl.isNotBlank()) {
+                                    AsyncImage(
+                                        model = profile.avatarUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .background(StreamifyColors.BgElevated),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            "ADMIN",
-                                            style = StreamifyType.Caption,
-                                            color = StreamifyColors.Primary,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            text = profile.displayName.take(1).uppercase(),
+                                            style = StreamifyType.TitleMedium,
+                                            color = StreamifyColors.Primary
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(profile.displayName, style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                                        if (profile.isAdmin || profile.email.equals("sireenyadav@gmail.com", ignoreCase = true)) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                color = StreamifyColors.Primary.copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text(
+                                                    "ADMIN",
+                                                    style = StreamifyType.Caption,
+                                                    color = StreamifyColors.Primary,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text(profile.email, style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                    Text("${profile.totalPlays} plays • ${(profile.listeningSeconds / 60)} mins", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
+                                }
+
+                                if (!profile.email.equals("sireenyadav@gmail.com", ignoreCase = true)) {
+                                    IconButton(onClick = {
+                                        scope.launch {
+                                            val newRole = !profile.isAdmin
+                                            val res = SupabaseClient.setUserAdminRole(profile.id, newRole)
+                                            if (res.isSuccess) {
+                                                Toast.makeText(context, "Updated role for ${profile.displayName}", Toast.LENGTH_SHORT).show()
+                                                refreshAll()
+                                            } else {
+                                                Toast.makeText(context, "Failed to update role", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }) {
+                                        Icon(
+                                            imageVector = if (profile.isAdmin) Icons.Filled.AdminPanelSettings else Icons.Filled.PersonAddAlt1,
+                                            contentDescription = "Toggle Admin",
+                                            tint = if (profile.isAdmin) StreamifyColors.Primary else StreamifyColors.TextSub
                                         )
                                     }
                                 }
                             }
-                            Text(profile.email, style = StreamifyType.Caption, color = StreamifyColors.TextSub)
                         }
+                    }
+                }
+            }
 
-                        Text("${profile.totalPlays} plays", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
+            // TAB 2: JAM ROOMS MANAGEMENT
+            2 -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = StreamifyDimens.SpaceLG),
+                    verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    item {
+                        Text("Active Listening Rooms (${jamSessions.size})", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                    }
+
+                    if (jamSessions.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Filled.Podcasts, contentDescription = null, tint = StreamifyColors.TextDimmed, modifier = Modifier.size(48.dp))
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("No active Jam rooms currently open", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
+                                }
+                            }
+                        }
+                    }
+
+                    items(jamSessions) { session ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            color = Color(0xFF7358FF).copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(6.dp),
+                                            modifier = Modifier.clickable {
+                                                clipboardManager.setText(AnnotatedString(session.sessionCode))
+                                                Toast.makeText(context, "PIN ${session.sessionCode} copied!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        ) {
+                                            Text(
+                                                text = session.sessionCode,
+                                                style = StreamifyType.TitleSmall,
+                                                color = Color(0xFF7358FF),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(session.hostName, style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                                    }
+
+                                    IconButton(onClick = {
+                                        scope.launch {
+                                            val res = SupabaseClient.terminateJamSessionAdmin(session.id)
+                                            if (res.isSuccess) {
+                                                Toast.makeText(context, "Jam room closed", Toast.LENGTH_SHORT).show()
+                                                refreshAll()
+                                            } else {
+                                                Toast.makeText(context, "Failed to terminate room", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }) {
+                                        Icon(Icons.Filled.Delete, contentDescription = "Terminate", tint = StreamifyColors.Error)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("🎵 ${session.currentTrackTitle} • ${session.currentTrackArtist}", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("👥 ${session.participantCount} connected listener(s) • ${if (session.isPlaying) "▶ Playing" else "⏸ Paused"}", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // TAB 3: COMMENTS MODERATION FEED
+            3 -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = StreamifyDimens.SpaceLG),
+                    verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    item {
+                        Text("Live Song Comments (${recentComments.size})", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                    }
+
+                    if (recentComments.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No recent comments to moderate", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
+                            }
+                        }
+                    }
+
+                    items(recentComments) { comment ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(comment.userName, style = StreamifyType.TitleSmall, color = StreamifyColors.Primary)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("on ${comment.trackTitle}", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("@ ${com.streamify.app.ui.components.formatTimestamp(comment.timestampMs)}", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(comment.commentText, style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                }
+
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        val res = SupabaseClient.deleteCommentAdmin(comment.id)
+                                        if (res.isSuccess) {
+                                            Toast.makeText(context, "Comment removed", Toast.LENGTH_SHORT).show()
+                                            refreshAll()
+                                        } else {
+                                            Toast.makeText(context, "Failed to delete comment", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }) {
+                                    Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete", tint = StreamifyColors.Error)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // TAB 4: BROADCASTS
+            4 -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = StreamifyDimens.SpaceLG),
+                    verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("New Global Announcement", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Broadcast an instant announcement banner to all connected Streamify apps worldwide.", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                OutlinedTextField(
+                                    value = broadcastMsg,
+                                    onValueChange = { broadcastMsg = it },
+                                    placeholder = { Text("Enter announcement message...") },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedContainerColor = StreamifyColors.BgElevated,
+                                        unfocusedContainerColor = StreamifyColors.BgElevated,
+                                        focusedBorderColor = StreamifyColors.Primary
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                Button(
+                                    onClick = {
+                                        if (broadcastMsg.isNotBlank()) {
+                                            scope.launch {
+                                                val res = SupabaseClient.postAdminBroadcast(broadcastMsg)
+                                                if (res.isSuccess) {
+                                                    Toast.makeText(context, "Broadcast sent successfully!", Toast.LENGTH_SHORT).show()
+                                                    broadcastMsg = ""
+                                                    refreshAll()
+                                                } else {
+                                                    Toast.makeText(context, "Failed to post broadcast", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Filled.Campaign, contentDescription = null, tint = Color.Black)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Publish Global Banner", style = StreamifyType.TitleSmall, color = Color.Black)
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -79,13 +79,42 @@ data class CommunityPlaylist(
 )
 
 data class AdminTelemetry(
-    val totalUsers: Int,
-    val totalTracks: Int,
-    val totalPlaylists: Int,
-    val activeJamSessions: Int,
+    val totalUsers: Int = 0,
+    val totalTracks: Int = 0,
+    val totalPlaylists: Int = 0,
+    val activeJamSessions: Int = 0,
+    val totalComments: Int = 0,
+    val totalLikes: Int = 0,
+    val totalPlays: Long = 0L,
+    val dau24h: Int = 0,
     val userList: List<UserProfile> = emptyList(),
-    val serverStatus: String = "Operational (PostgreSQL 15 + pgvector)",
-    val latencyMs: Long = 45L
+    val serverStatus: String = "Operational",
+    val latencyMs: Long = 24L,
+    val engineMode: String = "PostgreSQL 15 + pgvector 0.5.1"
+)
+
+data class AdminJamSession(
+    val id: String,
+    val sessionCode: String,
+    val hostName: String,
+    val hostEmail: String,
+    val currentTrackTitle: String,
+    val currentTrackArtist: String,
+    val participantCount: Int,
+    val isPlaying: Boolean,
+    val updatedAt: String
+)
+
+data class AdminCommentItem(
+    val id: String,
+    val trackId: String,
+    val trackTitle: String,
+    val userId: String,
+    val userName: String,
+    val userAvatar: String,
+    val commentText: String,
+    val timestampMs: Long,
+    val createdAt: String
 )
 
 object SupabaseClient {
@@ -774,12 +803,52 @@ object SupabaseClient {
         val startMs = System.currentTimeMillis()
         try {
             val token = getAuthToken()
-            val profilesUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?select=*&order=created_at.desc")
+            
+            // 1. Fetch live metrics from PostgreSQL get_admin_dashboard_stats RPC
+            var totalUsers = 0
+            var totalTracks = 0
+            var totalPlaylists = 0
+            var activeJams = 0
+            var totalComments = 0
+            var totalLikes = 0
+            var totalPlays = 0L
+            var dau24h = 0
+            var serverStatus = "Operational"
+            var engineMode = "PostgreSQL 15 + pgvector 0.5.1"
+
+            try {
+                val rpcUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/get_admin_dashboard_stats")
+                val rpcConn = (rpcUrl.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                    setRequestProperty("Authorization", "Bearer $token")
+                    setRequestProperty("Content-Type", "application/json")
+                }
+
+                if (rpcConn.responseCode in 200..299) {
+                    val resp = BufferedReader(InputStreamReader(rpcConn.inputStream)).use { it.readText() }
+                    val o = JSONObject(resp)
+                    totalUsers = o.optInt("total_users", 0)
+                    totalTracks = o.optInt("total_tracks", 0)
+                    totalPlaylists = o.optInt("total_playlists", 0)
+                    activeJams = o.optInt("active_jam_sessions", 0)
+                    totalComments = o.optInt("total_comments", 0)
+                    totalLikes = o.optInt("total_likes", 0)
+                    totalPlays = o.optLong("total_plays", 0L)
+                    dau24h = o.optInt("dau_24h", 0)
+                    serverStatus = o.optString("server_status", "Operational")
+                    engineMode = o.optString("engine_mode", "PostgreSQL 15 + pgvector 0.5.1")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            // 2. Fetch User Profiles for User Explorer
+            val profilesUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?select=*&order=created_at.desc&limit=100")
             val conn = (profilesUrl.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
                 setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Range", "0-50")
             }
 
             val users = mutableListOf<UserProfile>()
@@ -794,6 +863,8 @@ object SupabaseClient {
                             email = o.optString("email", ""),
                             displayName = o.optString("display_name", "User"),
                             avatarUrl = o.optString("avatar_url", ""),
+                            bio = o.optString("bio", ""),
+                            favoriteGenre = o.optString("favorite_genre", "All"),
                             isAdmin = o.optBoolean("is_admin", false),
                             totalPlays = o.optInt("total_plays", 0),
                             listeningSeconds = o.optLong("listening_seconds", 0L),
@@ -807,13 +878,18 @@ object SupabaseClient {
             val latency = (endMs - startMs).coerceAtLeast(12L)
 
             val telemetry = AdminTelemetry(
-                totalUsers = users.size.coerceAtLeast(1),
-                totalTracks = 256,
-                totalPlaylists = 18,
-                activeJamSessions = 2,
+                totalUsers = if (totalUsers > 0) totalUsers else users.size.coerceAtLeast(1),
+                totalTracks = totalTracks,
+                totalPlaylists = totalPlaylists,
+                activeJamSessions = activeJams,
+                totalComments = totalComments,
+                totalLikes = totalLikes,
+                totalPlays = totalPlays,
+                dau24h = dau24h,
                 userList = users,
-                serverStatus = "Operational (PostgreSQL 15 + pgvector)",
-                latencyMs = latency
+                serverStatus = serverStatus,
+                latencyMs = latency,
+                engineMode = engineMode
             )
 
             Result.success(telemetry)
@@ -830,6 +906,182 @@ object SupabaseClient {
                     latencyMs = 0L
                 )
             )
+        }
+    }
+
+    suspend fun setUserAdminRole(targetUserId: String, isAdmin: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/set_user_admin_role")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONObject().apply {
+                put("target_user_id", targetUserId)
+                put("new_admin_status", isAdmin)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            Result.success(conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun terminateJamSessionAdmin(sessionId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/terminate_jam_session")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONObject().apply {
+                put("target_session_id", sessionId)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            Result.success(conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteCommentAdmin(commentId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/delete_comment_admin")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONObject().apply {
+                put("target_comment_id", commentId)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            Result.success(conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun toggleAdminBroadcast(broadcastId: String, isActive: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/toggle_admin_broadcast")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONObject().apply {
+                put("target_broadcast_id", broadcastId)
+                put("active_state", isActive)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            Result.success(conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getAdminJamSessions(): Result<List<AdminJamSession>> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/get_admin_jam_sessions")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val list = mutableListOf<AdminJamSession>()
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    list.add(
+                        AdminJamSession(
+                            id = o.optString("id", ""),
+                            sessionCode = o.optString("session_code", ""),
+                            hostName = o.optString("host_name", "Host"),
+                            hostEmail = o.optString("host_email", ""),
+                            currentTrackTitle = o.optString("current_track_title", "None"),
+                            currentTrackArtist = o.optString("current_track_artist", ""),
+                            participantCount = o.optInt("participant_count", 1),
+                            isPlaying = o.optBoolean("is_playing", false),
+                            updatedAt = o.optString("updated_at", "")
+                        )
+                    )
+                }
+            }
+            Result.success(list)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getAdminRecentComments(limit: Int = 50): Result<List<AdminCommentItem>> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/get_admin_recent_comments")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONObject().apply {
+                put("limit_count", limit)
+            }
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+
+            val list = mutableListOf<AdminCommentItem>()
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    list.add(
+                        AdminCommentItem(
+                            id = o.optString("id", ""),
+                            trackId = o.optString("track_id", ""),
+                            trackTitle = o.optString("track_title", "Track"),
+                            userId = o.optString("user_id", ""),
+                            userName = o.optString("user_name", "User"),
+                            userAvatar = o.optString("user_avatar", ""),
+                            commentText = o.optString("comment_text", ""),
+                            timestampMs = o.optLong("timestamp_ms", 0L),
+                            createdAt = o.optString("created_at", "")
+                        )
+                    )
+                }
+            }
+            Result.success(list)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
