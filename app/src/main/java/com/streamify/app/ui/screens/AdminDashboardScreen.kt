@@ -79,6 +79,7 @@ fun AdminDashboardScreen(
     var telemetry by remember { mutableStateOf<AdminTelemetry?>(null) }
     var jamSessions by remember { mutableStateOf<List<AdminJamSession>>(emptyList()) }
     var recentComments by remember { mutableStateOf<List<AdminCommentItem>>(emptyList()) }
+    var edgeStats by remember { mutableStateOf<com.streamify.app.data.remote.AdminEdgeMeshStats?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     
@@ -96,6 +97,9 @@ fun AdminDashboardScreen(
 
             val commentRes = SupabaseClient.getAdminRecentComments(50)
             recentComments = commentRes.getOrDefault(emptyList())
+
+            val edgeRes = SupabaseClient.getAdminEdgeComputeStats()
+            edgeStats = edgeRes.getOrNull()
 
             isLoading = false
         }
@@ -160,7 +164,7 @@ fun AdminDashboardScreen(
             edgePadding = StreamifyDimens.SpaceLG,
             divider = {}
         ) {
-            val tabs = listOf("Telemetry", "Users", "Jam Rooms", "Comments", "Broadcasts")
+            val tabs = listOf("Telemetry", "Edge Mesh", "Users", "Jam Rooms", "Comments", "Broadcasts")
             tabs.forEachIndexed { index, title ->
                 Tab(
                     selected = selectedTab == index,
@@ -306,33 +310,198 @@ fun AdminDashboardScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Icon(Icons.Filled.Campaign, contentDescription = null, tint = Color.Black)
+                                Icon(Icons.Filled.Campaign, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Broadcast", style = StreamifyType.TitleSmall, color = Color.Black)
+                                Text("New Broadcast", style = StreamifyType.BodyMedium)
                             }
 
                             OutlinedButton(
-                                onClick = {
-                                    scope.launch {
-                                        com.streamify.app.data.TrackRepository.refresh()
-                                        Toast.makeText(context, "Local Vector store & DB re-indexed", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
+                                onClick = { selectedTab = 1 },
                                 shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = StreamifyColors.TextMain),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00E5FF)),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Icon(Icons.Filled.Sync, contentDescription = null, tint = StreamifyColors.TextMain)
+                                Icon(Icons.Filled.Memory, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Re-index", style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                                Text("Edge Mesh", style = StreamifyType.BodyMedium)
                             }
                         }
                     }
                 }
             }
 
-            // TAB 1: USERS EXPLORER & ROLES
+            // TAB 1: EDGE COMPUTE MESH
             1 -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = StreamifyDimens.SpaceLG),
+                    verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
+                        ) {
+                            MetricCard(
+                                title = "Active Nodes",
+                                value = "${edgeStats?.activeNodesCount ?: 0}",
+                                subtitle = "Computing Right Now",
+                                icon = Icons.Filled.Memory,
+                                accentColor = Color(0xFF00E5FF),
+                                modifier = Modifier.weight(1f)
+                            )
+                            MetricCard(
+                                title = "Mesh Pipeline",
+                                value = "${edgeStats?.completedTasksCount ?: 0}",
+                                subtitle = "of ${edgeStats?.totalTasksCount ?: 0} Verified",
+                                icon = Icons.Filled.CheckCircle,
+                                accentColor = StreamifyColors.Primary,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    item {
+                        MetricCard(
+                            title = "Bandwidth Inverted",
+                            value = "${String.format("%.1f", edgeStats?.totalBandwidthSavedMb ?: 0.0)} MB",
+                            subtitle = "Saved via Local-First Edge Caches ($0 Cloud Bill)",
+                            icon = Icons.Filled.Speed,
+                            accentColor = Color(0xFFFF9800),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    // Section 1: Active Nodes Right Now
+                    item {
+                        Text("Live Edge Nodes (${edgeStats?.activeNodes?.size ?: 0})", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                    }
+
+                    if (edgeStats?.activeNodes.isNullOrEmpty()) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Box(modifier = Modifier.padding(24.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    Text("No nodes computing right now (Workers run overnight when charging)", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
+                                }
+                            }
+                        }
+                    } else {
+                        items(edgeStats!!.activeNodes) { node ->
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(if (node.status == "COMPUTING") Color(0xFF00E5FF) else StreamifyColors.Primary)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(node.displayName, style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("(${node.deviceId})", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
+                                        }
+                                        if (node.currentTrackTitle.isNotBlank()) {
+                                            Text("Active: ${node.currentTrackTitle}", style = StreamifyType.Caption, color = Color(0xFF00E5FF), maxLines = 1)
+                                        } else {
+                                            Text("Status: ${node.status}", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                        }
+                                    }
+
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("${node.totalContributions} Solved", style = StreamifyType.TitleSmall, color = StreamifyColors.Primary)
+                                        Text("${String.format("%.1f", node.bandwidthSavedMb)} MB saved", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 2: Top Contributors Leaderboard
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Top Mesh Contributors 🏆", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                    }
+
+                    if (edgeStats?.topContributors != null) {
+                        items(edgeStats!!.topContributors.take(10)) { contributor ->
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgElevated),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        color = Color(0xFF00E5FF).copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            contributor.userEmail.take(2).uppercase().ifBlank { "ME" },
+                                            style = StreamifyType.TitleSmall,
+                                            color = Color(0xFF00E5FF),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(contributor.displayName.ifBlank { contributor.userEmail.ifBlank { "Sovereign Node" } }, style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                                        Text(contributor.userEmail, style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("${contributor.totalContributions} Tracks", style = StreamifyType.TitleSmall, color = StreamifyColors.Primary)
+                                        Text("${String.format("%.1f", contributor.bandwidthSavedMb)} MB", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 3: Database Tables & Storage Telemetry
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Database Table Telemetry & Row Counts", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                    }
+
+                    if (edgeStats?.tableStats != null) {
+                        items(edgeStats!!.tableStats) { tbl ->
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("public.${tbl.tableName}", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                    Text("${tbl.rowCount} rows", style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.Primary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // TAB 2: USERS EXPLORER & ROLES
+            2 -> {
                 val filteredUsers = remember(searchQuery, telemetry?.userList) {
                     val list = telemetry?.userList ?: emptyList()
                     if (searchQuery.isBlank()) list
@@ -455,8 +624,8 @@ fun AdminDashboardScreen(
                 }
             }
 
-            // TAB 2: JAM ROOMS MANAGEMENT
-            2 -> {
+            // TAB 3: JAM ROOMS MANAGEMENT
+            3 -> {
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
@@ -542,8 +711,8 @@ fun AdminDashboardScreen(
                 }
             }
 
-            // TAB 3: COMMENTS MODERATION FEED
-            3 -> {
+            // TAB 4: COMMENTS MODERATION FEED
+            4 -> {
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
@@ -611,8 +780,8 @@ fun AdminDashboardScreen(
                 }
             }
 
-            // TAB 4: BROADCASTS
-            4 -> {
+            // TAB 5: BROADCASTS
+            5 -> {
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()

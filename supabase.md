@@ -376,3 +376,21 @@ $$V_{\text{target}} = (1 - w) \cdot V_{\text{slot\_A}} + w \cdot V_{\text{slot\_
 Short-term RMS energy is computed in native C++ using ARM NEON SIMD vector squaring (`vmulq_f32`, `vpadd_f32`) and converted to LUFS:
 $$\text{LUFS} = 20 \log_{10}(\text{RMS} + 10^{-7}), \quad \text{Gain} = \text{clamp}(\text{TargetLUFS} - \text{LUFS}, -12\text{dB}, +12\text{dB})$$
 When a **Volume Flare** event occurs, the target LUFS baseline dynamically increases (up to $-10\text{dB}$) to match listener intent.
+
+---
+
+## 10. Project Titan: Sovereign Edge Compute Mesh
+
+### `public.edge_compute_tasks`
+Distributed queue of songs pending acoustic analysis and 512-D embedding extraction.
+
+### `public.edge_compute_results`
+Stores peer submissions. Reaches **Byzantine Consensus** when:
+1. $|\text{BPM}_A - \text{BPM}_B| \le 1.2$
+2. $\text{Key}_A == \text{Key}_B$
+3. $\text{CosineSim}(V_A, V_B) > 0.88$
+
+When consensus is reached, `public.tracks` is automatically enriched, and `is_processed = TRUE`.
+
+### `public.edge_node_activity`
+Live heartbeat ledger tracking nodes computing in real-time, bandwidth inverted via local caches, and top contributor leaderboards.

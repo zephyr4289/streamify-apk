@@ -78,6 +78,51 @@ data class CommunityPlaylist(
     val trackCount: Int
 )
 
+data class EdgeComputeTask(
+    val taskId: String,
+    val trackId: String,
+    val taskType: String,
+    val trackTitle: String,
+    val trackArtist: String,
+    val audioUrl: String,
+    val nonce: String
+)
+
+data class EdgeNodeActivityItem(
+    val deviceId: String,
+    val displayName: String,
+    val userEmail: String,
+    val status: String,
+    val currentTrackTitle: String,
+    val totalContributions: Int,
+    val bandwidthSavedMb: Double,
+    val lastActiveAt: String
+)
+
+data class EdgeContributorItem(
+    val userId: String,
+    val displayName: String,
+    val userEmail: String,
+    val totalContributions: Int,
+    val bandwidthSavedMb: Double,
+    val lastActiveAt: String
+)
+
+data class DbTableStatItem(
+    val tableName: String,
+    val rowCount: Long
+)
+
+data class AdminEdgeMeshStats(
+    val totalTasksCount: Int = 0,
+    val completedTasksCount: Int = 0,
+    val activeNodesCount: Int = 0,
+    val totalBandwidthSavedMb: Double = 0.0,
+    val activeNodes: List<EdgeNodeActivityItem> = emptyList(),
+    val topContributors: List<EdgeContributorItem> = emptyList(),
+    val tableStats: List<DbTableStatItem> = emptyList()
+)
+
 data class AdminTelemetry(
     val totalUsers: Int = 0,
     val totalTracks: Int = 0,
@@ -1106,6 +1151,214 @@ object SupabaseClient {
 
             conn.outputStream.use { it.write(body.toString().toByteArray()) }
             Result.success(conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    // ============================================================================
+    // PROJECT TITAN: DISTRIBUTED EDGE COMPUTE MESH
+    // ============================================================================
+
+    suspend fun claimEdgeTask(deviceId: String): Result<EdgeComputeTask?> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/claim_edge_task")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONObject().apply {
+                put("p_device_id", deviceId)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val obj = JSONObject(resp)
+                if (obj.optBoolean("success", false)) {
+                    val task = EdgeComputeTask(
+                        taskId = obj.optString("task_id", ""),
+                        trackId = obj.optString("track_id", ""),
+                        taskType = obj.optString("task_type", "ACOUSTIC_ANALYSIS"),
+                        trackTitle = obj.optString("track_title", "Track"),
+                        trackArtist = obj.optString("track_artist", "Artist"),
+                        audioUrl = obj.optString("audio_url", ""),
+                        nonce = obj.optString("nonce", "")
+                    )
+                    Result.success(task)
+                } else {
+                    Result.success(null)
+                }
+            } else {
+                Result.success(null)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    suspend fun submitEdgeResult(
+        taskId: String,
+        deviceId: String,
+        bpm: Float,
+        key: String,
+        embedding: FloatArray?,
+        proof: String,
+        bandwidthSavedBytes: Long = 0L
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/submit_edge_result")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONObject().apply {
+                put("p_task_id", taskId)
+                put("p_device_id", deviceId)
+                put("p_bpm", bpm)
+                put("p_key", key)
+                if (embedding != null && embedding.isNotEmpty()) {
+                    val arr = JSONArray()
+                    embedding.forEach { arr.put(it.toDouble()) }
+                    put("p_embedding", arr)
+                }
+                put("p_proof", proof)
+                put("p_bandwidth_saved_bytes", bandwidthSavedBytes)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            Result.success(conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateEdgeNodeHeartbeat(
+        deviceId: String,
+        status: String,
+        currentTrackId: String = "",
+        currentTrackTitle: String = ""
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/update_edge_node_heartbeat")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONObject().apply {
+                put("p_device_id", deviceId)
+                put("p_status", status)
+                put("p_current_track_id", currentTrackId)
+                put("p_current_track_title", currentTrackTitle)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            Result.success(conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getAdminEdgeComputeStats(): Result<AdminEdgeMeshStats> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/get_admin_edge_compute_stats")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            conn.outputStream.use { it.write("{}".toByteArray()) }
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val root = JSONObject(resp)
+
+                val activeList = mutableListOf<EdgeNodeActivityItem>()
+                val activeArr = root.optJSONArray("active_nodes")
+                if (activeArr != null) {
+                    for (i in 0 until activeArr.length()) {
+                        val o = activeArr.getJSONObject(i)
+                        activeList.add(
+                            EdgeNodeActivityItem(
+                                deviceId = o.optString("device_id", ""),
+                                displayName = o.optString("display_name", "Node"),
+                                userEmail = o.optString("user_email", ""),
+                                status = o.optString("status", "IDLE"),
+                                currentTrackTitle = o.optString("current_track_title", ""),
+                                totalContributions = o.optInt("total_contributions", 0),
+                                bandwidthSavedMb = o.optDouble("bandwidth_saved_mb", 0.0),
+                                lastActiveAt = o.optString("last_active_at", "")
+                            )
+                        )
+                    }
+                }
+
+                val topList = mutableListOf<EdgeContributorItem>()
+                val topArr = root.optJSONArray("top_contributors")
+                if (topArr != null) {
+                    for (i in 0 until topArr.length()) {
+                        val o = topArr.getJSONObject(i)
+                        topList.add(
+                            EdgeContributorItem(
+                                userId = o.optString("user_id", ""),
+                                displayName = o.optString("display_name", "Contributor"),
+                                userEmail = o.optString("user_email", ""),
+                                totalContributions = o.optInt("total_contributions", 0),
+                                bandwidthSavedMb = o.optDouble("bandwidth_saved_mb", 0.0),
+                                lastActiveAt = o.optString("last_active_at", "")
+                            )
+                        )
+                    }
+                }
+
+                val tableList = mutableListOf<DbTableStatItem>()
+                val tableArr = root.optJSONArray("table_stats")
+                if (tableArr != null) {
+                    for (i in 0 until tableArr.length()) {
+                        val o = tableArr.getJSONObject(i)
+                        tableList.add(
+                            DbTableStatItem(
+                                tableName = o.optString("table_name", ""),
+                                rowCount = o.optLong("row_count", 0L)
+                            )
+                        )
+                    }
+                }
+
+                val stats = AdminEdgeMeshStats(
+                    totalTasksCount = root.optInt("total_tasks_count", 0),
+                    completedTasksCount = root.optInt("completed_tasks_count", 0),
+                    activeNodesCount = root.optInt("active_nodes_count", 0),
+                    totalBandwidthSavedMb = root.optDouble("total_bandwidth_saved_mb", 0.0),
+                    activeNodes = activeList,
+                    topContributors = topList,
+                    tableStats = tableList
+                )
+                Result.success(stats)
+            } else {
+                Result.failure(Exception("HTTP ${conn.responseCode}"))
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             Result.failure(e)

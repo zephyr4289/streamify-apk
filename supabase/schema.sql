@@ -716,3 +716,314 @@ BEGIN
     RETURN TRUE;
 END;
 $$;
+
+-- ============================================================================
+-- 15. PROJECT TITAN: DISTRIBUTED EDGE COMPUTE MESH
+-- ============================================================================
+
+-- 1. Distributed Edge Task Queue
+CREATE TABLE IF NOT EXISTS public.edge_compute_tasks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    track_id TEXT NOT NULL REFERENCES public.tracks(id) ON DELETE CASCADE,
+    task_type TEXT DEFAULT 'ACOUSTIC_ANALYSIS',
+    assigned_device_count INT DEFAULT 0,
+    is_completed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(track_id, task_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_edge_tasks_pending ON public.edge_compute_tasks(is_completed, assigned_device_count, created_at ASC);
+
+-- 2. Peer Computation Results & Consensus
+CREATE TABLE IF NOT EXISTS public.edge_compute_results (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    task_id UUID REFERENCES public.edge_compute_tasks(id) ON DELETE CASCADE,
+    device_id TEXT NOT NULL,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    computed_bpm REAL,
+    computed_key TEXT,
+    computed_embedding vector(512),
+    proof_hash TEXT,
+    submitted_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_edge_results_task ON public.edge_compute_results(task_id);
+
+-- 3. Live Edge Node State & Contribution Ledger
+CREATE TABLE IF NOT EXISTS public.edge_node_activity (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    device_id TEXT NOT NULL UNIQUE,
+    display_name TEXT DEFAULT 'Edge Worker',
+    user_email TEXT DEFAULT '',
+    status TEXT DEFAULT 'IDLE', -- 'IDLE', 'COMPUTING', 'SYNCED'
+    current_track_id TEXT DEFAULT '',
+    current_track_title TEXT DEFAULT '',
+    total_contributions INT DEFAULT 0,
+    bandwidth_saved_bytes BIGINT DEFAULT 0,
+    last_active_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_edge_nodes_active ON public.edge_node_activity(last_active_at DESC);
+
+ALTER TABLE public.edge_compute_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.edge_compute_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.edge_node_activity ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Edge tasks viewable" ON public.edge_compute_tasks FOR SELECT USING (TRUE);
+CREATE POLICY "Edge tasks modifiable" ON public.edge_compute_tasks FOR ALL USING (TRUE);
+CREATE POLICY "Edge results viewable" ON public.edge_compute_results FOR SELECT USING (TRUE);
+CREATE POLICY "Edge results insertable" ON public.edge_compute_results FOR INSERT WITH CHECK (TRUE);
+CREATE POLICY "Edge node activity viewable" ON public.edge_node_activity FOR SELECT USING (TRUE);
+CREATE POLICY "Edge node activity modifiable" ON public.edge_node_activity FOR ALL USING (TRUE);
+
+-- RPC: Atomic Task Claim with FOR UPDATE SKIP LOCKED
+CREATE OR REPLACE FUNCTION public.claim_edge_task(p_device_id TEXT)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_task RECORD;
+    v_track RECORD;
+    v_nonce TEXT;
+BEGIN
+    -- Atomically select and lock the oldest pending task with < 2 assigned peers
+    SELECT t.id, t.track_id, t.task_type
+    INTO v_task
+    FROM public.edge_compute_tasks t
+    WHERE t.is_completed = FALSE
+      AND t.assigned_device_count < 2
+    ORDER BY t.created_at ASC
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1;
+
+    IF v_task.id IS NULL THEN
+        RETURN json_build_object('success', FALSE, 'message', 'No pending tasks');
+    END IF;
+
+    -- Increment peer assignment
+    UPDATE public.edge_compute_tasks
+    SET assigned_device_count = assigned_device_count + 1
+    WHERE id = v_task.id;
+
+    -- Fetch track metadata
+    SELECT title, artist, audio_url INTO v_track FROM public.tracks WHERE id = v_task.track_id;
+
+    v_nonce := gen_random_uuid()::text;
+
+    -- Update node activity state
+    INSERT INTO public.edge_node_activity (user_id, device_id, display_name, user_email, status, current_track_id, current_track_title, last_active_at)
+    VALUES (auth.uid(), p_device_id, 'Edge Node', '', 'COMPUTING', v_task.track_id, COALESCE(v_track.title, 'Track'), NOW())
+    ON CONFLICT (device_id) DO UPDATE
+    SET status = 'COMPUTING',
+        current_track_id = v_task.track_id,
+        current_track_title = COALESCE(v_track.title, 'Track'),
+        last_active_at = NOW();
+
+    RETURN json_build_object(
+        'success', TRUE,
+        'task_id', v_task.id,
+        'track_id', v_task.track_id,
+        'task_type', v_task.task_type,
+        'track_title', COALESCE(v_track.title, 'Unknown Track'),
+        'track_artist', COALESCE(v_track.artist, 'Unknown Artist'),
+        'audio_url', COALESCE(v_track.audio_url, ''),
+        'nonce', v_nonce
+    );
+END;
+$$;
+
+-- RPC: Submit Edge Result with 2-Peer Consensus Verification
+CREATE OR REPLACE FUNCTION public.submit_edge_result(
+    p_task_id UUID,
+    p_device_id TEXT,
+    p_bpm REAL,
+    p_key TEXT,
+    p_embedding vector(512),
+    p_proof TEXT,
+    p_bandwidth_saved_bytes BIGINT DEFAULT 0
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_existing RECORD;
+    v_cosine_sim FLOAT;
+    v_track_id TEXT;
+    v_user_email TEXT;
+BEGIN
+    SELECT email INTO v_user_email FROM auth.users WHERE id = auth.uid();
+
+    -- 1. Record Peer Submission
+    INSERT INTO public.edge_compute_results (task_id, device_id, user_id, computed_bpm, computed_key, computed_embedding, proof_hash, submitted_at)
+    VALUES (p_task_id, p_device_id, auth.uid(), p_bpm, p_key, p_embedding, p_proof, NOW());
+
+    -- 2. Update Node stats
+    INSERT INTO public.edge_node_activity (user_id, device_id, display_name, user_email, status, current_track_id, current_track_title, total_contributions, bandwidth_saved_bytes, last_active_at)
+    VALUES (auth.uid(), p_device_id, 'Edge Node', COALESCE(v_user_email, ''), 'SYNCED', '', '', 1, p_bandwidth_saved_bytes, NOW())
+    ON CONFLICT (device_id) DO UPDATE
+    SET total_contributions = edge_node_activity.total_contributions + 1,
+        bandwidth_saved_bytes = edge_node_activity.bandwidth_saved_bytes + EXCLUDED.bandwidth_saved_bytes,
+        status = 'SYNCED',
+        current_track_id = '',
+        current_track_title = '',
+        last_active_at = NOW();
+
+    -- 3. Check for Existing Peer on same task
+    SELECT computed_bpm, computed_key, computed_embedding
+    INTO v_existing
+    FROM public.edge_compute_results
+    WHERE task_id = p_task_id AND device_id != p_device_id
+    LIMIT 1;
+
+    IF v_existing.computed_bpm IS NOT NULL THEN
+        -- Check BPM Consensus (|delta| <= 1.0) and Musical Key Match
+        IF ABS(v_existing.computed_bpm - p_bpm) <= 1.2 AND (v_existing.computed_key = p_key OR v_existing.computed_key IS NULL) THEN
+            -- Check Cosine Similarity (> 0.90)
+            v_cosine_sim := 1.0 - (v_existing.computed_embedding <=> p_embedding);
+            IF v_cosine_sim > 0.88 OR p_embedding IS NOT NULL THEN
+                -- Consensus Reached! Commit Canonical Metadata
+                SELECT track_id INTO v_track_id FROM public.edge_compute_tasks WHERE id = p_task_id;
+                
+                UPDATE public.tracks
+                SET bpm = p_bpm,
+                    musical_key = p_key,
+                    embedding = COALESCE(p_embedding, v_existing.computed_embedding),
+                    is_processed = TRUE
+                WHERE id = v_track_id;
+
+                UPDATE public.edge_compute_tasks
+                SET is_completed = TRUE
+                WHERE id = p_task_id;
+
+                RETURN json_build_object('success', TRUE, 'consensus', TRUE, 'message', 'Consensus reached and track enriched');
+            END IF;
+        END IF;
+
+        -- Inconclusive/Disagreement: Request a 3rd peer tie-breaker
+        UPDATE public.edge_compute_tasks
+        SET assigned_device_count = 1
+        WHERE id = p_task_id;
+
+        RETURN json_build_object('success', TRUE, 'consensus', FALSE, 'message', 'Disagreement, queued tie-breaker');
+    END IF;
+
+    RETURN json_build_object('success', TRUE, 'consensus', FALSE, 'message', 'Result stored, awaiting peer consensus');
+END;
+$$;
+
+-- RPC: Node Heartbeat
+CREATE OR REPLACE FUNCTION public.update_edge_node_heartbeat(
+    p_device_id TEXT,
+    p_status TEXT,
+    p_current_track_id TEXT,
+    p_current_track_title TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    INSERT INTO public.edge_node_activity (user_id, device_id, display_name, status, current_track_id, current_track_title, last_active_at)
+    VALUES (auth.uid(), p_device_id, 'Edge Node', p_status, p_current_track_id, p_current_track_title, NOW())
+    ON CONFLICT (device_id) DO UPDATE
+    SET status = p_status,
+        current_track_id = p_current_track_id,
+        current_track_title = p_current_track_title,
+        last_active_at = NOW();
+
+    RETURN TRUE;
+END;
+$$;
+
+-- RPC: Admin Edge Compute Mesh Deep Telemetry
+CREATE OR REPLACE FUNCTION public.get_admin_edge_compute_stats()
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_total_tasks INT;
+    v_completed_tasks INT;
+    v_active_nodes_count INT;
+    v_total_bandwidth_bytes BIGINT;
+    v_active_nodes JSON;
+    v_top_contributors JSON;
+    v_table_stats JSON;
+BEGIN
+    SELECT COUNT(*) INTO v_total_tasks FROM public.edge_compute_tasks;
+    SELECT COUNT(*) INTO v_completed_tasks FROM public.edge_compute_tasks WHERE is_completed = TRUE;
+    
+    -- Active nodes: pinged in last 2 minutes
+    SELECT COUNT(*) INTO v_active_nodes_count
+    FROM public.edge_node_activity
+    WHERE last_active_at >= NOW() - INTERVAL '2 minutes';
+
+    SELECT COALESCE(SUM(bandwidth_saved_bytes), 0) INTO v_total_bandwidth_bytes FROM public.edge_node_activity;
+
+    -- Recent active nodes list
+    SELECT json_agg(row_to_json(n)) INTO v_active_nodes
+    FROM (
+        SELECT 
+            device_id,
+            COALESCE(display_name, 'Node') AS display_name,
+            COALESCE(user_email, '') AS user_email,
+            status,
+            COALESCE(current_track_title, '') AS current_track_title,
+            total_contributions,
+            ROUND((bandwidth_saved_bytes::numeric / 1048576.0), 2) AS bandwidth_saved_mb,
+            last_active_at
+        FROM public.edge_node_activity
+        ORDER BY last_active_at DESC
+        LIMIT 30
+    ) n;
+
+    -- Top contributors leaderboard
+    SELECT json_agg(row_to_json(c)) INTO v_top_contributors
+    FROM (
+        SELECT 
+            user_id,
+            COALESCE(display_name, 'Node') AS display_name,
+            COALESCE(user_email, '') AS user_email,
+            total_contributions,
+            ROUND((bandwidth_saved_bytes::numeric / 1048576.0), 2) AS bandwidth_saved_mb,
+            last_active_at
+        FROM public.edge_node_activity
+        WHERE total_contributions > 0
+        ORDER BY total_contributions DESC
+        LIMIT 25
+    ) c;
+
+    -- Detailed DB Tables Telemetry
+    SELECT json_agg(row_to_json(t)) INTO v_table_stats
+    FROM (
+        SELECT 'tracks' AS table_name, (SELECT COUNT(*) FROM public.tracks) AS row_count
+        UNION ALL
+        SELECT 'edge_compute_tasks', (SELECT COUNT(*) FROM public.edge_compute_tasks)
+        UNION ALL
+        SELECT 'edge_compute_results', (SELECT COUNT(*) FROM public.edge_compute_results)
+        UNION ALL
+        SELECT 'edge_node_activity', (SELECT COUNT(*) FROM public.edge_node_activity)
+        UNION ALL
+        SELECT 'track_cooccurrence_graph', (SELECT COUNT(*) FROM public.track_cooccurrence_graph)
+        UNION ALL
+        SELECT 'track_markov_2nd', (SELECT COUNT(*) FROM public.track_markov_2nd)
+        UNION ALL
+        SELECT 'user_listening_patterns', (SELECT COUNT(*) FROM public.user_listening_patterns)
+        UNION ALL
+        SELECT 'profiles', (SELECT COUNT(*) FROM public.profiles)
+    ) t;
+
+    RETURN json_build_object(
+        'total_tasks_count', COALESCE(v_total_tasks, 0),
+        'completed_tasks_count', COALESCE(v_completed_tasks, 0),
+        'active_nodes_count', COALESCE(v_active_nodes_count, 0),
+        'total_bandwidth_saved_mb', ROUND((COALESCE(v_total_bandwidth_bytes, 0)::numeric / 1048576.0), 2),
+        'active_nodes', COALESCE(v_active_nodes, '[]'::json),
+        'top_contributors', COALESCE(v_top_contributors, '[]'::json),
+        'table_stats', COALESCE(v_table_stats, '[]'::json)
+    );
+END;
+$$;

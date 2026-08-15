@@ -92,4 +92,7 @@ object NativeBridge {
     external fun processLufsNormalizerFloats(buffer: FloatArray, length: Int, targetLufs: Float)
     external fun processLufsNormalizerShorts(buffer: ShortArray, length: Int, targetLufs: Float)
     external fun getDynamicTargetLufs(): Float
+
+    // Project Titan: Distributed Edge Compute & Proof-of-Compute
+    external fun generateProofOfCompute(buffer: FloatArray, length: Int, nonce: String): String
 }

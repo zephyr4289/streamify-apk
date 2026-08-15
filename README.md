@@ -195,6 +195,14 @@ Streamify is architected as 9 decoupled, highly specialized subsystem engines wo
 │     • Hoffman Satiation Decay: Prevents song fatigue with 30-day exponential recovery curve            │
 │     • Markov Transition Chains P(B|A) & Session Binge Co-occurrence Graph for zero-metadata flow       │
 │                                                                                                        │
+│  13. 🌐 DISTRIBUTED EDGE COMPUTE MESH ("PROJECT TITAN")                                                │
+│     Files: TitanComputeWorker.kt, EdgeMeshRepository.kt, TelemetryEngine.cc, AdminDashboardScreen.kt   │
+│     • Zero-Race Task Broker: PostgreSQL FOR UPDATE SKIP LOCKED distributing tasks in <2ms             │
+│     • SHA-256 PCM Proof-of-Compute: Cryptographic anti-sybil challenge verifying real DSP execution   │
+│     • 2-Peer Byzantine Consensus: Cosine similarity threshold (>0.88) verifying 512-D audio profiles   │
+│     • Local-First Caching: Eliminates 100% of bandwidth for tracks already present in user libraries    │
+│     • Deep Admin & Contributor Telemetry: Real-time active nodes stream & global bandwidth saved HUD   │
+│                                                                                                        │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 

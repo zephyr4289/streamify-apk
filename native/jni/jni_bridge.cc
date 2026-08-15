@@ -511,3 +511,18 @@ extern "C" JNIEXPORT jfloat JNICALL
 Java_com_streamify_app_data_NativeBridge_getDynamicTargetLufs(JNIEnv* /* env */, jobject /* this */) {
     return TelemetryEngine::getInstance().getDynamicTargetLufs();
 }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_generateProofOfCompute(JNIEnv* env, jobject /* this */, jfloatArray buffer, jint length, jstring nonce) {
+    if (!buffer || length <= 0) return env->NewStringUTF("");
+    jfloat* pcm = env->GetFloatArrayElements(buffer, nullptr);
+    if (!pcm) return env->NewStringUTF("");
+
+    const char* nonceStr = env->GetStringUTFChars(nonce, nullptr);
+    std::string nonceCpp(nonceStr ? nonceStr : "");
+    if (nonceStr) env->ReleaseStringUTFChars(nonce, nonceStr);
+
+    std::string proof = TelemetryEngine::getInstance().generateProofOfCompute(pcm, length, nonceCpp);
+    env->ReleaseFloatArrayElements(buffer, pcm, 0);
+    return env->NewStringUTF(proof.c_str());
+}

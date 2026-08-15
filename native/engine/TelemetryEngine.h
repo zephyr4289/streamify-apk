@@ -104,6 +104,7 @@ public:
     void stopProcessing();
 
     float getDynamicTargetLufs() const;
+    std::string generateProofOfCompute(const float* pcm, int length, const std::string& nonce);
 
 private:
     TelemetryEngine();

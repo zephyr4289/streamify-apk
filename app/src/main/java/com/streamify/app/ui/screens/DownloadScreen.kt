@@ -210,7 +210,105 @@ fun DownloadScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+        // Project Titan: Sovereign Edge Mesh Contributor Card
+        val edgeRepo = remember { com.streamify.app.data.EdgeMeshRepository.getInstance(context) }
+        val edgeState by edgeRepo.meshState.collectAsState()
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceSM)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF00E5FF).copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Memory,
+                                contentDescription = null,
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Edge Mesh Contributor ⚡",
+                                style = StreamifyType.TitleSmall,
+                                color = StreamifyColors.TextMain
+                            )
+                            val meshColor = when (edgeState.currentStatus) {
+                                "COMPUTING" -> Color(0xFF00E5FF)
+                                "SYNCED" -> StreamifyColors.Primary
+                                else -> StreamifyColors.TextSub
+                            }
+                            Text(
+                                text = when (edgeState.currentStatus) {
+                                    "COMPUTING" -> "Analyzing: ${edgeState.currentTrackTitle.ifBlank { "Acoustic Stream" }}"
+                                    "SYNCED" -> "Batch Synced to Cloud"
+                                    else -> "Idle (Runs while charging overnight on Wi-Fi)"
+                                },
+                                style = StreamifyType.Caption,
+                                color = meshColor,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    // Total Contributions Badge
+                    Surface(
+                        color = Color(0xFF00E5FF).copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "${edgeState.totalContributions} Solved",
+                            style = StreamifyType.Caption.copy(fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                            color = Color(0xFF00E5FF),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Bandwidth Saved: ${String.format("%.1f", edgeState.bandwidthSavedMb)} MB",
+                        style = StreamifyType.Caption,
+                        color = StreamifyColors.TextDimmed
+                    )
+
+                    TextButton(
+                        onClick = { edgeRepo.scheduleImmediateCompute(context) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Analyze Batch Now",
+                            style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                            color = Color(0xFF00E5FF)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
 
         if (tasks.isEmpty()) {
             EmptyStateView(
