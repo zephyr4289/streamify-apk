@@ -6,39 +6,40 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.BottomSheetScaffold
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.material3.rememberStandardBottomSheetState
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import coil.imageLoader
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import coil.Coil
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 import com.streamify.app.navigation.AppNavGraph
 import com.streamify.app.ui.components.BottomNavBar
 import com.streamify.app.ui.components.BottomTab
 import com.streamify.app.ui.components.MiniPlayerBar
+import com.streamify.app.ui.components.YtBottomNavBar
 import com.streamify.app.ui.screens.FullPlayerSheet
+import com.streamify.app.ui.theme.BgBase
+import com.streamify.app.ui.theme.Primary
+import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyTheme
 import com.streamify.app.util.PermissionHelper
 import com.streamify.app.viewmodel.PlayerViewModel
+import com.streamify.app.viewmodel.UiEvent
+import com.streamify.app.viewmodel.UiEventBus
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,34 +67,33 @@ class MainActivity : ComponentActivity() {
 
             StreamifyTheme {
                 val navController = rememberNavController()
-                var currentTab by remember { mutableStateOf(BottomTab.HOME) }
                 val playerViewModel: PlayerViewModel = viewModel()
                 val playerState by playerViewModel.playerState.collectAsState()
                 val scope = rememberCoroutineScope()
-                val context = androidx.compose.ui.platform.LocalContext.current
-                
-                var targetColor by remember { mutableStateOf(androidx.compose.ui.graphics.Color(0xFF1DB954)) }
-                val dominantColor by androidx.compose.animation.animateColorAsState(
+                val context = LocalContext.current
+
+                var targetColor by remember { mutableStateOf(Color(0xFF212121)) }
+                val dominantColor by animateColorAsState(
                     targetValue = targetColor,
-                    animationSpec = androidx.compose.animation.core.tween(1000),
+                    animationSpec = tween(800),
                     label = "dominantColor"
                 )
 
                 LaunchedEffect(playerState.currentTrack?.coverArtPath) {
                     val path = playerState.currentTrack?.coverArtPath
                     if (path != null) {
-                        val request = coil.request.ImageRequest.Builder(context)
+                        val request = ImageRequest.Builder(context)
                             .data(path)
                             .allowHardware(false)
                             .build()
-                        val result = (coil.Coil.imageLoader(context).execute(request) as? coil.request.SuccessResult)?.drawable
+                        val result = (Coil.imageLoader(context).execute(request) as? SuccessResult)?.drawable
                         val bitmap = (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
                         if (bitmap != null) {
                             androidx.palette.graphics.Palette.from(bitmap).generate { palette ->
                                 palette?.dominantSwatch?.rgb?.let { colorInt ->
-                                    targetColor = androidx.compose.ui.graphics.Color(colorInt)
+                                    targetColor = Color(colorInt)
                                 } ?: palette?.mutedSwatch?.rgb?.let { colorInt ->
-                                    targetColor = androidx.compose.ui.graphics.Color(colorInt)
+                                    targetColor = Color(colorInt)
                                 }
                             }
                         }
@@ -102,70 +102,90 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     val prefs = getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
-                    com.streamify.app.service.CrossfadeAudioProcessor.crossfadeDurationMs = (prefs.getFloat("crossfade_val", 0f) * 1000).toLong()
+                    com.streamify.app.service.CrossfadeAudioProcessor.crossfadeDurationMs =
+                        (prefs.getFloat("crossfade_val", 0f) * 1000).toLong()
                     playerViewModel.initialize(this@MainActivity)
                     com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
                 }
 
-                val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+                val configuration = LocalConfiguration.current
                 val density = LocalDensity.current
-                val peekHeight = 140.dp
+                val hasTrack = playerState.currentTrack != null
+                val peekHeight = if (hasTrack) 120.dp else 0.dp // 64dp Docked MiniPlayer + 56dp BottomNav
+
                 val sheetState = rememberStandardBottomSheetState(
                     initialValue = SheetValue.PartiallyExpanded,
                     skipHiddenState = true
                 )
                 val scaffoldState = rememberBottomSheetScaffoldState(
                     bottomSheetState = sheetState,
-                    snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+                    snackbarHostState = remember { SnackbarHostState() }
                 )
 
                 LaunchedEffect(Unit) {
-                    com.streamify.app.viewmodel.UiEventBus.events.collect { event ->
+                    UiEventBus.events.collect { event ->
                         when (event) {
-                            is com.streamify.app.viewmodel.UiEvent.ShowSnackbar -> {
+                            is UiEvent.ShowSnackbar -> {
                                 scaffoldState.snackbarHostState.showSnackbar(
                                     message = event.message,
-                                    duration = androidx.compose.material3.SnackbarDuration.Short
+                                    duration = SnackbarDuration.Short
                                 )
                             }
                         }
                     }
                 }
 
-                // Calculate physics fraction (0.0 = collapsed, 1.0 = expanded)
-                val fraction = try {
-                    val offset = sheetState.requireOffset()
-                    val maxOffset = with(density) { screenHeight.toPx() }
-                    val minOffset = 0f
-                    1f - ((offset - minOffset) / (maxOffset - minOffset)).coerceIn(0f, 1f)
-                } catch(e: Exception) {
-                    if (sheetState.targetValue == SheetValue.Expanded) 1f else 0f
+                val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+                val peekHeightPx = with(density) { peekHeight.toPx() }
+
+                // Extreme Performance: derivedStateOf calculation runs only when offset updates, bound to GPU graphicsLayer
+                val sheetFraction by remember {
+                    derivedStateOf {
+                        try {
+                            val offset = sheetState.requireOffset()
+                            if (offset.isNaN() || screenHeightPx <= peekHeightPx) {
+                                if (sheetState.targetValue == SheetValue.Expanded) 1f else 0f
+                            } else {
+                                1f - ((offset) / (screenHeightPx - peekHeightPx)).coerceIn(0f, 1f)
+                            }
+                        } catch (e: Exception) {
+                            if (sheetState.targetValue == SheetValue.Expanded) 1f else 0f
+                        }
+                    }
                 }
+
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = navBackStackEntry?.destination?.route ?: "home"
 
                 BottomSheetScaffold(
                     scaffoldState = scaffoldState,
-                    sheetPeekHeight = if (playerState.currentTrack != null) peekHeight else 0.dp,
-                    snackbarHost = { 
-                        androidx.compose.material3.SnackbarHost(hostState = scaffoldState.snackbarHostState) { data ->
-                            androidx.compose.material3.Snackbar(
+                    sheetPeekHeight = peekHeight,
+                    sheetContainerColor = BgBase,
+                    containerColor = BgBase,
+                    snackbarHost = {
+                        SnackbarHost(hostState = scaffoldState.snackbarHostState) { data ->
+                            Snackbar(
                                 snackbarData = data,
-                                containerColor = com.streamify.app.ui.theme.StreamifyColors.Primary,
-                                contentColor = com.streamify.app.ui.theme.StreamifyColors.BgBase
+                                containerColor = Primary,
+                                contentColor = Color.White
                             )
                         }
                     },
                     sheetContent = {
-                        if (playerState.currentTrack != null) {
+                        if (hasTrack) {
                             val progress = if (playerState.duration > 0)
                                 playerState.currentPosition.toFloat() / playerState.duration.toFloat()
                             else 0f
 
                             Box(modifier = Modifier.fillMaxSize()) {
-                                // Mini Player (Fades out)
+                                // Layer 1: Mini Player (Fades out quickly on GPU during drag)
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxSize()
-                                        .alpha((1f - (fraction * 2f)).coerceIn(0f, 1f))
+                                        .fillMaxWidth()
+                                        .align(Alignment.TopCenter)
+                                        .graphicsLayer {
+                                            alpha = (1f - (sheetFraction * 2.0f)).coerceIn(0f, 1f)
+                                        }
                                 ) {
                                     MiniPlayerBar(
                                         track = playerState.currentTrack,
@@ -175,17 +195,19 @@ class MainActivity : ComponentActivity() {
                                         onNext = { playerViewModel.skipNext() },
                                         onPrevious = { playerViewModel.skipPrevious() },
                                         onExpand = { scope.launch { sheetState.expand() } },
-                                        onToggleLike = { playerViewModel.toggleLike() },
-                                        modifier = Modifier.align(Alignment.TopCenter)
+                                        onToggleLike = { playerViewModel.toggleLike() }
                                     )
                                 }
-                                
-                                // Full Player (Scales in and fades in)
+
+                                // Layer 2: Full Player Sheet (Fades in and scales up on GPU)
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .alpha(fraction)
-                                        .scale(0.8f + (0.2f * fraction))
+                                        .graphicsLayer {
+                                            alpha = (sheetFraction * 1.5f).coerceIn(0f, 1f)
+                                            scaleX = 0.90f + (0.10f * sheetFraction)
+                                            scaleY = 0.90f + (0.10f * sheetFraction)
+                                        }
                                 ) {
                                     FullPlayerSheet(
                                         track = playerState.currentTrack,
@@ -213,13 +235,13 @@ class MainActivity : ComponentActivity() {
                                             scope.launch { sheetState.partialExpand() }
                                             navController.navigate("jam")
                                         },
-                                        onQueueClick = { 
+                                        onQueueClick = {
                                             scope.launch { sheetState.partialExpand() }
-                                            navController.navigate("queue") 
+                                            navController.navigate("queue")
                                         },
-                                        onLyricsClick = { 
+                                        onLyricsClick = {
                                             scope.launch { sheetState.partialExpand() }
-                                            navController.navigate("lyrics") 
+                                            navController.navigate("lyrics")
                                         },
                                         isAutoPlayEnabled = playerState.isAutoPlayEnabled,
                                         onAutoPlayToggle = { playerViewModel.toggleAutoPlay() }
@@ -230,31 +252,31 @@ class MainActivity : ComponentActivity() {
                     }
                 ) { innerPadding ->
                     Box(modifier = Modifier.fillMaxSize()) {
-                        AppNavGraph(
-                            navController = navController,
-                            playerViewModel = playerViewModel,
-                            dominantColor = dominantColor
-                        )
-                        // Bottom Navigation overlaps scaffold bottom when collapsed
-                        BottomNavBar(
-                            currentTab = currentTab,
-                            onTabSelected = { tab ->
-                                currentTab = tab
-                                val route = when (tab) {
-                                    BottomTab.HOME -> "home"
-                                    BottomTab.SEARCH -> "search"
-                                    BottomTab.LIBRARY -> "library"
-                                    BottomTab.DOWNLOADS -> "downloads"
-                                }
+                        // Viewport: NavHost (with fixed bottom padding for the 120dp docked shell)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(bottom = if (hasTrack) 56.dp else 56.dp)
+                        ) {
+                            AppNavGraph(
+                                navController = navController,
+                                playerViewModel = playerViewModel,
+                                dominantColor = dominantColor
+                            )
+                        }
+
+                        // Docked Bottom Navigation Bar (Fades out when FullPlayer expands)
+                        YtBottomNavBar(
+                            currentRoute = currentRoute,
+                            onNavigate = { route ->
                                 navController.navigate(route) {
                                     popUpTo(navController.graph.startDestinationId) { saveState = true }
                                     launchSingleTop = true
                                     restoreState = true
                                 }
                             },
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = innerPadding.calculateBottomPadding())
+                            alpha = (1f - (sheetFraction * 2.0f)).coerceIn(0f, 1f),
+                            modifier = Modifier.align(Alignment.BottomCenter)
                         )
                     }
                 }
