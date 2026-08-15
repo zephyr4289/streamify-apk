@@ -64,6 +64,8 @@ fun FullPlayerSheet(
     onToggleLike: () -> Unit,
     onQueueClick: (() -> Unit)? = null,
     onLyricsClick: (() -> Unit)? = null,
+    onRadioClick: (() -> Unit)? = null,
+    onJamClick: (() -> Unit)? = null,
     isAutoPlayEnabled: Boolean = false,
     onAutoPlayToggle: (() -> Unit)? = null
 ) {
@@ -71,6 +73,8 @@ fun FullPlayerSheet(
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    var showCommentsSheet by remember { mutableStateOf(false) }
+    val communityViewModel: com.streamify.app.viewmodel.CommunityViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 
     Box(modifier = Modifier.fillMaxSize()) {
         PlayerBackground(dominantColor = dominantColor)
@@ -101,22 +105,16 @@ fun FullPlayerSheet(
                     
                     Spacer(modifier = Modifier.weight(1f))
 
-                    Crossfade(targetState = track.coverArtPath, label = "art_crossfade_landscape") { artPath ->
-                        TrackCoverArt(
-                            coverArtPath = artPath,
-                            title = track.title,
-                            artist = track.artist,
-                            modifier = Modifier
-                                .sizeIn(maxHeight = 260.dp, maxWidth = 260.dp)
-                                .aspectRatio(1f)
-                                .shadow(
-                                    elevation = 16.dp,
-                                    shape = StreamifyShapes.CardShape,
-                                    spotColor = dominantColor
-                                ),
-                            shape = StreamifyShapes.CardShape
-                        )
-                    }
+                    TrackCoverArt(
+                        coverArtPath = track.coverArtPath,
+                        title = track.title,
+                        artist = track.artist,
+                        modifier = Modifier
+                            .fillMaxWidth(0.85f)
+                            .aspectRatio(1f)
+                            .shadow(24.dp, StreamifyShapes.CardShape, spotColor = dominantColor),
+                        shape = StreamifyShapes.CardShape
+                    )
 
                     Spacer(modifier = Modifier.weight(1f))
                 }
@@ -175,24 +173,6 @@ fun FullPlayerSheet(
                         onShuffleToggle = onShuffleToggle,
                         onRepeatToggle = onRepeatToggle
                     )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = { onQueueClick?.invoke() }) {
-                            Icon(Icons.Filled.QueueMusic, contentDescription = "Queue", tint = StreamifyColors.TextSub)
-                        }
-                        IconButton(onClick = { onAutoPlayToggle?.invoke() }) {
-                            Icon(Icons.Filled.Star, contentDescription = "Radio", tint = if (isAutoPlayEnabled) StreamifyColors.Primary else StreamifyColors.TextSub)
-                        }
-                        IconButton(onClick = { onLyricsClick?.invoke() }) {
-                            Icon(Icons.Filled.Subtitles, contentDescription = "Lyrics", tint = StreamifyColors.TextSub)
-                        }
-                    }
                 }
             }
         } else {
@@ -215,7 +195,7 @@ fun FullPlayerSheet(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Header
+                // Header with Jam and Options
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -225,8 +205,10 @@ fun FullPlayerSheet(
                         Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Collapse", tint = StreamifyColors.TextMain)
                     }
                     Text("Now Playing", style = StreamifyType.Caption, color = StreamifyColors.TextMain)
-                    IconButton(onClick = { /* Options */ }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "Options", tint = StreamifyColors.TextMain)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { onJamClick?.invoke() }) {
+                            Icon(Icons.Filled.Podcasts, contentDescription = "Jam", tint = StreamifyColors.Primary)
+                        }
                     }
                 }
 
@@ -330,7 +312,7 @@ fun FullPlayerSheet(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "NEURAL ENGINE • ${track.bpm.toInt()} BPM${if (track.key.isNotBlank()) " • " + track.key else ""}",
+                                            text = "NEURAL • ${track.bpm.toInt()} BPM${if (track.key.isNotBlank()) " • " + track.key else ""}",
                                             style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
                                             color = StreamifyColors.Primary
                                         )
@@ -343,7 +325,7 @@ fun FullPlayerSheet(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "Pending Acoustic Analysis",
+                                            text = "Acoustic Signal Processing",
                                             style = StreamifyType.Caption,
                                             color = StreamifyColors.TextSub
                                         )
@@ -434,6 +416,25 @@ fun FullPlayerSheet(
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Song Radio (pgvector AI recommendations)
+                        IconButton(onClick = { onRadioClick?.invoke() }) {
+                            Icon(
+                                imageVector = Icons.Filled.Radio,
+                                contentDescription = "Song Radio",
+                                tint = StreamifyColors.Primary
+                            )
+                        }
+
+                        // Comments Sheet Trigger
+                        IconButton(onClick = { showCommentsSheet = true }) {
+                            Icon(
+                                imageVector = Icons.Filled.ChatBubbleOutline,
+                                contentDescription = "Reactions",
+                                tint = StreamifyColors.TextSub
+                            )
+                        }
+
+                        // Queue
                         IconButton(onClick = { onQueueClick?.invoke() }) {
                             Icon(
                                 imageVector = Icons.Filled.QueueMusic,
@@ -441,13 +442,8 @@ fun FullPlayerSheet(
                                 tint = StreamifyColors.TextSub
                             )
                         }
-                        IconButton(onClick = { onAutoPlayToggle?.invoke() }) {
-                            Icon(
-                                imageVector = Icons.Filled.Star,
-                                contentDescription = "Neural Infinity Radio",
-                                tint = if (isAutoPlayEnabled) StreamifyColors.Primary else StreamifyColors.TextSub
-                            )
-                        }
+                        
+                        // Lyrics
                         IconButton(onClick = { onLyricsClick?.invoke() }) {
                             Icon(
                                 imageVector = Icons.Filled.Subtitles,
@@ -460,5 +456,16 @@ fun FullPlayerSheet(
             }
         }
     }
-}
 
+    if (showCommentsSheet) {
+        com.streamify.app.ui.components.CommentsSheet(
+            track = track,
+            currentPositionMs = currentPositionMs,
+            communityViewModel = communityViewModel,
+            onSeekTo = { posMs ->
+                if (durationMs > 0) onSeek(posMs.toFloat() / durationMs.toFloat())
+            },
+            onDismiss = { showCommentsSheet = false }
+        )
+    }
+}

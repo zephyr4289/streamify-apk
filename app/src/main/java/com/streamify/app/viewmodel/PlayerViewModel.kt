@@ -495,6 +495,20 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
     }
 
+    fun startSongRadio(seedTrack: Track? = null) {
+        val target = seedTrack ?: _playerState.value.currentTrack ?: return
+        viewModelScope.launch {
+            val radioTracks = repository.getCloudSongRadio(target, limit = 25)
+            if (radioTracks.isNotEmpty()) {
+                val fullList = listOf(target) + radioTracks.filter { it.id != target.id }
+                playTrack(target, fullList)
+                UiEventBus.emitEvent(UiEvent.ShowSnackbar("Started ${target.title} Radio 📻"))
+            } else {
+                UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not load radio for this track"))
+            }
+        }
+    }
+
     fun setSleepTimer(minutes: Int?, endOfTrack: Boolean = false) {
         sleepTimerJob?.cancel()
         _playerState.value = _playerState.value.copy(
@@ -520,3 +534,4 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         controllerFuture?.let { MediaController.releaseFuture(it) }
     }
 }
+

@@ -206,6 +206,13 @@ class MainActivity : ComponentActivity() {
                                         onShuffleToggle = { playerViewModel.toggleShuffle() },
                                         onRepeatToggle = { playerViewModel.toggleRepeat() },
                                         onToggleLike = { playerViewModel.toggleLike() },
+                                        onRadioClick = {
+                                            playerViewModel.startSongRadio(playerState.currentTrack)
+                                        },
+                                        onJamClick = {
+                                            scope.launch { sheetState.partialExpand() }
+                                            navController.navigate("jam")
+                                        },
                                         onQueueClick = { 
                                             scope.launch { sheetState.partialExpand() }
                                             navController.navigate("queue") 

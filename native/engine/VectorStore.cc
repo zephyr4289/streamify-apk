@@ -89,17 +89,33 @@ std::vector<SearchResult> VectorStore::searchNearest(const std::vector<float>& q
 #if defined(__ARM_NEON)
     for (int i = 0; i < num_vectors; ++i) {
         const float* v = data + i * dim_;
-        float32x4_t sum_vec = vdupq_n_f32(0.0f);
+        
+        // Prefetch next vector into L1 CPU cache
+        if (i + 1 < num_vectors) {
+            __builtin_prefetch(data + (i + 1) * dim_, 0, 1);
+        }
+
+        float32x4_t sum0 = vdupq_n_f32(0.0f);
+        float32x4_t sum1 = vdupq_n_f32(0.0f);
+        float32x4_t sum2 = vdupq_n_f32(0.0f);
+        float32x4_t sum3 = vdupq_n_f32(0.0f);
         
         int j = 0;
+        // 4x unrolled NEON SIMD loop (16 floats per step)
+        for (; j <= dim_ - 16; j += 16) {
+            sum0 = vmlaq_f32(sum0, vld1q_f32(q + j), vld1q_f32(v + j));
+            sum1 = vmlaq_f32(sum1, vld1q_f32(q + j + 4), vld1q_f32(v + j + 4));
+            sum2 = vmlaq_f32(sum2, vld1q_f32(q + j + 8), vld1q_f32(v + j + 8));
+            sum3 = vmlaq_f32(sum3, vld1q_f32(q + j + 12), vld1q_f32(v + j + 12));
+        }
+
+        float32x4_t total_sum = vaddq_f32(vaddq_f32(sum0, sum1), vaddq_f32(sum2, sum3));
         for (; j <= dim_ - 4; j += 4) {
-            float32x4_t a = vld1q_f32(q + j);
-            float32x4_t b = vld1q_f32(v + j);
-            sum_vec = vmlaq_f32(sum_vec, a, b);
+            total_sum = vmlaq_f32(total_sum, vld1q_f32(q + j), vld1q_f32(v + j));
         }
         
-        float dot = vgetq_lane_f32(sum_vec, 0) + vgetq_lane_f32(sum_vec, 1) + 
-                    vgetq_lane_f32(sum_vec, 2) + vgetq_lane_f32(sum_vec, 3);
+        float dot = vgetq_lane_f32(total_sum, 0) + vgetq_lane_f32(total_sum, 1) + 
+                    vgetq_lane_f32(total_sum, 2) + vgetq_lane_f32(total_sum, 3);
                     
         for (; j < dim_; ++j) {
             dot += q[j] * v[j];

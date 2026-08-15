@@ -187,8 +187,48 @@ fun LibraryScreen(
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+
+        // Supabase Cloud Sync Status Pill
+        val user by com.streamify.app.data.remote.SupabaseClient.currentUser.collectAsState()
+        Surface(
+            color = StreamifyColors.BgCard,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = StreamifyDimens.SpaceLG)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Filled.Sync,
+                        contentDescription = null,
+                        tint = StreamifyColors.Primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (user != null) "Cloud Sync: Connected (${user?.displayName})" else "Cloud Sync: Offline",
+                        style = StreamifyType.CaptionBold,
+                        color = StreamifyColors.TextMain
+                    )
+                }
+
+                TextButton(
+                    onClick = { viewModel.loadLibrary() },
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text("Sync Now", color = StreamifyColors.Primary, style = StreamifyType.CaptionBold)
+                }
+            }
+        }
         
-        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
         
         if (downloadTasks.isNotEmpty()) {
             Card(

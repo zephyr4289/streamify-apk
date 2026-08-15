@@ -41,7 +41,10 @@ fun SettingsScreen(
     playerViewModel: PlayerViewModel,
     onBack: () -> Unit,
     onNavigateToEq: () -> Unit = {},
-    onNavigateToAdmin: () -> Unit = {}
+    onNavigateToAdmin: () -> Unit = {},
+    onNavigateToProfile: () -> Unit = {},
+    onNavigateToWrapped: () -> Unit = {},
+    onNavigateToCommunity: () -> Unit = {}
 ) {
     val playerState by playerViewModel.playerState.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -59,7 +62,7 @@ fun SettingsScreen(
     ) {
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceGiant))
 
-        // Header
+        // Top App Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -69,29 +72,27 @@ fun SettingsScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = StreamifyColors.TextMain)
             }
-            Spacer(modifier = Modifier.width(StreamifyDimens.SpaceSM))
-            Text(
-                text = "Settings",
-                style = StreamifyType.HeadlineLarge,
-                color = StreamifyColors.TextMain
-            )
+            Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
+            Text("Settings", style = StreamifyType.HeadlineLarge, color = StreamifyColors.TextMain)
         }
 
-        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXL))
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
 
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = StreamifyDimens.SpaceLG),
-            verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceXL)
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = StreamifyDimens.SpaceLG,
+                end = StreamifyDimens.SpaceLG,
+                bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL
+            ),
+            verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
         ) {
-            // Profile & Supabase Cloud Section
+            // SUPABASE CLOUD & COMMUNITY SECTION
             item {
-                SectionHeader("Account & Cloud Sync")
-                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
-
+                SectionHeader("Cloud & Social Hub")
                 Card(
                     colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -128,7 +129,9 @@ fun SettingsScreen(
                             }
                         } else {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToProfile() },
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -157,12 +160,34 @@ fun SettingsScreen(
 
                                     Column {
                                         Text(user?.displayName ?: "User", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
-                                        Text(user?.email ?: "", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                        Text("Tap to edit profile & view stats", style = StreamifyType.Caption, color = StreamifyColors.Primary)
                                     }
                                 }
 
                                 TextButton(onClick = { com.streamify.app.data.remote.SupabaseClient.signOut() }) {
                                     Text("Sign Out", color = StreamifyColors.ErrorRed)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = onNavigateToWrapped,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Wrapped 2026", style = StreamifyType.CaptionBold)
+                                }
+                                OutlinedButton(
+                                    onClick = onNavigateToCommunity,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Community Hub", style = StreamifyType.CaptionBold)
                                 }
                             }
 

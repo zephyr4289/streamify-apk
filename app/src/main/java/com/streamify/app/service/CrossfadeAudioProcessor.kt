@@ -17,6 +17,11 @@ class CrossfadeAudioProcessor : AudioProcessor {
         private var trackAWritePos = 0
         private var trackAReadPos = 0
         private var trackAFramesStored = 0
+
+        // Precomputed 256-entry equal-power trigonometric LUT
+        private const val LUT_SIZE = 256
+        private val LUT_COS = FloatArray(LUT_SIZE) { i -> cos((i.toDouble() / (LUT_SIZE - 1)) * (PI / 2.0)).toFloat() }
+        private val LUT_SIN = FloatArray(LUT_SIZE) { i -> sin((i.toDouble() / (LUT_SIZE - 1)) * (PI / 2.0)).toFloat() }
     }
 
     private var isActive = false
@@ -76,10 +81,9 @@ class CrossfadeAudioProcessor : AudioProcessor {
             var frameMixed = false
             
             if (crossfading && fadeFramesCurrent < fadeFramesTotal && fadeFramesCurrent < trackAFramesStored) {
-                val progress = fadeFramesCurrent.toFloat() / fadeFramesTotal
-                // Trigonometric Equal-Power Curve (Eliminates Phase & Volume Dip)
-                val gainA = cos(progress * (PI / 2.0)).toFloat()
-                val gainB = sin(progress * (PI / 2.0)).toFloat()
+                val lutIdx = ((fadeFramesCurrent * (LUT_SIZE - 1)) / fadeFramesTotal).coerceIn(0, LUT_SIZE - 1)
+                val gainA = LUT_COS[lutIdx]
+                val gainB = LUT_SIN[lutIdx]
                 
                 for (ch in 0 until inputAudioFormat.channelCount) {
                     val sampleB = shortBuffer.get(shortBuffer.position() + i + ch).toFloat()

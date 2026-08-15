@@ -5,29 +5,32 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.streamify.app.data.models.Track
+import com.streamify.app.data.remote.SupabaseClient
+import com.streamify.app.ui.components.BroadcastBanner
+import com.streamify.app.ui.components.FriendActivityCard
 import com.streamify.app.ui.components.RecentPlayCard
 import com.streamify.app.ui.components.TrackCard
 import com.streamify.app.ui.theme.StreamifyColors
@@ -35,6 +38,7 @@ import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyShapes
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.util.TimeGreeting
+import com.streamify.app.viewmodel.CommunityViewModel
 import com.streamify.app.viewmodel.HomeUiState
 import com.streamify.app.viewmodel.HomeViewModel
 import com.streamify.app.viewmodel.PlayerViewModel
@@ -43,11 +47,17 @@ import com.streamify.app.viewmodel.PlayerViewModel
 fun HomeScreen(
     playerViewModel: PlayerViewModel,
     viewModel: HomeViewModel = viewModel(),
+    communityViewModel: CommunityViewModel = viewModel(),
     dominantColor: Color = StreamifyColors.BgBase,
     onTrackClick: (Track, List<Track>) -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onNavigateToJam: () -> Unit = {},
+    onNavigateToCommunity: () -> Unit = {},
+    onNavigateToProfile: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val communityState by communityViewModel.uiState.collectAsState()
+    val user by SupabaseClient.currentUser.collectAsState()
     val listState = rememberLazyListState()
     val currentTrack by playerViewModel.currentTrack.collectAsState()
 
@@ -56,6 +66,7 @@ fun HomeScreen(
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 viewModel.loadData()
+                communityViewModel.loadCommunityFeed()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -100,27 +111,155 @@ fun HomeScreen(
                 bottom = StreamifyDimens.PlayerBarHeight + StreamifyDimens.SpaceXL
             )
         ) {
+            // 1. Top Header with User Profile Avatar & Cloud Sync Pill
             item {
                 AnimatedVisibility(
                     visible = isVisible,
                     enter = fadeIn(tween(400)) + slideInVertically(tween(400)) { 50 }
                 ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(bottom = StreamifyDimens.SpaceMD)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clickable { onNavigateToProfile() }
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                if (user?.avatarUrl?.isNotBlank() == true) {
+                                    AsyncImage(
+                                        model = user!!.avatarUrl,
+                                        contentDescription = "Profile",
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(CircleShape)
+                                            .background(StreamifyColors.PrimaryDark),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            user?.displayName?.take(1)?.uppercase() ?: "S",
+                                            style = StreamifyType.HeadlineSmall,
+                                            color = StreamifyColors.TextMain
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column {
+                                    Text(
+                                        text = TimeGreeting.getGreeting(),
+                                        style = StreamifyType.HeadlineLarge,
+                                        color = StreamifyColors.TextMain
+                                    )
+                                    Text(
+                                        text = user?.displayName ?: "Streamify Cloud",
+                                        style = StreamifyType.CaptionBold,
+                                        color = StreamifyColors.Primary
+                                    )
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = onNavigateToJam) {
+                                    Icon(
+                                        Icons.Default.Podcasts,
+                                        contentDescription = "Jam",
+                                        tint = StreamifyColors.Primary
+                                    )
+                                }
+                                IconButton(onClick = onSettingsClick) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Settings,
+                                        contentDescription = "Settings",
+                                        tint = StreamifyColors.TextMain
+                                    )
+                                }
+                            }
+                        }
+
+                        // Broadcast Announcement Banner (if any)
+                        if (communityState.activeBroadcasts.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            BroadcastBanner(broadcasts = communityState.activeBroadcasts)
+                        }
+                    }
+                }
+            }
+
+            // 2. Streamify Jam Hero Banner
+            item {
+                Surface(
+                    color = StreamifyColors.BgCard,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = StreamifyDimens.SpaceLG)
+                        .clickable { onNavigateToJam() }
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = StreamifyDimens.SpaceXL),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Surface(
+                            color = StreamifyColors.Primary.copy(alpha = 0.2f),
+                            shape = CircleShape
+                        ) {
+                            Icon(
+                                Icons.Default.Podcasts,
+                                contentDescription = null,
+                                tint = StreamifyColors.Primary,
+                                modifier = Modifier.padding(10.dp).size(24.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Streamify Jam", style = StreamifyType.BodyLargeBold, color = StreamifyColors.TextMain)
+                            Text("Listen together in sync with friends", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                        }
+
+                        Surface(
+                            color = StreamifyColors.Primary,
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text(
+                                "Live",
+                                style = StreamifyType.CaptionBold,
+                                color = StreamifyColors.BgBase,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 3. Friend Listening Activity Shelf
+            if (communityState.friendsActivity.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(bottom = StreamifyDimens.SpaceLG)) {
                         Text(
-                            text = TimeGreeting.getGreeting(),
-                            style = StreamifyType.HeadlineLarge,
+                            "Friend Activity",
+                            style = StreamifyType.HeadlineSmall,
                             color = StreamifyColors.TextMain
                         )
-                        androidx.compose.material3.IconButton(onClick = onSettingsClick) {
-                            androidx.compose.material3.Icon(
-                                imageVector = Icons.Filled.Settings,
-                                contentDescription = "Settings",
-                                tint = StreamifyColors.TextMain
-                            )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(communityState.friendsActivity) { friend ->
+                                FriendActivityCard(friend = friend)
+                            }
                         }
                     }
                 }
@@ -200,20 +339,16 @@ fun HomeScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = "Jump Back In",
-                                            style = StreamifyType.HeadlineMedium,
-                                            color = StreamifyColors.TextMain
-                                        )
-                                        androidx.compose.material3.Surface(
-                                            color = StreamifyColors.AccentSecondary.copy(alpha = 0.15f),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
-                                        ) {
+                                        Column {
                                             Text(
-                                                text = "CURRENT VIBE",
-                                                style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-                                                color = StreamifyColors.AccentSecondary,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                text = "Jump Back In",
+                                                style = StreamifyType.HeadlineMedium,
+                                                color = StreamifyColors.TextMain
+                                            )
+                                            Text(
+                                                text = "Session mood tuning",
+                                                style = StreamifyType.Caption,
+                                                color = StreamifyColors.TextSub
                                             )
                                         }
                                     }
@@ -234,18 +369,23 @@ fun HomeScreen(
                         }
                     }
 
-                    // 2. Multi-Modal Long-Term "Made For You"
+                    // 2. Made For You Shelf
                     if (state.madeForYou.isNotEmpty()) {
                         item {
                             AnimatedVisibility(
                                 visible = isVisible,
-                                enter = fadeIn(tween(400, delayMillis = 300)) + slideInVertically(tween(400, delayMillis = 300)) { 50 }
+                                enter = fadeIn(tween(400, delayMillis = 350)) + slideInVertically(tween(400, delayMillis = 350)) { 50 }
                             ) {
                                 Column {
                                     Text(
                                         text = "Made For You",
                                         style = StreamifyType.HeadlineMedium,
                                         color = StreamifyColors.TextMain
+                                    )
+                                    Text(
+                                        text = "Personalized ML Recommendations",
+                                        style = StreamifyType.Caption,
+                                        color = StreamifyColors.TextSub
                                     )
                                     Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
                                     LazyRow(
@@ -264,54 +404,74 @@ fun HomeScreen(
                         }
                     }
 
-                    // 3. Online Discovery (Bandit Exploration + 2-Hop Graph)
-                    if (state.onlineDiscoveries.isNotEmpty()) {
+                    // 3. Community Trending Playlists Hub Shelf
+                    if (communityState.communityPlaylists.isNotEmpty()) {
                         item {
-                            AnimatedVisibility(
-                                visible = isVisible,
-                                enter = fadeIn(tween(400, delayMillis = 350)) + slideInVertically(tween(400, delayMillis = 350)) { 50 }
-                            ) {
-                                Column {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
                                         Text(
-                                            text = "Discover New Music",
+                                            text = "Community Trending Hub",
                                             style = StreamifyType.HeadlineMedium,
                                             color = StreamifyColors.TextMain
                                         )
-                                        androidx.compose.material3.Surface(
-                                            color = StreamifyColors.Primary.copy(alpha = 0.15f),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text(
-                                                text = "DISCOVER",
-                                                style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-                                                color = StreamifyColors.Primary,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                            )
-                                        }
+                                        Text(
+                                            text = "Curated playlists by Streamify listeners",
+                                            style = StreamifyType.Caption,
+                                            color = StreamifyColors.TextSub
+                                        )
                                     }
-                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
-                                    ) {
-                                        items(state.onlineDiscoveries, key = { it.id }) { track ->
-                                            TrackCard(
-                                                track = track,
-                                                onClick = { onTrackClick(track, state.onlineDiscoveries) }
-                                            )
-                                        }
+                                    TextButton(onClick = onNavigateToCommunity) {
+                                        Text("See All", color = StreamifyColors.Primary, style = StreamifyType.CaptionBold)
                                     }
-                                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXL))
                                 }
+                                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
+                                ) {
+                                    items(communityState.communityPlaylists) { playlist ->
+                                        Surface(
+                                            color = StreamifyColors.BgCard,
+                                            shape = RoundedCornerShape(14.dp),
+                                            modifier = Modifier
+                                                .width(160.dp)
+                                                .clickable { onNavigateToCommunity() }
+                                        ) {
+                                            Column(modifier = Modifier.padding(10.dp)) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(140.dp)
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .background(StreamifyColors.BgElevated),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (playlist.coverUrl.isNotBlank()) {
+                                                        AsyncImage(
+                                                            model = playlist.coverUrl,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    } else {
+                                                        Icon(Icons.Default.QueueMusic, contentDescription = null, tint = StreamifyColors.Primary, modifier = Modifier.size(40.dp))
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(playlist.name, style = StreamifyType.BodyMediumBold, color = StreamifyColors.TextMain, maxLines = 1)
+                                                Text("by ${playlist.creatorName}", style = StreamifyType.Caption, color = StreamifyColors.Primary, maxLines = 1)
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXXL))
                             }
                         }
                     }
 
-                    // 4. Top Played / On Repeat
+                    // 4. On Repeat (Heavy Rotation)
                     if (state.topPlayed.isNotEmpty()) {
                         item {
                             AnimatedVisibility(
@@ -319,28 +479,16 @@ fun HomeScreen(
                                 enter = fadeIn(tween(400, delayMillis = 400)) + slideInVertically(tween(400, delayMillis = 400)) { 50 }
                             ) {
                                 Column {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "On Repeat",
-                                            style = StreamifyType.HeadlineMedium,
-                                            color = StreamifyColors.TextMain
-                                        )
-                                        androidx.compose.material3.Surface(
-                                            color = StreamifyColors.Primary.copy(alpha = 0.15f),
-                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text(
-                                                text = "TOP ROTATIONS",
-                                                style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
-                                                color = StreamifyColors.Primary,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                            )
-                                        }
-                                    }
+                                    Text(
+                                        text = "On Repeat",
+                                        style = StreamifyType.HeadlineMedium,
+                                        color = StreamifyColors.TextMain
+                                    )
+                                    Text(
+                                        text = "Your Heavy Rotations",
+                                        style = StreamifyType.Caption,
+                                        color = StreamifyColors.TextSub
+                                    )
                                     Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
                                     LazyRow(
                                         horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
@@ -358,7 +506,7 @@ fun HomeScreen(
                         }
                     }
 
-                    // All Tracks
+                    // 5. All Tracks
                     if (state.allTracks.isNotEmpty()) {
                         item {
                             AnimatedVisibility(
@@ -383,17 +531,6 @@ fun HomeScreen(
                                         }
                                     }
                                 }
-                            }
-                        }
-                    }
-
-                    if (state.allTracks.isEmpty() && state.recent.isEmpty()) {
-                        item {
-                            Box(modifier = Modifier.fillMaxWidth().height(400.dp), contentAlignment = Alignment.Center) {
-                                com.streamify.app.ui.components.EmptyStateView(
-                                    title = "Your library is empty",
-                                    subtitle = "Go to the Search tab to find and download some music!"
-                                )
                             }
                         }
                     }

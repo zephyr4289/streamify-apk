@@ -161,12 +161,21 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
         }
     }
 
-    // Sort by final score descending
-    std::sort(candidates.begin(), candidates.end(), [](const Recommendation& a, const Recommendation& b) {
-        return a.score > b.score;
-    });
+    // Ultra-Fast Top-K Selection: O(N log K) using std::partial_sort instead of full O(N log N) std::sort
+    size_t targetTopK = std::min(candidates.size(), static_cast<size_t>(limit * 3));
+    if (targetTopK > 0) {
+        std::partial_sort(
+            candidates.begin(),
+            candidates.begin() + targetTopK,
+            candidates.end(),
+            [](const Recommendation& a, const Recommendation& b) {
+                return a.score > b.score;
+            }
+        );
+        candidates.resize(targetTopK);
+    }
 
-    // Diversity Injection
+    // Diversity Injection (O(K) lookup with hash-set)
     std::vector<Recommendation> diverse_candidates;
     std::unordered_set<std::string> artists_in_top;
     
@@ -179,10 +188,8 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
         
         if (diverse_candidates.size() < 5) {
             if (artists_in_top.size() > 0 && artists_in_top.count(lowerArtist) > 0) {
-                // If we already have this artist and we need more diversity, we might skip it 
-                // but let's just make sure the 5th item is a different artist if the first 4 are same.
                 if (diverse_candidates.size() == 4 && artists_in_top.size() == 1) {
-                    continue; // skip this track, find another artist
+                    continue; // Skip track to guarantee 5th track diversity
                 }
             }
         }
@@ -194,14 +201,14 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
     }
     
     // Fallback if diversity filtering removed too many
-    while (diverse_candidates.size() < static_cast<size_t>(limit) && diverse_candidates.size() < candidates.size()) {
+    if (diverse_candidates.size() < static_cast<size_t>(limit)) {
+        std::unordered_set<int> added_ids;
+        for (const auto& r : diverse_candidates) added_ids.insert(r.trackId);
         for (const auto& rec : candidates) {
-            auto it = std::find_if(diverse_candidates.begin(), diverse_candidates.end(),
-                [&](const Recommendation& r) { return r.trackId == rec.trackId; });
-            if (it == diverse_candidates.end()) {
+            if (added_ids.insert(rec.trackId).second) {
                 diverse_candidates.push_back(rec);
+                if (diverse_candidates.size() >= static_cast<size_t>(limit)) break;
             }
-            if (diverse_candidates.size() >= static_cast<size_t>(limit)) break;
         }
     }
 

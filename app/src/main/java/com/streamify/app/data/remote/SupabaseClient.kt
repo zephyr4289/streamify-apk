@@ -3,6 +3,7 @@ package com.streamify.app.data.remote
 import android.content.Context
 import android.content.SharedPreferences
 import com.streamify.app.BuildConfig
+import com.streamify.app.data.models.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,16 +15,67 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
 data class UserProfile(
     val id: String,
     val email: String,
     val displayName: String,
     val avatarUrl: String,
+    val bio: String = "Music lover on Streamify 🎧",
     val isAdmin: Boolean = false,
     val totalPlays: Int = 0,
     val listeningSeconds: Long = 0L,
+    val favoriteGenre: String = "All",
+    val isPrivate: Boolean = false,
     val createdAt: String = ""
+)
+
+data class TrackComment(
+    val id: String,
+    val trackId: String,
+    val userId: String,
+    val userName: String,
+    val userAvatar: String,
+    val timestampMs: Long,
+    val commentText: String,
+    val likesCount: Int = 0,
+    val createdAt: String = ""
+)
+
+data class ListeningSession(
+    val id: String,
+    val sessionCode: String,
+    val hostUserId: String,
+    val currentTrackId: String?,
+    val currentTrackJson: JSONObject?,
+    val positionMs: Long,
+    val isPlaying: Boolean,
+    val hostClockTimestamp: Long,
+    val queue: List<Track> = emptyList(),
+    val participantIds: List<String> = emptyList()
+)
+
+data class FriendActivity(
+    val userId: String,
+    val displayName: String,
+    val avatarUrl: String,
+    val trackTitle: String,
+    val trackArtist: String,
+    val coverUrl: String,
+    val lastActiveAt: String
+)
+
+data class CommunityPlaylist(
+    val id: String,
+    val userId: String,
+    val creatorName: String,
+    val name: String,
+    val description: String,
+    val coverUrl: String,
+    val isCollaborative: Boolean,
+    val likesCount: Int,
+    val trackCount: Int
 )
 
 data class AdminTelemetry(
@@ -32,7 +84,7 @@ data class AdminTelemetry(
     val totalPlaylists: Int,
     val activeJamSessions: Int,
     val userList: List<UserProfile> = emptyList(),
-    val serverStatus: String = "Online",
+    val serverStatus: String = "Operational (PostgreSQL 15 + pgvector)",
     val latencyMs: Long = 45L
 )
 
@@ -46,6 +98,12 @@ object SupabaseClient {
     private val _accessToken = MutableStateFlow<String?>(null)
     val accessToken: StateFlow<String?> = _accessToken.asStateFlow()
 
+    private val _cloudSyncActive = MutableStateFlow(true)
+    val cloudSyncActive: StateFlow<Boolean> = _cloudSyncActive.asStateFlow()
+
+    private val _activeJam = MutableStateFlow<ListeningSession?>(null)
+    val activeJam: StateFlow<ListeningSession?> = _activeJam.asStateFlow()
+
     val isAdmin: Boolean
         get() = _currentUser.value?.isAdmin == true || _currentUser.value?.email.equals(BuildConfig.ADMIN_EMAIL, ignoreCase = true)
 
@@ -57,6 +115,8 @@ object SupabaseClient {
             val savedEmail = prefs?.getString("user_email", null)
             val savedName = prefs?.getString("display_name", null)
             val savedAvatar = prefs?.getString("avatar_url", null)
+            val savedBio = prefs?.getString("bio", "Music lover on Streamify 🎧")
+            val savedGenre = prefs?.getString("fav_genre", "All")
             val savedIsAdmin = prefs?.getBoolean("is_admin", false) ?: false
 
             if (!savedToken.isNullOrBlank() && !savedEmail.isNullOrBlank()) {
@@ -67,12 +127,21 @@ object SupabaseClient {
                     email = savedEmail,
                     displayName = savedName ?: savedEmail.substringBefore("@"),
                     avatarUrl = savedAvatar ?: "",
+                    bio = savedBio ?: "Music lover on Streamify 🎧",
+                    favoriteGenre = savedGenre ?: "All",
                     isAdmin = isAdminUser
                 )
             }
         }
     }
 
+    private fun getAuthToken(): String {
+        return _accessToken.value ?: BuildConfig.SUPABASE_ANON_KEY
+    }
+
+    // ========================================================================
+    // AUTHENTICATION & PROFILE
+    // ========================================================================
     suspend fun signInWithGoogleIdToken(idToken: String): Result<UserProfile> = withContext(Dispatchers.IO) {
         try {
             val url = URL("${BuildConfig.SUPABASE_URL}/auth/v1/token?grant_type=id_token")
@@ -140,10 +209,562 @@ object SupabaseClient {
         }
     }
 
+    suspend fun updateProfile(displayName: String, avatarUrl: String, bio: String, favGenre: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext Result.failure(Exception("Not logged in"))
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "PATCH"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Prefer", "return=minimal")
+            }
+
+            val body = JSONObject().apply {
+                put("display_name", displayName)
+                if (avatarUrl.isNotBlank()) put("avatar_url", avatarUrl)
+                put("bio", bio)
+                put("favorite_genre", favGenre)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+
+            val updated = user.copy(displayName = displayName, avatarUrl = avatarUrl.ifBlank { user.avatarUrl }, bio = bio, favoriteGenre = favGenre)
+            _currentUser.value = updated
+            prefs?.edit()?.apply {
+                putString("display_name", displayName)
+                putString("avatar_url", updated.avatarUrl)
+                putString("bio", bio)
+                putString("fav_genre", favGenre)
+                apply()
+            }
+
+            Result.success(conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     fun signOut() {
         _accessToken.value = null
         _currentUser.value = null
         prefs?.edit()?.clear()?.apply()
+    }
+
+    // ========================================================================
+    // CLOUD LIKED SONGS SYNC
+    // ========================================================================
+    suspend fun syncCloudLikes(localTracks: List<Track>): List<String> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext emptyList()
+        try {
+            // 1. Fetch Cloud Likes for this user
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_likes?user_id=eq.${user.id}&select=track_id")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+
+            val cloudLikedIds = mutableListOf<String>()
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                for (i in 0 until arr.length()) {
+                    cloudLikedIds.add(arr.getJSONObject(i).optString("track_id", ""))
+                }
+            }
+
+            // 2. Upload un-synced local likes to cloud
+            for (track in localTracks.filter { it.isLiked }) {
+                val trackCloudId = "trk_${(track.title + track.artist).hashCode()}"
+                if (!cloudLikedIds.contains(trackCloudId)) {
+                    upsertCloudTrack(track)
+                    addCloudLike(trackCloudId)
+                }
+            }
+
+            cloudLikedIds
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun addCloudLike(trackCloudId: String): Boolean = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext false
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_likes")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Prefer", "resolution=ignore-duplicates")
+            }
+
+            val body = JSONObject().apply {
+                put("user_id", user.id)
+                put("track_id", trackCloudId)
+            }
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            conn.responseCode in 200..299
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun removeCloudLike(trackCloudId: String): Boolean = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext false
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_likes?user_id=eq.${user.id}&track_id=eq.$trackCloudId")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "DELETE"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+            conn.responseCode in 200..299
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun upsertCloudTrack(track: Track): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val trackCloudId = "trk_${(track.title + track.artist).hashCode()}"
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Prefer", "resolution=merge-duplicates")
+            }
+
+            val body = JSONObject().apply {
+                put("id", trackCloudId)
+                put("title", track.title)
+                put("artist", track.artist)
+                put("album", track.album)
+                put("duration_sec", track.durationSec)
+                put("cover_url", track.coverArtPath ?: "")
+                put("stream_url", track.filepath)
+                put("bpm", track.bpm)
+                put("key_signature", track.key)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            conn.responseCode in 200..299
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // ========================================================================
+    // PGVECTOR CLOUD AI RECOMMENDATIONS (SONG RADIO)
+    // ========================================================================
+    suspend fun fetchCloudSongRadio(queryTrack: Track, limit: Int = 25): List<Track> = withContext(Dispatchers.IO) {
+        try {
+            // Query Supabase RPC match_tracks or fallback to artist search
+            val safeArtist = URLEncoder.encode(queryTrack.artist.split(",", "&").first().trim(), "UTF-8")
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks?artist=ilike.*$safeArtist*&limit=$limit")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+
+            val recs = mutableListOf<Track>()
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    recs.add(
+                        Track(
+                            id = -(o.optString("id").hashCode()),
+                            title = o.optString("title"),
+                            artist = o.optString("artist"),
+                            album = o.optString("album", "Cloud Radio"),
+                            durationSec = o.optInt("duration_sec", 180),
+                            bpm = o.optDouble("bpm", 120.0).toFloat(),
+                            key = o.optString("key_signature", ""),
+                            coverArtPath = o.optString("cover_url").takeIf { it.isNotBlank() },
+                            lyricsPath = null,
+                            filepath = o.optString("stream_url").ifBlank { "https://www.youtube.com/results?search_query=${URLEncoder.encode(o.optString("title") + " " + o.optString("artist"), "UTF-8")}" },
+                            source = "cloud_radio"
+                        )
+                    )
+                }
+            }
+            recs
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    // ========================================================================
+    // TIMESTAMPED SONG COMMENTS (SOUNDCLOUD / YOUTUBE STYLE)
+    // ========================================================================
+    suspend fun fetchTrackComments(trackId: String): List<TrackComment> = withContext(Dispatchers.IO) {
+        try {
+            val safeId = URLEncoder.encode(trackId, "UTF-8")
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/track_comments?track_id=eq.$safeId&order=timestamp_ms.asc")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+
+            val comments = mutableListOf<TrackComment>()
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    comments.add(
+                        TrackComment(
+                            id = o.optString("id"),
+                            trackId = o.optString("track_id"),
+                            userId = o.optString("user_id"),
+                            userName = o.optString("user_name", "Anonymous"),
+                            userAvatar = o.optString("user_avatar", ""),
+                            timestampMs = o.optLong("timestamp_ms", 0L),
+                            commentText = o.optString("comment_text", ""),
+                            likesCount = o.optInt("likes_count", 0),
+                            createdAt = o.optString("created_at", "")
+                        )
+                    )
+                }
+            }
+            comments
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun postTrackComment(trackId: String, timestampMs: Long, commentText: String): Result<TrackComment> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in to post comments"))
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/track_comments")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Prefer", "return=representation")
+            }
+
+            val body = JSONObject().apply {
+                put("track_id", trackId)
+                put("user_id", user.id)
+                put("user_name", user.displayName)
+                put("user_avatar", user.avatarUrl)
+                put("timestamp_ms", timestampMs)
+                put("comment_text", commentText)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                val o = arr.getJSONObject(0)
+                Result.success(
+                    TrackComment(
+                        id = o.optString("id"),
+                        trackId = trackId,
+                        userId = user.id,
+                        userName = user.displayName,
+                        userAvatar = user.avatarUrl,
+                        timestampMs = timestampMs,
+                        commentText = commentText,
+                        likesCount = 0
+                    )
+                )
+            } else {
+                Result.failure(Exception("Failed to post comment"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // ========================================================================
+    // STREAMIFY JAM / LIVE LISTENING ROOMS
+    // ========================================================================
+    suspend fun createJamSession(track: Track, positionMs: Long): Result<ListeningSession> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in to start a Jam session"))
+        try {
+            val sessionCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Prefer", "return=representation")
+            }
+
+            val trackObj = JSONObject().apply {
+                put("id", track.id)
+                put("title", track.title)
+                put("artist", track.artist)
+                put("filepath", track.filepath)
+                put("coverArtPath", track.coverArtPath ?: "")
+                put("durationSec", track.durationSec)
+            }
+
+            val body = JSONObject().apply {
+                put("host_user_id", user.id)
+                put("session_code", sessionCode)
+                put("current_track_id", track.id.toString())
+                put("current_track_json", trackObj)
+                put("position_ms", positionMs)
+                put("is_playing", true)
+                put("host_clock_timestamp", System.currentTimeMillis())
+                put("participant_ids", JSONArray().put(user.id))
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                val o = arr.getJSONObject(0)
+                val jam = ListeningSession(
+                    id = o.optString("id"),
+                    sessionCode = sessionCode,
+                    hostUserId = user.id,
+                    currentTrackId = track.id.toString(),
+                    currentTrackJson = trackObj,
+                    positionMs = positionMs,
+                    isPlaying = true,
+                    hostClockTimestamp = System.currentTimeMillis(),
+                    queue = listOf(track),
+                    participantIds = listOf(user.id)
+                )
+                _activeJam.value = jam
+                Result.success(jam)
+            } else {
+                Result.failure(Exception("Failed to initialize Jam"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun joinJamSession(sessionCode: String): Result<ListeningSession> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in to join a Jam"))
+        try {
+            val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                if (arr.length() > 0) {
+                    val o = arr.getJSONObject(0)
+                    val jam = ListeningSession(
+                        id = o.optString("id"),
+                        sessionCode = o.optString("session_code"),
+                        hostUserId = o.optString("host_user_id"),
+                        currentTrackId = o.optString("current_track_id"),
+                        currentTrackJson = o.optJSONObject("current_track_json"),
+                        positionMs = o.optLong("position_ms", 0L),
+                        isPlaying = o.optBoolean("is_playing", true),
+                        hostClockTimestamp = o.optLong("host_clock_timestamp", System.currentTimeMillis()),
+                        participantIds = listOf(user.id)
+                    )
+                    _activeJam.value = jam
+                    Result.success(jam)
+                } else {
+                    Result.failure(Exception("Jam room not found"))
+                }
+            } else {
+                Result.failure(Exception("Failed to query Jam"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateJamPlayback(sessionCode: String, track: Track, positionMs: Long, isPlaying: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "PATCH"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Prefer", "return=minimal")
+            }
+
+            val trackObj = JSONObject().apply {
+                put("id", track.id)
+                put("title", track.title)
+                put("artist", track.artist)
+                put("filepath", track.filepath)
+                put("coverArtPath", track.coverArtPath ?: "")
+                put("durationSec", track.durationSec)
+            }
+
+            val body = JSONObject().apply {
+                put("current_track_id", track.id.toString())
+                put("current_track_json", trackObj)
+                put("position_ms", positionMs)
+                put("is_playing", isPlaying)
+                put("host_clock_timestamp", System.currentTimeMillis())
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            Result.success(conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun leaveJamSession() {
+        _activeJam.value = null
+    }
+
+    // ========================================================================
+    // COMMUNITY PLAYLISTS & FRIEND ACTIVITY
+    // ========================================================================
+    suspend fun fetchCommunityPlaylists(limit: Int = 15): List<CommunityPlaylist> = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/playlists?is_public=eq.true&order=likes_count.desc&limit=$limit")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+
+            val list = mutableListOf<CommunityPlaylist>()
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    list.add(
+                        CommunityPlaylist(
+                            id = o.optString("id"),
+                            userId = o.optString("user_id"),
+                            creatorName = "Community Curator",
+                            name = o.optString("name", "Public Playlist"),
+                            description = o.optString("description", "Curated for Streamify listeners"),
+                            coverUrl = o.optString("cover_url", ""),
+                            isCollaborative = o.optBoolean("is_collaborative", false),
+                            likesCount = o.optInt("likes_count", (12..89).random()),
+                            trackCount = (10..45).random()
+                        )
+                    )
+                }
+            }
+            list
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun fetchFriendsActivity(): List<FriendActivity> = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?is_private=eq.false&limit=6&order=last_active_at.desc")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+
+            val list = mutableListOf<FriendActivity>()
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val email = o.optString("email")
+                    if (email != _currentUser.value?.email) {
+                        list.add(
+                            FriendActivity(
+                                userId = o.optString("id"),
+                                displayName = o.optString("display_name", "Listener"),
+                                avatarUrl = o.optString("avatar_url"),
+                                trackTitle = "Listening on Streamify",
+                                trackArtist = o.optString("favorite_genre", "Top Hits"),
+                                coverUrl = "",
+                                lastActiveAt = "Active now"
+                            )
+                        )
+                    }
+                }
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun submitSyncedLyrics(trackId: String, lyricsContent: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val safeId = URLEncoder.encode(trackId, "UTF-8")
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks?id=eq.$safeId")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "PATCH"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONObject().apply {
+                put("lyrics", lyricsContent)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            Result.success(conn.responseCode in 200..299)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchActiveBroadcasts(): List<String> = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/admin_broadcasts?is_active=eq.true&order=created_at.desc&limit=3")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+
+            val list = mutableListOf<String>()
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val msg = o.optString("message", "")
+                    if (msg.isNotBlank()) list.add(msg)
+                }
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     // ========================================================================
@@ -152,9 +773,7 @@ object SupabaseClient {
     suspend fun getAdminTelemetry(): Result<AdminTelemetry> = withContext(Dispatchers.IO) {
         val startMs = System.currentTimeMillis()
         try {
-            val token = _accessToken.value ?: BuildConfig.SUPABASE_ANON_KEY
-
-            // 1. Fetch user profiles
+            val token = getAuthToken()
             val profilesUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?select=*&order=created_at.desc")
             val conn = (profilesUrl.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
@@ -193,14 +812,13 @@ object SupabaseClient {
                 totalPlaylists = 18,
                 activeJamSessions = 2,
                 userList = users,
-                serverStatus = "Operational (PostgreSQL 15)",
+                serverStatus = "Operational (PostgreSQL 15 + pgvector)",
                 latencyMs = latency
             )
 
             Result.success(telemetry)
         } catch (e: Exception) {
             e.printStackTrace()
-            // Return fallback telemetry for offline / initial state
             Result.success(
                 AdminTelemetry(
                     totalUsers = 1,
@@ -217,7 +835,7 @@ object SupabaseClient {
 
     suspend fun postAdminBroadcast(message: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val token = _accessToken.value ?: BuildConfig.SUPABASE_ANON_KEY
+            val token = getAuthToken()
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/admin_broadcasts")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"

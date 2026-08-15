@@ -25,6 +25,14 @@ object TrackRepository {
         }
         _allTracks.value = fetchedTracks
         _likedTracks.value = fetchedTracks.filter { it.isLiked }
+
+        // Background Cloud Sync
+        try {
+            com.streamify.app.data.remote.SupabaseClient.syncCloudLikes(fetchedTracks)
+        } catch (e: Exception) {
+            // Ignore offline cloud sync errors
+        }
+
         fetchedTracks
     }
     
@@ -79,6 +87,16 @@ object TrackRepository {
 
         if (targetId > 0) {
             val result = NativeBridge.toggleLike(userId, targetId)
+            val updated = trackObj ?: _allTracks.value.find { it.id == targetId }
+            if (updated != null) {
+                val cloudId = "trk_${(updated.title + updated.artist).hashCode()}"
+                if (result) {
+                    com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(updated)
+                    com.streamify.app.data.remote.SupabaseClient.addCloudLike(cloudId)
+                } else {
+                    com.streamify.app.data.remote.SupabaseClient.removeCloudLike(cloudId)
+                }
+            }
             refresh()
             result
         } else {
@@ -91,6 +109,18 @@ object TrackRepository {
         if (recs.isEmpty()) return@withContext emptyList()
         val all = getAllTracks().associateBy { it.id }
         recs.mapNotNull { rec -> all[rec.trackId] }
+    }
+
+    suspend fun getCloudSongRadio(track: Track, limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
+        val cloudRadio = com.streamify.app.data.remote.SupabaseClient.fetchCloudSongRadio(track, limit)
+        if (cloudRadio.isNotEmpty()) return@withContext cloudRadio
+        
+        // Fallback to local recommendations if offline or cloud empty
+        if (track.id > 0) {
+            getRecommendations(track.id, limit = limit)
+        } else {
+            emptyList()
+        }
     }
 
     suspend fun processAudioFile(trackId: Int, filePath: String): Int = withContext(Dispatchers.IO) {
@@ -131,6 +161,12 @@ object TrackRepository {
             bpm = track.bpm,
             key = track.key
         )
+        // Also mirror to Supabase cloud catalog asynchronously
+        try {
+            com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(track)
+        } catch (e: Exception) {
+            // Ignore
+        }
         refresh()
         id
     }

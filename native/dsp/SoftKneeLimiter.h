@@ -20,12 +20,16 @@ public:
     // In-place limiter for 32-bit float PCM buffers
     void processFloats(float* buffer, int numSamples);
 
-    // In-place limiter for 16-bit signed PCM buffers (prevents integer wrap-around clipping)
+    // Ultra-fast in-place limiter for 16-bit signed PCM buffers using 12-bit LUT & SIMD
     void processShorts(int16_t* buffer, int numSamples);
 
 private:
+    void rebuildLut();
+
     float threshold_;
     float kneeWidth_;
+    static constexpr int LUT_SIZE = 4096;
+    int16_t lutShort_[LUT_SIZE + 1];
 };
 
 } // namespace dsp

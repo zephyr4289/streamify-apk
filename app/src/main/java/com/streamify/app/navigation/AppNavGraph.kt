@@ -11,8 +11,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.screens.*
+import com.streamify.app.viewmodel.CommunityViewModel
+import com.streamify.app.viewmodel.JamViewModel
 import com.streamify.app.viewmodel.PlayerViewModel
 
 import androidx.compose.animation.core.tween
@@ -27,6 +30,9 @@ fun AppNavGraph(
     playerViewModel: PlayerViewModel,
     dominantColor: androidx.compose.ui.graphics.Color = com.streamify.app.ui.theme.StreamifyColors.BgBase
 ) {
+    val jamViewModel: JamViewModel = viewModel()
+    val communityViewModel: CommunityViewModel = viewModel()
+
     NavHost(
         navController = navController,
         startDestination = "home",
@@ -59,12 +65,22 @@ fun AppNavGraph(
         composable("home") {
             HomeScreen(
                 playerViewModel = playerViewModel,
+                communityViewModel = communityViewModel,
                 dominantColor = dominantColor,
                 onTrackClick = { track, list ->
                     playerViewModel.playTrack(track, list)
                 },
                 onSettingsClick = {
                     navController.navigate("settings")
+                },
+                onNavigateToJam = {
+                    navController.navigate("jam")
+                },
+                onNavigateToCommunity = {
+                    navController.navigate("community")
+                },
+                onNavigateToProfile = {
+                    navController.navigate("profile")
                 }
             )
         }
@@ -152,7 +168,37 @@ fun AppNavGraph(
                 playerViewModel = playerViewModel,
                 onBack = { navController.popBackStack() },
                 onNavigateToEq = { navController.navigate("eq") },
-                onNavigateToAdmin = { navController.navigate("admin") }
+                onNavigateToAdmin = { navController.navigate("admin") },
+                onNavigateToProfile = { navController.navigate("profile") },
+                onNavigateToWrapped = { navController.navigate("wrapped") },
+                onNavigateToCommunity = { navController.navigate("community") }
+            )
+        }
+        composable("jam") {
+            JamSessionScreen(
+                jamViewModel = jamViewModel,
+                playerViewModel = playerViewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("community") {
+            CommunityHubScreen(
+                communityViewModel = communityViewModel,
+                onBack = { navController.popBackStack() },
+                onPlaylistClick = { playlist ->
+                    // Open community playlist
+                }
+            )
+        }
+        composable("profile") {
+            UserProfileScreen(
+                onBack = { navController.popBackStack() },
+                onNavigateToWrapped = { navController.navigate("wrapped") }
+            )
+        }
+        composable("wrapped") {
+            StatsWrappedScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable("admin") {
@@ -189,4 +235,3 @@ fun AppNavGraph(
         }
     }
 }
-
