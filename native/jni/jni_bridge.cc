@@ -26,13 +26,19 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /* reserved */) {
         g_trackConstructor = env->GetMethodID(g_trackClass, "<init>", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IFLjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;)V");
         env->DeleteLocalRef(localTrackClass);
     }
+    if (env->ExceptionCheck()) env->ExceptionClear();
 
     jclass localRecClass = env->FindClass("com/streamify/app/data/models/RecommendationNative");
     if (localRecClass) {
         g_recClass = reinterpret_cast<jclass>(env->NewGlobalRef(localRecClass));
-        g_recConstructor = env->GetMethodID(g_recClass, "<init>", "(IF)V");
+        g_recConstructor = env->GetMethodID(g_recClass, "<init>", "(IFFF)V");
+        if (!g_recConstructor) {
+            env->ExceptionClear();
+            g_recConstructor = env->GetMethodID(g_recClass, "<init>", "(IF)V");
+        }
         env->DeleteLocalRef(localRecClass);
     }
+    if (env->ExceptionCheck()) env->ExceptionClear();
 
     return JNI_VERSION_1_6;
 }
@@ -93,16 +99,21 @@ jobjectArray convertTrackList(JNIEnv* env, const std::vector<StreamifyTrack>& tr
 
 jobjectArray convertRecList(JNIEnv* env, const std::vector<Recommendation>& recs) {
     jclass recClass = g_recClass ? g_recClass : env->FindClass("com/streamify/app/data/models/RecommendationNative");
-    jmethodID constructor4 = env->GetMethodID(recClass, "<init>", "(IFFF)V");
-    jmethodID constructor2 = env->GetMethodID(recClass, "<init>", "(IF)V");
+    jmethodID constructor = g_recConstructor;
+    if (!constructor && recClass) {
+        constructor = env->GetMethodID(recClass, "<init>", "(IFFF)V");
+        if (!constructor) {
+            env->ExceptionClear();
+            constructor = env->GetMethodID(recClass, "<init>", "(IF)V");
+        }
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
 
     jobjectArray resultArray = env->NewObjectArray(recs.size(), recClass, nullptr);
     for (size_t i = 0; i < recs.size(); ++i) {
         jobject obj = nullptr;
-        if (constructor4) {
-            obj = env->NewObject(recClass, constructor4, recs[i].trackId, recs[i].score, recs[i].vectorScore, recs[i].bpmMatchScore);
-        } else if (constructor2) {
-            obj = env->NewObject(recClass, constructor2, recs[i].trackId, recs[i].score);
+        if (constructor) {
+            obj = env->NewObject(recClass, constructor, recs[i].trackId, recs[i].score, recs[i].vectorScore, recs[i].bpmMatchScore);
         }
         if (obj) {
             env->SetObjectArrayElement(resultArray, i, obj);

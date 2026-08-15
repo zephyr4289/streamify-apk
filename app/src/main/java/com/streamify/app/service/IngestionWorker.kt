@@ -56,8 +56,8 @@ class IngestionWorker(
         try {
             try {
                 setForeground(createForegroundInfo("Scanning Local Music", 0, 0))
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (e: Throwable) {
+                // Background scan continues even if foreground notification is restricted
             }
 
             val localFiles = MediaStoreScanner.scanLocalMusic(applicationContext)
