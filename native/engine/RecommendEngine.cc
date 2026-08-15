@@ -131,7 +131,15 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
             int skip_count = db.getTrackTotalSkipCount(1, track_id);
             float skip_penalty = std::min(1.0f, skip_count * skip_penalty_factor);
 
-            float final_score = cosine_sim + (beta_bpm * bpm_score) + a_boost + k_boost + l_boost + (transition_prob * 0.30f) - skip_penalty;
+            // Project Nexus: Co-occurrence graph boost & Satiation burnout penalty
+            float cooccur_boost = 0.0f;
+            auto cooccurList = db.getCooccurrenceCandidates(currentTrackId, 10);
+            if (std::find(cooccurList.begin(), cooccurList.end(), track_id) != cooccurList.end()) {
+                cooccur_boost = 0.35f;
+            }
+            float satiation_penalty = db.getTrackSatiationPenalty(track_id);
+
+            float final_score = cosine_sim + (beta_bpm * bpm_score) + a_boost + k_boost + l_boost + (transition_prob * 0.30f) + cooccur_boost - skip_penalty - satiation_penalty;
             candidates.push_back({track_id, final_score});
             candidate_ids_added.insert(track_id);
         }

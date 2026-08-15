@@ -216,5 +216,28 @@ object TrackRepository {
     fun getCircadianSlot(hourOfDay: Int): String {
         return NativeBridge.getCircadianSlot(hourOfDay)
     }
+
+    suspend fun logHookTelemetry(trackId: Int, favoriteSeekMs: Long, lyricsDwellSec: Int, volumeFlare: Int): Boolean = withContext(Dispatchers.IO) {
+        if (trackId > 0) {
+            NativeBridge.logHookTelemetry(trackId, favoriteSeekMs, lyricsDwellSec, volumeFlare)
+        } else false
+    }
+
+    suspend fun recordTrackCooccurrence(trackAId: Int, trackBId: Int): Boolean = withContext(Dispatchers.IO) {
+        if (trackAId > 0 && trackBId > 0 && trackAId != trackBId) {
+            NativeBridge.recordTrackCooccurrence(trackAId, trackBId)
+        } else false
+    }
+
+    suspend fun getFavoriteSeekMs(trackId: Int): Long = withContext(Dispatchers.IO) {
+        if (trackId > 0) NativeBridge.getFavoriteSeekMs(trackId) else 0L
+    }
+
+    suspend fun getCooccurrenceRecommendations(trackId: Int, limit: Int = 10): List<Track> = withContext(Dispatchers.IO) {
+        val ids = NativeBridge.getCooccurrenceRecommendations(trackId, limit)
+        if (ids.isEmpty()) return@withContext emptyList()
+        val all = getAllTracks().associateBy { it.id }
+        ids.mapNotNull { all[it] }
+    }
 }
 

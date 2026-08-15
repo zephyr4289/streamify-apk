@@ -299,3 +299,51 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 ```
 Ensures `sireenyadav@gmail.com` is automatically granted `is_admin = TRUE` immediately on first login.
+
+---
+
+## 7. Project Chronos: Circadian Patterns & Musical Chronotype
+
+### `public.user_listening_patterns`
+Stores 4 circadian time slots per user:
+* `MORNING` (06:00 – 11:00)
+* `AFTERNOON` (11:00 – 17:00)
+* `EVENING` (17:00 – 22:00)
+* `NIGHT` (22:00 – 06:00)
+
+Each slot maintains an exponential moving average (EMA) of `avg_bpm`, `preferred_keys`, `top_genres`, `slot_embedding vector(512)`, and `skip_ratio`.
+
+### `public.user_musical_chronotype`
+Generates personal musical personas (e.g. *"The Night Explorer 🦉 • Peak 11 PM • 124 BPM"*) based on weekly listening distributions.
+
+---
+
+## 8. Project Nexus: Contextual Intelligence & Co-occurrence Graph
+
+### `public.user_device_context`
+Tracks the active listening environment in real time:
+* `audio_output_type`: `BLUETOOTH_CAR`, `HEADPHONES`, `SPEAKER`, `BLUETOOTH_GENERIC`.
+* `battery_level` & `is_charging`: Triggers battery-saving AMOLED UI and background AI scheduling.
+* `network_type`: `WIFI`, `CELLULAR`, `OFFLINE` for adaptive bitrate streaming.
+
+### `public.track_hook_telemetry`
+Captures micro-interaction psychometrics:
+* `favorite_seek_timestamp_ms`: Detects the exact chorus or drop timestamp the user repeatedly scrubs to.
+* `lyrics_dwell_seconds`: Measures focus on the synchronized karaoke lyrics tab.
+* `volume_flare_count`: Identifies emotional resonance volume boost spikes.
+* `satiation_score`: Implements burnout decay to prevent song fatigue.
+
+### `public.track_cooccurrence_graph`
+A behavioral graph mapping songs frequently played in the same 30-minute session:
+```sql
+CREATE TABLE public.track_cooccurrence_graph (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    track_a_id TEXT NOT NULL,
+    track_b_id TEXT NOT NULL,
+    cooccurrence_weight REAL DEFAULT 1.0,
+    pair_count INT DEFAULT 1,
+    last_paired_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(track_a_id, track_b_id)
+);
+```
+Used by the next-track recommendation engine to discover seamless track transitions purely through listener behavior.

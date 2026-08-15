@@ -437,3 +437,28 @@ Java_com_streamify_app_data_NativeBridge_getCircadianSlot(JNIEnv* env, jobject /
     std::string slot = StreamifyDB::getInstance().getCircadianSlot(hourOfDay);
     return env->NewStringUTF(slot.c_str());
 }
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_logHookTelemetry(JNIEnv* /* env */, jobject /* this */, jint trackId, jlong favoriteSeekMs, jint lyricsDwellSec, jint volumeFlare) {
+    return StreamifyDB::getInstance().logHookTelemetry(trackId, favoriteSeekMs, lyricsDwellSec, volumeFlare);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_recordTrackCooccurrence(JNIEnv* /* env */, jobject /* this */, jint trackAId, jint trackBId) {
+    return StreamifyDB::getInstance().recordTrackCooccurrence(trackAId, trackBId);
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_streamify_app_data_NativeBridge_getFavoriteSeekMs(JNIEnv* /* env */, jobject /* this */, jint trackId) {
+    return StreamifyDB::getInstance().getFavoriteSeekMs(trackId);
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_streamify_app_data_NativeBridge_getCooccurrenceRecommendations(JNIEnv* env, jobject /* this */, jint trackId, jint limit) {
+    std::vector<int> candidates = StreamifyDB::getInstance().getCooccurrenceCandidates(trackId, limit);
+    jintArray result = env->NewIntArray(candidates.size());
+    if (result && !candidates.empty()) {
+        env->SetIntArrayRegion(result, 0, candidates.size(), candidates.data());
+    }
+    return result;
+}

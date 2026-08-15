@@ -75,6 +75,13 @@ public:
     float getCircadianAvgBPM(int hour_of_day);
     std::string getCircadianSlot(int hour_of_day);
 
+    // Project Nexus: Scrubber Hook Telemetry & Co-occurrence Graph
+    bool logHookTelemetry(int track_id, int64_t favorite_seek_ms, int lyrics_dwell_sec, int volume_flare);
+    bool recordTrackCooccurrence(int track_a_id, int track_b_id);
+    std::vector<int> getCooccurrenceCandidates(int track_id, int limit = 10);
+    int64_t getFavoriteSeekMs(int track_id);
+    float getTrackSatiationPenalty(int track_id);
+
 private:
     StreamifyDB() = default;
     ~StreamifyDB();

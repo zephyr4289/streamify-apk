@@ -169,6 +169,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             repository.logPlayEvent(lastPlayedTrackId!!, newTrackId)
                         }
                         repository.logEngagementEvent(lastPlayedTrackId!!, posSec, ratio, currentHour)
+                        repository.recordTrackCooccurrence(lastPlayedTrackId!!, newTrackId)
                     }
                 }
                 lastPlayedTrackId = newTrackId
@@ -389,6 +390,31 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     fun seekTo(positionMs: Long) {
         controller?.seekTo(positionMs)
         _playerState.value = _playerState.value.copy(currentPosition = positionMs)
+        
+        val currentT = _playerState.value.currentTrack
+        if (currentT != null && currentT.id > 0 && positionMs > 5000L) {
+            viewModelScope.launch {
+                repository.logHookTelemetry(currentT.id, positionMs, 0, 0)
+            }
+        }
+    }
+
+    fun logLyricsDwell(dwellSeconds: Int) {
+        val currentT = _playerState.value.currentTrack
+        if (currentT != null && currentT.id > 0 && dwellSeconds > 0) {
+            viewModelScope.launch {
+                repository.logHookTelemetry(currentT.id, 0L, dwellSeconds, 0)
+            }
+        }
+    }
+
+    fun logVolumeFlare() {
+        val currentT = _playerState.value.currentTrack
+        if (currentT != null && currentT.id > 0) {
+            viewModelScope.launch {
+                repository.logHookTelemetry(currentT.id, 0L, 0, 1)
+            }
+        }
     }
     
     fun skipNext() {

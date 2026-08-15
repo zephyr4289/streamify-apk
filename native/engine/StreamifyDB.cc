@@ -103,6 +103,22 @@ bool StreamifyDB::init(const std::string& db_path) {
             action_type TEXT DEFAULT 'PLAY',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS track_hook_telemetry (
+            track_id INTEGER PRIMARY KEY,
+            favorite_seek_ms INTEGER DEFAULT 0,
+            lyrics_dwell_sec INTEGER DEFAULT 0,
+            volume_flare_count INTEGER DEFAULT 0,
+            satiation_score REAL DEFAULT 0.0,
+            last_played_timestamp INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS track_cooccurrence (
+            track_a_id INTEGER NOT NULL,
+            track_b_id INTEGER NOT NULL,
+            weight REAL DEFAULT 1.0,
+            pair_count INTEGER DEFAULT 1,
+            last_paired_timestamp INTEGER DEFAULT 0,
+            PRIMARY KEY (track_a_id, track_b_id)
+        );
         CREATE INDEX IF NOT EXISTS idx_tracks_filepath ON tracks(filepath);
         CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title);
         CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
@@ -110,6 +126,7 @@ bool StreamifyDB::init(const std::string& db_path) {
         CREATE INDEX IF NOT EXISTS idx_transitions_user ON user_transitions(user_id, from_track_id, event_type);
         CREATE INDEX IF NOT EXISTS idx_tracks_play_count ON tracks(play_count DESC, last_played_timestamp DESC);
         CREATE INDEX IF NOT EXISTS idx_engagement_hour ON user_engagement_log(hour_of_day, action_type);
+        CREATE INDEX IF NOT EXISTS idx_cooccur_a ON track_cooccurrence(track_a_id, weight DESC);
     )";
 
     char* err = nullptr;
@@ -964,4 +981,127 @@ float StreamifyDB::getCircadianAvgBPM(int hour_of_day) {
         else bpm = 95.0f; // Chill night
     }
     return bpm;
+}
+
+bool StreamifyDB::logHookTelemetry(int track_id, int64_t favorite_seek_ms, int lyrics_dwell_sec, int volume_flare) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db || track_id <= 0) return false;
+
+    int now = static_cast<int>(std::time(nullptr));
+    const char* sql = "INSERT INTO track_hook_telemetry (track_id, favorite_seek_ms, lyrics_dwell_sec, volume_flare_count, last_played_timestamp) "
+                      "VALUES (?, ?, ?, ?, ?) "
+                      "ON CONFLICT(track_id) DO UPDATE SET "
+                      "favorite_seek_ms = CASE WHEN EXCLUDED.favorite_seek_ms > 0 THEN EXCLUDED.favorite_seek_ms ELSE track_hook_telemetry.favorite_seek_ms END, "
+                      "lyrics_dwell_sec = track_hook_telemetry.lyrics_dwell_sec + EXCLUDED.lyrics_dwell_sec, "
+                      "volume_flare_count = track_hook_telemetry.volume_flare_count + EXCLUDED.volume_flare_count, "
+                      "last_played_timestamp = EXCLUDED.last_played_timestamp;";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, track_id);
+    sqlite3_bind_int64(stmt, 2, favorite_seek_ms);
+    sqlite3_bind_int(stmt, 3, lyrics_dwell_sec);
+    sqlite3_bind_int(stmt, 4, volume_flare);
+    sqlite3_bind_int(stmt, 5, now);
+
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+bool StreamifyDB::recordTrackCooccurrence(int track_a_id, int track_b_id) {
+    if (track_a_id <= 0 || track_b_id <= 0 || track_a_id == track_b_id) return false;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return false;
+
+    int now = static_cast<int>(std::time(nullptr));
+    const char* sql = "INSERT INTO track_cooccurrence (track_a_id, track_b_id, weight, pair_count, last_paired_timestamp) "
+                      "VALUES (?, ?, 1.0, 1, ?) "
+                      "ON CONFLICT(track_a_id, track_b_id) DO UPDATE SET "
+                      "weight = track_cooccurrence.weight + 1.0, "
+                      "pair_count = track_cooccurrence.pair_count + 1, "
+                      "last_paired_timestamp = EXCLUDED.last_paired_timestamp;";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+    sqlite3_bind_int(stmt, 1, track_a_id);
+    sqlite3_bind_int(stmt, 2, track_b_id);
+    sqlite3_bind_int(stmt, 3, now);
+
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+std::vector<int> StreamifyDB::getCooccurrenceCandidates(int track_id, int limit) {
+    std::vector<int> candidates;
+    if (track_id <= 0) return candidates;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return candidates;
+
+    const char* sql = "SELECT track_b_id FROM track_cooccurrence WHERE track_a_id = ? ORDER BY weight DESC LIMIT ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return candidates;
+
+    sqlite3_bind_int(stmt, 1, track_id);
+    sqlite3_bind_int(stmt, 2, limit);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        candidates.push_back(sqlite3_column_int(stmt, 0));
+    }
+    sqlite3_finalize(stmt);
+    return candidates;
+}
+
+int64_t StreamifyDB::getFavoriteSeekMs(int track_id) {
+    if (track_id <= 0) return 0;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return 0;
+
+    const char* sql = "SELECT favorite_seek_ms FROM track_hook_telemetry WHERE track_id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0;
+
+    sqlite3_bind_int(stmt, 1, track_id);
+    int64_t seek_ms = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        seek_ms = sqlite3_column_int64(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return seek_ms;
+}
+
+float StreamifyDB::getTrackSatiationPenalty(int track_id) {
+    if (track_id <= 0) return 0.0f;
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return 0.0f;
+
+    // Count plays in the last 72 hours (3 days)
+    int now = static_cast<int>(std::time(nullptr));
+    int three_days_ago = now - (72 * 3600);
+
+    const char* sql = "SELECT COUNT(*) FROM user_engagement_log WHERE track_id = ? AND created_at >= datetime(?, 'unixepoch');";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return 0.0f;
+
+    sqlite3_bind_int(stmt, 1, track_id);
+    sqlite3_bind_int(stmt, 2, three_days_ago);
+
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+
+    // If played more than 12 times in 3 days, apply burnout cooldown penalty
+    if (count >= 20) return 0.85f; // Heavy penalty
+    if (count >= 12) return 0.40f; // Moderate cooldown
+    return 0.0f;
 }

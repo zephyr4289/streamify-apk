@@ -70,4 +70,10 @@ object NativeBridge {
     external fun logEngagementEvent(trackId: Int, durationSec: Int, completionRatio: Float, hourOfDay: Int): Boolean
     external fun getCircadianRecommendations(hourOfDay: Int, limit: Int): Array<RecommendationNative>
     external fun getCircadianSlot(hourOfDay: Int): String
+
+    // Project Nexus: Scrubber Hook Telemetry & Co-occurrence Graph
+    external fun logHookTelemetry(trackId: Int, favoriteSeekMs: Long, lyricsDwellSec: Int, volumeFlare: Int): Boolean
+    external fun recordTrackCooccurrence(trackAId: Int, trackBId: Int): Boolean
+    external fun getFavoriteSeekMs(trackId: Int): Long
+    external fun getCooccurrenceRecommendations(trackId: Int, limit: Int): IntArray
 }

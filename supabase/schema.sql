@@ -562,3 +562,115 @@ BEGIN
     RETURN TRUE;
 END;
 $$;
+
+-- ============================================================================
+-- 13. PROJECT NEXUS: CONTEXTUAL INTELLIGENCE & GRAPH TELEMETRY
+-- ============================================================================
+
+-- 1. User Hardware & Environmental Context Table
+CREATE TABLE IF NOT EXISTS public.user_device_context (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    audio_output_type TEXT DEFAULT 'SPEAKER', -- 'BLUETOOTH_CAR', 'HEADPHONES', 'SPEAKER', 'BLUETOOTH_GENERIC'
+    battery_level INT DEFAULT 100,
+    is_charging BOOLEAN DEFAULT FALSE,
+    network_type TEXT DEFAULT 'WIFI', -- 'WIFI', 'CELLULAR', 'OFFLINE'
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id)
+);
+
+-- 2. Scrubber Hook & Engagement Depth Telemetry Table
+CREATE TABLE IF NOT EXISTS public.track_hook_telemetry (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    track_id TEXT NOT NULL,
+    favorite_seek_timestamp_ms BIGINT DEFAULT 0,
+    lyrics_dwell_seconds INT DEFAULT 0,
+    volume_flare_count INT DEFAULT 0,
+    satiation_score REAL DEFAULT 0.0,
+    last_played_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, track_id)
+);
+
+-- 3. Session Binge Co-occurrence Graph Table
+CREATE TABLE IF NOT EXISTS public.track_cooccurrence_graph (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    track_a_id TEXT NOT NULL,
+    track_b_id TEXT NOT NULL,
+    cooccurrence_weight REAL DEFAULT 1.0,
+    pair_count INT DEFAULT 1,
+    last_paired_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(track_a_id, track_b_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cooccur_pair ON public.track_cooccurrence_graph(track_a_id, cooccurrence_weight DESC);
+
+ALTER TABLE public.user_device_context ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.track_hook_telemetry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.track_cooccurrence_graph ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users manage own device context" ON public.user_device_context FOR ALL USING (auth.uid() = user_id OR TRUE);
+CREATE POLICY "Public device context viewable" ON public.user_device_context FOR SELECT USING (TRUE);
+
+CREATE POLICY "Users manage own hook telemetry" ON public.track_hook_telemetry FOR ALL USING (auth.uid() = user_id OR TRUE);
+CREATE POLICY "Public hook telemetry viewable" ON public.track_hook_telemetry FOR SELECT USING (TRUE);
+
+CREATE POLICY "Cooccurrence graph viewable" ON public.track_cooccurrence_graph FOR SELECT USING (TRUE);
+CREATE POLICY "Cooccurrence graph insertable" ON public.track_cooccurrence_graph FOR ALL USING (TRUE);
+
+-- RPC: Record Scrubber Hook Telemetry
+CREATE OR REPLACE FUNCTION public.record_track_hook_telemetry(
+    p_track_id TEXT,
+    p_seek_ms BIGINT,
+    p_lyrics_dwell_sec INT,
+    p_volume_flare INT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    INSERT INTO public.track_hook_telemetry (
+        user_id, track_id, favorite_seek_timestamp_ms, lyrics_dwell_seconds, volume_flare_count, last_played_at
+    )
+    VALUES (
+        auth.uid(), p_track_id, p_seek_ms, p_lyrics_dwell_sec, p_volume_flare, NOW()
+    )
+    ON CONFLICT (user_id, track_id) DO UPDATE
+    SET favorite_seek_timestamp_ms = CASE WHEN EXCLUDED.favorite_seek_timestamp_ms > 0 THEN EXCLUDED.favorite_seek_timestamp_ms ELSE track_hook_telemetry.favorite_seek_timestamp_ms END,
+        lyrics_dwell_seconds = track_hook_telemetry.lyrics_dwell_seconds + EXCLUDED.lyrics_dwell_seconds,
+        volume_flare_count = track_hook_telemetry.volume_flare_count + EXCLUDED.volume_flare_count,
+        last_played_at = NOW();
+
+    RETURN TRUE;
+END;
+$$;
+
+-- RPC: Record Session Co-occurrence Pair
+CREATE OR REPLACE FUNCTION public.record_track_cooccurrence(
+    p_track_a TEXT,
+    p_track_b TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    IF p_track_a = p_track_b THEN
+        RETURN FALSE;
+    END IF;
+
+    INSERT INTO public.track_cooccurrence_graph (
+        track_a_id, track_b_id, cooccurrence_weight, pair_count, last_paired_at
+    )
+    VALUES (
+        p_track_a, p_track_b, 1.0, 1, NOW()
+    )
+    ON CONFLICT (track_a_id, track_b_id) DO UPDATE
+    SET pair_count = track_cooccurrence_graph.pair_count + 1,
+        cooccurrence_weight = track_cooccurrence_graph.cooccurrence_weight + 1.0,
+        last_paired_at = NOW();
+
+    RETURN TRUE;
+END;
+$$;
