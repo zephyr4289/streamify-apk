@@ -4,25 +4,28 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material3.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.streamify.app.data.PlaylistRepository
 import com.streamify.app.data.models.Track
-import com.streamify.app.ui.components.SwipeableTrackListItem
-import com.streamify.app.ui.components.TrackCoverArt
-import com.streamify.app.ui.theme.StreamifyColors
-import com.streamify.app.ui.theme.StreamifyDimens
-import com.streamify.app.ui.theme.StreamifyType
+import com.streamify.app.ui.components.ContextMenuSheet
+import com.streamify.app.ui.components.YtPlaylistHeroHeader
+import com.streamify.app.ui.components.YtQueueTrackItem
+import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.PlayerViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @Composable
 fun AlbumScreen(
@@ -32,155 +35,120 @@ fun AlbumScreen(
     onBack: () -> Unit,
     onTrackClick: (Track, List<Track>) -> Unit
 ) {
+    val context = LocalContext.current
     val albumTracks = remember(albumName, allTracks) {
         allTracks.filter { it.album.equals(albumName, ignoreCase = true) }
     }
     val currentTrack by playerViewModel.currentTrack.collectAsState()
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
-
     val firstTrack = albumTracks.firstOrNull()
+
+    val listState = rememberLazyListState()
+
+    // 120fps GPU Parallax Calculator
+    val scrollOffset by remember {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex == 0) {
+                listState.firstVisibleItemScrollOffset.toFloat()
+            } else {
+                1000f // Fully collapsed
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(StreamifyColors.BgBase)
+            .background(BgBase)
+            .statusBarsPadding()
     ) {
-        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceGiant))
-
-        // Top App Bar
+        // Top Toolbar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = StreamifyDimens.SpaceMD),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
                 Icon(
                     imageVector = Icons.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = StreamifyColors.TextMain
+                    tint = TextMain,
+                    modifier = Modifier.size(24.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(StreamifyDimens.SpaceSM))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "Album",
-                style = StreamifyType.TitleMedium,
-                color = StreamifyColors.TextSub
+                style = LocalAppTypography.current.headlineMedium.copy(fontSize = 18.sp),
+                color = TextMain
             )
         }
 
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 120.dp)
+            contentPadding = PaddingValues(bottom = 120.dp) // Protect docked player
         ) {
-            // Header
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(StreamifyDimens.SpaceLG),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(180.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(StreamifyColors.BgElevated),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        TrackCoverArt(
-                            coverArtPath = firstTrack?.coverArtPath,
-                            title = albumName,
-                            artist = firstTrack?.artist ?: "",
-                            modifier = Modifier.fillMaxSize(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
-
-                    Text(
-                        text = albumName,
-                        style = StreamifyType.HeadlineLarge,
-                        color = StreamifyColors.TextMain,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Text(
-                        text = "${firstTrack?.artist ?: "Unknown Artist"} • ${albumTracks.size} songs",
-                        style = StreamifyType.BodyMedium,
-                        color = StreamifyColors.TextSub
-                    )
-
-                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceMD)
-                    ) {
-                        Button(
-                            onClick = {
-                                if (albumTracks.isNotEmpty()) {
-                                    onTrackClick(albumTracks.first(), albumTracks)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
-                            shape = RoundedCornerShape(24.dp)
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color.Black)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Play", color = Color.Black, style = StreamifyType.TitleSmall)
+            // 1. Parallax Collapsing Hero Header
+            item(key = "album_hero_header", contentType = "heroHeader") {
+                YtPlaylistHeroHeader(
+                    title = albumName,
+                    subtitle = "Album • ${firstTrack?.artist ?: "Unknown Artist"} • ${albumTracks.size} songs",
+                    artworkUrl = firstTrack?.coverArtPath,
+                    scrollOffset = scrollOffset,
+                    onPlay = {
+                        if (albumTracks.isNotEmpty()) {
+                            onTrackClick(albumTracks.first(), albumTracks)
                         }
-
-                        IconButton(
-                            onClick = {
-                                if (albumTracks.isNotEmpty()) {
-                                    val shuffled = albumTracks.shuffled()
-                                    onTrackClick(shuffled.first(), shuffled)
-                                }
+                    },
+                    onShuffle = {
+                        if (albumTracks.isNotEmpty()) {
+                            val shuffled = albumTracks.shuffled()
+                            onTrackClick(shuffled.first(), shuffled)
+                        }
+                    },
+                    onExportM3u = {
+                        CoroutineScope(Dispatchers.Main).launch {
+                            val file = PlaylistRepository.exportPlaylistToM3U8("album_$albumName", albumTracks, context)
+                            if (file != null) {
+                                android.widget.Toast.makeText(context, "Exported: ${file.name}", android.widget.Toast.LENGTH_LONG).show()
                             }
-                        ) {
-                            Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle", tint = StreamifyColors.TextSub)
                         }
                     }
-                }
-            }
-
-            item {
-                Text(
-                    text = "Tracks",
-                    style = StreamifyType.TitleMedium,
-                    color = StreamifyColors.TextMain,
-                    modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD)
                 )
             }
 
-            items(albumTracks, key = { it.id }) { track ->
-                SwipeableTrackListItem(
+            // 2. Tracklist Items
+            items(
+                items = albumTracks,
+                key = { "album_track_${it.id}" },
+                contentType = { "trackRow" }
+            ) { track ->
+                YtQueueTrackItem(
                     track = track,
                     isPlaying = currentTrack?.id == track.id,
+                    showDragHandle = false,
                     onClick = { onTrackClick(track, albumTracks) },
-                    onOptionsClick = { selectedOptionsTrack = track },
-                    onSwipeQueue = { playerViewModel.addToQueue(track) },
-                    onSwipeLike = { playerViewModel.toggleLike(track) }
+                    onMoreClick = { selectedOptionsTrack = track }
                 )
             }
         }
     }
 
+    // Context Options Menu Bottom Sheet
     selectedOptionsTrack?.let { track ->
-        com.streamify.app.ui.components.ContextMenuSheet(
+        ContextMenuSheet(
             track = track,
             onDismissRequest = { selectedOptionsTrack = null },
-            onLikeClick = { 
+            onLikeClick = {
                 playerViewModel.toggleLike(track)
-                selectedOptionsTrack = null 
+                selectedOptionsTrack = null
             },
             onAddToPlaylistClick = { selectedOptionsTrack = null },
-            onAddToQueueClick = { 
+            onAddToQueueClick = {
                 playerViewModel.addToQueue(track)
-                selectedOptionsTrack = null 
+                selectedOptionsTrack = null
             }
         )
     }
