@@ -49,12 +49,15 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
+    private var appContext: Context? = null
     
     private var positionPollingJob: Job? = null
     private var sleepTimerJob: Job? = null
     private var lastPlayedTrackId: Int? = null
 
     fun initialize(context: Context) {
+        appContext = context.applicationContext
+        repository.appContext = context.applicationContext
         if (controllerFuture != null) return
 
         val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
@@ -146,8 +149,22 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 updateCurrentTrackFromMediaItem(mediaItem)
                 
+                val currentT = _playerState.value.currentTrack
                 val newTrackId = mediaItem?.mediaId?.toIntOrNull()
-                if (newTrackId != null && newTrackId > 0) {
+                if (currentT != null) {
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val registered = repository.registerStreamedTrack(currentT, appContext)
+                            val validId = if (registered.id > 0) registered.id else newTrackId ?: 0
+                            if (validId > 0) {
+                                repository.updateSessionVector(validId, 0.45f)
+                                repository.recordTrackPlay(validId)
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                } else if (newTrackId != null && newTrackId > 0) {
                     viewModelScope.launch {
                         repository.updateSessionVector(newTrackId, 0.45f)
                         repository.recordTrackPlay(newTrackId)
@@ -341,6 +358,23 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
     fun playTrack(track: Track, queue: List<Track> = listOf(track)) {
         _playerState.value = _playerState.value.copy(queue = queue)
+        
+        // Auto-register streamed track into SQLite & Streamify Playlist & AI Vector store
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val registered = repository.registerStreamedTrack(track, appContext)
+                if (registered.id > 0) {
+                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        val cur = _playerState.value.currentTrack
+                        if (cur != null && cur.title == track.title && cur.artist == track.artist) {
+                            _playerState.value = _playerState.value.copy(currentTrack = registered)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
         
         val mediaItems = queue.map { t ->
             val uri = if (t.filepath.startsWith("http://") || t.filepath.startsWith("https://")) {

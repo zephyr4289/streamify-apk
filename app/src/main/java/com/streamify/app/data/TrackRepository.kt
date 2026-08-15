@@ -60,6 +60,63 @@ object TrackRepository {
         liked
     }
     
+    suspend fun registerStreamedTrack(track: Track, context: android.content.Context? = null): Track = withContext(Dispatchers.IO) {
+        val albumName = if (track.album.isNotBlank() && !track.album.equals("Single", ignoreCase = true)) track.album else "Streamify"
+        val validId = NativeBridge.upsertStreamedTrack(
+            filepath = track.filepath,
+            title = track.title,
+            artist = track.artist,
+            album = albumName,
+            durationSec = track.durationSec,
+            coverArtPath = track.coverArtPath ?: "",
+            lyricsPath = track.lyricsPath ?: "",
+            bpm = track.bpm.toDouble(),
+            key = track.key
+        )
+
+        val savedId = if (validId > 0) validId else track.id
+        val updatedTrack = track.copy(
+            id = savedId,
+            album = albumName,
+            source = "online_stream"
+        )
+
+        if (savedId > 0) {
+            // 1. Auto-add to "Streamify" playlist
+            try {
+                var streamifyPl = PlaylistRepository.getPlaylists().find { it.name.equals("Streamify", ignoreCase = true) }
+                if (streamifyPl == null) {
+                    streamifyPl = PlaylistRepository.createPlaylist("Streamify", "Auto-saved Streamify songs")
+                }
+                PlaylistRepository.addTrackToPlaylist(streamifyPl.id, savedId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            // 2. High-speed zero-audio text embedding for instant AI indexing
+            val ctx = context ?: appContext
+            if (ctx != null) {
+                try {
+                    val textEngine = com.streamify.app.service.TextEmbeddingEngine.getInstance(ctx)
+                    val embedding = textEngine.generateEmbedding("${track.artist} - ${track.title} [${albumName}]")
+                    NativeBridge.updateTrackEmbedding(savedId, embedding)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            // 3. Register to Supabase Cloud
+            try {
+                com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(updatedTrack)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        refresh()
+        updatedTrack
+    }
+
     suspend fun toggleLike(trackId: Int, userId: Int = 1, track: Track? = null): Boolean = withContext(Dispatchers.IO) {
         var targetId = trackId
         val trackObj = track ?: _allTracks.value.find { it.id == trackId }
@@ -67,21 +124,8 @@ object TrackRepository {
         // Guarantee DB row exists before adding to user_liked_songs
         if (targetId <= 0 || _allTracks.value.none { it.id == targetId }) {
             if (trackObj != null) {
-                val path = trackObj.filepath.ifBlank { "online://${(trackObj.title + trackObj.artist).hashCode()}" }
-                val insertedId = NativeBridge.insertTrack(
-                    filepath = path,
-                    title = trackObj.title,
-                    artist = trackObj.artist,
-                    album = trackObj.album.ifBlank { "Streamify" },
-                    durationSec = trackObj.durationSec,
-                    bpm = trackObj.bpm
-                ).toInt()
-                if (insertedId > 0) {
-                    targetId = insertedId
-                    if (!trackObj.coverArtPath.isNullOrBlank()) {
-                        NativeBridge.updateTrackCoverArt(insertedId, trackObj.coverArtPath!!)
-                    }
-                }
+                val registered = registerStreamedTrack(trackObj)
+                targetId = registered.id
             }
         }
 

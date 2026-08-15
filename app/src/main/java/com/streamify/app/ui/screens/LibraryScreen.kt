@@ -401,6 +401,8 @@ fun LibraryScreen(
                                 val pathLower = track.filepath.lowercase()
                                 track.album.equals("Streamify", ignoreCase = true) || 
                                 track.source.equals("streamify_download", ignoreCase = true) ||
+                                track.source.equals("online_stream", ignoreCase = true) ||
+                                track.source.equals("stream", ignoreCase = true) ||
                                 track.source.equals("download", ignoreCase = true) ||
                                 pathLower.contains("streamify") ||
                                 (musicDir.isNotEmpty() && pathLower.startsWith(musicDir)) ||

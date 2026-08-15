@@ -273,6 +273,8 @@ object SupabaseClient {
                     apply()
                 }
 
+                ensureProfile(profile)
+
                 Result.success(profile)
             } else {
                 Result.failure(Exception("Auth failed: $respStr"))
@@ -280,6 +282,35 @@ object SupabaseClient {
         } catch (e: Exception) {
             e.printStackTrace()
             Result.failure(e)
+        }
+    }
+
+    suspend fun ensureProfile(user: UserProfile) = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Prefer", "resolution=merge-duplicates")
+            }
+
+            val body = JSONObject().apply {
+                put("id", user.id)
+                put("email", user.email)
+                put("display_name", user.displayName)
+                put("avatar_url", user.avatarUrl)
+                put("bio", user.bio)
+                put("favorite_genre", user.favoriteGenre)
+                put("is_admin", user.isAdmin)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            conn.responseCode
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -328,11 +359,13 @@ object SupabaseClient {
     }
 
     // ========================================================================
-    // CLOUD LIKED SONGS SYNC
+    // CLOUD LIKED SONGS TWO-WAY SYNC
     // ========================================================================
     suspend fun syncCloudLikes(localTracks: List<Track>): List<String> = withContext(Dispatchers.IO) {
         val user = _currentUser.value ?: return@withContext emptyList()
         try {
+            ensureProfile(user)
+
             // 1. Fetch Cloud Likes for this user
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_likes?user_id=eq.${user.id}&select=track_id")
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -346,16 +379,65 @@ object SupabaseClient {
                 val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
-                    cloudLikedIds.add(arr.getJSONObject(i).optString("track_id", ""))
+                    val tid = arr.getJSONObject(i).optString("track_id", "")
+                    if (tid.isNotBlank()) cloudLikedIds.add(tid)
                 }
             }
 
-            // 2. Upload un-synced local likes to cloud
+            // 2. Fetch cloud track details and insert any missing liked tracks into local SQLite
+            if (cloudLikedIds.isNotEmpty()) {
+                val encodedIds = cloudLikedIds.joinToString(",") { URLEncoder.encode(it, "UTF-8") }
+                val tracksUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks?id=in.($encodedIds)")
+                val tracksConn = (tracksUrl.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                    setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                }
+
+                if (tracksConn.responseCode in 200..299) {
+                    val tracksResp = BufferedReader(InputStreamReader(tracksConn.inputStream)).use { it.readText() }
+                    val tracksArr = JSONArray(tracksResp)
+                    for (i in 0 until tracksArr.length()) {
+                        val to = tracksArr.getJSONObject(i)
+                        val title = to.optString("title", "")
+                        val artist = to.optString("artist", "")
+                        val album = to.optString("album", "Streamify")
+                        val streamUrl = to.optString("stream_url", "")
+                        val coverUrl = to.optString("cover_url", "")
+                        val duration = to.optInt("duration_sec", 0)
+                        val bpm = to.optDouble("bpm", 120.0)
+                        val key = to.optString("key_signature", "C")
+
+                        if (title.isNotBlank()) {
+                            val localId = com.streamify.app.data.NativeBridge.upsertStreamedTrack(
+                                filepath = streamUrl.ifBlank { "online://${(title + artist).hashCode()}" },
+                                title = title,
+                                artist = artist,
+                                album = album,
+                                durationSec = duration,
+                                coverArtPath = coverUrl,
+                                lyricsPath = "",
+                                bpm = bpm,
+                                key = key
+                            )
+                            if (localId > 0) {
+                                val currentLiked = com.streamify.app.data.NativeBridge.getLikedTracks(1).map { it.id }.toSet()
+                                if (!currentLiked.contains(localId)) {
+                                    com.streamify.app.data.NativeBridge.toggleLike(1, localId)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Upload un-synced local likes to cloud
             for (track in localTracks.filter { it.isLiked }) {
                 val trackCloudId = "trk_${(track.title + track.artist).hashCode()}"
                 if (!cloudLikedIds.contains(trackCloudId)) {
                     upsertCloudTrack(track)
                     addCloudLike(trackCloudId)
+                    cloudLikedIds.add(trackCloudId)
                 }
             }
 
@@ -574,8 +656,9 @@ object SupabaseClient {
     // STREAMIFY JAM / LIVE LISTENING ROOMS
     // ========================================================================
     suspend fun createJamSession(track: Track, positionMs: Long): Result<ListeningSession> = withContext(Dispatchers.IO) {
-        val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in to start a Jam session"))
+        val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in with Google in Profile to start a Jam session"))
         try {
+            ensureProfile(user)
             val sessionCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions")
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -609,7 +692,8 @@ object SupabaseClient {
 
             conn.outputStream.use { it.write(body.toString().toByteArray()) }
 
-            if (conn.responseCode in 200..299) {
+            val code = conn.responseCode
+            if (code in 200..299) {
                 val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
                 val arr = JSONArray(resp)
                 val o = arr.getJSONObject(0)
@@ -628,7 +712,9 @@ object SupabaseClient {
                 _activeJam.value = jam
                 Result.success(jam)
             } else {
-                Result.failure(Exception("Failed to initialize Jam"))
+                val errStream = conn.errorStream
+                val errText = errStream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: "HTTP $code"
+                Result.failure(Exception("Failed to initialize Jam: $errText"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -636,8 +722,9 @@ object SupabaseClient {
     }
 
     suspend fun joinJamSession(sessionCode: String): Result<ListeningSession> = withContext(Dispatchers.IO) {
-        val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in to join a Jam"))
+        val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in with Google in Profile to join a Jam"))
         try {
+            ensureProfile(user)
             val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -658,17 +745,17 @@ object SupabaseClient {
                         currentTrackId = o.optString("current_track_id"),
                         currentTrackJson = o.optJSONObject("current_track_json"),
                         positionMs = o.optLong("position_ms", 0L),
-                        isPlaying = o.optBoolean("is_playing", true),
+                        isPlaying = o.optBoolean("is_playing", false),
                         hostClockTimestamp = o.optLong("host_clock_timestamp", System.currentTimeMillis()),
                         participantIds = listOf(user.id)
                     )
                     _activeJam.value = jam
                     Result.success(jam)
                 } else {
-                    Result.failure(Exception("Jam room not found"))
+                    Result.failure(Exception("Jam room code not found"))
                 }
             } else {
-                Result.failure(Exception("Failed to query Jam"))
+                Result.failure(Exception("Could not join Jam session (HTTP ${conn.responseCode})"))
             }
         } catch (e: Exception) {
             Result.failure(e)

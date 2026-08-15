@@ -100,7 +100,7 @@ fun JamSessionScreen(
                             .fillMaxWidth()
                             .height(52.dp)
                     ) {
-                        Icon(Icons.Default.Podcasts, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Radio, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Start a New Jam Room", style = StreamifyType.BodyLargeBold)
                     }
