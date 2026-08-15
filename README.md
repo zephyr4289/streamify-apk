@@ -104,13 +104,13 @@
 
 ---
 
-## ⚙️ The 9 Core Subsystem Engines of Streamify
+## ⚙️ The 13 Core Subsystem Engines of Streamify
 
-Streamify is architected as 9 decoupled, highly specialized subsystem engines working together across Kotlin, C++, and Python:
+Streamify is architected as 13 decoupled, highly specialized subsystem engines working together across Kotlin, C++, and Python:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                  STREAMIFY 9-ENGINE SYSTEM RUNTIME                                     │
+│                                  STREAMIFY 13-ENGINE SYSTEM RUNTIME                                    │
 ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                                        │
 │  1. 🧠 AI RECOMMENDATION & VECTOR SEARCH ENGINE                                                        │
@@ -223,7 +223,6 @@ streamify-apk/
 ├── build_log.md                                     # Dedicated developer and CI guide detailing the automated build-logs branch workflow
 ├── gradle.properties                                # JVM arguments, AndroidX flags, and Gradle build environment optimization properties
 ├── gradlew                                          # Unix shell executable wrapper for Gradle
-├── gradlew.bat                                      # Windows batch executable wrapper for Gradle
 ├── settings.gradle.kts                              # Gradle project and module repository inclusion configurations
 ├── app/
 │   ├── build.gradle.kts                             # App module build script (Chaquopy Python config, Jetpack Compose, Media3, NDK CMake bindings)
@@ -234,12 +233,6 @@ streamify-apk/
 │           ├── AndroidManifest.xml                  # Android app manifest declaring activities, services, permissions, and intent filters
 │           ├── assets/
 │           │   ├── card_art/                        # Fallback assets for browse categories and promo cards
-│           │   │   ├── card1img.jpeg                # Category banner asset for Hip-Hop / Urban
-│           │   │   ├── card2img.jpeg                # Category banner asset for Pop / Hits
-│           │   │   ├── card3img.jpeg                # Category banner asset for Electronic / Dance
-│           │   │   ├── card4img.jpeg                # Category banner asset for Rock / Indie
-│           │   │   ├── card5img.jpeg                # Category banner asset for Chill / Lo-Fi
-│           │   │   └── card6img.jpeg                # Category banner asset for Acoustic / Classical
 │           │   └── models/
 │           │       └── clap_int8.onnx               # Quantized 8-bit ONNX neural model for audio feature representation
 │           ├── java/com/streamify/app/
@@ -247,9 +240,10 @@ streamify-apk/
 │           │   ├── StreamifyApp.kt                  # Custom Android Application class initializing JNI, Chaquopy, and Supabase clients
 │           │   ├── data/
 │           │   │   ├── BackupManager.kt             # Chunked streaming database export and recovery engine (zero OOM on 50k+ tracks)
+│           │   │   ├── EdgeMeshRepository.kt        # Distributed edge mesh state manager and periodic WorkManager scheduler
 │           │   │   ├── ExportifyParser.kt           # Universal playlist parser (pure Kotlin Spotify scraper, M3U/M3U8, CSV, JSON)
 │           │   │   ├── LyricsCacheManager.kt        # High-performance disk cache manager for synced LRC lyrics files
-│           │   │   ├── NativeBridge.kt              # Kotlin JNI bindings to C++ native engine (DB, VectorStore, Recommender, AudioPipeline)
+│           │   │   ├── NativeBridge.kt              # Kotlin JNI bindings to C++20 native engine (DB, VectorStore, Recommender, Telemetry, DSP)
 │           │   │   ├── NativeMetadataTagger.kt      # Retina 1400x1400 iTunes artwork and synced lyrics atomic tagger
 │           │   │   ├── PlaylistRepository.kt        # Playlist manager with fuzzy library deduplication and relative-path M3U8 exports
 │           │   │   ├── ReRanker.kt                  # Multi-armed bandit ε-greedy re-ranker with artist damping and tempo diversity
@@ -269,7 +263,7 @@ streamify-apk/
 │           │   │   │   └── iTunesSearchApi.kt       # Apple iTunes Search API client for fetching high-resolution 1400x1400 album covers
 │           │   │   └── remote/
 │           │   │       ├── AuthManager.kt           # Google 1-Tap OAuth credentials and Supabase authentication session manager
-│           │   │       └── SupabaseClient.kt        # Remote Supabase client handling user profiles, remote playlist sync, and telemetry
+│           │   │       └── SupabaseClient.kt        # Remote Supabase client handling user profiles, remote playlist sync, edge mesh and telemetry
 │           │   ├── navigation/
 │           │   │   └── AppNavGraph.kt               # Jetpack Compose animated navigation graph with custom horizontal and vertical transitions
 │           │   ├── service/
@@ -283,7 +277,8 @@ streamify-apk/
 │           │   │   ├── LosslessRemuxer.kt           # Bit-for-bit direct stream remuxer into native .m4a and .opus containers
 │           │   │   ├── PlaybackService.kt           # Core AndroidX Media3 media session service for lock-screen controls and background audio
 │           │   │   ├── PredictivePreBufferManager.kt# Pre-fetches first 2MB of track N+1 at T-minus 35s for 0.00s gapless playback
-│           │   │   └── PriorityWeightedEvictor.kt   # Media3 CacheEvictor protecting Liked and heavy rotation tracks from eviction
+│           │   │   ├── PriorityWeightedEvictor.kt   # Media3 CacheEvictor protecting Liked and heavy rotation tracks from eviction
+│           │   │   └── TitanComputeWorker.kt        # Sovereign edge mesh worker running local-first acoustic analysis and consensus submission
 │           │   ├── ui/
 │           │   │   ├── animations/
 │           │   │   │   ├── CardPressEffect.kt       # Bouncy spring scale and alpha reduction modifier for interactive UI elements
@@ -309,19 +304,20 @@ streamify-apk/
 │           │   │   │   ├── TrackCoverArt.kt         # Optimized Coil async image loader with fallback icons and rounded corners
 │           │   │   │   └── TrackListItem.kt         # Standard horizontal track item row with art, title, artist, like button, and context menu
 │           │   │   ├── screens/
-│           │   │   │   ├── AdminDashboardScreen.kt  # Authorized admin command center for telemetry, vector store stats, and sync management
+│           │   │   │   ├── AdminDashboardScreen.kt  # 6-tab authorized command center (Telemetry, Edge Mesh, Users, Jam Rooms, Comments, Broadcasts)
 │           │   │   │   ├── AlbumScreen.kt           # Album detail view showing tracklist, total runtime, header blur, and play/shuffle actions
 │           │   │   │   ├── ArtistScreen.kt          # Artist profile screen featuring top tracks, full discography, and bio
-│           │   │   │   ├── DownloadScreen.kt        # Downloads manager screen displaying active download speeds, progress, and offline items
+│           │   │   │   ├── DownloadScreen.kt        # Downloads manager with live Edge Mesh Contributor HUD and bandwidth inversion tracker
 │           │   │   │   ├── EqualizerScreen.kt       # Equalizer UI with multi-band sliders, bass boost, virtualizer, and audio presets
 │           │   │   │   ├── FullPlayerSheet.kt       # Flagship full-screen player bottom sheet with 3-tab pager (Art, Synced Lyrics, Queue)
-│           │   │   │   ├── HomeScreen.kt            # Home dashboard featuring time-based greetings, recent plays grid, and AI recommendation shelves
+│           │   │   │   ├── HomeScreen.kt            # Circadian dayparting dashboard with dynamic time-of-day shelves and tempo matching
 │           │   │   │   ├── LibraryScreen.kt         # User library screen with filter chips (All, Liked, Downloads, Streamify, Playlists)
 │           │   │   │   ├── LyricsScreen.kt          # Dedicated synchronized lyrics screen with auto-scroll and tap-to-seek functionality
 │           │   │   │   ├── PlayerScreen.kt          # Standalone full player container fallback
 │           │   │   │   ├── QueueScreen.kt           # Interactive queue management screen with drag-to-reorder, swipe-to-delete, and clear options
 │           │   │   │   ├── SearchScreen.kt          # Instant search screen with browse category grids, recent searches, and online results
-│           │   │   │   └── SettingsScreen.kt        # Settings dashboard managing audio quality, crossfade, sleep timer, storage, and cloud sync
+│           │   │   │   ├── SettingsScreen.kt        # Settings dashboard managing audio quality, crossfade, sleep timer, storage, and cloud sync
+│           │   │   │   └── UserProfileScreen.kt     # Profile screen featuring musical chronotype personas ("The Night Explorer 🦉")
 │           │   │   └── theme/
 │           │   │       ├── Color.kt                 # Spotify dark theme color palette (Background, Surface, Primary Green, Accents)
 │           │   │       ├── Dimens.kt                # UI dimension tokens, padding values, elevations, and animation timing constants
@@ -339,7 +335,7 @@ streamify-apk/
 │           │   │   ├── HomeViewModel.kt             # ViewModel managing Home screen recent tracks, shelves, and AI recommendations
 │           │   │   ├── IngestionViewModel.kt        # ViewModel orchestrating background media scans and real-time C++ feature extraction
 │           │   │   ├── LibraryViewModel.kt          # ViewModel managing library filtering, liked tracks, custom playlists, and folder views
-│           │   │   ├── PlayerViewModel.kt           # Central player state machine controlling playback, queue, seek, shuffle, repeat, and like states
+│           │   │   ├── PlayerViewModel.kt           # Central player state machine with lock-free microsecond telemetry pushing
 │           │   │   ├── SearchViewModel.kt           # ViewModel handling debounced sub-100ms Innertube search and local library queries
 │           │   │   └── UiEventBus.kt                # Global Kotlin SharedFlow event bus broadcasting Snackbars and assurity alerts
 │           │   └── worker/
@@ -357,8 +353,50 @@ streamify-apk/
 │               └── values/
 │                   ├── fonts_certs.xml              # Google Fonts downloadable font provider certificate hashes
 │                   └── themes.xml                   # Android base window themes and splash screen attributes
-├── native/
-│   ├── CMakeLists.txt                               # Native CMake build script linking C++17, SQLite3, KissFFT, and ARM NEON flags
+│   ├── CMakeLists.txt                               # Native CMake build script linking C++20, SQLite3, KissFFT, and ARM NEON flags
+│   ├── dsp/
+│   │   ├── LufsNormalizer.cc                        # Native C++ psychoacoustic RMS LUFS dynamic normalizer with soft-limit
+│   │   ├── LufsNormalizer.h                         # Header definitions for LufsNormalizer
+│   │   ├── SoftKneeLimiter.cc                       # Native C++ soft-knee dynamic range compressor preventing clipping at +15dB EQ boosts
+│   │   ├── SoftKneeLimiter.h                        # Header definitions for SoftKneeLimiter
+│   │   └── kissfft/                                 # Embedded KissFFT library providing fast, lightweight Fast Fourier Transforms
+│   │       ├── kiss_fft.c                           # Core complex FFT routine implementation
+│   │       ├── kiss_fft.h                           # Header definitions for KissFFT data structures and prototypes
+│   │       ├── kiss_fftr.c                          # Real-valued input FFT optimization routine
+│   │       ├── kiss_fftr.h                          # Header definitions for real FFT routines
+│   │       └── _kiss_fft_guts.h                     # Internal macros, trigonometric tables, and fixed/floating point math helpers
+│   ├── engine/
+│   │   ├── ChronosProfiler.cc                       # 4-slot Circadian Matrix, sinusoidal boundary interpolation & NEON SIMD updates
+│   │   ├── ChronosProfiler.h                        # Header definitions for ChronosProfiler
+│   │   ├── EventTracker.cc                          # User interaction tracker logging playback duration, skips, and completions
+│   │   ├── EventTracker.h                           # Header definitions for EventTracker
+│   │   ├── RecommendEngine.cc                       # AI recommendation engine with 2nd-order Markov Laplace smoothing & satiation decay
+│   │   ├── RecommendEngine.h                        # Header definitions for RecommendEngine
+│   │   ├── StreamifyDB.cc                           # Thread-safe SQLite3 with WAL mode, hook telemetry, co-occurrence & 2nd-order Markov
+│   │   ├── StreamifyDB.h                            # Header definitions for StreamifyDB
+│   │   ├── TaskOrchestrator.cc                      # C++ resource-aware background task scheduler with cooperative yielding
+│   │   ├── TaskOrchestrator.h                       # Header definitions for TaskOrchestrator
+│   │   ├── TelemetryEngine.cc                       # Background consumer loop, drop hunting & SHA-256 Proof-of-Compute
+│   │   ├── TelemetryEngine.h                        # Dmitry Vyukov lock-free MPMC queue (<1µs JNI) with 64-byte alignment
+│   │   ├── VectorStore.cc                           # High-dimensional vector index accelerated by 128-bit ARM NEON SIMD cosine similarity
+│   │   └── VectorStore.h                            # Header definitions for VectorStore
+│   ├── ingest/
+│   │   ├── AudioPipeline.cc                         # Signal processing pipeline: KissFFT STFT, spectral flux onset BPM, Chromagram key
+│   │   ├── AudioPipeline.h                          # Header definitions for AudioPipeline
+│   │   └── miniaudio.h                              # Single-file audio decoding and playback header library
+│   ├── jni/
+│   │   └── jni_bridge.cc                            # JNI boundary linking Kotlin NativeBridge to C++20 core engine
+│   └── third_party/
+│       ├── onnxruntime/include/
+│       │   └── onnxruntime_cxx_api.h                # C++ header definitions for ONNX Runtime neural inference engine
+│       └── sqlite3/
+│           ├── sqlite3.c                            # Amalgamated C source code for the embedded SQLite3 database engine
+│           └── sqlite3.h                            # Header definitions for SQLite3
+├── supabase/
+│   └── schema.sql                                   # Cloud PostgreSQL database schema for Supabase (Edge Mesh, Tasks, Markov, RLS)
+├── implementation_v4.md                             # Architectural specification, mathematical models, and engineering documentation
+├── tasks_v4.md                                      # Comprehensive engineering roadmap, QA checklist, and component status tracking
+└── supabase.md                                      # Comprehensive Supabase cloud infrastructure and database blueprint+17, SQLite3, KissFFT, and ARM NEON flags
 │   ├── dsp/
 │   │   ├── SoftKneeLimiter.cc                       # Native C++ soft-knee dynamic range compressor preventing clipping at +15dB EQ boosts
 │   │   ├── SoftKneeLimiter.h                        # Header definitions for SoftKneeLimiter

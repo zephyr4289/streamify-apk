@@ -381,16 +381,112 @@ When a **Volume Flare** event occurs, the target LUFS baseline dynamically incre
 
 ## 10. Project Titan: Sovereign Edge Compute Mesh
 
+Project Titan turns the collective Android fleet of Streamify users into a distributed zero-cost supercomputer. When phones are plugged in to charge overnight on unmetered Wi-Fi with screen off, they pull pending acoustic tasks, extract DSP features and embeddings, generate cryptographic proof, and reach Byzantine consensus.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                          PROJECT TITAN: DISTRIBUTED EDGE MESH PIPELINE                      │
+├─────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                             │
+│      [Supabase Task Broker] ─── (FOR UPDATE SKIP LOCKED) ───► [Pending Task Queue]          │
+│                                                                     │                       │
+│                        ┌────────────────────────────────────────────┴────────┐              │
+│                        ▼                                                     ▼              │
+│               [Node A (Local Cache)]                                [Node B (30s Chunk)]    │
+│               • Audio exists on disk                                • Downloads 600KB       │
+│               • 0 Bytes Network used!                               • 30s chorus chunk      │
+│                        │                                                     │              │
+│                        ▼                                                     ▼              │
+│             [Native C++20 DSP Core]                               [Native C++20 DSP Core]   │
+│             • KissFFT Autocorrelation (BPM)                       • KissFFT Autocorrelation │
+│             • 12-bin Chromagram (Key)                             • 12-bin Chromagram (Key) │
+│             • 512-D ONNX Neural Vector                            • 512-D ONNX Vector       │
+│             • SHA-256 Proof-of-Compute                            • SHA-256 Proof-of-Compute│
+│                        │                                                     │              │
+│                        └───────────────────────┬─────────────────────────────┘              │
+│                                                ▼                                            │
+│                                    [Consensus Engine Broker]                                │
+│                                    • |BPM_A - BPM_B| <= 1.2 BPM                             │
+│                                    • Key_A == Key_B                                         │
+│                                    • CosineSimilarity(V_A, V_B) > 0.88                      │
+│                                                │                                            │
+│                        ┌───────────────────────┴─────────────────────────────┐              │
+│                        ▼                                                     ▼              │
+│             ✅ [Consensus Reached]                                  ❌ [Disagreement]       │
+│             • Enrich public.tracks                                 • Reset task count to 1  │
+│             • Set is_processed = TRUE                              • Request 3rd Tiebreaker │
+│             • Invert Bandwidth Ledger                                                       │
+│                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
 ### `public.edge_compute_tasks`
 Distributed queue of songs pending acoustic analysis and 512-D embedding extraction.
 
-### `public.edge_compute_results`
-Stores peer submissions. Reaches **Byzantine Consensus** when:
-1. $|\text{BPM}_A - \text{BPM}_B| \le 1.2$
-2. $\text{Key}_A == \text{Key}_B$
-3. $\text{CosineSim}(V_A, V_B) > 0.88$
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | `PRIMARY KEY DEFAULT uuid_generate_v4()` | Task identifier. |
+| `track_id` | `TEXT` | `REFERENCES tracks(id) ON DELETE CASCADE` | Target song pending analysis. |
+| `task_type` | `TEXT` | `DEFAULT 'ACOUSTIC_ANALYSIS'` | Analysis task type. |
+| `assigned_device_count` | `INT` | `DEFAULT 0` | Current active claims (max 2 for consensus). |
+| `is_completed` | `BOOLEAN` | `DEFAULT FALSE` | Set to TRUE upon successful consensus. |
+| `created_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Task creation timestamp. |
 
-When consensus is reached, `public.tracks` is automatically enriched, and `is_processed = TRUE`.
+---
+
+### `public.edge_compute_results`
+Stores peer submissions for consensus evaluation.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | `PRIMARY KEY DEFAULT uuid_generate_v4()` | Submission identifier. |
+| `task_id` | `UUID` | `REFERENCES edge_compute_tasks(id) ON DELETE CASCADE` | Associated task. |
+| `device_id` | `TEXT` | `NOT NULL` | Unique device identifier. |
+| `user_id` | `UUID` | `REFERENCES profiles(id) ON DELETE SET NULL` | Authenticated contributor. |
+| `computed_bpm` | `REAL` | - | Extracted BPM from audio onset autocorrelation. |
+| `computed_key` | `TEXT` | - | Extracted musical key (e.g., `G Major`). |
+| `computed_embedding` | `vector(512)` | - | 512-dimensional spatial audio vector. |
+| `proof_hash` | `TEXT` | - | $\text{SHA-256}(\text{PCM}_{[0..1023]} \parallel \text{Nonce})$. |
+| `submitted_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Submission timestamp. |
+
+---
 
 ### `public.edge_node_activity`
 Live heartbeat ledger tracking nodes computing in real-time, bandwidth inverted via local caches, and top contributor leaderboards.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `UUID` | `PRIMARY KEY DEFAULT uuid_generate_v4()` | Activity record ID. |
+| `user_id` | `UUID` | `REFERENCES profiles(id) ON DELETE SET NULL` | Contributing user profile. |
+| `device_id` | `TEXT` | `UNIQUE NOT NULL` | Hardware node device ID. |
+| `display_name` | `TEXT` | `DEFAULT 'Edge Node'` | User display name or nickname. |
+| `user_email` | `TEXT` | `DEFAULT ''` | Contributor email address. |
+| `status` | `TEXT` | `DEFAULT 'IDLE'` | `IDLE`, `COMPUTING`, or `SYNCED`. |
+| `current_track_id` | `TEXT` | `DEFAULT ''` | Track actively being analyzed. |
+| `current_track_title` | `TEXT` | `DEFAULT ''` | Title of song currently being computed. |
+| `total_contributions` | `INT` | `DEFAULT 0` | Lifetime solved tasks by this device. |
+| `bandwidth_saved_bytes` | `BIGINT` | `DEFAULT 0` | Bytes saved through local-first disk cache hits. |
+| `last_active_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Live node heartbeat timestamp. |
+
+---
+
+### 11. Stored Procedures & Edge RPC Functions
+
+#### 1. `claim_edge_task(p_device_id TEXT)`
+Atomically locks and claims the oldest incomplete task using PostgreSQL `FOR UPDATE SKIP LOCKED`, preventing race conditions across thousands of concurrent mobile nodes.
+
+#### 2. `submit_edge_result(...)`
+Evaluates Byzantine consensus between two independent peer submissions:
+1. **BPM Tolerance**: $|\text{BPM}_1 - \text{BPM}_2| \le 1.2$
+2. **Key Agreement**: $\text{Key}_1 == \text{Key}_2$
+3. **Spatial Vector Similarity**: $\text{CosineSim}(V_1, V_2) > 0.88$
+
+Upon consensus, automatically updates `public.tracks` with canonical acoustic metadata, sets `is_completed = TRUE`, and credits both contributing nodes.
+
+#### 3. `get_admin_edge_compute_stats()`
+Aggregates live mesh metrics for the Admin Dashboard:
+* `active_nodes_count`: Devices that sent heartbeats within the last 2 minutes.
+* `total_bandwidth_saved_mb`: Inverted bandwidth saved via local client caches.
+* `active_nodes`: Real-time stream of computing workers and currently analyzed songs.
+* `top_contributors`: Ranked community leaderboard.
+* `table_stats`: Exact row counts across all 8 core platform tables.
