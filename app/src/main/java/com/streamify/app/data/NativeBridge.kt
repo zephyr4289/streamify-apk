@@ -127,5 +127,9 @@ object NativeBridge {
     external fun getPtpClockOffsetNanos(): Long
     external fun getPtpRttNanos(): Long
     external fun resetPtpState()
+
+    // Zhipu AI NDK Key Vault
+    external fun getZhipuKey(index: Int): String
 }
+
 

@@ -178,12 +178,24 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             }
                             pyRes.getOrNull() ?: emptyList()
                         }
-                    ) ?: emptyList()
+                    val semanticResults = if (com.streamify.app.data.network.SemanticSearchEngine.isSemanticQuery(cleanQuery)) {
+                        try {
+                            com.streamify.app.data.network.SemanticSearchEngine.resolveMoodQuery(cleanQuery)
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    } else emptyList()
 
-                    if (searchResult.isNotEmpty()) {
-                        searchCache.put(cleanQuery.lowercase(), searchResult)
+                    val finalResults = if (semanticResults.isNotEmpty()) {
+                        (semanticResults + searchResult).distinctBy { it.url.ifBlank { it.title } }
+                    } else {
+                        searchResult
                     }
-                    searchResult
+
+                    if (finalResults.isNotEmpty()) {
+                        searchCache.put(cleanQuery.lowercase(), finalResults)
+                    }
+                    finalResults
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {

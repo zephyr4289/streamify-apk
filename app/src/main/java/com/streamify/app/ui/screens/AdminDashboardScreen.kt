@@ -1051,14 +1051,30 @@ private fun UserTelemetrySheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 3. Audio DNA & Personal Stats Card
+            var livePersona by remember { mutableStateOf<com.streamify.app.data.network.LivePersona?>(null) }
+            LaunchedEffect(user.id) {
+                try {
+                    livePersona = com.streamify.app.data.network.PersonaEngine.generateLivePersona()
+                } catch (e: Exception) {}
+            }
+
+            // 3. Audio DNA & AI Persona Card
             Surface(
                 color = StreamifyColors.BgCard,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("AUDIO DNA & PERSONAL STATS", style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.TextSub)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("AUDIO DNA & AI PERSONA", style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.TextSub)
+                        Surface(color = StreamifyColors.Primary.copy(alpha = 0.15f), shape = RoundedCornerShape(4.dp)) {
+                            Text("⚡ GLM-4", style = StreamifyType.Caption.copy(fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.Primary, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                        }
+                    }
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
@@ -1066,8 +1082,17 @@ private fun UserTelemetrySheet(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Persona", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
-                        Text(user.bio.ifBlank { "Music Explorer 🎧" }, style = StreamifyType.BodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.TextMain)
+                        Text("Persona Archetype", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
+                        Text(livePersona?.title ?: user.bio.ifBlank { "Sonic Explorer 🎧" }, style = StreamifyType.BodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.Primary)
+                    }
+
+                    if (livePersona != null && livePersona!!.description.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = livePersona!!.description,
+                            style = StreamifyType.Caption.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+                            color = StreamifyColors.TextMain.copy(alpha = 0.85f)
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1077,8 +1102,8 @@ private fun UserTelemetrySheet(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Top Genre", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
-                        Text(user.favoriteGenre.ifBlank { "All Genres" }, style = StreamifyType.BodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = Color(0xFF00E5FF))
+                        Text("Top Genre Signature", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
+                        Text(livePersona?.topAcousticTrait ?: user.favoriteGenre.ifBlank { "All Genres" }, style = StreamifyType.BodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = Color(0xFF00E5FF))
                     }
 
                     if (user.topTrack.isNotBlank()) {

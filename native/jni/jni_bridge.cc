@@ -735,4 +735,21 @@ Java_com_streamify_app_data_NativeBridge_resetPtpState(
     streamify::PtpEngine::getInstance().reset();
 }
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_getZhipuKey(
+    JNIEnv* env,
+    jobject /* this */,
+    jint index
+) {
+    static const char* ZHIPU_KEYS[] = {
+        "57bd4b727f404046b17204dc95a657e8.IMJI6yrCLcZDBl1y",
+        "0758ad943a784d728f17cd5d98b5330d.sn0EnMWZ1kLCleir",
+        "29a71f29e0bf45cbb0e61ae1fcdb0127.BbgwmouOPz7JQWyp",
+        "2f444b74e35c4d7ebae62471309b8b9e.5OzYzb9uP9v0uNzz",
+        "85aa0d0ac2f845579dfc58ae355d855d.yQrUOUVlGG0Xe2q2"
+    };
+    int safeIdx = (index >= 0 && index < 5) ? index : (abs(index) % 5);
+    return env->NewStringUTF(ZHIPU_KEYS[safeIdx]);
+}
+
 

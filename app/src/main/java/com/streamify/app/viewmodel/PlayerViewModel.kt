@@ -294,6 +294,16 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     }
                 }
                 
+                // Smart Acoustic EQ Profile auto-adaptation
+                val currentPlaying = _playerState.value.currentTrack
+                if (currentPlaying != null) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            com.streamify.app.data.network.SmartAcousticEngine.getSmartEqProfile(currentPlaying)
+                        } catch (e: Exception) {}
+                    }
+                }
+                
                 if (_playerState.value.sleepTimerEndTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                     ctrl.pause()
                     _playerState.value = _playerState.value.copy(sleepTimerEndTrack = false, sleepTimerMinutesLeft = null)
