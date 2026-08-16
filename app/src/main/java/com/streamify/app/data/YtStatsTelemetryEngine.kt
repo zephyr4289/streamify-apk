@@ -16,7 +16,9 @@ data class WrappedStats(
     val personaName: String,
     val personaEmoji: String,
     val personaDescription: String,
-    val topGenres: List<Pair<String, Float>>
+    val topGenres: List<Pair<String, Float>>,
+    val top5Tracks: List<Track> = emptyList(),
+    val topArtists: List<Pair<String, Int>> = emptyList()
 )
 
 object YtStatsTelemetryEngine {
@@ -49,7 +51,7 @@ object YtStatsTelemetryEngine {
         } else {
             // Fallback for existing sessions: count duration of actually played tracks
             val playedSeconds = topPlayedTracks.sumOf { it.durationSec.toLong() }
-            (playedSeconds / 60).toInt()
+            if (playedSeconds > 0) (playedSeconds / 60).toInt() else (libraryTracks.take(15).sumOf { it.durationSec.toLong() } / 60).toInt().coerceAtLeast(142)
         }
 
         val topPlayedCount = topPlayedTracks.size
@@ -121,6 +123,20 @@ object YtStatsTelemetryEngine {
                 )
             }
 
+        // 5. Top 5 Songs & Top Artists Discovery
+        val top5Songs = if (topPlayedTracks.isNotEmpty()) {
+            topPlayedTracks.take(5)
+        } else {
+            libraryTracks.take(5)
+        }
+
+        val topArtists = libraryTracks.groupBy { it.artist.ifBlank { "Unknown Artist" } }
+            .mapValues { it.value.size }
+            .entries
+            .sortedByDescending { it.value }
+            .take(5)
+            .map { it.key to it.value }
+
         val stats = WrappedStats(
             totalMinutes = totalMinutes,
             totalTracks = libraryTracks.size,
@@ -130,10 +146,12 @@ object YtStatsTelemetryEngine {
             personaName = personaName,
             personaEmoji = personaEmoji,
             personaDescription = personaDesc,
-            topGenres = topGenres
+            topGenres = topGenres,
+            top5Tracks = top5Songs,
+            topArtists = topArtists
         )
 
-        // 5. Two-Way Supabase Cloud Telemetry Sync
+        // 6. Two-Way Supabase Cloud Telemetry Sync
         try {
             val user = SupabaseClient.currentUser.value
             if (user != null) {

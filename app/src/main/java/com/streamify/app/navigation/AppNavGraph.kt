@@ -227,6 +227,7 @@ fun AppNavGraph(
         }
         composable("wrapped") {
             StatsWrappedScreen(
+                playerViewModel = playerViewModel,
                 onBack = { navController.popBackStack() }
             )
         }
