@@ -138,6 +138,7 @@ class MainActivity : ComponentActivity() {
                             AuthManager.init(this@MainActivity)
                             playerViewModel.initialize(this@MainActivity)
                             com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
+                            com.streamify.app.data.remote.StreamifyUpdateManager.checkForUpdates(this@MainActivity)
                         },
                         onAnimationComplete = {
                             isSplashDone = true

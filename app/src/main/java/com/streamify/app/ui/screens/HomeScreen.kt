@@ -14,11 +14,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamify.app.data.models.Track
+import com.streamify.app.data.remote.StreamifyUpdateManager
 import com.streamify.app.data.remote.SupabaseClient
+import com.streamify.app.data.remote.UpdateState
 import com.streamify.app.ui.components.*
 import com.streamify.app.ui.theme.*
+import com.streamify.app.util.ApkInstaller
 import com.streamify.app.viewmodel.CommunityViewModel
 import com.streamify.app.viewmodel.HomeUiState
 import com.streamify.app.viewmodel.HomeViewModel
@@ -145,11 +149,30 @@ fun HomeScreen(
                     state.hybridRecommendations.take(gridColumns * 4).chunked(if (screenConfig.isTablet) 3 else 2)
                 }
 
+                val context = LocalContext.current
+                val updateState by StreamifyUpdateManager.updateState.collectAsState()
+
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 120.dp) // Fixed spacer protects from docked mini-player
                 ) {
+                    // In-App OTA Update Banner
+                    if (updateState is UpdateState.UpdateAvailable) {
+                        val available = updateState as UpdateState.UpdateAvailable
+                        item(key = "card_update_available", contentType = "updateBanner") {
+                            UpdateAvailableCard(
+                                updateState = available,
+                                onUpdateClick = {
+                                    ApkInstaller.downloadAndInstall(context, available.apkUrl)
+                                },
+                                onDismissClick = {
+                                    StreamifyUpdateManager.dismissUpdate(context, available.version)
+                                }
+                            )
+                        }
+                    }
+
                     // Optional Broadcast Banner
                     if (communityState.activeBroadcasts.isNotEmpty()) {
                         item(key = "broadcast_banner") {
