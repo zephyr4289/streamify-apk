@@ -66,7 +66,7 @@ class TitanComputeWorker(
 
             // 3. Save acoustic vector locally
             if (embedding != null && embedding.isNotEmpty()) {
-                TrackRepository.updateTrackEmbedding(intId, embedding)
+                NativeBridge.updateTrackEmbedding(intId, embedding)
             }
 
             // 4. Submit Edge Result to Mesh

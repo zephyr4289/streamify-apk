@@ -213,6 +213,8 @@ object TrackRepository {
         result
     }
 
+    suspend fun updateTrack(track: Track): Boolean = updateTrackMetadata(track.id, track.title, track.artist, track.album)
+
     suspend fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int = 1) = withContext(Dispatchers.IO) {
         NativeBridge.logPlayEvent(fromTrackId, toTrackId, userId)
     }

@@ -48,6 +48,7 @@ fun ContextMenuSheet(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     val playlists by PlaylistRepository.playlists.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -248,7 +249,9 @@ fun ContextMenuSheet(
                 TextButton(
                     onClick = {
                         val updated = track.copy(title = editTitle, artist = editArtist, album = editAlbum)
-                        com.streamify.app.data.TrackRepository.updateTrack(updated)
+                        scope.launch {
+                            com.streamify.app.data.TrackRepository.updateTrack(updated)
+                        }
                         showEditDialog = false
                         onDismissRequest()
                     }

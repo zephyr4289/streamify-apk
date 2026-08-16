@@ -27,10 +27,10 @@ object PersonaEngine {
     private var lastCacheKey: String = ""
 
     suspend fun generateLivePersona(): LivePersona = withContext(Dispatchers.IO) {
-        val tracks = TrackRepository.tracks.value
+        val tracks = TrackRepository.allTracks.value
         val totalTracks = tracks.size
         val avgBpm = if (totalTracks > 0) tracks.map { it.bpm }.filter { it > 0 }.average().toInt() else 124
-        val totalPlayCount = tracks.sumOf { it.playCount }
+        val totalPlayCount = totalTracks
         val topGenres = tracks.groupBy { it.genre.ifBlank { "Modern" } }
             .maxByOrNull { it.value.size }?.key ?: "Electronic"
 

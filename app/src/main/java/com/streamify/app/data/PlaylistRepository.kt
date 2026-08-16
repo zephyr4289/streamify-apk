@@ -33,6 +33,8 @@ object PlaylistRepository {
         loadPlaylists()
     }
 
+    fun refresh() = loadPlaylists()
+
     private fun loadPlaylists() {
         val file = playlistFile ?: return
         if (!file.exists()) {

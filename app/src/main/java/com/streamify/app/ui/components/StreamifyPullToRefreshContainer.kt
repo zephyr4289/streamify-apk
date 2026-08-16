@@ -4,8 +4,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import com.streamify.app.ui.theme.ActiveControl
 import com.streamify.app.ui.theme.Primary
@@ -31,20 +30,35 @@ fun StreamifyPullToRefreshContainer(
 ) {
     val state = rememberPullToRefreshState()
 
-    // 1. Magnetic Haptic Edge Detection
-    val distanceFraction = state.distanceFraction
-    LaunchedEffect(distanceFraction) {
-        if (distanceFraction > 0f) {
-            StreamifyHapticEngine.evaluatePull(distanceFraction)
+    if (state.isRefreshing) {
+        LaunchedEffect(true) {
+            onRefresh()
         }
     }
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = onRefresh,
-        state = state,
-        modifier = modifier.fillMaxSize(),
-        indicator = {
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            state.startRefresh()
+        } else {
+            state.endRefresh()
+        }
+    }
+
+    val progress = state.progress
+    LaunchedEffect(progress) {
+        if (progress > 0f) {
+            StreamifyHapticEngine.evaluatePull(progress)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(state.nestedScrollConnection)
+    ) {
+        content()
+
+        if (state.progress > 0f || isRefreshing) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -52,13 +66,11 @@ fun StreamifyPullToRefreshContainer(
                 contentAlignment = Alignment.Center
             ) {
                 NeonOrbitalIndicator(
-                    progress = state.distanceFraction.coerceIn(0f, 1f),
+                    progress = state.progress.coerceIn(0f, 1f),
                     isRefreshing = isRefreshing
                 )
             }
         }
-    ) {
-        content()
     }
 }
 

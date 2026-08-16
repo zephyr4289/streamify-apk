@@ -23,6 +23,8 @@ import com.streamify.app.data.remote.CommunityPlaylist
 import com.streamify.app.ui.components.YtThumbnail
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.CommunityViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun CommunityHubScreen(

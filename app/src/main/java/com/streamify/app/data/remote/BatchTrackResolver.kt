@@ -89,7 +89,7 @@ object BatchTrackResolver {
                                         artist = scraped.artist.ifBlank { bestResult.uploader },
                                         album = playlist.name,
                                         durationSec = bestResult.duration,
-                                        filepath = canonicalUrl, // CANONICAL WATCH URL (Never expires!)
+                                        filepath = canonicalUrl ?: bestResult.url, // CANONICAL WATCH URL (Never expires!)
                                         coverArtPath = bestResult.thumbnail.takeIf { it.isNotBlank() },
                                         bpm = 0f,
                                         key = "",

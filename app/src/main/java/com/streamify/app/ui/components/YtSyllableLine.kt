@@ -165,18 +165,10 @@ fun YtSyllableLine(
                 drawText(layoutResult, color = TextMain)
             } else {
                 val fluidBrush = Brush.horizontalGradient(
-                    colors = listOf(
-                        TextMain,
-                        TextMain,
-                        TextTertiary.copy(alpha = 0.45f),
-                        TextTertiary.copy(alpha = 0.45f)
-                    ),
-                    stops = listOf(
-                        0f,
-                        leftStop,
-                        rightStop,
-                        1f
-                    ),
+                    0f to TextMain,
+                    leftStop to TextMain,
+                    rightStop to TextTertiary.copy(alpha = 0.45f),
+                    1f to TextTertiary.copy(alpha = 0.45f),
                     startX = 0f,
                     endX = textWidth
                 )
