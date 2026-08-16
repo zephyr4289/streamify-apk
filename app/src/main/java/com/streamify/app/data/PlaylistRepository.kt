@@ -102,6 +102,23 @@ object PlaylistRepository {
         savePlaylists()
     }
 
+    fun renamePlaylist(playlistId: String, newName: String): Boolean {
+        val cleanName = newName.trim()
+        if (cleanName.isBlank()) return false
+        _playlists.value = _playlists.value.map {
+            if (it.id == playlistId) it.copy(name = cleanName) else it
+        }
+        savePlaylists()
+        return true
+    }
+
+    fun overwritePlaylistTracks(playlistId: String, trackIds: List<Int>) {
+        _playlists.value = _playlists.value.map {
+            if (it.id == playlistId) it.copy(trackIds = trackIds) else it
+        }
+        savePlaylists()
+    }
+
     fun addTrackToPlaylist(playlistId: String, trackId: Int) {
         _playlists.value = _playlists.value.map {
             if (it.id == playlistId && !it.trackIds.contains(trackId)) {

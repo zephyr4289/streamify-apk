@@ -58,9 +58,52 @@ fun LibraryScreen(
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
 
     var showSpotifyImportDialog by remember { mutableStateOf(false) }
+    var playlistToRename by remember { mutableStateOf<com.streamify.app.data.Playlist?>(null) }
+    var renameText by remember { mutableStateOf("") }
     var importProgress by remember { mutableStateOf<com.streamify.app.data.remote.ImportProgress?>(null) }
     var isScraping by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    if (playlistToRename != null) {
+        AlertDialog(
+            onDismissRequest = { playlistToRename = null },
+            title = { Text("Rename Playlist", color = TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    label = { Text("Playlist Name") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Primary,
+                        unfocusedBorderColor = BorderChip,
+                        cursorColor = Primary,
+                        focusedTextColor = TextMain,
+                        unfocusedTextColor = TextMain
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val pl = playlistToRename
+                    if (pl != null && renameText.isNotBlank()) {
+                        PlaylistRepository.renamePlaylist(pl.id, renameText)
+                        viewModel.loadLibrary()
+                    }
+                    playlistToRename = null
+                }) {
+                    Text("Save", color = Primary, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToRename = null }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = BgSurfaceElevated,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
 
     if (showSpotifyImportDialog) {
         YtImportPlaylistSheet(
@@ -120,22 +163,16 @@ fun LibraryScreen(
     if (selectedPlaylistId != null) {
         val allTracks = (uiState as? LibraryUiState.Success)?.tracks ?: emptyList()
         val likedTracks = (uiState as? LibraryUiState.Success)?.likedTracks ?: emptyList()
+        val currentPlaylist = playlists.find { it.id == selectedPlaylistId }
 
-        val isLikedMusic = selectedPlaylistId == "liked_songs"
-        val pl = playlists.find { it.id == selectedPlaylistId }
-        val plTracks = if (isLikedMusic) likedTracks else allTracks.filter { it.id in (pl?.trackIds ?: emptyList()) }
-        val plTitle = if (isLikedMusic) "Liked Music" else (pl?.name ?: "Playlist")
-        val plSubtitle = if (isLikedMusic) "Auto-playlist • ${likedTracks.size} songs" else "Playlist • ${plTracks.size} songs"
-
-        AlbumScreen(
-            albumName = plTitle,
-            allTracks = allTracks,
+        PlaylistDetailScreen(
+            playlistId = selectedPlaylistId!!,
+            playlistName = if (selectedPlaylistId == "liked_songs") "Liked Music" else (currentPlaylist?.name ?: "Playlist"),
+            playlistDescription = currentPlaylist?.description ?: "",
+            playlistTracks = if (selectedPlaylistId == "liked_songs") likedTracks else allTracks.filter { currentPlaylist?.trackIds?.contains(it.id) == true },
             playerViewModel = playerViewModel,
             onBack = { selectedPlaylistId = null },
-            onTrackClick = onTrackClick,
-            explicitTracks = plTracks,
-            headerTitle = plTitle,
-            headerSubtitle = plSubtitle
+            onTrackClick = onTrackClick
         )
         return
     }
@@ -161,13 +198,33 @@ fun LibraryScreen(
             )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { showSpotifyImportDialog = true }) {
-                    Icon(
-                        imageVector = Icons.Filled.Download,
-                        contentDescription = "Import Spotify",
-                        tint = TextMain,
-                        modifier = Modifier.size(22.dp)
-                    )
+                Surface(
+                    onClick = { showSpotifyImportDialog = true },
+                    shape = RoundedCornerShape(20.dp),
+                    color = Primary.copy(alpha = 0.15f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Primary.copy(alpha = 0.4f)),
+                    modifier = Modifier.padding(end = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Link,
+                            contentDescription = "Import Playlist",
+                            tint = Primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Import Playlist",
+                            style = LocalAppTypography.current.chipText.copy(
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            ),
+                            color = Primary
+                        )
+                    }
                 }
                 IconButton(onClick = { enqueueMediaScan(context) }) {
                     Icon(
@@ -294,6 +351,19 @@ fun LibraryScreen(
                                                 text = "Playlist • ${playlist.trackIds.size} songs",
                                                 style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
                                                 color = TextSecondary
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                renameText = playlist.name
+                                                playlistToRename = playlist
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Edit,
+                                                contentDescription = "Rename",
+                                                tint = TextSecondary,
+                                                modifier = Modifier.size(18.dp)
                                             )
                                         }
                                         IconButton(

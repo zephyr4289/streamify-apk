@@ -13,7 +13,6 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
-import java.util.zip.GZIPInputStream
 
 data class ScrapedTrack(
     val title: String,
@@ -28,8 +27,8 @@ data class ScrapedPlaylist(
 object PlaylistLinkScraper {
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
     private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
@@ -46,16 +45,21 @@ object PlaylistLinkScraper {
     }
 
     // ========================================================================
-    // 1. SPOTIFY PLAYLIST EXTRACTION (Anonymous Web API + Chaquopy Fallback)
+    // 1. SPOTIFY PLAYLIST EXTRACTION (High-Speed Anonymous API + Pagination)
     // ========================================================================
     private fun scrapeSpotify(url: String): ScrapedPlaylist {
-        val playlistId = url.substringAfter("playlist/").substringBefore("?").substringBefore("/")
+        val playlistId = when {
+            url.contains("playlist/") -> url.substringAfter("playlist/").substringBefore("?").substringBefore("/")
+            url.contains("album/") -> url.substringAfter("album/").substringBefore("?").substringBefore("/")
+            url.startsWith("spotify:playlist:") -> url.substringAfter("spotify:playlist:")
+            else -> ""
+        }
         if (playlistId.isBlank()) throw IllegalArgumentException("Invalid Spotify playlist URL")
 
         val tracks = mutableListOf<ScrapedTrack>()
         var playlistName = "Imported Spotify Playlist"
 
-        // Tier 1: Spotify Web Player Anonymous Token & Official API
+        // Tier 1: Spotify Web Player Anonymous Token & Official Paginated Web API
         try {
             val tokenReq = Request.Builder()
                 .url("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
@@ -68,29 +72,41 @@ object PlaylistLinkScraper {
                     val tokenJson = JSONObject(tokenResp.body?.string() ?: "")
                     val token = tokenJson.optString("accessToken", "")
                     if (token.isNotBlank()) {
-                        val apiReq = Request.Builder()
-                            .url("https://api.spotify.com/v1/playlists/$playlistId")
-                            .header("Authorization", "Bearer $token")
-                            .header("User-Agent", USER_AGENT)
-                            .build()
+                        var nextUrl: String? = "https://api.spotify.com/v1/playlists/$playlistId?fields=name,tracks.items(track(name,artists(name))),tracks.next"
 
-                        httpClient.newCall(apiReq).execute().use { apiResp ->
-                            if (apiResp.isSuccessful) {
-                                val root = JSONObject(apiResp.body?.string() ?: "")
-                                playlistName = root.optString("name", "Imported Spotify Playlist")
-                                val items = root.optJSONObject("tracks")?.optJSONArray("items")
-                                if (items != null) {
-                                    for (i in 0 until items.length()) {
-                                        val trackObj = items.getJSONObject(i).optJSONObject("track") ?: continue
-                                        val title = trackObj.optString("name", "")
-                                        val artists = trackObj.optJSONArray("artists")
-                                        val artist = if (artists != null && artists.length() > 0) {
-                                            artists.getJSONObject(0).optString("name", "Unknown Artist")
-                                        } else "Unknown Artist"
-                                        if (title.isNotBlank()) {
-                                            tracks.add(ScrapedTrack(title = title, artist = artist))
+                        while (!nextUrl.isNullOrBlank() && tracks.size < 500) {
+                            val apiReq = Request.Builder()
+                                .url(nextUrl)
+                                .header("Authorization", "Bearer $token")
+                                .header("User-Agent", USER_AGENT)
+                                .build()
+
+                            httpClient.newCall(apiReq).execute().use { apiResp ->
+                                if (apiResp.isSuccessful) {
+                                    val root = JSONObject(apiResp.body?.string() ?: "")
+                                    if (root.has("name")) {
+                                        playlistName = root.optString("name", playlistName)
+                                    }
+
+                                    val tracksObj = root.optJSONObject("tracks") ?: root
+                                    val items = tracksObj.optJSONArray("items")
+                                    if (items != null) {
+                                        for (i in 0 until items.length()) {
+                                            val item = items.getJSONObject(i)
+                                            val trackObj = item.optJSONObject("track") ?: item
+                                            val title = trackObj.optString("name", "")
+                                            val artists = trackObj.optJSONArray("artists")
+                                            val artist = if (artists != null && artists.length() > 0) {
+                                                artists.getJSONObject(0).optString("name", "Unknown Artist")
+                                            } else "Unknown Artist"
+                                            if (title.isNotBlank()) {
+                                                tracks.add(ScrapedTrack(title = title, artist = artist))
+                                            }
                                         }
                                     }
+                                    nextUrl = tracksObj.optString("next", "").takeIf { it.isNotBlank() }
+                                } else {
+                                    nextUrl = null
                                 }
                             }
                         }
@@ -108,7 +124,7 @@ object PlaylistLinkScraper {
                     val py = Python.getInstance()
                     val spotifyModule = py.getModule("download_engine.spotify")
                     val resultJson = spotifyModule.callAttr("fetch_spotify_metadata_from_url", url).toString()
-                    val jsonArray = JSONArray(resultJson)
+                    val jsonArray = org.json.JSONArray(resultJson)
                     for (i in 0 until jsonArray.length()) {
                         val item = jsonArray.getJSONObject(i)
                         val title = item.optString("title", "")
@@ -127,22 +143,29 @@ object PlaylistLinkScraper {
     }
 
     // ========================================================================
-    // 2. YOUTUBE / YTM PLAYLIST EXTRACTION (Official Innertube Browse API)
+    // 2. YOUTUBE / YTM PLAYLIST EXTRACTION (Universal Innertube & Deep FlexColumns)
     // ========================================================================
     private fun scrapeYouTube(url: String): ScrapedPlaylist {
-        val playlistId = if (url.contains("list=")) url.substringAfter("list=").substringBefore("&") else ""
-        if (playlistId.isBlank()) throw IllegalArgumentException("Invalid YouTube playlist URL")
+        val playlistId = when {
+            url.contains("list=") -> url.substringAfter("list=").substringBefore("&").substringBefore("#")
+            else -> ""
+        }
+        if (playlistId.isBlank()) throw IllegalArgumentException("Invalid YouTube playlist URL (missing ?list= ID)")
 
         val tracks = mutableListOf<ScrapedTrack>()
         var playlistName = "Imported YouTube Playlist"
 
         try {
+            val isMusicHost = url.contains("music.youtube.com")
+            val clientName = if (isMusicHost) "WEB_REMIX" else "WEB"
+            val clientVersion = if (isMusicHost) "1.20240301.01.00" else "2.20240301.00.00"
             val browseId = if (playlistId.startsWith("VL")) playlistId else "VL$playlistId"
+
             val requestJson = JSONObject().apply {
                 put("context", JSONObject().apply {
                     put("client", JSONObject().apply {
-                        put("clientName", "WEB_REMIX")
-                        put("clientVersion", "1.20230515.01.00")
+                        put("clientName", clientName)
+                        put("clientVersion", clientVersion)
                         put("hl", "en")
                         put("gl", "US")
                     })
@@ -150,42 +173,87 @@ object PlaylistLinkScraper {
                 put("browseId", browseId)
             }
 
+            val endpoint = if (isMusicHost) {
+                "https://music.youtube.com/youtubei/v1/browse"
+            } else {
+                "https://www.youtube.com/youtubei/v1/browse"
+            }
+
             val request = Request.Builder()
-                .url("https://music.youtube.com/youtubei/v1/browse")
+                .url(endpoint)
                 .header("Content-Type", "application/json; charset=UTF-8")
                 .header("User-Agent", USER_AGENT)
-                .header("Origin", "https://music.youtube.com")
-                .header("Referer", "https://music.youtube.com/")
+                .header("Origin", if (isMusicHost) "https://music.youtube.com" else "https://www.youtube.com")
+                .header("Referer", if (isMusicHost) "https://music.youtube.com/" else "https://www.youtube.com/")
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
             httpClient.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    val body = response.body ?: return ScrapedPlaylist(playlistName, tracks)
-                    val encoding = response.header("Content-Encoding", "")
+                    // OkHttp transparently decompresses GZIP responses; read body string directly
+                    val responseBody = response.body?.string() ?: return ScrapedPlaylist(playlistName, tracks)
+                    val root = JSONObject(responseBody)
 
-                    val responseBody = if ("gzip".equals(encoding, ignoreCase = true)) {
-                        GZIPInputStream(body.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                    } else {
-                        body.string()
+                    // 1. Extract Playlist Title from Header
+                    val headerNodes = mutableListOf<JSONObject>()
+                    findJsonObjects(root, "musicDetailHeaderRenderer", headerNodes)
+                    findJsonObjects(root, "playlistHeaderRenderer", headerNodes)
+                    for (hNode in headerNodes) {
+                        val titleRuns = hNode.optJSONObject("title")?.optJSONArray("runs")
+                        val headerTitle = titleRuns?.optJSONObject(0)?.optString("text")
+                            ?: hNode.optJSONObject("title")?.optString("simpleText", "")
+                        if (!headerTitle.isNullOrBlank()) {
+                            playlistName = headerTitle
+                            break
+                        }
                     }
 
-                    val root = JSONObject(responseBody)
+                    // 2. Extract Tracks using deep flexColumns traversal (YouTube Music) and playlistVideoRenderer (YouTube)
                     val candidateNodes = mutableListOf<JSONObject>()
                     findJsonObjects(root, "musicResponsiveListItemRenderer", candidateNodes)
                     findJsonObjects(root, "playlistVideoRenderer", candidateNodes)
 
                     for (node in candidateNodes) {
-                        val titleObj = node.optJSONObject("title")
-                        val title = titleObj?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-                            ?: titleObj?.optString("simpleText", "") ?: ""
+                        var title = ""
+                        var artist = "Unknown Artist"
 
-                        val bylineObj = node.optJSONObject("longBylineText") ?: node.optJSONObject("shortBylineText")
-                        val artist = bylineObj?.optJSONArray("runs")?.optJSONObject(0)?.optString("text", "Unknown Artist")
-                            ?: "Unknown Artist"
+                        // Check A: YouTube Music (musicResponsiveListItemRenderer with flexColumns)
+                        val flexColumns = node.optJSONArray("flexColumns")
+                        if (flexColumns != null && flexColumns.length() > 0) {
+                            // Column 0: Title
+                            val col0Runs = flexColumns.optJSONObject(0)
+                                ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+                                ?.optJSONObject("text")
+                                ?.optJSONArray("runs")
+                            if (col0Runs != null && col0Runs.length() > 0) {
+                                title = col0Runs.getJSONObject(0).optString("text", "")
+                            }
+
+                            // Column 1: Artist
+                            if (flexColumns.length() > 1) {
+                                val col1Runs = flexColumns.optJSONObject(1)
+                                    ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
+                                    ?.optJSONObject("text")
+                                    ?.optJSONArray("runs")
+                                if (col1Runs != null && col1Runs.length() > 0) {
+                                    artist = col1Runs.getJSONObject(0).optString("text", "Unknown Artist")
+                                }
+                            }
+                        }
+
+                        // Check B: Standard YouTube (playlistVideoRenderer)
+                        if (title.isBlank()) {
+                            val titleObj = node.optJSONObject("title")
+                            title = titleObj?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                                ?: titleObj?.optString("simpleText", "") ?: ""
+
+                            val bylineObj = node.optJSONObject("shortBylineText") ?: node.optJSONObject("longBylineText")
+                            artist = bylineObj?.optJSONArray("runs")?.optJSONObject(0)?.optString("text", "Unknown Artist")
+                                ?: "Unknown Artist"
+                        }
 
                         if (title.isNotBlank()) {
-                            tracks.add(ScrapedTrack(title = title, artist = artist))
+                            tracks.add(ScrapedTrack(title = title.trim(), artist = artist.trim()))
                         }
                     }
                 }

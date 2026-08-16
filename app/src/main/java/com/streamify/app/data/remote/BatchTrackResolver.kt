@@ -1,17 +1,19 @@
 package com.streamify.app.data.remote
 
 import android.content.Context
+import com.streamify.app.data.FuzzyTitleMatcher
 import com.streamify.app.data.PlaylistRepository
 import com.streamify.app.data.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.YouTubeMusicSearchApi
-import kotlinx.coroutines.Dispatchers
+import com.streamify.app.data.network.YouTubeStreamResolver
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 
 data class ImportProgress(
     val total: Int,
@@ -34,76 +36,98 @@ object BatchTrackResolver {
             return@flow
         }
 
-        emit(ImportProgress(total = totalTracks, completed = 0, currentTrackTitle = "Creating playlist..."))
+        emit(ImportProgress(total = totalTracks, completed = 0, currentTrackTitle = "Initializing fast importer..."))
 
-        // 1. Create Playlist in SQLite
+        // 1. Create Playlist Once
         val newPlaylist = PlaylistRepository.createPlaylist(
             name = playlist.name,
-            description = "Imported via Streamify Universal Importer (${playlist.tracks.size} tracks)"
+            description = "Imported playlist (${playlist.tracks.size} tracks)"
         )
 
-        val semaphore = Semaphore(4) // Bounded Concurrency: max 4 simultaneous network searches
-        var completedCount = 0
+        // 2. Pre-Load Local Library in Memory for O(1) Lookups (Eliminates 100 SQLite scans)
+        val allLocal = TrackRepository.getAllTracks()
+        val localTrackMap = HashMap<Long, Track>()
+        for (t in allLocal) {
+            val hash = FuzzyTitleMatcher.extractRootHash(t.title)
+            if (hash != 0L) {
+                localTrackMap[hash] = t
+            }
+        }
 
-        // 2. Resolve Tracks
-        for (scraped in playlist.tracks) {
-            emit(
-                ImportProgress(
-                    total = totalTracks,
-                    completed = completedCount,
-                    currentTrackTitle = "${scraped.title} - ${scraped.artist}",
-                    playlistId = newPlaylist.id
-                )
-            )
+        val completedCount = AtomicInteger(0)
+        val resolvedTrackIds = java.util.Collections.synchronizedList(mutableListOf<Int>())
 
-            try {
-                semaphore.withPermit {
-                    withContext(Dispatchers.IO) {
-                        // Check local SQLite first
-                        val allLocal = TrackRepository.getAllTracks()
-                        val localMatch = allLocal.find {
-                            it.title.contains(scraped.title, ignoreCase = true) ||
-                            (it.artist.contains(scraped.artist, ignoreCase = true) && it.title.contains(scraped.title.take(6), ignoreCase = true))
-                        }
+        // 3. Bounded Parallelism (8 Concurrent Network Workers)
+        coroutineScope {
+            val semaphore = Semaphore(8)
+            val deferredList = playlist.tracks.map { scraped ->
+                async(Dispatchers.IO) {
+                    semaphore.withPermit {
+                        try {
+                            val rootHash = FuzzyTitleMatcher.extractRootHash(scraped.title)
+                            val localMatch = if (rootHash != 0L) localTrackMap[rootHash] else null
 
-                        if (localMatch != null) {
-                            PlaylistRepository.addTrackToPlaylist(newPlaylist.id, localMatch.id)
-                        } else {
-                            // Search via YouTube Music API
-                            val query = "${scraped.title} ${scraped.artist}"
-                            val searchResults = YouTubeMusicSearchApi.search(query, maxResults = 1)
-                            val bestResult = searchResults.firstOrNull()
+                            val trackId = if (localMatch != null && localMatch.id > 0) {
+                                localMatch.id
+                            } else {
+                                // Search YouTube Music Innertube API
+                                val query = "${scraped.title} ${scraped.artist}".trim()
+                                val searchResults = YouTubeMusicSearchApi.search(query, maxResults = 1)
+                                val bestResult = searchResults.firstOrNull()
 
-                            if (bestResult != null) {
-                                val trackModel = Track(
-                                    id = 0,
-                                    title = scraped.title,
-                                    artist = scraped.artist.ifBlank { bestResult.uploader },
-                                    album = playlist.name,
-                                    durationSec = bestResult.duration,
-                                    filepath = bestResult.url,
-                                    coverArtPath = bestResult.thumbnail.takeIf { it.isNotBlank() },
-                                    bpm = 0f,
-                                    key = "",
-                                    lyricsPath = null,
-                                    source = "online_stream"
-                                )
-                                val savedTrack = TrackRepository.registerStreamedTrack(trackModel, context)
-                                if (savedTrack.id > 0) {
-                                    PlaylistRepository.addTrackToPlaylist(newPlaylist.id, savedTrack.id)
-                                }
+                                if (bestResult != null) {
+                                    val videoId = YouTubeStreamResolver.extractVideoId(bestResult.url) ?: ""
+                                    val canonicalUrl = if (videoId.isNotBlank()) {
+                                        YouTubeStreamResolver.getCanonicalWatchUrl(videoId)
+                                    } else {
+                                        bestResult.url
+                                    }
+
+                                    val trackModel = Track(
+                                        id = 0,
+                                        title = scraped.title,
+                                        artist = scraped.artist.ifBlank { bestResult.uploader },
+                                        album = playlist.name,
+                                        durationSec = bestResult.duration,
+                                        filepath = canonicalUrl, // CANONICAL WATCH URL (Never expires!)
+                                        coverArtPath = bestResult.thumbnail.takeIf { it.isNotBlank() },
+                                        bpm = 0f,
+                                        key = "",
+                                        lyricsPath = null,
+                                        source = "online_stream"
+                                    )
+                                    val savedTrack = TrackRepository.registerStreamedTrack(trackModel, context)
+                                    savedTrack.id
+                                } else 0
                             }
+
+                            if (trackId > 0) {
+                                resolvedTrackIds.add(trackId)
+                            }
+                        } catch (e: Exception) {
+                            // Continue on individual failure
+                        } finally {
+                            val done = completedCount.incrementAndGet()
+                            emit(
+                                ImportProgress(
+                                    total = totalTracks,
+                                    completed = done,
+                                    currentTrackTitle = "${scraped.title} - ${scraped.artist}",
+                                    playlistId = newPlaylist.id
+                                )
+                            )
                         }
                     }
                 }
-            } catch (e: Exception) {
-                // Continue to next track even if one fails
             }
 
-            completedCount++
+            deferredList.awaitAll()
         }
 
-        // 3. Complete
+        // 4. Single Disk/DB Write: Overwrite Playlist Tracks Once at the End
+        PlaylistRepository.overwritePlaylistTracks(newPlaylist.id, resolvedTrackIds.toList())
+
+        // 5. Complete
         emit(
             ImportProgress(
                 total = totalTracks,
