@@ -70,7 +70,12 @@ fun YtSongVideoSwitcher(
                     .clickable(
                         interactionSource = interactionSource,
                         indication = null
-                    ) { onToggle(false) },
+                    ) {
+                        if (isVideo) {
+                            com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                            onToggle(false)
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -87,7 +92,12 @@ fun YtSongVideoSwitcher(
                     .clickable(
                         interactionSource = interactionSource,
                         indication = null
-                    ) { onToggle(true) },
+                    ) {
+                        if (!isVideo) {
+                            com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                            onToggle(true)
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Text(

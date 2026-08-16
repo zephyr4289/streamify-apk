@@ -50,6 +50,7 @@ fun YtPlayerSeekBar(
                     detectTapGestures(
                         onTap = { offset ->
                             val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
+                            com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
                             onSeek(newProgress)
                         }
                     )
@@ -59,6 +60,7 @@ fun YtPlayerSeekBar(
                         onDragStart = { offset ->
                             isDragging = true
                             dragProgress = (offset.x / size.width).coerceIn(0f, 1f)
+                            com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
                             scope.launch {
                                 thumbScale.animateTo(
                                     targetValue = 2.2f,
@@ -71,7 +73,12 @@ fun YtPlayerSeekBar(
                         },
                         onDrag = { change, _ ->
                             change.consume()
+                            val prevStep = (dragProgress * 20).toInt()
                             dragProgress = (change.position.x / size.width).coerceIn(0f, 1f)
+                            val newStep = (dragProgress * 20).toInt()
+                            if (prevStep != newStep) {
+                                com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
+                            }
                         },
                         onDragEnd = {
                             isDragging = false

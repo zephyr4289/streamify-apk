@@ -373,7 +373,10 @@ fun FullPlayerSheet(
                 // --- YOUTUBE MUSIC ACTION PILLS RAIL ---
                 YtPlayerActionPills(
                     isLiked = track.isLiked,
-                    onToggleLike = onToggleLike,
+                    onToggleLike = {
+                        com.streamify.app.util.StreamifyHapticEngine.heartbeatFlutter()
+                        onToggleLike()
+                    },
                     onCommentsClick = { showCommentsSheet = true },
                     onRadioClick = onRadioClick,
                     onJamClick = onJamClick,
@@ -409,7 +412,10 @@ fun FullPlayerSheet(
                         )
                     }
 
-                    IconButton(onClick = onPrevious) {
+                    IconButton(onClick = {
+                        com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                        onPrevious()
+                    }) {
                         Icon(
                             imageVector = Icons.Filled.SkipPrevious,
                             contentDescription = "Previous",
@@ -426,7 +432,10 @@ fun FullPlayerSheet(
                             .background(ActiveControl),
                         contentAlignment = Alignment.Center
                     ) {
-                        IconButton(onClick = onPlayPause) {
+                        IconButton(onClick = {
+                            com.streamify.app.util.StreamifyHapticEngine.playbackPulse()
+                            onPlayPause()
+                        }) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 contentDescription = "PlayPause",
@@ -436,7 +445,10 @@ fun FullPlayerSheet(
                         }
                     }
 
-                    IconButton(onClick = onNext) {
+                    IconButton(onClick = {
+                        com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                        onNext()
+                    }) {
                         Icon(
                             imageVector = Icons.Filled.SkipNext,
                             contentDescription = "Next",

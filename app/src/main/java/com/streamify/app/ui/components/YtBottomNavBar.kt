@@ -165,7 +165,12 @@ private fun YtFluidNavItem(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
+                onClick = {
+                    if (!isSelected) {
+                        com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                    }
+                    onClick()
+                }
             )
             .padding(vertical = 4.dp)
     ) {

@@ -129,6 +129,7 @@ class QuantumSonicTokenController {
                 if (t >= 1f) {
                     stage = TokenStage.IMPACT
                     impactProgress = 0f
+                    com.streamify.app.util.StreamifyHapticEngine.tokenImpact()
                 }
             }
 

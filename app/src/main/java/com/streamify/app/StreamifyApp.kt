@@ -97,6 +97,12 @@ class StreamifyApp : Application(), ImageLoaderFactory {
             android.util.Log.e("StreamifyApp", "Failed to initialize SupabaseClient", e)
         }
 
+        try {
+            com.streamify.app.util.StreamifyHapticEngine.init(this)
+        } catch (e: Throwable) {
+            android.util.Log.e("StreamifyApp", "Failed to initialize StreamifyHapticEngine", e)
+        }
+
         createNotificationChannels()
     }
 
