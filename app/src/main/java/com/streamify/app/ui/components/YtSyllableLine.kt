@@ -11,7 +11,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,9 +31,9 @@ fun YtSyllableLine(
     val textMeasurer = rememberTextMeasurer()
     val interactionSource = remember { MutableInteractionSource() }
 
-    // 1. Pre-compute text layout (Runs only when line text changes, not on time ticks)
+    // 1. Pre-compute Text Layout
     val textStyle = TextStyle(
-        fontSize = 24.sp,
+        fontSize = if (isActive) 25.sp else 22.sp,
         fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
         fontFamily = StreamifyFontFamily,
         lineHeight = 34.sp
@@ -48,14 +47,14 @@ fun YtSyllableLine(
         )
     }
 
-    // 2. Micro-scale spring pop on line activation
+    // 2. Dynamic Spring Pop on Line Activation
     val scaleAnim = remember { Animatable(1f) }
 
     LaunchedEffect(isActive) {
         if (isActive) {
-            scaleAnim.snapTo(0.96f)
+            scaleAnim.snapTo(0.97f)
             scaleAnim.animateTo(
-                targetValue = 1.04f,
+                targetValue = 1.03f,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
                     stiffness = Spring.StiffnessLow
@@ -83,7 +82,7 @@ fun YtSyllableLine(
         layoutResult.size.height.toDp()
     }
 
-    // 3. Draw-Phase GPU Canvas (Reads currentTimeMs lambda at 120 FPS with zero recomposition)
+    // 3. 120 FPS GPU Draw Phase with 28px Soft-Gradient Feathering
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -96,7 +95,7 @@ fun YtSyllableLine(
             .graphicsLayer {
                 scaleX = scaleAnim.value
                 scaleY = scaleAnim.value
-                this.alpha = if (isActive) 1f else 0.35f
+                this.alpha = if (isActive) 1f else 0.40f
                 transformOrigin = TransformOrigin(0f, 0.5f)
             }
     ) {
@@ -106,27 +105,28 @@ fun YtSyllableLine(
                 .height(lineHeightDp.coerceAtLeast(36.dp))
         ) {
             val currentTime = currentTimeMs()
+            val textWidth = layoutResult.size.width.toFloat().coerceAtLeast(1f)
 
-            // If line is inactive or in future, draw static dimmed text
+            // If line is inactive or strictly in the future, draw dormant grey text
             if (!isActive || currentTime < line.timeMs) {
-                drawText(layoutResult, color = TextTertiary)
+                drawText(layoutResult, color = TextTertiary.copy(alpha = 0.45f))
                 return@Canvas
             }
 
-            // AMBIENT VOCAL BLOOM (Behind active text)
+            // Ambient Vocal Bloom behind active line
             drawRect(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        dominantColor.copy(alpha = 0.25f),
+                        dominantColor.copy(alpha = 0.22f),
                         Color.Transparent
                     ),
                     center = Offset(size.width * 0.35f, size.height / 2f),
-                    radius = size.width * 0.65f
+                    radius = size.width * 0.70f
                 )
             )
 
-            // Calculate Sub-Pixel Sweep Offset (clipX)
-            var clipX = 0f
+            // Calculate Sub-Pixel Playhead X Position
+            var playheadX = 0f
             val syllables = line.syllables
 
             if (syllables.isNotEmpty()) {
@@ -137,31 +137,51 @@ fun YtSyllableLine(
                     previousEndOffset += syllableWidth
 
                     if (currentTime >= syllable.endMs) {
-                        // Syllable has been completely sung
-                        clipX += syllableWidth
+                        playheadX += syllableWidth
                     } else if (currentTime in syllable.startMs..syllable.endMs) {
-                        // Active Syllable: Calculate vocal sweep percentage
                         val duration = (syllable.endMs - syllable.startMs).coerceAtLeast(1L).toFloat()
                         val progress = ((currentTime - syllable.startMs).toFloat() / duration).coerceIn(0f, 1f)
-                        clipX += syllableWidth * progress
+                        playheadX += syllableWidth * progress
                         break
                     } else {
-                        // Future syllable
                         break
                     }
                 }
             } else {
-                // Fallback for standard line LRC: smooth 3.5s linear sweep
-                val progress = ((currentTime - line.timeMs).toFloat() / 3500f).coerceIn(0f, 1f)
-                clipX = layoutResult.size.width * progress
+                // Dynamic Line Duration Calculus (Replaces hardcoded 3500ms)
+                val lineDuration = if (line.durationMs > 0L) line.durationMs.toFloat() else 3500f
+                val progress = ((currentTime - line.timeMs).toFloat() / lineDuration).coerceIn(0f, 1f)
+                playheadX = textWidth * progress
             }
 
-            // LAYER 1: Dormant Graphite Text
-            drawText(layoutResult, color = TextTertiary)
+            // Soft 28px Gradient Shader Feathering (GPU-accelerated Organic Illumination)
+            val feather = 28.dp.toPx()
+            val leftStop = ((playheadX - feather) / textWidth).coerceIn(0f, 1f)
+            val rightStop = ((playheadX + feather) / textWidth).coerceIn(0f, 1f)
 
-            // LAYER 2: Clipped Stark White Text (The Real-Time Karaoke Illumination)
-            clipRect(left = 0f, top = 0f, right = clipX, bottom = size.height) {
+            if (playheadX <= 0f) {
+                drawText(layoutResult, color = TextTertiary.copy(alpha = 0.45f))
+            } else if (playheadX >= textWidth + feather) {
                 drawText(layoutResult, color = TextMain)
+            } else {
+                val fluidBrush = Brush.horizontalGradient(
+                    colors = listOf(
+                        TextMain,
+                        TextMain,
+                        TextTertiary.copy(alpha = 0.45f),
+                        TextTertiary.copy(alpha = 0.45f)
+                    ),
+                    stops = listOf(
+                        0f,
+                        leftStop,
+                        rightStop,
+                        1f
+                    ),
+                    startX = 0f,
+                    endX = textWidth
+                )
+
+                drawText(layoutResult, brush = fluidBrush)
             }
         }
     }

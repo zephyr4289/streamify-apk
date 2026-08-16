@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -19,9 +20,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.LyricsLine
+import com.streamify.app.service.LyricPlaybackController
 import com.streamify.app.ui.components.YtLyricsHeader
 import com.streamify.app.ui.components.YtSyllableLine
 import com.streamify.app.ui.theme.*
@@ -36,15 +39,34 @@ fun LyricsScreen(
 ) {
     val listState = rememberLazyListState()
 
-    // 1. Calculate Active Index Mathematically
-    val activeIndex = remember(currentPositionMs, lyrics) {
-        val idx = lyrics.indexOfLast { it.timeMs <= currentPositionMs }
-        if (idx >= 0) idx else 0
+    // 1. 120 FPS Sub-Frame Continuous Frame-Clock Controller
+    val lyricController = remember { LyricPlaybackController() }
+
+    LaunchedEffect(currentPositionMs) {
+        lyricController.targetPositionMs = currentPositionMs
     }
 
-    // 2. 120fps Mathematical Focal Auto-Scroll Engine (35% focal anchor from top)
-    LaunchedEffect(activeIndex) {
-        if (lyrics.isNotEmpty() && activeIndex in lyrics.indices && !listState.isScrollInProgress) {
+    LaunchedEffect(Unit) {
+        lyricController.runFrameLoop()
+    }
+
+    // 2. Detect Synchronized vs Unsynchronized Dataset
+    val isSynced = remember(lyrics) {
+        lyrics.isNotEmpty() && lyrics.any { it.timeMs > 0L }
+    }
+
+    // 3. Active Index Calculus (Synced Mode)
+    val activeIndex = remember(lyricController.interpolatedPosMs, lyrics, isSynced) {
+        if (!isSynced) 0
+        else {
+            val idx = lyrics.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
+            if (idx >= 0) idx else 0
+        }
+    }
+
+    // 4. Mathematical Focal Auto-Scroll Engine (35% viewport focal anchor)
+    LaunchedEffect(activeIndex, isSynced) {
+        if (isSynced && lyrics.isNotEmpty() && activeIndex in lyrics.indices && !listState.isScrollInProgress) {
             val viewportHeight = listState.layoutInfo.viewportSize.height
             if (viewportHeight > 0) {
                 val focalOffset = viewportHeight * 0.35f
@@ -74,30 +96,34 @@ fun LyricsScreen(
             .background(BgBase)
             .statusBarsPadding()
     ) {
-        // Subtle Ambient Glow Canvas
+        // Ambient Vocal Glow Canvas
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawRect(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        dominantColor.copy(alpha = 0.22f),
-                        BgBase.copy(alpha = 0.85f),
+                        dominantColor.copy(alpha = 0.24f),
+                        BgBase.copy(alpha = 0.88f),
                         BgBase
                     ),
                     center = Offset(size.width / 2, size.height * 0.25f),
-                    radius = size.width * 1.1f
+                    radius = size.width * 1.15f
                 )
             )
         }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            // Top Bar
+            // Top Bar with Micro-Nudge Timing Controls
             YtLyricsHeader(
                 source = "Musixmatch / LRCLIB",
+                isSynced = isSynced,
+                userOffsetMs = lyricController.userOffsetMs,
+                onAdjustOffset = { delta -> lyricController.adjustOffset(delta) },
+                onResetOffset = { lyricController.resetOffset() },
                 onClose = onClose
             )
 
             if (lyrics.isEmpty()) {
-                // Empty / Searching Lyrics State
+                // Empty / Searching State
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -125,8 +151,38 @@ fun LyricsScreen(
                         )
                     }
                 }
+            } else if (!isSynced) {
+                // STATIC / UNSYNCHRONIZED LYRIC READING SHEET (Zero Discarded Data)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 24.dp, bottom = 160.dp, start = 24.dp, end = 24.dp)
+                ) {
+                    items(lyrics) { line ->
+                        Text(
+                            text = line.text,
+                            style = LocalAppTypography.current.headlineMedium.copy(
+                                fontSize = 21.sp,
+                                lineHeight = 32.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = StreamifyFontFamily
+                            ),
+                            color = TextMain.copy(alpha = 0.92f),
+                            modifier = Modifier.padding(vertical = 6.dp)
+                        )
+                    }
+
+                    item(key = "unsynced_footer") {
+                        Spacer(modifier = Modifier.height(32.dp))
+                        Text(
+                            text = "Unsynchronized lyrics provided by Musixmatch / LRCLIB",
+                            style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                            color = TextTertiary,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    }
+                }
             } else {
-                // Lyrics Scrollable Column
+                // 120 FPS FLUID SYNCHRONIZED KARAOKE ENGINE
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -139,7 +195,7 @@ fun LyricsScreen(
                         YtSyllableLine(
                             line = line,
                             isActive = index == activeIndex,
-                            currentTimeMs = { currentPositionMs },
+                            currentTimeMs = { lyricController.interpolatedPosMs },
                             dominantColor = dominantColor,
                             onTap = { onSeek(line.timeMs) }
                         )
@@ -149,7 +205,7 @@ fun LyricsScreen(
                     item(key = "attribution_footer") {
                         Spacer(modifier = Modifier.height(32.dp))
                         Text(
-                            text = "Lyrics provided by Musixmatch / LRCLIB • Real-Time Syllable Sync",
+                            text = "Lyrics provided by Musixmatch / LRCLIB • Real-Time 120 FPS Fluid Sync",
                             style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
                             color = TextTertiary,
                             modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
