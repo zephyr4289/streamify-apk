@@ -1,0 +1,895 @@
+openjdk version "17.0.20" 2026-07-21
+OpenJDK Runtime Environment Temurin-17.0.20+8 (build 17.0.20+8)
+OpenJDK 64-Bit Server VM Temurin-17.0.20+8 (build 17.0.20+8, mixed mode, sharing)
+
+Welcome to Gradle 8.7!
+
+Here are the highlights of this release:
+ - Compiling and testing with Java 22
+ - Cacheable Groovy script compilation
+ - New methods in lazy collection properties
+
+For more details see https://docs.gradle.org/8.7/release-notes.html
+
+Starting a Gradle Daemon (subsequent builds will be faster)
+
+> Configure project :app
+Warning: Python version 3.11 may have fewer packages available. If you experience problems, try switching to version 3.8.
+This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+Checking the license for package NDK (Side by side) 25.1.8937393 in /usr/local/lib/android/sdk/licenses
+License for package NDK (Side by side) 25.1.8937393 accepted.
+Preparing "Install NDK (Side by side) 25.1.8937393 v.25.1.8937393".
+"Install NDK (Side by side) 25.1.8937393 v.25.1.8937393" ready.
+Installing NDK (Side by side) 25.1.8937393 in /usr/local/lib/android/sdk/ndk/25.1.8937393
+"Install NDK (Side by side) 25.1.8937393 v.25.1.8937393" complete.
+"Install NDK (Side by side) 25.1.8937393 v.25.1.8937393" finished.
+
+> Task :app:externalNativeBuildCleanDebug
+> Task :app:externalNativeBuildCleanRelease
+> Task :app:clean
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:generateDebugBuildConfig
+> Task :app:generateDebugResValues
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:mergeDebugResources
+> Task :app:parseDebugLocalResources
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:extractDebugPythonBuildPackages
+
+> Task :app:generateDebugPythonRequirements
+Chaquopy: Installing for arm64-v8a
+Looking in indexes: https://pypi.org/simple, https://chaquo.com/pypi-13.1
+Collecting yt-dlp
+  Downloading yt_dlp-2026.7.4-py3-none-any.whl (3.2 MB)
+Collecting mutagen
+  Downloading mutagen-1.48.1-py3-none-any.whl (195 kB)
+Collecting requests
+  Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+Collecting idna<4,>=2.5
+  Downloading idna-3.18-py3-none-any.whl (65 kB)
+Collecting charset_normalizer<4,>=2
+  Downloading charset_normalizer-3.5.1-py3-none-any.whl (68 kB)
+Collecting certifi>=2023.5.7
+  Downloading certifi-2026.7.22-py3-none-any.whl (136 kB)
+Collecting urllib3<3,>=1.26
+  Downloading urllib3-2.7.0-py3-none-any.whl (131 kB)
+Installing collected packages: yt-dlp, mutagen, idna, charset-normalizer, certifi, urllib3, requests
+Successfully installed certifi-2026.7.22 charset-normalizer-3.5.1 idna-3.18 mutagen-1.48.1 requests-2.34.2 urllib3-2.7.0 yt-dlp-2026.7.4
+Chaquopy: Installing for armeabi-v7a
+
+> Task :app:mergeDebugPythonSources
+> Task :app:generateDebugPythonProxies
+> Task :app:javaPreCompileDebug
+> Task :app:mergeDebugShaders
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:generateDebugPythonMiscAssets
+> Task :app:generateDebugPythonRequirementsAssets
+> Task :app:generateDebugPythonSourceAssets
+> Task :app:generateDebugPythonBuildAssets
+> Task :app:mergeDebugAssets
+> Task :app:processDebugManifestForPackage
+> Task :app:compressDebugAssets
+> Task :app:checkDebugDuplicateClasses
+> Task :app:mergeLibDexDebug
+> Task :app:processDebugResources
+> Task :app:configureCMakeDebug[arm64-v8a]
+> Task :app:desugarDebugFileDependencies
+
+> Task :app:buildCMakeDebug[arm64-v8a]
+C/C++: ninja: Entering directory `/home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a'
+C/C++: /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dstreamify_core_EXPORTS -I/home/runner/work/streamify-apk/streamify-apk/native/dsp/kissfft -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O3 -flto -march=armv8-a+fp+simd -fno-limit-debug-info  -fPIC -std=c++20 -MD -MT CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o -MF CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o.d -o CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o -c /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:262:10: error: no template named 'unordered_map' in namespace 'std'; did you mean 'unordered_set'?
+C/C++:     std::unordered_map<std::string, int> artist_counts;
+C/C++:     ~~~~~^~~~~~~~~~~~~
+C/C++:          unordered_set
+C/C++: /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:382:28: note: 'unordered_set' declared here
+C/C++: class _LIBCPP_TEMPLATE_VIS unordered_set
+C/C++:                            ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:276:41: error: type 'std::unordered_set<std::string, int>' (aka 'unordered_set<basic_string<char, char_traits<char>, allocator<char>>, int>') does not provide a subscript operator
+C/C++:         int currentCount = artist_counts[lowerArtist];
+C/C++:                            ~~~~~~~~~~~~~^~~~~~~~~~~~
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:283:22: error: type 'std::unordered_set<std::string, int>' (aka 'unordered_set<basic_string<char, char_traits<char>, allocator<char>>, int>') does not provide a subscript operator
+C/C++:         artist_counts[lowerArtist] = currentCount + 1;
+C/C++:         ~~~~~~~~~~~~~^~~~~~~~~~~~
+C/C++: In file included from /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:6:
+C/C++: In file included from /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:364:
+C/C++: /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__hash_table:869:5: error: static_assert failed due to requirement 'integral_constant<bool, false>::value' "the specified hash does not meet the Hash requirements"
+C/C++:     static_assert(__check_hash_requirements<_Key, _Hash>::value,
+C/C++:     ^             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+C/C++: /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__hash_table:884:1: note: in instantiation of template class 'std::__enforce_unordered_container_requirements<std::basic_string<char>, int, std::equal_to<std::basic_string<char>>>' requested here
+C/C++: typename __enforce_unordered_container_requirements<_Key, _Hash, _Equal>::type
+C/C++: ^
+C/C++: /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:492:30: note: while substituting explicitly-specified template arguments into function template '__diagnose_unordered_container_requirements' 
+C/C++:         static_assert(sizeof(__diagnose_unordered_container_requirements<_Value, _Hash, _Pred>(0)), "");
+C/C++:                              ^
+C/C++: /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:262:42: note: in instantiation of member function 'std::unordered_set<std::basic_string<char>, int>::~unordered_set' requested here
+C/C++:     std::unordered_map<std::string, int> artist_counts;
+C/C++:                                          ^
+C/C++: 4 errors generated.
+
+> Task :app:buildCMakeDebug[arm64-v8a] FAILED
+> Task :app:mergeExtDexDebug
+> Task :app:compileDebugKotlin
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/NuclearResetManager.kt:106:61 Cannot find a parameter with this name: limit
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/NuclearResetManager.kt:108:34 Unresolved reference: previewUrl
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/NuclearResetManager.kt:112:50 Unresolved reference: trackName
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/NuclearResetManager.kt:113:51 Unresolved reference: artistName
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/NuclearResetManager.kt:114:50 Unresolved reference: collectionName
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/NuclearResetManager.kt:115:57 Unresolved reference: trackTimeMillis
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/NuclearResetManager.kt:116:53 Unresolved reference: previewUrl
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/NuclearResetManager.kt:117:57 Unresolved reference: artworkUrl100
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/NuclearResetManager.kt:120:37 No value passed for parameter 'lyricsPath'
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/TrackRepository.kt:121:63 Unresolved reference: launch
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/TrackRepository.kt:123:66 Suspension functions can be called only within coroutine body
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/TrackRepository.kt:159:67 Unresolved reference: launch
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/TrackRepository.kt:162:74 Suspension functions can be called only within coroutine body
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/TrackRepository.kt:163:74 Suspension functions can be called only within coroutine body
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/TrackRepository.kt:165:74 Suspension functions can be called only within coroutine body
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/YtStatsTelemetryEngine.kt:50:44 None of the following functions can be called with the arguments supplied: 
+public inline fun <T> Iterable<TypeVariable(T)>.sumOf(selector: (TypeVariable(T)) -> BigDecimal): BigDecimal defined in kotlin.collections
+public inline fun <T> Iterable<TypeVariable(T)>.sumOf(selector: (TypeVariable(T)) -> BigInteger): BigInteger defined in kotlin.collections
+public inline fun <T> Iterable<TypeVariable(T)>.sumOf(selector: (TypeVariable(T)) -> Double): Double defined in kotlin.collections
+public inline fun <T> Iterable<TypeVariable(T)>.sumOf(selector: (TypeVariable(T)) -> Int): Int defined in kotlin.collections
+public inline fun <T> Iterable<TypeVariable(T)>.sumOf(selector: (TypeVariable(T)) -> Long): Long defined in kotlin.collections
+public inline fun <T> Iterable<TypeVariable(T)>.sumOf(selector: (TypeVariable(T)) -> UInt): UInt defined in kotlin.collections
+public inline fun <T> Iterable<TypeVariable(T)>.sumOf(selector: (TypeVariable(T)) -> ULong): ULong defined in kotlin.collections
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/YtStatsTelemetryEngine.kt:50:55 Unresolved reference: playCount
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/AntiJarringTransitionEngine.kt:32:119 Unresolved reference: genre
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/AntiJarringTransitionEngine.kt:33:107 Unresolved reference: genre
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/AntiJarringTransitionEngine.kt:61:25 Cannot find a parameter with this name: genre
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/AntiJarringTransitionEngine.kt:61:25 No value passed for parameter 'key'
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/AntiJarringTransitionEngine.kt:61:25 No value passed for parameter 'lyricsPath'
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/AntiJarringTransitionEngine.kt:61:25 No value passed for parameter 'source'
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/AntiJarringTransitionEngine.kt:61:46 Unresolved reference: genre
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/PersonaEngine.kt:30:38 Unresolved reference: tracks
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/PersonaEngine.kt:32:56 Unresolved reference: it
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/PersonaEngine.kt:32:74 Unresolved reference: it
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/PersonaEngine.kt:33:45 Unresolved reference: it
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/PersonaEngine.kt:34:42 Unresolved reference: it
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/PersonaEngine.kt:35:28 Unresolved reference: it
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/SmartAcousticEngine.kt:25:64 Unresolved reference: genre
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/SmartAcousticEngine.kt:41:28 Unresolved reference: genre
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/network/SmartAcousticEngine.kt:64:61 Unresolved reference: genre
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/BatchTrackResolver.kt:92:52 Type mismatch: inferred type is String? but String was expected
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1279:27 Unresolved reference: TrackRepository
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1282:34 Unresolved reference: TrackRepository
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1283:77 Unresolved reference: it
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1283:91 Unresolved reference: it
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1284:35 Unresolved reference: TrackRepository
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1284:74 Unresolved reference: it
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1768:31 Unresolved reference: TrackRepository
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1769:58 Unresolved reference: EdgeMeshRepository
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1770:49 Unresolved reference: meshState
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1813:31 Unresolved reference: TrackRepository
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1814:58 Unresolved reference: EdgeMeshRepository
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1815:49 Unresolved reference: meshState
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1850:27 Unresolved reference: TrackRepository
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1851:54 Unresolved reference: EdgeMeshRepository
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/data/remote/SupabaseClient.kt:1852:45 Unresolved reference: meshState
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/service/TitanComputeWorker.kt:32:58 Unresolved reference: filePath
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/service/TitanComputeWorker.kt:32:91 Unresolved reference: filePath
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/service/TitanComputeWorker.kt:37:43 Unresolved reference: filePath
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/service/TitanComputeWorker.kt:69:33 Unresolved reference: updateTrackEmbedding
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/ContextMenuSheet.kt:251:64 Unresolved reference: updateTrack
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/RelatedDiscoverSheet.kt:257:57 Overload resolution ambiguity: 
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/StreamifyPullToRefreshContainer.kt:7:49 Unresolved reference: PullToRefreshBox
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/StreamifyPullToRefreshContainer.kt:35:34 Unresolved reference: distanceFraction
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/StreamifyPullToRefreshContainer.kt:42:5 Unresolved reference: PullToRefreshBox
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/StreamifyPullToRefreshContainer.kt:48:13 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/StreamifyPullToRefreshContainer.kt:50:22 Unresolved reference: align
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/StreamifyPullToRefreshContainer.kt:55:38 Unresolved reference: distanceFraction
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/StreamifyPullToRefreshContainer.kt:61:9 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/TrackListItem.kt:38:14 Unresolved reference: combinedClickable
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/YtQueueTrackItem.kt:46:14 Unresolved reference: combinedClickable
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/components/YtSyllableLine.kt:174:21 Cannot find a parameter with this name: stops
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/AlbumScreen.kt:51:40 Unresolved reference: refresh
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/AlbumScreen.kt:200:33 Overload resolution ambiguity: 
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/ArtistScreen.kt:176:54 Overload resolution ambiguity: 
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/ArtistScreen.kt:197:33 Overload resolution ambiguity: 
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/CommunityHubScreen.kt:107:32 Unresolved reference: launch
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/CommunityHubScreen.kt:110:40 Suspend function 'delay' should be called only from a coroutine or another suspend function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:47:24 Unresolved reference: ui
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:48:24 Unresolved reference: ui
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:210:41 Unresolved reference: PlayerView
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:211:45 Unresolved reference: player
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:212:45 Unresolved reference: useController
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:213:45 Unresolved reference: resizeMode
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:213:58 Unresolved reference: AspectRatioFrameLayout
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:214:45 Unresolved reference: setLayerType
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:217:48 Cannot infer a type for this parameter. Please specify it explicitly.
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:218:46 Variable expected
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:507:37 Unresolved reference: PlayerView
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:508:41 Unresolved reference: player
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:509:41 Unresolved reference: useController
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:510:41 Unresolved reference: resizeMode
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:510:54 Unresolved reference: AspectRatioFrameLayout
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:511:41 Unresolved reference: setLayerType
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:514:44 Cannot infer a type for this parameter. Please specify it explicitly.
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/FullPlayerSheet.kt:515:42 Variable expected
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:396:46 Unexpected tokens (use ';' to separate expressions on the same line)
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:404:42 Expecting ')'
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:397:49 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:412:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:419:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:441:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:448:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:496:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:503:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:551:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:558:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:580:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:587:33 @Composable invocations can only happen from the context of a @Composable function
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/LibraryScreen.kt:663:33 Overload resolution ambiguity: 
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/QueueScreen.kt:185:33 Overload resolution ambiguity: 
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/SearchScreen.kt:484:33 Overload resolution ambiguity: 
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/SettingsScreen.kt:596:60 Unresolved reference: Warning
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/SettingsScreen.kt:730:46 Unresolved reference: CheckCircle
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/ui/screens/SettingsScreen.kt:739:46 Unresolved reference: Error
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/JamViewModel.kt:136:58 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type String?
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/JamViewModel.kt:138:76 Type mismatch: inferred type is String? but String was expected
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/JamViewModel.kt:141:100 Type mismatch: inferred type is String? but CharSequence was expected
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/PlayerViewModel.kt:216:58 Unresolved reference: filePath
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/PlayerViewModel.kt:515:5 Conflicting overloads: public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel, public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/PlayerViewModel.kt:870:5 Conflicting overloads: public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel, public final fun addToQueue(track: Track): Unit defined in com.streamify.app.viewmodel.PlayerViewModel
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/SearchViewModel.kt:181:21 Expecting ')'
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/SearchViewModel.kt:181:41 Expecting an element
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/SearchViewModel.kt:181:42 Unexpected tokens (use ';' to separate expressions on the same line)
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/SearchViewModel.kt:181:25 Unresolved reference: semanticResults
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/SearchViewModel.kt:189:44 Unresolved reference: semanticResults
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/SearchViewModel.kt:190:26 Unresolved reference: semanticResults
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/SearchViewModel.kt:190:71 Unresolved reference: it
+e: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/streamify/app/viewmodel/SearchViewModel.kt:190:88 Unresolved reference: it
+
+> Task :app:compileDebugKotlin FAILED
+
+FAILURE: Build completed with 2 failures.
+
+1: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':app:buildCMakeDebug[arm64-v8a]'.
+> com.android.ide.common.process.ProcessException: ninja: Entering directory `/home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a'
+  [1/16] Building CXX object CMakeFiles/streamify_core.dir/engine/EventTracker.cc.o
+  [2/16] Building CXX object CMakeFiles/streamify_core.dir/jni/jni_bridge.cc.o
+  [3/16] Building CXX object CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o
+  FAILED: CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o 
+  /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dstreamify_core_EXPORTS -I/home/runner/work/streamify-apk/streamify-apk/native/dsp/kissfft -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O3 -flto -march=armv8-a+fp+simd -fno-limit-debug-info  -fPIC -std=c++20 -MD -MT CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o -MF CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o.d -o CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o -c /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc
+  /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:262:10: error: no template named 'unordered_map' in namespace 'std'; did you mean 'unordered_set'?
+      std::unordered_map<std::string, int> artist_counts;
+      ~~~~~^~~~~~~~~~~~~
+           unordered_set
+  /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:382:28: note: 'unordered_set' declared here
+  class _LIBCPP_TEMPLATE_VIS unordered_set
+                             ^
+  /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:276:41: error: type 'std::unordered_set<std::string, int>' (aka 'unordered_set<basic_string<char, char_traits<char>, allocator<char>>, int>') does not provide a subscript operator
+          int currentCount = artist_counts[lowerArtist];
+                             ~~~~~~~~~~~~~^~~~~~~~~~~~
+  /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:283:22: error: type 'std::unordered_set<std::string, int>' (aka 'unordered_set<basic_string<char, char_traits<char>, allocator<char>>, int>') does not provide a subscript operator
+          artist_counts[lowerArtist] = currentCount + 1;
+          ~~~~~~~~~~~~~^~~~~~~~~~~~
+  In file included from /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:6:
+  In file included from /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:364:
+  /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__hash_table:869:5: error: static_assert failed due to requirement 'integral_constant<bool, false>::value' "the specified hash does not meet the Hash requirements"
+      static_assert(__check_hash_requirements<_Key, _Hash>::value,
+      ^             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__hash_table:884:1: note: in instantiation of template class 'std::__enforce_unordered_container_requirements<std::basic_string<char>, int, std::equal_to<std::basic_string<char>>>' requested here
+  typename __enforce_unordered_container_requirements<_Key, _Hash, _Equal>::type
+  ^
+  /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:492:30: note: while substituting explicitly-specified template arguments into function template '__diagnose_unordered_container_requirements' 
+          static_assert(sizeof(__diagnose_unordered_container_requirements<_Value, _Hash, _Pred>(0)), "");
+                               ^
+  /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:262:42: note: in instantiation of member function 'std::unordered_set<std::basic_string<char>, int>::~unordered_set' requested here
+      std::unordered_map<std::string, int> artist_counts;
+                                           ^
+  4 errors generated.
+  [4/16] Building CXX object CMakeFiles/streamify_core.dir/engine/VectorStore.cc.o
+  [5/16] Building CXX object CMakeFiles/streamify_core.dir/engine/TelemetryEngine.cc.o
+  [6/16] Building CXX object CMakeFiles/streamify_core.dir/engine/TaskOrchestrator.cc.o
+  [7/16] Building CXX object CMakeFiles/streamify_core.dir/engine/StreamifyDB.cc.o
+  [8/16] Building C object CMakeFiles/streamify_core.dir/third_party/sqlite3/sqlite3.c.o
+  ninja: build stopped: subcommand failed.
+  
+  C++ build system [build] failed while executing:
+      /usr/local/lib/android/sdk/cmake/3.22.1/bin/ninja \
+        -C \
+        /home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a \
+        streamify_core
+    from /home/runner/work/streamify-apk/streamify-apk/app
+
+* Try:
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+* Exception is:
+org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:buildCMakeDebug[arm64-v8a]'.
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.lambda$executeIfValid$1(ExecuteActionsTaskExecuter.java:130)
+	at org.gradle.internal.Try$Failure.ifSuccessfulOrElse(Try.java:282)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:128)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:80)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:463)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:380)
+	at org.gradle.execution.plan.DefaultPlanExecutor.process(DefaultPlanExecutor.java:116)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.executeWithServices(DefaultTaskExecutionGraph.java:138)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.execute(DefaultTaskExecutionGraph.java:123)
+	at org.gradle.execution.SelectedTaskExecutionAction.execute(SelectedTaskExecutionAction.java:35)
+	at org.gradle.execution.DryRunBuildExecutionAction.execute(DryRunBuildExecutionAction.java:51)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:43)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor.execute(BuildOperationFiringBuildWorkerExecutor.java:40)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$executeTasks$10(DefaultBuildLifecycleController.java:313)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:266)
+	at org.gradle.internal.model.StateTransitionController.lambda$tryTransition$8(StateTransitionController.java:177)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:44)
+	at org.gradle.internal.model.StateTransitionController.tryTransition(StateTransitionController.java:177)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.executeTasks(DefaultBuildLifecycleController.java:304)
+	at org.gradle.internal.build.DefaultBuildWorkGraphController$DefaultBuildWorkGraph.runWork(DefaultBuildWorkGraphController.java:220)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:264)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:128)
+	at org.gradle.composite.internal.DefaultBuildController.doRun(DefaultBuildController.java:181)
+	at org.gradle.composite.internal.DefaultBuildController.access$000(DefaultBuildController.java:50)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.lambda$run$0(DefaultBuildController.java:198)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:80)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.run(DefaultBuildController.java:198)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+Caused by: org.gradle.internal.UncheckedException: com.android.ide.common.process.ProcessException: ninja: Entering directory `/home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a'
+[1/16] Building CXX object CMakeFiles/streamify_core.dir/engine/EventTracker.cc.o
+[2/16] Building CXX object CMakeFiles/streamify_core.dir/jni/jni_bridge.cc.o
+[3/16] Building CXX object CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o
+FAILED: CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o 
+/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dstreamify_core_EXPORTS -I/home/runner/work/streamify-apk/streamify-apk/native/dsp/kissfft -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O3 -flto -march=armv8-a+fp+simd -fno-limit-debug-info  -fPIC -std=c++20 -MD -MT CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o -MF CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o.d -o CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o -c /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc
+/home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:262:10: error: no template named 'unordered_map' in namespace 'std'; did you mean 'unordered_set'?
+    std::unordered_map<std::string, int> artist_counts;
+    ~~~~~^~~~~~~~~~~~~
+         unordered_set
+/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:382:28: note: 'unordered_set' declared here
+class _LIBCPP_TEMPLATE_VIS unordered_set
+                           ^
+/home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:276:41: error: type 'std::unordered_set<std::string, int>' (aka 'unordered_set<basic_string<char, char_traits<char>, allocator<char>>, int>') does not provide a subscript operator
+        int currentCount = artist_counts[lowerArtist];
+                           ~~~~~~~~~~~~~^~~~~~~~~~~~
+/home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:283:22: error: type 'std::unordered_set<std::string, int>' (aka 'unordered_set<basic_string<char, char_traits<char>, allocator<char>>, int>') does not provide a subscript operator
+        artist_counts[lowerArtist] = currentCount + 1;
+        ~~~~~~~~~~~~~^~~~~~~~~~~~
+In file included from /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:6:
+In file included from /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:364:
+/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__hash_table:869:5: error: static_assert failed due to requirement 'integral_constant<bool, false>::value' "the specified hash does not meet the Hash requirements"
+    static_assert(__check_hash_requirements<_Key, _Hash>::value,
+    ^             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__hash_table:884:1: note: in instantiation of template class 'std::__enforce_unordered_container_requirements<std::basic_string<char>, int, std::equal_to<std::basic_string<char>>>' requested here
+typename __enforce_unordered_container_requirements<_Key, _Hash, _Equal>::type
+^
+/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:492:30: note: while substituting explicitly-specified template arguments into function template '__diagnose_unordered_container_requirements' 
+        static_assert(sizeof(__diagnose_unordered_container_requirements<_Value, _Hash, _Pred>(0)), "");
+                             ^
+/home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:262:42: note: in instantiation of member function 'std::unordered_set<std::basic_string<char>, int>::~unordered_set' requested here
+    std::unordered_map<std::string, int> artist_counts;
+                                         ^
+4 errors generated.
+[4/16] Building CXX object CMakeFiles/streamify_core.dir/engine/VectorStore.cc.o
+[5/16] Building CXX object CMakeFiles/streamify_core.dir/engine/TelemetryEngine.cc.o
+[6/16] Building CXX object CMakeFiles/streamify_core.dir/engine/TaskOrchestrator.cc.o
+[7/16] Building CXX object CMakeFiles/streamify_core.dir/engine/StreamifyDB.cc.o
+[8/16] Building C object CMakeFiles/streamify_core.dir/third_party/sqlite3/sqlite3.c.o
+ninja: build stopped: subcommand failed.
+
+C++ build system [build] failed while executing:
+    /usr/local/lib/android/sdk/cmake/3.22.1/bin/ninja \
+      -C \
+      /home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a \
+      streamify_core
+  from /home/runner/work/streamify-apk/streamify-apk/app
+	at org.gradle.internal.UncheckedException.throwAsUncheckedException(UncheckedException.java:68)
+	at org.gradle.internal.UncheckedException.throwAsUncheckedException(UncheckedException.java:41)
+	at org.gradle.internal.reflect.JavaMethod.invoke(JavaMethod.java:128)
+	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.doExecute(StandardTaskAction.java:58)
+	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:51)
+	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:29)
+	at org.gradle.api.internal.tasks.execution.TaskExecution$3.run(TaskExecution.java:244)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:29)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:26)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunner.java:47)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.run(DefaultBuildOperationExecutor.java:68)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeAction(TaskExecution.java:229)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeActions(TaskExecution.java:212)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeWithPreviousOutputFiles(TaskExecution.java:195)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.execute(TaskExecution.java:162)
+	at org.gradle.internal.execution.steps.ExecuteStep.executeInternal(ExecuteStep.java:105)
+	at org.gradle.internal.execution.steps.ExecuteStep.access$000(ExecuteStep.java:44)
+	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:59)
+	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:56)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:56)
+	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:44)
+	at org.gradle.internal.execution.steps.CancelExecutionStep.execute(CancelExecutionStep.java:41)
+	at org.gradle.internal.execution.steps.TimeoutStep.executeWithoutTimeout(TimeoutStep.java:74)
+	at org.gradle.internal.execution.steps.TimeoutStep.execute(TimeoutStep.java:55)
+	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:50)
+	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:28)
+	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:67)
+	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:37)
+	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:61)
+	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:26)
+	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:67)
+	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:45)
+	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:40)
+	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:29)
+	at org.gradle.internal.execution.steps.BuildCacheStep.executeWithoutCache(BuildCacheStep.java:189)
+	at org.gradle.internal.execution.steps.BuildCacheStep.lambda$execute$1(BuildCacheStep.java:75)
+	at org.gradle.internal.Either$Right.fold(Either.java:175)
+	at org.gradle.internal.execution.caching.CachingState.fold(CachingState.java:62)
+	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:73)
+	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:48)
+	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:46)
+	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:35)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.executeBecause(SkipUpToDateStep.java:76)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.lambda$execute$2(SkipUpToDateStep.java:54)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:54)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:36)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:37)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:27)
+	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:49)
+	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:27)
+	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:71)
+	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:39)
+	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:65)
+	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:36)
+	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:106)
+	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:55)
+	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:64)
+	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:43)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.executeWithNonEmptySources(AbstractSkipEmptyWorkStep.java:125)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:56)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:36)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsStartedStep.execute(MarkSnapshottingInputsStartedStep.java:38)
+	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:36)
+	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:23)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:75)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:41)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$execute$0(AssignMutableWorkspaceStep.java:35)
+	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:289)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:31)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:22)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:48)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:35)
+	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:61)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:127)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:80)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:463)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:380)
+	at org.gradle.execution.plan.DefaultPlanExecutor.process(DefaultPlanExecutor.java:116)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.executeWithServices(DefaultTaskExecutionGraph.java:138)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.execute(DefaultTaskExecutionGraph.java:123)
+	at org.gradle.execution.SelectedTaskExecutionAction.execute(SelectedTaskExecutionAction.java:35)
+	at org.gradle.execution.DryRunBuildExecutionAction.execute(DryRunBuildExecutionAction.java:51)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:43)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor.execute(BuildOperationFiringBuildWorkerExecutor.java:40)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$executeTasks$10(DefaultBuildLifecycleController.java:313)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:266)
+	at org.gradle.internal.model.StateTransitionController.lambda$tryTransition$8(StateTransitionController.java:177)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:44)
+	at org.gradle.internal.model.StateTransitionController.tryTransition(StateTransitionController.java:177)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.executeTasks(DefaultBuildLifecycleController.java:304)
+	at org.gradle.internal.build.DefaultBuildWorkGraphController$DefaultBuildWorkGraph.runWork(DefaultBuildWorkGraphController.java:220)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:264)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:128)
+	at org.gradle.composite.internal.DefaultBuildController.doRun(DefaultBuildController.java:181)
+	at org.gradle.composite.internal.DefaultBuildController.access$000(DefaultBuildController.java:50)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.lambda$run$0(DefaultBuildController.java:198)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:80)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.run(DefaultBuildController.java:198)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+Caused by: com.android.ide.common.process.ProcessException: ninja: Entering directory `/home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a'
+[1/16] Building CXX object CMakeFiles/streamify_core.dir/engine/EventTracker.cc.o
+[2/16] Building CXX object CMakeFiles/streamify_core.dir/jni/jni_bridge.cc.o
+[3/16] Building CXX object CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o
+FAILED: CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o 
+/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=aarch64-none-linux-android26 --sysroot=/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dstreamify_core_EXPORTS -I/home/runner/work/streamify-apk/streamify-apk/native/dsp/kissfft -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -std=c++17 -O3 -flto -march=armv8-a+fp+simd -fno-limit-debug-info  -fPIC -std=c++20 -MD -MT CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o -MF CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o.d -o CMakeFiles/streamify_core.dir/engine/RecommendEngine.cc.o -c /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc
+/home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:262:10: error: no template named 'unordered_map' in namespace 'std'; did you mean 'unordered_set'?
+    std::unordered_map<std::string, int> artist_counts;
+    ~~~~~^~~~~~~~~~~~~
+         unordered_set
+/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:382:28: note: 'unordered_set' declared here
+class _LIBCPP_TEMPLATE_VIS unordered_set
+                           ^
+/home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:276:41: error: type 'std::unordered_set<std::string, int>' (aka 'unordered_set<basic_string<char, char_traits<char>, allocator<char>>, int>') does not provide a subscript operator
+        int currentCount = artist_counts[lowerArtist];
+                           ~~~~~~~~~~~~~^~~~~~~~~~~~
+/home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:283:22: error: type 'std::unordered_set<std::string, int>' (aka 'unordered_set<basic_string<char, char_traits<char>, allocator<char>>, int>') does not provide a subscript operator
+        artist_counts[lowerArtist] = currentCount + 1;
+        ~~~~~~~~~~~~~^~~~~~~~~~~~
+In file included from /home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:6:
+In file included from /usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:364:
+/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__hash_table:869:5: error: static_assert failed due to requirement 'integral_constant<bool, false>::value' "the specified hash does not meet the Hash requirements"
+    static_assert(__check_hash_requirements<_Key, _Hash>::value,
+    ^             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/__hash_table:884:1: note: in instantiation of template class 'std::__enforce_unordered_container_requirements<std::basic_string<char>, int, std::equal_to<std::basic_string<char>>>' requested here
+typename __enforce_unordered_container_requirements<_Key, _Hash, _Equal>::type
+^
+/usr/local/lib/android/sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/c++/v1/unordered_set:492:30: note: while substituting explicitly-specified template arguments into function template '__diagnose_unordered_container_requirements' 
+        static_assert(sizeof(__diagnose_unordered_container_requirements<_Value, _Hash, _Pred>(0)), "");
+                             ^
+/home/runner/work/streamify-apk/streamify-apk/native/engine/RecommendEngine.cc:262:42: note: in instantiation of member function 'std::unordered_set<std::basic_string<char>, int>::~unordered_set' requested here
+    std::unordered_map<std::string, int> artist_counts;
+                                         ^
+4 errors generated.
+[4/16] Building CXX object CMakeFiles/streamify_core.dir/engine/VectorStore.cc.o
+[5/16] Building CXX object CMakeFiles/streamify_core.dir/engine/TelemetryEngine.cc.o
+[6/16] Building CXX object CMakeFiles/streamify_core.dir/engine/TaskOrchestrator.cc.o
+[7/16] Building CXX object CMakeFiles/streamify_core.dir/engine/StreamifyDB.cc.o
+[8/16] Building C object CMakeFiles/streamify_core.dir/third_party/sqlite3/sqlite3.c.o
+ninja: build stopped: subcommand failed.
+
+C++ build system [build] failed while executing:
+    /usr/local/lib/android/sdk/cmake/3.22.1/bin/ninja \
+      -C \
+      /home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a \
+      streamify_core
+  from /home/runner/work/streamify-apk/streamify-apk/app
+	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt.execute(ExecuteProcess.kt:288)
+	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt$executeProcess$1.invoke(ExecuteProcess.kt:108)
+	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt$executeProcess$1.invoke(ExecuteProcess.kt:106)
+	at com.android.build.gradle.internal.cxx.timing.TimingEnvironmentKt.time(TimingEnvironment.kt:32)
+	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt.executeProcess(ExecuteProcess.kt:106)
+	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt.executeProcess$default(ExecuteProcess.kt:85)
+	at com.android.build.gradle.internal.cxx.build.CxxRegularBuilder.executeProcessBatch(CxxRegularBuilder.kt:332)
+	at com.android.build.gradle.internal.cxx.build.CxxRegularBuilder.build(CxxRegularBuilder.kt:129)
+	at com.android.build.gradle.tasks.ExternalNativeBuildTask$doTaskAction$$inlined$recordTaskAction$1.invoke(BaseTask.kt:70)
+	at com.android.build.gradle.internal.tasks.Blocks.recordSpan(Blocks.java:51)
+	at com.android.build.gradle.tasks.ExternalNativeBuildTask.doTaskAction(ExternalNativeBuildTask.kt:145)
+	at com.android.build.gradle.internal.tasks.UnsafeOutputsTask$taskAction$$inlined$recordTaskAction$1.invoke(BaseTask.kt:65)
+	at com.android.build.gradle.internal.tasks.Blocks.recordSpan(Blocks.java:51)
+	at com.android.build.gradle.internal.tasks.UnsafeOutputsTask.taskAction(UnsafeOutputsTask.kt:63)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at org.gradle.internal.reflect.JavaMethod.invoke(JavaMethod.java:125)
+	... 149 more
+Caused by: com.android.ide.common.process.ProcessException: Error while executing process /usr/local/lib/android/sdk/cmake/3.22.1/bin/ninja with arguments {-C /home/runner/work/streamify-apk/streamify-apk/app/.cxx/Debug/6i145re3/arm64-v8a streamify_core}
+	at com.android.build.gradle.internal.process.GradleProcessResult.buildProcessException(GradleProcessResult.java:73)
+	at com.android.build.gradle.internal.process.GradleProcessResult.assertNormalExitValue(GradleProcessResult.java:48)
+	at com.android.build.gradle.internal.cxx.process.ExecuteProcessKt.execute(ExecuteProcess.kt:277)
+	... 166 more
+Caused by: org.gradle.process.internal.ExecException: Process 'command '/usr/local/lib/android/sdk/cmake/3.22.1/bin/ninja'' finished with non-zero exit value 1
+	at org.gradle.process.internal.DefaultExecHandle$ExecResultImpl.assertNormalExitValue(DefaultExecHandle.java:442)
+	at com.android.build.gradle.internal.process.GradleProcessResult.assertNormalExitValue(GradleProcessResult.java:46)
+	... 167 more
+
+==============================================================================
+
+2: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+* Exception is:
+org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:compileDebugKotlin'.
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.lambda$executeIfValid$1(ExecuteActionsTaskExecuter.java:130)
+	at org.gradle.internal.Try$Failure.ifSuccessfulOrElse(Try.java:282)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:128)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:80)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:463)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:380)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: org.gradle.workers.internal.DefaultWorkerExecutor$WorkExecutionException: A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+	at org.gradle.workers.internal.DefaultWorkerExecutor$WorkItemExecution.waitForCompletion(DefaultWorkerExecutor.java:287)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.lambda$waitForItemsAndGatherFailures$2(DefaultAsyncWorkTracker.java:130)
+	at org.gradle.internal.Factories$1.create(Factories.java:31)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLocks(DefaultWorkerLeaseService.java:336)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLocks(DefaultWorkerLeaseService.java:319)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withoutLock(DefaultWorkerLeaseService.java:324)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForItemsAndGatherFailures(DefaultAsyncWorkTracker.java:126)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForItemsAndGatherFailures(DefaultAsyncWorkTracker.java:92)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForAll(DefaultAsyncWorkTracker.java:78)
+	at org.gradle.internal.work.DefaultAsyncWorkTracker.waitForCompletion(DefaultAsyncWorkTracker.java:66)
+	at org.gradle.api.internal.tasks.execution.TaskExecution$3.run(TaskExecution.java:252)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:29)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:26)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunner.java:47)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.run(DefaultBuildOperationExecutor.java:68)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeAction(TaskExecution.java:229)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeActions(TaskExecution.java:212)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeWithPreviousOutputFiles(TaskExecution.java:195)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.execute(TaskExecution.java:162)
+	at org.gradle.internal.execution.steps.ExecuteStep.executeInternal(ExecuteStep.java:105)
+	at org.gradle.internal.execution.steps.ExecuteStep.access$000(ExecuteStep.java:44)
+	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:59)
+	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:56)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:56)
+	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:44)
+	at org.gradle.internal.execution.steps.CancelExecutionStep.execute(CancelExecutionStep.java:41)
+	at org.gradle.internal.execution.steps.TimeoutStep.executeWithoutTimeout(TimeoutStep.java:74)
+	at org.gradle.internal.execution.steps.TimeoutStep.execute(TimeoutStep.java:55)
+	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:50)
+	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:28)
+	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:67)
+	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:37)
+	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:61)
+	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:26)
+	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:67)
+	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:45)
+	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:40)
+	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:29)
+	at org.gradle.internal.execution.steps.BuildCacheStep.executeWithoutCache(BuildCacheStep.java:189)
+	at org.gradle.internal.execution.steps.BuildCacheStep.lambda$execute$1(BuildCacheStep.java:75)
+	at org.gradle.internal.Either$Right.fold(Either.java:175)
+	at org.gradle.internal.execution.caching.CachingState.fold(CachingState.java:62)
+	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:73)
+	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:48)
+	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:46)
+	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:35)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.executeBecause(SkipUpToDateStep.java:76)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.lambda$execute$2(SkipUpToDateStep.java:54)
+	at java.base/java.util.Optional.orElseGet(Optional.java:364)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:54)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:36)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:37)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:27)
+	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:49)
+	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:27)
+	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:71)
+	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:39)
+	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:65)
+	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:36)
+	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:106)
+	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:55)
+	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:64)
+	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:43)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.executeWithNonEmptySources(AbstractSkipEmptyWorkStep.java:125)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:61)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:36)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsStartedStep.execute(MarkSnapshottingInputsStartedStep.java:38)
+	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:36)
+	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:23)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:75)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:41)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$execute$0(AssignMutableWorkspaceStep.java:35)
+	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:289)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:31)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:22)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
+	at java.base/java.util.Optional.orElseGet(Optional.java:364)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:48)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:35)
+	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:61)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:127)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:80)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:463)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:380)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: org.jetbrains.kotlin.gradle.tasks.CompilationErrorException: Compilation error. See log for more details
+	at org.jetbrains.kotlin.gradle.tasks.TasksUtilsKt.throwExceptionIfCompilationFailed(tasksUtils.kt:20)
+	at org.jetbrains.kotlin.compilerRunner.GradleKotlinCompilerWork.run(GradleKotlinCompilerWork.kt:141)
+	at org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction.execute(GradleCompilerRunnerWithWorkers.kt:73)
+	at org.gradle.workers.internal.DefaultWorkerServer.execute(DefaultWorkerServer.java:63)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:66)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1$1.create(NoIsolationWorkerFactory.java:62)
+	at org.gradle.internal.classloader.ClassLoaderUtils.executeInClassloader(ClassLoaderUtils.java:100)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.lambda$execute$0(NoIsolationWorkerFactory.java:62)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:44)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:41)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:200)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:195)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationExecutor.java:73)
+	at org.gradle.workers.internal.AbstractWorker.executeWrappedInBuildOperation(AbstractWorker.java:41)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.execute(NoIsolationWorkerFactory.java:59)
+	at org.gradle.workers.internal.DefaultWorkerExecutor.lambda$submitWork$0(DefaultWorkerExecutor.java:174)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runExecution(DefaultConditionalExecutionQueue.java:187)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.access$700(DefaultConditionalExecutionQueue.java:120)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner$1.run(DefaultConditionalExecutionQueue.java:162)
+	at org.gradle.internal.Factories$1.create(Factories.java:31)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:264)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:128)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:133)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runBatch(DefaultConditionalExecutionQueue.java:157)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.run(DefaultConditionalExecutionQueue.java:126)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	... 5 more
+
+==============================================================================
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.7/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 1m 24s
+36 actionable tasks: 36 executed
