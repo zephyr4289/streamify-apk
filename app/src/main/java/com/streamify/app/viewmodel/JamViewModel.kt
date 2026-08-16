@@ -133,12 +133,13 @@ class JamViewModel(
                                 filepath = fp,
                                 source = "jam"
                             )
-                        } else if (session.currentTrackId.isNotBlank()) {
+                        } else if (!session.currentTrackId.isNullOrBlank()) {
+                            val trackId = session.currentTrackId
                             // Tier 2: Supabase Cloud Catalog lookup
-                            val cloudTrack = SupabaseClient.fetchTrackById(session.currentTrackId)
+                            val cloudTrack = SupabaseClient.fetchTrackById(trackId)
                             // Tier 3: Local SQLite Library lookup
                             cloudTrack ?: com.streamify.app.data.TrackRepository.getAllTracks().find {
-                                it.id.toString() == session.currentTrackId || it.filepath.contains(session.currentTrackId)
+                                it.id.toString() == trackId || it.filepath.contains(trackId)
                             }
                         } else null
 

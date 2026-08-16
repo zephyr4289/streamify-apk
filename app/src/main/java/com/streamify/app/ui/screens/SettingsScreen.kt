@@ -11,6 +11,9 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -736,7 +739,7 @@ fun SettingsScreen(
                         }
                         is com.streamify.app.data.NukeState.Error -> {
                             Icon(
-                                Icons.Filled.Error,
+                                Icons.Filled.Close,
                                 contentDescription = "Error",
                                 tint = androidx.compose.ui.graphics.Color(0xFFD32F2F),
                                 modifier = Modifier.size(48.dp)

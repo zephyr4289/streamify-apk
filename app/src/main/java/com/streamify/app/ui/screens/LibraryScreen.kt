@@ -405,86 +405,78 @@ fun LibraryScreen(
                                     }
                                 }
                             }
-                        }
-
-                        "Songs" -> {
+                        }                        "Songs" -> {
                             if (allTracks.isEmpty()) {
-                                EmptyStateView(
-                                    title = "No songs found",
-                                    subtitle = "Scan your storage or import music to see your library.",
-                                    actionText = "Rescan Storage",
-                                    onActionClick = { enqueueMediaScan(context) }
-                                )
+                                item {
+                                    EmptyStateView(
+                                        title = "No songs found",
+                                        subtitle = "Scan your storage or import music to see your library.",
+                                        actionText = "Rescan Storage",
+                                        onActionClick = { enqueueMediaScan(context) }
+                                    )
+                                }
                             } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(bottom = 120.dp)
-                                ) {
-                                    items(
-                                        items = allTracks,
-                                        key = { "lib_track_${it.id}" }
-                                    ) { track ->
-                                        YtQueueTrackItem(
-                                            track = track,
-                                            isPlaying = currentTrack?.id == track.id,
-                                            showDragHandle = false,
-                                            onClick = { onTrackClick(track, allTracks) },
-                                            onMoreClick = { selectedOptionsTrack = track }
-                                        )
-                                    }
+                                items(
+                                    items = allTracks,
+                                    key = { "lib_track_${it.id}" }
+                                ) { track ->
+                                    YtQueueTrackItem(
+                                        track = track,
+                                        isPlaying = currentTrack?.id == track.id,
+                                        showDragHandle = false,
+                                        onClick = { onTrackClick(track, allTracks) },
+                                        onMoreClick = { selectedOptionsTrack = track }
+                                    )
                                 }
                             }
                         }
 
                         "Albums" -> {
                             if (albums.isEmpty()) {
-                                EmptyStateView(
-                                    title = "No albums found",
-                                    subtitle = "Albums will automatically show up when tagged music is added.",
-                                    actionText = "Rescan",
-                                    onActionClick = { viewModel.loadLibrary() }
-                                )
+                                item {
+                                    EmptyStateView(
+                                        title = "No albums found",
+                                        subtitle = "Albums will automatically show up when tagged music is added.",
+                                        actionText = "Rescan",
+                                        onActionClick = { viewModel.loadLibrary() }
+                                    )
+                                }
                             } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(bottom = 120.dp)
-                                ) {
-                                    items(
-                                        items = albums.keys.toList(),
-                                        key = { "album_$it" }
-                                    ) { albumName ->
-                                        val albumTrackList = albums[albumName] ?: emptyList()
-                                        val firstTrack = albumTrackList.firstOrNull()
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { selectedAlbumName = albumName }
-                                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            YtThumbnail(
-                                                url = firstTrack?.coverArtPath,
-                                                size = 56.dp,
-                                                cornerRadius = 4.dp
+                                items(
+                                    items = albums.keys.toList(),
+                                    key = { "album_$it" }
+                                ) { albumName ->
+                                    val albumTrackList = albums[albumName] ?: emptyList()
+                                    val firstTrack = albumTrackList.firstOrNull()
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { selectedAlbumName = albumName }
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        YtThumbnail(
+                                            url = firstTrack?.coverArtPath,
+                                            size = 56.dp,
+                                            cornerRadius = 4.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(14.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = albumName,
+                                                style = LocalAppTypography.current.songTitle.copy(
+                                                    fontSize = 15.sp,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                                ),
+                                                color = TextMain,
+                                                maxLines = 1
                                             )
-                                            Spacer(modifier = Modifier.width(14.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = albumName,
-                                                    style = LocalAppTypography.current.songTitle.copy(
-                                                        fontSize = 15.sp,
-                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                                                    ),
-                                                    color = TextMain,
-                                                    maxLines = 1
-                                                )
-                                                Text(
-                                                    text = "Album • ${firstTrack?.artist ?: "Unknown Artist"} • ${albumTrackList.size} songs",
-                                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
-                                                    color = TextSecondary,
-                                                    maxLines = 1
-                                                )
-                                            }
+                                            Text(
+                                                text = "Album • ${firstTrack?.artist ?: "Unknown Artist"} • ${albumTrackList.size} songs",
+                                                style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                                color = TextSecondary,
+                                                maxLines = 1
+                                            )
                                         }
                                     }
                                 }
@@ -493,53 +485,50 @@ fun LibraryScreen(
 
                         "Artists" -> {
                             if (artists.isEmpty()) {
-                                EmptyStateView(
-                                    title = "No artists found",
-                                    subtitle = "Artists will appear automatically from your scanned tracks.",
-                                    actionText = "Rescan",
-                                    onActionClick = { viewModel.loadLibrary() }
-                                )
+                                item {
+                                    EmptyStateView(
+                                        title = "No artists found",
+                                        subtitle = "Artists will appear automatically from your scanned tracks.",
+                                        actionText = "Rescan",
+                                        onActionClick = { viewModel.loadLibrary() }
+                                    )
+                                }
                             } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(bottom = 120.dp)
-                                ) {
-                                    items(
-                                        items = artists.keys.toList(),
-                                        key = { "artist_$it" }
-                                    ) { artistName ->
-                                        val artistTrackList = artists[artistName] ?: emptyList()
-                                        val firstTrack = artistTrackList.firstOrNull()
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { /* Select artist */ }
-                                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            YtThumbnail(
-                                                url = firstTrack?.coverArtPath,
-                                                size = 56.dp,
-                                                cornerRadius = 28.dp // Circular avatar
+                                items(
+                                    items = artists.keys.toList(),
+                                    key = { "artist_$it" }
+                                ) { artistName ->
+                                    val artistTrackList = artists[artistName] ?: emptyList()
+                                    val firstTrack = artistTrackList.firstOrNull()
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { /* Select artist */ }
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        YtThumbnail(
+                                            url = firstTrack?.coverArtPath,
+                                            size = 56.dp,
+                                            cornerRadius = 28.dp // Circular avatar
+                                        )
+                                        Spacer(modifier = Modifier.width(14.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = artistName,
+                                                style = LocalAppTypography.current.songTitle.copy(
+                                                    fontSize = 15.sp,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                                ),
+                                                color = TextMain,
+                                                maxLines = 1
                                             )
-                                            Spacer(modifier = Modifier.width(14.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = artistName,
-                                                    style = LocalAppTypography.current.songTitle.copy(
-                                                        fontSize = 15.sp,
-                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                                                    ),
-                                                    color = TextMain,
-                                                    maxLines = 1
-                                                )
-                                                Text(
-                                                    text = "Artist • ${artistTrackList.size} songs",
-                                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
-                                                    color = TextSecondary,
-                                                    maxLines = 1
-                                                )
-                                            }
+                                            Text(
+                                                text = "Artist • ${artistTrackList.size} songs",
+                                                style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                                color = TextSecondary,
+                                                maxLines = 1
+                                            )
                                         }
                                     }
                                 }
@@ -548,97 +537,91 @@ fun LibraryScreen(
 
                         "Downloaded" -> {
                             if (downloaded.isEmpty()) {
-                                EmptyStateView(
-                                    title = "No downloads yet",
-                                    subtitle = "Downloaded tracks for offline playback will appear here.",
-                                    actionText = "Discover Music",
-                                    onActionClick = { /* Navigate to explore */ }
-                                )
+                                item {
+                                    EmptyStateView(
+                                        title = "No downloads yet",
+                                        subtitle = "Downloaded tracks for offline playback will appear here.",
+                                        actionText = "Discover Music",
+                                        onActionClick = { /* Navigate to explore */ }
+                                    )
+                                }
                             } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(bottom = 120.dp)
-                                ) {
-                                    items(
-                                        items = downloaded,
-                                        key = { "dl_${it.id}" }
-                                    ) { track ->
-                                        YtQueueTrackItem(
-                                            track = track,
-                                            isPlaying = currentTrack?.id == track.id,
-                                            showDragHandle = false,
-                                            onClick = { onTrackClick(track, downloaded) },
-                                            onMoreClick = { selectedOptionsTrack = track }
-                                        )
-                                    }
+                                items(
+                                    items = downloaded,
+                                    key = { "dl_${it.id}" }
+                                ) { track ->
+                                    YtQueueTrackItem(
+                                        track = track,
+                                        isPlaying = currentTrack?.id == track.id,
+                                        showDragHandle = false,
+                                        onClick = { onTrackClick(track, downloaded) },
+                                        onMoreClick = { selectedOptionsTrack = track }
+                                    )
                                 }
                             }
                         }
 
                         "Folders" -> {
                             if (folders.isEmpty()) {
-                                EmptyStateView(
-                                    title = "No folders found",
-                                    subtitle = "Audio directory folders will appear here.",
-                                    actionText = "Rescan Storage",
-                                    onActionClick = { enqueueMediaScan(context) }
-                                )
+                                item {
+                                    EmptyStateView(
+                                        title = "No folders found",
+                                        subtitle = "Audio directory folders will appear here.",
+                                        actionText = "Rescan Storage",
+                                        onActionClick = { enqueueMediaScan(context) }
+                                    )
+                                }
                             } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(bottom = 120.dp)
-                                ) {
-                                    items(
-                                        items = folders.keys.toList(),
-                                        key = { "folder_$it" }
-                                    ) { folderPath ->
-                                        val folderTracks = folders[folderPath] ?: emptyList()
-                                        val folderName = folderPath.substringAfterLast('/')
-                                        val count = folderTracks.size
-                                        Row(
+                                items(
+                                    items = folders.keys.toList(),
+                                    key = { "folder_$it" }
+                                ) { folderPath ->
+                                    val folderTracks = folders[folderPath] ?: emptyList()
+                                    val folderName = folderPath.substringAfterLast('/')
+                                    val count = folderTracks.size
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { selectedFolder = folderPath }
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
                                             modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { selectedFolder = folderPath }
-                                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                                .size(56.dp)
+                                                .clip(LocalAppShapes.current.thumbnailSmall)
+                                                .background(BgCard),
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(56.dp)
-                                                    .clip(LocalAppShapes.current.thumbnailSmall)
-                                                    .background(BgCard),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Folder,
-                                                    contentDescription = "Folder",
-                                                    tint = Primary,
-                                                    modifier = Modifier.size(28.dp)
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.width(14.dp))
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = folderName,
-                                                    style = LocalAppTypography.current.songTitle.copy(
-                                                        fontSize = 15.sp,
-                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                                                    ),
-                                                    color = TextMain,
-                                                    maxLines = 1
-                                                )
-                                                Text(
-                                                    text = "$count songs • $folderPath",
-                                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
-                                                    color = TextSecondary,
-                                                    maxLines = 1
-                                                )
-                                            }
+                                            Icon(
+                                                imageVector = Icons.Filled.Folder,
+                                                contentDescription = "Folder",
+                                                tint = Primary,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(14.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = folderName,
+                                                style = LocalAppTypography.current.songTitle.copy(
+                                                    fontSize = 15.sp,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                                ),
+                                                color = TextMain,
+                                                maxLines = 1
+                                            )
+                                            Text(
+                                                text = "$count songs • $folderPath",
+                                                style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                                color = TextSecondary,
+                                                maxLines = 1
+                                            )
                                         }
                                     }
                                 }
                             }
-                        }
+                        }         }
                     }
                 }
             }

@@ -213,7 +213,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                     trackId = currentT.id.toString(),
                                     trackTitle = currentT.title,
                                     trackArtist = currentT.artist,
-                                    audioPath = currentT.filePath
+                                    audioPath = currentT.filepath
                                 )
                             }
                         } catch (e: Exception) {
@@ -864,15 +864,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-        }
-    }
-
-    fun addToQueue(track: Track) {
-        val currentQueue = _playerState.value.queue
-        if (!currentQueue.contains(track)) {
-            _playerState.value = _playerState.value.copy(
-                queue = currentQueue + track
-            )
         }
     }
 

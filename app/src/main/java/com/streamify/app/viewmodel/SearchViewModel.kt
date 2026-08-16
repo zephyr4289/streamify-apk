@@ -178,6 +178,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             }
                             pyRes.getOrNull() ?: emptyList()
                         }
+                    )
                     val semanticResults = if (com.streamify.app.data.network.SemanticSearchEngine.isSemanticQuery(cleanQuery)) {
                         try {
                             com.streamify.app.data.network.SemanticSearchEngine.resolveMoodQuery(cleanQuery)
