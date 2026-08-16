@@ -662,13 +662,37 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun startSongRadio(seedTrack: Track? = null) {
-        val target = seedTrack ?: _playerState.value.currentTrack ?: return
+        val currentT = _playerState.value.currentTrack
+        val target = seedTrack ?: currentT ?: return
+        val isCurrentPlaying = currentT != null && (target.id == currentT.id || (target.title == currentT.title && target.artist == currentT.artist))
+
         viewModelScope.launch {
             val radioTracks = repository.getCloudSongRadio(target, limit = 25)
             if (radioTracks.isNotEmpty()) {
-                val fullList = listOf(target) + radioTracks.filter { it.id != target.id }
-                playTrack(target, fullList)
-                UiEventBus.emitEvent(UiEvent.ShowSnackbar("Started ${target.title} Radio 📻"))
+                if (isCurrentPlaying) {
+                    // Seamlessly append to active queue without interrupting or restarting current track timestamp!
+                    val currentQueue = _playerState.value.queue
+                    val existingIds = currentQueue.map { it.id }.toSet()
+                    val existingTitles = currentQueue.map { "${it.title}_${it.artist}".lowercase() }.toSet()
+                    val newTracks = radioTracks.filter {
+                        (it.id == 0 || !existingIds.contains(it.id)) &&
+                                !existingTitles.contains("${it.title}_${it.artist}".lowercase())
+                    }
+
+                    if (newTracks.isNotEmpty()) {
+                        val updatedQueue = currentQueue + newTracks
+                        _playerState.value = _playerState.value.copy(queue = updatedQueue)
+                        val newMediaItems = newTracks.map { buildMediaItem(it) }
+                        controller?.addMediaItems(newMediaItems)
+                        UiEventBus.emitEvent(UiEvent.ShowSnackbar("Appended ${newTracks.size} Radio tracks to queue 📻"))
+                    } else {
+                        UiEventBus.emitEvent(UiEvent.ShowSnackbar("Radio tracks already in queue"))
+                    }
+                } else {
+                    val fullList = listOf(target) + radioTracks.filter { it.id != target.id }
+                    playTrack(target, fullList)
+                    UiEventBus.emitEvent(UiEvent.ShowSnackbar("Started ${target.title} Radio 📻"))
+                }
             } else {
                 UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not load radio for this track"))
             }

@@ -70,6 +70,9 @@ fun FullPlayerSheet(
     var showCommentsSheet by remember { mutableStateOf(false) }
     val communityViewModel: CommunityViewModel = viewModel()
 
+    var showRelatedSheet by remember { mutableStateOf(false) }
+    val playerViewModel: com.streamify.app.viewmodel.PlayerViewModel = viewModel()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -474,7 +477,7 @@ fun FullPlayerSheet(
                     activeTab = "UP NEXT",
                     onQueueClick = { onQueueClick?.invoke() },
                     onLyricsClick = { onLyricsClick?.invoke() },
-                    onRelatedClick = { onRadioClick?.invoke() }
+                    onRelatedClick = { showRelatedSheet = true }
                 )
             }
         }
@@ -489,6 +492,17 @@ fun FullPlayerSheet(
                 if (durationMs > 0) onSeek(posMs.toFloat() / durationMs.toFloat())
             },
             onDismiss = { showCommentsSheet = false }
+        )
+    }
+
+    if (showRelatedSheet) {
+        RelatedDiscoverSheet(
+            track = track,
+            playerViewModel = playerViewModel,
+            onTrackClick = { clickedTrack ->
+                playerViewModel.playTrack(clickedTrack, listOf(clickedTrack))
+            },
+            onDismiss = { showRelatedSheet = false }
         )
     }
 }
