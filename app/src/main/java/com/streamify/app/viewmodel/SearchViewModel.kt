@@ -245,7 +245,10 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 }
 
                 if (directUrl.isNotBlank()) {
-                    // 1. Persist to native C++ SQLite store for playback history & AI recommendations
+                    // 1. Persist canonical watch URL to native C++ SQLite store for playback history & AI recommendations
+                    val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(onlineTrack.url, onlineTrack.thumbnail)
+                    val canonicalUrl = if (videoId != null) "https://www.youtube.com/watch?v=$videoId" else onlineTrack.url.ifBlank { "https://www.youtube.com/watch?v=${kotlin.math.abs((onlineTrack.title + onlineTrack.uploader).hashCode())}" }
+
                     val persistedId = try {
                         com.streamify.app.data.TrackRepository.upsertStreamedTrack(
                             Track(
@@ -254,7 +257,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                                 artist = onlineTrack.uploader,
                                 album = "Online Stream",
                                 durationSec = onlineTrack.duration,
-                                filepath = directUrl,
+                                filepath = canonicalUrl,
                                 coverArtPath = onlineTrack.thumbnail,
                                 bpm = 0f,
                                 key = "",

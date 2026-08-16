@@ -101,8 +101,19 @@ object OnlineTrackProcessor {
 
                     // 3. Execute Native C++ DSP Engine: FFT, Aubio BPM extraction, and Vector Embeddings
                     if (tempChunk.exists() && tempChunk.length() > 0) {
+                        val videoId = YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+                        val canonicalPath = if (videoId != null) {
+                            "https://www.youtube.com/watch?v=$videoId"
+                        } else if (track.filepath.startsWith("http") && !track.filepath.contains("googlevideo.com")) {
+                            track.filepath
+                        } else if (track.filepath.startsWith("/") || track.filepath.startsWith("file://")) {
+                            track.filepath
+                        } else {
+                            track.filepath
+                        }
+
                         val validId = if (track.id > 0) track.id else NativeBridge.upsertStreamedTrack(
-                            filepath = track.filepath,
+                            filepath = canonicalPath,
                             title = track.title,
                             artist = track.artist,
                             album = track.album,
@@ -125,7 +136,7 @@ object OnlineTrackProcessor {
 
                             // 4. Update SQLite record with calculated BPM and Key
                             NativeBridge.upsertStreamedTrack(
-                                filepath = track.filepath,
+                                filepath = canonicalPath,
                                 title = track.title,
                                 artist = track.artist,
                                 album = track.album,
@@ -139,6 +150,7 @@ object OnlineTrackProcessor {
                             // 5. Sync to Supabase Cloud Catalog
                             val processedTrack = track.copy(
                                 id = validId,
+                                filepath = canonicalPath,
                                 bpm = finalBpm,
                                 key = finalKey,
                                 isProcessed = true

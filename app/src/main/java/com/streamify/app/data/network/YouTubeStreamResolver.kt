@@ -39,9 +39,9 @@ object YouTubeStreamResolver {
         ClientConfig("WEB_REMIX", "1.20230515.01.00", "67")
     )
 
-    fun extractVideoId(urlOrId: String): String? {
+    fun extractVideoId(urlOrId: String, fallbackThumbnail: String? = null): String? {
         val trimmed = urlOrId.trim()
-        if (trimmed.length == 11 && !trimmed.contains("/") && !trimmed.contains("?")) {
+        if (trimmed.length == 11 && !trimmed.contains("/") && !trimmed.contains("?") && !trimmed.contains("&") && !trimmed.contains(".")) {
             return trimmed
         }
         val matchWatch = Regex("[?&]v=([a-zA-Z0-9_-]{11})").find(trimmed)
@@ -56,7 +56,25 @@ object YouTubeStreamResolver {
         val matchLive = Regex("/live/([a-zA-Z0-9_-]{11})").find(trimmed)
         if (matchLive != null) return matchLive.groupValues[1]
 
+        val matchYtImg = Regex("i\\.ytimg\\.com/vi(_webp)?/([a-zA-Z0-9_-]{11})").find(trimmed)
+        if (matchYtImg != null) return matchYtImg.groupValues[2]
+
+        // Check fallback thumbnail if provided
+        if (!fallbackThumbnail.isNullOrBlank()) {
+            val thumbTrimmed = fallbackThumbnail.trim()
+            val matchThumbImg = Regex("i\\.ytimg\\.com/vi(_webp)?/([a-zA-Z0-9_-]{11})").find(thumbTrimmed)
+            if (matchThumbImg != null) return matchThumbImg.groupValues[2]
+
+            val matchThumbWatch = Regex("[?&]v=([a-zA-Z0-9_-]{11})").find(thumbTrimmed)
+            if (matchThumbWatch != null) return matchThumbWatch.groupValues[1]
+        }
+
         return null
+    }
+
+    fun getCanonicalWatchUrl(urlOrId: String, fallbackThumbnail: String? = null): String? {
+        val videoId = extractVideoId(urlOrId, fallbackThumbnail) ?: return null
+        return "https://www.youtube.com/watch?v=$videoId"
     }
 
     fun isCdnExpired(url: String): Boolean {
@@ -69,8 +87,8 @@ object YouTubeStreamResolver {
         return false
     }
 
-    suspend fun resolveStreamUrl(urlOrId: String): ResolvedStream? = withContext(Dispatchers.IO) {
-        val videoId = extractVideoId(urlOrId) ?: return@withContext null
+    suspend fun resolveStreamUrl(urlOrId: String, fallbackThumbnail: String? = null): ResolvedStream? = withContext(Dispatchers.IO) {
+        val videoId = extractVideoId(urlOrId, fallbackThumbnail) ?: return@withContext null
 
         // 1. Zero-RTT Edge Cache Check (0ms Instant Replay)
         val cached = StreamEdgeCache.getStream(videoId)
@@ -87,14 +105,12 @@ object YouTubeStreamResolver {
     }
 
     suspend fun resolveTrackStream(track: com.streamify.app.data.models.Track): ResolvedStream? = withContext(Dispatchers.IO) {
-        // 1. Direct Video ID / URL resolution
-        if (track.filepath.isNotBlank()) {
-            val videoId = extractVideoId(track.filepath)
-            if (videoId != null) {
-                val stream = resolveStreamUrl(videoId)
-                if (stream != null && stream.streamUrl.isNotBlank()) {
-                    return@withContext stream
-                }
+        // 1. Direct Video ID / URL / Thumbnail resolution
+        val videoId = extractVideoId(track.filepath, track.coverArtPath)
+        if (videoId != null) {
+            val stream = resolveStreamUrl(videoId, track.coverArtPath)
+            if (stream != null && stream.streamUrl.isNotBlank()) {
+                return@withContext stream
             }
         }
 
@@ -104,9 +120,9 @@ object YouTubeStreamResolver {
             val results = YouTubeMusicSearchApi.search(query, maxResults = 3)
             val topMatch = results.firstOrNull()
             if (topMatch != null) {
-                val videoId = extractVideoId(topMatch.url)
-                if (videoId != null) {
-                    val stream = resolveStreamUrl(videoId)
+                val matchedVideoId = extractVideoId(topMatch.url, topMatch.thumbnail)
+                if (matchedVideoId != null) {
+                    val stream = resolveStreamUrl(matchedVideoId, topMatch.thumbnail)
                     if (stream != null && stream.streamUrl.isNotBlank()) {
                         return@withContext stream
                     }

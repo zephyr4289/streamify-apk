@@ -62,8 +62,19 @@ object TrackRepository {
     
     suspend fun registerStreamedTrack(track: Track, context: android.content.Context? = null): Track = withContext(Dispatchers.IO) {
         val albumName = if (track.album.isNotBlank() && !track.album.equals("Single", ignoreCase = true)) track.album else "Streamify"
+        val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+        val canonicalPath = if (videoId != null) {
+            "https://www.youtube.com/watch?v=$videoId"
+        } else if (track.filepath.startsWith("http") && !track.filepath.contains("googlevideo.com")) {
+            track.filepath
+        } else if (track.filepath.startsWith("/") || track.filepath.startsWith("file://")) {
+            track.filepath
+        } else {
+            "https://www.youtube.com/watch?v=${kotlin.math.abs((track.title.trim().lowercase() + track.artist.trim().lowercase()).hashCode())}"
+        }
+
         val validId = NativeBridge.upsertStreamedTrack(
-            filepath = track.filepath,
+            filepath = canonicalPath,
             title = track.title,
             artist = track.artist,
             album = albumName,
@@ -77,6 +88,7 @@ object TrackRepository {
         val savedId = if (validId > 0) validId else track.id
         val updatedTrack = track.copy(
             id = savedId,
+            filepath = canonicalPath,
             album = albumName,
             source = "online_stream"
         )
@@ -105,11 +117,13 @@ object TrackRepository {
                 }
             }
 
-            // 3. Register to Supabase Cloud
-            try {
-                com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(updatedTrack)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            // 3. Instant Push to Supabase Cloud
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(updatedTrack)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
 
             // 4. Enqueue to OnlineTrackProcessor for autonomous background native C++ DSP processing
@@ -138,12 +152,21 @@ object TrackRepository {
             val result = NativeBridge.toggleLike(userId, targetId)
             val updated = trackObj ?: _allTracks.value.find { it.id == targetId }
             if (updated != null) {
-                val cloudId = "trk_${(updated.title + updated.artist).hashCode()}"
-                if (result) {
-                    com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(updated)
-                    com.streamify.app.data.remote.SupabaseClient.addCloudLike(cloudId)
-                } else {
-                    com.streamify.app.data.remote.SupabaseClient.removeCloudLike(cloudId)
+                val cleanSig = (updated.title.trim().lowercase() + "_" + updated.artist.trim().lowercase())
+                val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
+                
+                // Instant asynchronous push to Supabase Cloud
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        if (result) {
+                            com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(updated)
+                            com.streamify.app.data.remote.SupabaseClient.addCloudLike(cloudId)
+                        } else {
+                            com.streamify.app.data.remote.SupabaseClient.removeCloudLike(cloudId)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
             }
             refresh()

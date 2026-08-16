@@ -19,7 +19,7 @@ import java.util.HashSet
 import java.util.zip.GZIPInputStream
 
 val Track.videoId: String
-    get() = YouTubeStreamResolver.extractVideoId(filepath) ?: id.toString()
+    get() = YouTubeStreamResolver.extractVideoId(filepath, coverArtPath) ?: id.toString()
 
 data class RadioContext(
     val videoId: String,

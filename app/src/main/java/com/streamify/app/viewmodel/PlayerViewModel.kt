@@ -549,6 +549,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
         val needsResolution = track.filepath.isBlank() ||
                 track.filepath.startsWith("online://") ||
+                (track.filepath.startsWith("http") && !track.filepath.contains("googlevideo.com")) ||
                 (track.filepath.startsWith("http") && track.filepath.contains("googlevideo.com") && isCdnExpired(track.filepath)) ||
                 (!track.filepath.startsWith("http") && !track.filepath.startsWith("file") && !java.io.File(track.filepath).exists())
 

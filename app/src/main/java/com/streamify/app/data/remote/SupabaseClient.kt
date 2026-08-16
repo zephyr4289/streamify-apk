@@ -493,8 +493,19 @@ object SupabaseClient {
                         val key = to.optString("key_signature", "C")
 
                         if (title.isNotBlank()) {
+                            val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(streamUrl, coverUrl)
+                            val canonicalFilepath = if (videoId != null) {
+                                "https://www.youtube.com/watch?v=$videoId"
+                            } else if (streamUrl.startsWith("http") && !streamUrl.contains("googlevideo.com")) {
+                                streamUrl
+                            } else if (streamUrl.startsWith("/") || streamUrl.startsWith("file://")) {
+                                streamUrl
+                            } else {
+                                "https://www.youtube.com/watch?v=${kotlin.math.abs((title.trim().lowercase() + artist.trim().lowercase()).hashCode())}"
+                            }
+
                             val localId = com.streamify.app.data.NativeBridge.upsertStreamedTrack(
-                                filepath = streamUrl.ifBlank { "online://${(title + artist).hashCode()}" },
+                                filepath = canonicalFilepath,
                                 title = title,
                                 artist = artist,
                                 album = album,
@@ -517,7 +528,8 @@ object SupabaseClient {
 
             // 3. Upload un-synced local likes to cloud
             for (track in localTracks.filter { it.isLiked }) {
-                val trackCloudId = "trk_${(track.title + track.artist).hashCode()}"
+                val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
+                val trackCloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
                 if (!cloudLikedIds.contains(trackCloudId)) {
                     upsertCloudTrack(track)
                     addCloudLike(trackCloudId)
@@ -573,7 +585,20 @@ object SupabaseClient {
 
     suspend fun upsertCloudTrack(track: Track): Boolean = withContext(Dispatchers.IO) {
         try {
-            val trackCloudId = "trk_${(track.title + track.artist).hashCode()}"
+            val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
+            val trackCloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
+            
+            val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+            val canonicalStreamUrl = if (videoId != null) {
+                "https://www.youtube.com/watch?v=$videoId"
+            } else if (track.filepath.startsWith("http") && !track.filepath.contains("googlevideo.com")) {
+                track.filepath
+            } else if (track.filepath.startsWith("/") || track.filepath.startsWith("file://")) {
+                track.filepath
+            } else {
+                "https://www.youtube.com/watch?v=${kotlin.math.abs(cleanSig.hashCode())}"
+            }
+
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -591,7 +616,7 @@ object SupabaseClient {
                 put("album", track.album)
                 put("duration_sec", track.durationSec)
                 put("cover_url", track.coverArtPath ?: "")
-                put("stream_url", track.filepath)
+                put("stream_url", canonicalStreamUrl)
                 put("bpm", track.bpm)
                 put("key_signature", track.key)
             }
