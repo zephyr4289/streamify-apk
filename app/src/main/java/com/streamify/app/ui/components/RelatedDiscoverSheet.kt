@@ -6,11 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material3.*
@@ -27,7 +25,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streamify.app.data.TrackRepository
 import com.streamify.app.data.models.Track
-import com.streamify.app.ui.theme.*
+import com.streamify.app.ui.theme.StreamifyColors
+import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.viewmodel.PlayerViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -73,8 +72,8 @@ fun RelatedDiscoverSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = BgElevated,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = TextDimmed) }
+        containerColor = StreamifyColors.BgElevated,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = StreamifyColors.TextDimmed) }
     ) {
         Column(
             modifier = Modifier
@@ -93,20 +92,20 @@ fun RelatedDiscoverSheet(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Related",
-                        style = LocalAppTypography.current.headlineMedium.copy(fontSize = 18.sp),
-                        color = TextMain
+                        style = StreamifyType.HeadlineMedium,
+                        color = StreamifyColors.TextMain
                     )
                     Text(
                         text = "Discoveries based on ${track.title}",
-                        style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
-                        color = TextSecondary,
+                        style = StreamifyType.Caption,
+                        color = StreamifyColors.TextSub,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = TextMain)
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = StreamifyColors.TextMain)
                 }
             }
 
@@ -116,7 +115,7 @@ fun RelatedDiscoverSheet(
                     playerViewModel.startSongRadio(track)
                     onDismiss()
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = Primary),
+                colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -124,7 +123,7 @@ fun RelatedDiscoverSheet(
             ) {
                 Icon(Icons.Filled.Radio, contentDescription = null, tint = Color.Black)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Start ${track.title} Radio", style = LocalAppTypography.current.chipText.copy(fontWeight = FontWeight.Bold), color = Color.Black)
+                Text("Start ${track.title} Radio", style = StreamifyType.TitleSmall, color = Color.Black)
             }
 
             if (isLoading) {
@@ -134,7 +133,7 @@ fun RelatedDiscoverSheet(
                         .height(200.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Primary, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
+                    CircularProgressIndicator(color = StreamifyColors.Primary, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
                 }
             } else {
                 LazyColumn(
@@ -147,8 +146,8 @@ fun RelatedDiscoverSheet(
                         item {
                             Text(
                                 text = "More from ${track.artist}",
-                                style = LocalAppTypography.current.headlineMedium.copy(fontSize = 15.sp),
-                                color = TextMain
+                                style = StreamifyType.TitleMedium,
+                                color = StreamifyColors.TextMain
                             )
                         }
 
@@ -168,8 +167,8 @@ fun RelatedDiscoverSheet(
                                         Box(
                                             modifier = Modifier
                                                 .size(120.dp)
-                                                .clip(LocalAppShapes.current.thumbnailMedium)
-                                                .background(BgCard)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(StreamifyColors.BgCard)
                                         ) {
                                             AsyncImage(
                                                 model = artTrack.coverArtPath,
@@ -181,15 +180,15 @@ fun RelatedDiscoverSheet(
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
                                             text = artTrack.title,
-                                            style = LocalAppTypography.current.songTitle.copy(fontSize = 12.sp),
-                                            color = TextMain,
+                                            style = StreamifyType.CardTitle,
+                                            color = StreamifyColors.TextMain,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
                                             text = artTrack.artist,
-                                            style = LocalAppTypography.current.songArtist.copy(fontSize = 10.sp),
-                                            color = TextSecondary,
+                                            style = StreamifyType.Caption,
+                                            color = StreamifyColors.TextSub,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -204,8 +203,8 @@ fun RelatedDiscoverSheet(
                         item {
                             Text(
                                 text = "Similar Songs",
-                                style = LocalAppTypography.current.headlineMedium.copy(fontSize = 15.sp),
-                                color = TextMain
+                                style = StreamifyType.TitleMedium,
+                                color = StreamifyColors.TextMain
                             )
                         }
 
@@ -224,7 +223,7 @@ fun RelatedDiscoverSheet(
                                     modifier = Modifier
                                         .size(48.dp)
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(BgCard)
+                                        .background(StreamifyColors.BgCard)
                                 ) {
                                     AsyncImage(
                                         model = relTrack.coverArtPath,
@@ -239,15 +238,15 @@ fun RelatedDiscoverSheet(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = relTrack.title,
-                                        style = LocalAppTypography.current.songTitle.copy(fontSize = 13.sp),
-                                        color = TextMain,
+                                        style = StreamifyType.TitleSmall,
+                                        color = StreamifyColors.TextMain,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
                                         text = "${relTrack.artist}${if (relTrack.bpm > 0f) " • ${relTrack.bpm.toInt()} BPM" else ""}",
-                                        style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
-                                        color = TextSecondary,
+                                        style = StreamifyType.Caption,
+                                        color = StreamifyColors.TextSub,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -261,7 +260,7 @@ fun RelatedDiscoverSheet(
                                     Icon(
                                         imageVector = Icons.Filled.PlaylistAdd,
                                         contentDescription = "Add to Queue",
-                                        tint = TextSecondary,
+                                        tint = StreamifyColors.TextSub,
                                         modifier = Modifier.size(22.dp)
                                     )
                                 }
@@ -277,8 +276,8 @@ fun RelatedDiscoverSheet(
                             ) {
                                 Text(
                                     text = "No related tracks found for this song",
-                                    style = LocalAppTypography.current.songArtist,
-                                    color = TextSecondary
+                                    style = StreamifyType.BodySmall,
+                                    color = StreamifyColors.TextSub
                                 )
                             }
                         }
