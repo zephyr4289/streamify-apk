@@ -1,6 +1,7 @@
 package com.streamify.app.ui.screens
 
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -21,8 +22,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.LyricsLine
-import com.streamify.app.ui.components.YtLyricLineItem
 import com.streamify.app.ui.components.YtLyricsHeader
+import com.streamify.app.ui.components.YtSyllableLine
 import com.streamify.app.ui.theme.*
 
 @Composable
@@ -41,7 +42,7 @@ fun LyricsScreen(
         if (idx >= 0) idx else 0
     }
 
-    // 2. 120fps Mathematical Focal Auto-Scroll Engine (35% from top)
+    // 2. 120fps Mathematical Focal Auto-Scroll Engine (35% focal anchor from top)
     LaunchedEffect(activeIndex) {
         if (lyrics.isNotEmpty() && activeIndex in lyrics.indices && !listState.isScrollInProgress) {
             val viewportHeight = listState.layoutInfo.viewportSize.height
@@ -52,7 +53,10 @@ fun LyricsScreen(
                     val targetDelta = (itemInfo.offset - focalOffset)
                     listState.animateScrollBy(
                         value = targetDelta,
-                        animationSpec = tween(durationMillis = 350)
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
                     )
                 } else {
                     listState.animateScrollToItem(
@@ -132,10 +136,12 @@ fun LyricsScreen(
                         items = lyrics,
                         key = { index, line -> "${index}_${line.timeMs}" }
                     ) { index, line ->
-                        YtLyricLineItem(
-                            text = line.text,
+                        YtSyllableLine(
+                            line = line,
                             isActive = index == activeIndex,
-                            onClick = { onSeek(line.timeMs) }
+                            currentTimeMs = { currentPositionMs },
+                            dominantColor = dominantColor,
+                            onTap = { onSeek(line.timeMs) }
                         )
                     }
 
@@ -143,7 +149,7 @@ fun LyricsScreen(
                     item(key = "attribution_footer") {
                         Spacer(modifier = Modifier.height(32.dp))
                         Text(
-                            text = "Lyrics provided by Musixmatch / LRCLIB • May not be 100% accurate",
+                            text = "Lyrics provided by Musixmatch / LRCLIB • Real-Time Syllable Sync",
                             style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
                             color = TextTertiary,
                             modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
