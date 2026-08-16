@@ -34,6 +34,7 @@ import com.streamify.app.navigation.AppNavGraph
 import com.streamify.app.ui.components.MiniPlayerBar
 import com.streamify.app.ui.components.YtBottomNavBar
 import com.streamify.app.ui.screens.FullPlayerSheet
+import com.streamify.app.ui.screens.PrismaticSplashScreen
 import com.streamify.app.ui.screens.YtOnboardingScreen
 import com.streamify.app.ui.theme.*
 import com.streamify.app.util.PermissionHelper
@@ -80,6 +81,7 @@ class MainActivity : ComponentActivity() {
 
                 val authState by AuthManager.authState.collectAsState()
                 var isOnboardingDone by remember { mutableStateOf(AuthManager.hasSeenOnboarding()) }
+                var isSplashDone by remember { mutableStateOf(false) }
 
                 // Dynamic Full-Player Overlay & Dock State
                 var isPlayerExpanded by remember { mutableStateOf(false) }
@@ -110,16 +112,21 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                LaunchedEffect(Unit) {
-                    val prefs = getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
-                    com.streamify.app.service.CrossfadeAudioProcessor.crossfadeDurationMs =
-                        (prefs.getFloat("crossfade_val", 0f) * 1000).toLong()
-                    AuthManager.init(this@MainActivity)
-                    playerViewModel.initialize(this@MainActivity)
-                    com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
-                }
-
-                if (!isOnboardingDone && authState !is AuthState.Authenticated) {
+                if (!isSplashDone) {
+                    PrismaticSplashScreen(
+                        onPreWarmComplete = {
+                            val prefs = getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
+                            com.streamify.app.service.CrossfadeAudioProcessor.crossfadeDurationMs =
+                                (prefs.getFloat("crossfade_val", 0f) * 1000).toLong()
+                            AuthManager.init(this@MainActivity)
+                            playerViewModel.initialize(this@MainActivity)
+                            com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
+                        },
+                        onAnimationComplete = {
+                            isSplashDone = true
+                        }
+                    )
+                } else if (!isOnboardingDone && authState !is AuthState.Authenticated) {
                     YtOnboardingScreen(
                         onComplete = {
                             isOnboardingDone = true
