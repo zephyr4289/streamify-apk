@@ -182,23 +182,7 @@ fun HomeScreen(
                         }
                     }
 
-                    // SHELF 1: QUICK PICKS (4-Row Horizontal Column Carousel)
-                    if (quickPickColumns.isNotEmpty() && quickPickColumns.first().isNotEmpty()) {
-                        item(key = "header_quick_picks") {
-                            YtSectionHeader(
-                                title = "Quick Picks",
-                                kicker = if (selectedMood != "All") "$selectedMood Mix" else "Start radio for"
-                            )
-                        }
-                        item(key = "carousel_quick_picks") {
-                            YtQuickPicksCarousel(
-                                columns = quickPickColumns,
-                                onTrackClick = onTrackClick
-                            )
-                        }
-                    }
-
-                    // SHELF 2: LISTEN AGAIN (2-Row Horizontal Scroll Grid)
+                    // SHELF 1: LISTEN AGAIN (Top Priority: 2-Row Horizontal Scroll Grid with Large Thumbnails)
                     if (listenAgainColumns.isNotEmpty() && listenAgainColumns.first().isNotEmpty()) {
                         item(key = "header_listen_again") {
                             YtSectionHeader(
@@ -209,6 +193,22 @@ fun HomeScreen(
                         item(key = "grid_listen_again") {
                             YtListenAgainGrid(
                                 columns = listenAgainColumns,
+                                onTrackClick = onTrackClick
+                            )
+                        }
+                    }
+
+                    // SHELF 2: QUICK PICKS (4-Row Horizontal Column Carousel)
+                    if (quickPickColumns.isNotEmpty() && quickPickColumns.first().isNotEmpty()) {
+                        item(key = "header_quick_picks") {
+                            YtSectionHeader(
+                                title = "Quick Picks",
+                                kicker = if (selectedMood != "All") "$selectedMood Mix" else "Start radio for"
+                            )
+                        }
+                        item(key = "carousel_quick_picks") {
+                            YtQuickPicksCarousel(
+                                columns = quickPickColumns,
                                 onTrackClick = onTrackClick
                             )
                         }
