@@ -290,4 +290,163 @@ object YouTubeStreamResolver {
             return null
         }
     }
+
+    suspend fun resolveVideoStreamUrl(urlOrId: String, fallbackThumbnail: String? = null): ResolvedStream? = withContext(Dispatchers.IO) {
+        val videoId = extractVideoId(urlOrId, fallbackThumbnail) ?: return@withContext null
+
+        // 1. Zero-RTT Edge Cache Check
+        val cached = StreamEdgeCache.getVideoStream(videoId)
+        if (cached != null) {
+            return@withContext cached
+        }
+
+        // 2. Parallel Client Video Stream Racing
+        val resolved = raceClientVideoEndpoints(videoId)
+        if (resolved != null) {
+            StreamEdgeCache.putVideoStream(videoId, resolved)
+        }
+        return@withContext resolved
+    }
+
+    private suspend fun raceClientVideoEndpoints(videoId: String): ResolvedStream? = coroutineScope {
+        val winnerDeferred = CompletableDeferred<ResolvedStream?>()
+
+        val jobs = CLIENT_TARGETS.map { config ->
+            async(Dispatchers.IO) {
+                try {
+                    val stream = executeVideoPlayerRequest(videoId, config)
+                    if (stream != null && stream.streamUrl.isNotBlank()) {
+                        winnerDeferred.complete(stream)
+                    }
+                } catch (e: Exception) {
+                    // Ignore single client failure in race
+                }
+            }
+        }
+
+        jobs.forEach { job ->
+            job.invokeOnCompletion {
+                if (jobs.all { it.isCompleted } && !winnerDeferred.isCompleted) {
+                    winnerDeferred.complete(null)
+                }
+            }
+        }
+
+        val winner = winnerDeferred.await()
+        jobs.forEach { if (!it.isCompleted) it.cancel() }
+        return@coroutineScope winner
+    }
+
+    private fun executeVideoPlayerRequest(videoId: String, config: ClientConfig): ResolvedStream? {
+        try {
+            val requestJson = JSONObject().apply {
+                put("context", JSONObject().apply {
+                    put("client", JSONObject().apply {
+                        put("clientName", config.clientName)
+                        put("clientVersion", config.clientVersion)
+                        put("androidSdkVersion", 34)
+                        put("hl", "en")
+                        put("gl", "US")
+                    })
+                })
+                put("videoId", videoId)
+                put("contentCheckOk", true)
+                put("racyCheckOk", true)
+            }
+
+            val request = Request.Builder()
+                .url(INNERTUBE_PLAYER_URL)
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .header("User-Agent", USER_AGENT_ANDROID)
+                .header("Accept", "*/*")
+                .header("Accept-Encoding", "gzip, deflate")
+                .header("X-YouTube-Client-Name", config.clientNumber)
+                .header("X-YouTube-Client-Version", config.clientVersion)
+                .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            NetworkEngine.client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val body = response.body ?: return null
+                val encoding = response.header("Content-Encoding", "")
+
+                val responseBody = if ("gzip".equals(encoding, ignoreCase = true)) {
+                    GZIPInputStream(body.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                } else {
+                    body.string()
+                }
+
+                val root = JSONObject(responseBody)
+                return parseVideoPlayerResponse(root)
+            }
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    private fun parseVideoPlayerResponse(root: JSONObject): ResolvedStream? {
+        try {
+            val playabilityStatus = root.optJSONObject("playabilityStatus")
+            val status = playabilityStatus?.optString("status", "")
+            if (status != null && !status.equals("OK", ignoreCase = true)) {
+                return null
+            }
+
+            val streamingData = root.optJSONObject("streamingData") ?: return null
+            val durationSec = root.optJSONObject("videoDetails")?.optString("lengthSeconds", "0")?.toIntOrNull() ?: 0
+
+            val formats = streamingData.optJSONArray("formats")
+            val progressiveList = mutableListOf<JSONObject>()
+            if (formats != null) {
+                for (i in 0 until formats.length()) {
+                    val f = formats.getJSONObject(i)
+                    val url = f.optString("url", "")
+                    if (url.isNotBlank()) {
+                        progressiveList.add(f)
+                    }
+                }
+            }
+
+            // Prefer itag 22 (720p HD MP4) > itag 18 (360p MP4) > highest quality progressive MP4
+            val bestFormat = progressiveList.firstOrNull { it.optInt("itag") == 22 }
+                ?: progressiveList.firstOrNull { it.optInt("itag") == 18 }
+                ?: progressiveList.firstOrNull()
+
+            if (bestFormat != null) {
+                val streamUrl = bestFormat.optString("url", "")
+                val mimeType = bestFormat.optString("mimeType", "video/mp4")
+                val bitrate = bestFormat.optInt("bitrate", 1200000)
+                if (streamUrl.isNotBlank()) {
+                    return ResolvedStream(
+                        streamUrl = streamUrl,
+                        mimeType = mimeType,
+                        bitrate = bitrate,
+                        durationSec = durationSec
+                    )
+                }
+            }
+
+            // Fallback to adaptive video format if no progressive available
+            val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats")
+            if (adaptiveFormats != null) {
+                for (i in 0 until adaptiveFormats.length()) {
+                    val f = adaptiveFormats.getJSONObject(i)
+                    val mime = f.optString("mimeType", "")
+                    val streamUrl = f.optString("url", "")
+                    if (mime.startsWith("video/") && streamUrl.isNotBlank()) {
+                        return ResolvedStream(
+                            streamUrl = streamUrl,
+                            mimeType = mime,
+                            bitrate = f.optInt("bitrate", 800000),
+                            durationSec = durationSec
+                        )
+                    }
+                }
+            }
+
+            return null
+        } catch (e: Exception) {
+            return null
+        }
+    }
 }

@@ -30,7 +30,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.*
@@ -67,12 +70,13 @@ fun FullPlayerSheet(
 
     val screenConfig = LocalScreenConfiguration.current
     val isLandscape = screenConfig.isLandscape || screenConfig.isTablet
-    var isVideoMode by remember { mutableStateOf(false) }
+    val playerViewModel: com.streamify.app.viewmodel.PlayerViewModel = viewModel()
+    val playerState by playerViewModel.playerState.collectAsState()
+    val isVideoMode = playerState.isVideoMode
+
     var showCommentsSheet by remember { mutableStateOf(false) }
     val communityViewModel: CommunityViewModel = viewModel()
-
     var showRelatedSheet by remember { mutableStateOf(false) }
-    val playerViewModel: com.streamify.app.viewmodel.PlayerViewModel = viewModel()
 
     // --- PILLAR 2: LIFO Sub-Sheet Back Trapping ---
     BackHandler(enabled = showCommentsSheet) {
@@ -147,12 +151,43 @@ fun FullPlayerSheet(
                             .background(BgCard),
                         contentAlignment = Alignment.Center
                     ) {
-                        AsyncImage(
-                            model = track.coverArtPath,
-                            contentDescription = track.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
+                        Crossfade(
+                            targetState = isVideoMode,
+                            label = "MediaSurfaceCrossfadeLandscape"
+                        ) { isVideo ->
+                            if (isVideo && playerViewModel.getController() != null) {
+                                AndroidView(
+                                    factory = { ctx ->
+                                        PlayerView(ctx).apply {
+                                            player = playerViewModel.getController()
+                                            useController = false
+                                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                                        }
+                                    },
+                                    update = { view ->
+                                        view.player = playerViewModel.getController()
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                if (!track.coverArtPath.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = track.coverArtPath,
+                                        contentDescription = track.title,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Filled.MusicNote,
+                                        contentDescription = null,
+                                        tint = TextSecondary,
+                                        modifier = Modifier.size(64.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
@@ -282,7 +317,7 @@ fun FullPlayerSheet(
 
                     YtSongVideoSwitcher(
                         isVideo = isVideoMode,
-                        onToggle = { isVideoMode = it }
+                        onToggle = { playerViewModel.toggleVideoMode(it) }
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -307,7 +342,7 @@ fun FullPlayerSheet(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // --- HERO 1:1 ALBUM ARTWORK ---
+                // --- HERO 1:1 ALBUM ARTWORK / HARDWARE VIDEO SURFACE ---
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -317,20 +352,42 @@ fun FullPlayerSheet(
                         .background(BgCard),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (!track.coverArtPath.isNullOrBlank()) {
-                        AsyncImage(
-                            model = track.coverArtPath,
-                            contentDescription = track.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.MusicNote,
-                            contentDescription = null,
-                            tint = TextSecondary,
-                            modifier = Modifier.size(64.dp)
-                        )
+                    Crossfade(
+                        targetState = isVideoMode,
+                        label = "MediaSurfaceCrossfadePortrait"
+                    ) { isVideo ->
+                        if (isVideo && playerViewModel.getController() != null) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    PlayerView(ctx).apply {
+                                        player = playerViewModel.getController()
+                                        useController = false
+                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                                    }
+                                },
+                                update = { view ->
+                                    view.player = playerViewModel.getController()
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            if (!track.coverArtPath.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = track.coverArtPath,
+                                    contentDescription = track.title,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Filled.MusicNote,
+                                    contentDescription = null,
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(64.dp)
+                                )
+                            }
+                        }
                     }
                 }
 

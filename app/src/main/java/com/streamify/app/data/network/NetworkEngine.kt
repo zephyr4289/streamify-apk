@@ -22,27 +22,50 @@ object NetworkEngine {
 
 object StreamEdgeCache {
     private const val CACHE_TTL_MS = 1000L * 60 * 60 * 4 // 4 Hours
-    private val cache = LruCache<String, CachedStream>(64)
+    private val audioCache = LruCache<String, CachedStream>(64)
+    private val videoCache = LruCache<String, CachedStream>(64)
+    private val expiryRegex = Regex("[?&]expire=([0-9]+)")
 
     data class CachedStream(
         val stream: ResolvedStream,
         val timestamp: Long = System.currentTimeMillis()
     )
 
+    fun isNearExpiry(url: String): Boolean {
+        if (url.isBlank() || !url.startsWith("http")) return true
+        val expireEpoch = expiryRegex.find(url)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: return false
+        val nowSec = System.currentTimeMillis() / 1000L
+        return nowSec >= (expireEpoch - 60L) // Treat as near-expiry within 60s
+    }
+
     fun getStream(videoId: String): ResolvedStream? {
-        val entry = cache.get(videoId) ?: return null
-        if (System.currentTimeMillis() - entry.timestamp > CACHE_TTL_MS) {
-            cache.remove(videoId)
+        val entry = audioCache.get(videoId) ?: return null
+        if (System.currentTimeMillis() - entry.timestamp > CACHE_TTL_MS || isNearExpiry(entry.stream.streamUrl)) {
+            audioCache.remove(videoId)
             return null
         }
         return entry.stream
     }
 
     fun putStream(videoId: String, stream: ResolvedStream) {
-        cache.put(videoId, CachedStream(stream))
+        audioCache.put(videoId, CachedStream(stream))
+    }
+
+    fun getVideoStream(videoId: String): ResolvedStream? {
+        val entry = videoCache.get(videoId) ?: return null
+        if (System.currentTimeMillis() - entry.timestamp > CACHE_TTL_MS || isNearExpiry(entry.stream.streamUrl)) {
+            videoCache.remove(videoId)
+            return null
+        }
+        return entry.stream
+    }
+
+    fun putVideoStream(videoId: String, stream: ResolvedStream) {
+        videoCache.put(videoId, CachedStream(stream))
     }
 
     fun clear() {
-        cache.evictAll()
+        audioCache.evictAll()
+        videoCache.evictAll()
     }
 }

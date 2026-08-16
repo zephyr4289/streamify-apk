@@ -38,7 +38,8 @@ data class PlayerState(
     val isRepeatActive: Boolean = false,
     val sleepTimerMinutesLeft: Int? = null,
     val sleepTimerEndTrack: Boolean = false,
-    val isAutoPlayEnabled: Boolean = true
+    val isAutoPlayEnabled: Boolean = true,
+    val isVideoMode: Boolean = false
 )
 
 class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
@@ -56,6 +57,50 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var sleepTimerJob: Job? = null
     private var lastPlayedTrackId: Int? = null
     private var preResolvingTrackKey: String? = null
+
+    fun getController(): MediaController? = controller
+
+    fun toggleVideoMode(enabled: Boolean) {
+        _playerState.value = _playerState.value.copy(isVideoMode = enabled)
+        val ctrl = controller ?: return
+        val currentT = _playerState.value.currentTrack ?: return
+        val currentPos = ctrl.currentPosition
+
+        if (enabled) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val videoStream = com.streamify.app.data.network.YouTubeStreamResolver.resolveVideoStreamUrl(currentT.filepath, currentT.coverArtPath)
+                if (videoStream != null && videoStream.streamUrl.isNotBlank()) {
+                    withContext(Dispatchers.Main) {
+                        val currentItem = ctrl.currentMediaItem ?: return@withContext
+                        val videoMediaItem = currentItem.buildUpon()
+                            .setUri(android.net.Uri.parse(videoStream.streamUrl))
+                            .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MP4)
+                            .build()
+                        ctrl.setMediaItem(videoMediaItem, currentPos)
+                        ctrl.prepare()
+                        ctrl.play()
+                    }
+                }
+            }
+        } else {
+            viewModelScope.launch(Dispatchers.IO) {
+                val audioStream = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(currentT)
+                val audioUrl = audioStream?.streamUrl ?: currentT.filepath
+                if (audioUrl.isNotBlank()) {
+                    withContext(Dispatchers.Main) {
+                        val currentItem = ctrl.currentMediaItem ?: return@withContext
+                        val audioMediaItem = currentItem.buildUpon()
+                            .setUri(android.net.Uri.parse(audioUrl))
+                            .setMimeType(audioStream?.mimeType ?: androidx.media3.common.MimeTypes.AUDIO_WEBM)
+                            .build()
+                        ctrl.setMediaItem(audioMediaItem, currentPos)
+                        ctrl.prepare()
+                        ctrl.play()
+                    }
+                }
+            }
+        }
+    }
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
