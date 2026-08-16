@@ -628,6 +628,52 @@ object SupabaseClient {
         }
     }
 
+    suspend fun fetchTrackById(trackId: String): Track? = withContext(Dispatchers.IO) {
+        try {
+            val safeId = URLEncoder.encode(trackId.trim(), "UTF-8")
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks?id=eq.$safeId")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                if (arr.length() > 0) {
+                    val o = arr.getJSONObject(0)
+                    val title = o.optString("title", "")
+                    val artist = o.optString("artist", "")
+                    val cover = o.optString("cover_url", "")
+                    val streamUrl = o.optString("stream_url", "")
+                    val duration = o.optInt("duration_sec", 180)
+                    val bpm = o.optDouble("bpm", 120.0).toFloat()
+                    val key = o.optString("key_signature", "C")
+
+                    val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(streamUrl, cover)
+                    val canonicalPath = if (videoId != null) "https://www.youtube.com/watch?v=$videoId" else streamUrl
+
+                    return@withContext Track(
+                        id = trackId.toIntOrNull() ?: -(trackId.hashCode()),
+                        title = title.ifBlank { "Jam Track" },
+                        artist = artist.ifBlank { "Artist" },
+                        album = o.optString("album", "Streamify Jam"),
+                        durationSec = duration,
+                        filepath = canonicalPath,
+                        coverArtPath = cover.takeIf { it.isNotBlank() },
+                        bpm = bpm,
+                        key = key,
+                        lyricsPath = null,
+                        source = "cloud_jam"
+                    )
+                }
+            }
+            null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // ========================================================================
     // PGVECTOR CLOUD AI RECOMMENDATIONS (SONG RADIO)
     // ========================================================================

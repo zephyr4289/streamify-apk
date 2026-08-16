@@ -88,18 +88,15 @@ class JamViewModel : ViewModel() {
                     val isHost = session.hostUserId == SupabaseClient.currentUser.value?.id
                     _uiState.value = JamUiState.Active(session, isHost)
 
-                    // If not host, synchronize track and adjust clock drift
-                    if (!isHost && playerViewModel != null && session.currentTrackJson != null) {
-                        val remoteTrackId = session.currentTrackJson.optInt("id", 0)
-                        val remoteTitle = session.currentTrackJson.optString("title", "")
+                    // If not host, synchronize track and adjust clock drift using Hybrid Resolution
+                    if (!isHost && playerViewModel != null) {
                         val currentLocalTrack = playerViewModel.playerState.value.currentTrack
-                        val isDifferentTrack = (remoteTrackId != 0 && remoteTrackId != (currentLocalTrack?.id ?: 0)) ||
-                                (remoteTitle.isNotBlank() && remoteTitle != (currentLocalTrack?.title ?: ""))
-
-                        if (isDifferentTrack) {
+                        val targetTrack: Track? = if (session.currentTrackJson != null) {
+                            // Tier 1: JSONB Snapshot (Instant 0ms resolution)
                             val art = session.currentTrackJson.optString("coverArtPath", "")
-                            val track = Track(
-                                id = remoteTrackId,
+                            val fp = session.currentTrackJson.optString("filepath", "")
+                            Track(
+                                id = session.currentTrackJson.optInt("id", 0),
                                 title = session.currentTrackJson.optString("title", "Jam Track"),
                                 artist = session.currentTrackJson.optString("artist", "Artist"),
                                 album = "Streamify Jam",
@@ -108,26 +105,43 @@ class JamViewModel : ViewModel() {
                                 key = "",
                                 coverArtPath = if (art.isNotBlank()) art else null,
                                 lyricsPath = null,
-                                filepath = session.currentTrackJson.optString("filepath", ""),
+                                filepath = fp,
                                 source = "jam"
                             )
-                            playerViewModel.playTrack(track, listOf(track))
-                        } else {
-                            // Sync position & playback state with host clock
-                            val hostElapsed = if (session.isPlaying) {
-                                (System.currentTimeMillis() - session.hostClockTimestamp).coerceAtLeast(0L)
-                            } else 0L
-                            val expectedPos = session.positionMs + hostElapsed
-                            val localPos = playerViewModel.playerState.value.currentPosition
-                            val driftMs = kotlin.math.abs(expectedPos - localPos)
-
-                            if (driftMs > 2500L) {
-                                playerViewModel.seekTo(expectedPos)
+                        } else if (session.currentTrackId.isNotBlank()) {
+                            // Tier 2: Supabase Cloud Catalog lookup
+                            val cloudTrack = SupabaseClient.fetchTrackById(session.currentTrackId)
+                            // Tier 3: Local SQLite Library lookup
+                            cloudTrack ?: com.streamify.app.data.TrackRepository.getAllTracks().find {
+                                it.id.toString() == session.currentTrackId || it.filepath.contains(session.currentTrackId)
                             }
+                        } else null
 
-                            val isLocalPlaying = playerViewModel.playerState.value.isPlaying
-                            if (isLocalPlaying != session.isPlaying) {
-                                if (session.isPlaying) playerViewModel.play() else playerViewModel.pause()
+                        if (targetTrack != null) {
+                            val isDifferentTrack = (targetTrack.id != 0 && targetTrack.id != (currentLocalTrack?.id ?: 0)) ||
+                                    (targetTrack.title.isNotBlank() && targetTrack.title != (currentLocalTrack?.title ?: "")) ||
+                                    (targetTrack.artist.isNotBlank() && targetTrack.artist != (currentLocalTrack?.artist ?: ""))
+
+                            if (isDifferentTrack) {
+                                playerViewModel.playTrack(targetTrack, listOf(targetTrack))
+                            } else {
+                                // Synchronize position & playback state with host clock
+                                val hostElapsed = if (session.isPlaying) {
+                                    (System.currentTimeMillis() - session.hostClockTimestamp).coerceAtLeast(0L)
+                                } else 0L
+                                val maxDurMs = if (targetTrack.durationSec > 0) targetTrack.durationSec * 1000L else 300000L
+                                val expectedPos = (session.positionMs + hostElapsed).coerceIn(0L, maxDurMs)
+                                val localPos = playerViewModel.playerState.value.currentPosition
+                                val driftMs = kotlin.math.abs(expectedPos - localPos)
+
+                                if (driftMs > 2000L) {
+                                    playerViewModel.seekTo(expectedPos)
+                                }
+
+                                val isLocalPlaying = playerViewModel.playerState.value.isPlaying
+                                if (isLocalPlaying != session.isPlaying) {
+                                    if (session.isPlaying) playerViewModel.play() else playerViewModel.pause()
+                                }
                             }
                         }
                     }
