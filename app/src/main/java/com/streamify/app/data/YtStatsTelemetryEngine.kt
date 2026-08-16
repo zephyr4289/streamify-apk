@@ -2,10 +2,12 @@ package com.streamify.app.data
 
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.remote.SupabaseClient
+import com.streamify.app.data.remote.TelemetryPayload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 
 data class WrappedStats(
     val totalMinutes: Int,
@@ -30,6 +32,46 @@ object YtStatsTelemetryEngine {
             val prefs = context.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
             val currentSec = prefs.getLong("total_listened_seconds", 0L)
             prefs.edit().putLong("total_listened_seconds", currentSec + seconds).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun syncCurrentTelemetryToCloud() = withContext(Dispatchers.IO) {
+        try {
+            val user = SupabaseClient.currentUser.value ?: return@withContext
+            val context = TrackRepository.appContext
+            val prefs = context?.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
+            val realListenedSeconds = prefs?.getLong("total_listened_seconds", 0L) ?: 0L
+
+            val topPlayedTracks = TrackRepository.getTopPlayedTracks(1)
+            val topTrack = topPlayedTracks.firstOrNull()?.let { "${it.title} • ${it.artist}" } ?: ""
+            val libraryTracks = TrackRepository.getAllTracks()
+            val totalPlays = libraryTracks.sumOf { it.playCount }.coerceAtLeast(topPlayedTracks.size)
+
+            val validBpms = libraryTracks.map { it.bpm }.filter { it > 40f && it < 240f }
+            val weightedBpm = if (validBpms.isNotEmpty()) validBpms.average().toInt() else 124
+
+            val persona = when {
+                weightedBpm >= 130 -> "⚡ Kinetic Pulse Runner"
+                weightedBpm in 110..129 -> "🌌 Harmonic Groove Weaver"
+                else -> "🌙 Midnight Lofi Dreamer"
+            }
+
+            val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(java.util.Date())
+
+            SupabaseClient.upsertTelemetry(
+                TelemetryPayload(
+                    listeningSeconds = realListenedSeconds,
+                    totalPlays = totalPlays,
+                    topTrack = topTrack,
+                    favoriteGenre = user.favoriteGenre.ifBlank { "Electronic & Synthwave" },
+                    bio = persona,
+                    lastActiveAt = timestamp
+                )
+            )
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -153,15 +195,7 @@ object YtStatsTelemetryEngine {
 
         // 6. Two-Way Supabase Cloud Telemetry Sync
         try {
-            val user = SupabaseClient.currentUser.value
-            if (user != null) {
-                SupabaseClient.updateProfile(
-                    displayName = user.displayName,
-                    avatarUrl = user.avatarUrl,
-                    bio = "Streamify Persona: $personaName $personaEmoji",
-                    favGenre = topGenres.firstOrNull()?.first ?: "All"
-                )
-            }
+            syncCurrentTelemetryToCloud()
         } catch (e: Exception) {
             // Ignore offline errors
         }

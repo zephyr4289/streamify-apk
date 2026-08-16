@@ -82,6 +82,7 @@ fun AdminDashboardScreen(
     var edgeStats by remember { mutableStateOf<com.streamify.app.data.remote.AdminEdgeMeshStats?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
+    var selectedUserForDetail by remember { mutableStateOf<UserProfile?>(null) }
     
     var broadcastMsg by remember { mutableStateOf("") }
     var showBroadcastDialog by remember { mutableStateOf(false) }
@@ -542,7 +543,9 @@ fun AdminDashboardScreen(
                         Card(
                             colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedUserForDetail = profile }
                         ) {
                             Row(
                                 modifier = Modifier
@@ -599,7 +602,10 @@ fun AdminDashboardScreen(
                                         }
                                     }
                                     Text(profile.email, style = StreamifyType.Caption, color = StreamifyColors.TextSub)
-                                    Text("${profile.totalPlays} plays • ${(profile.listeningSeconds / 60)} mins", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
+                                    Text("${profile.totalPlays} plays • ${(profile.listeningSeconds / 60)} mins • ${profile.favoriteGenre}", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
+                                    if (profile.topTrack.isNotBlank()) {
+                                        Text("🎧 Top: ${profile.topTrack}", style = StreamifyType.Caption.copy(fontSize = 10.sp), color = StreamifyColors.Primary, maxLines = 1)
+                                    }
                                 }
 
                                 val isSelfOrOwner = profile.email.contains("sireenyadav", ignoreCase = true) ||
@@ -900,5 +906,216 @@ fun AdminDashboardScreen(
             },
             containerColor = StreamifyColors.BgCard
         )
+    }
+
+    // USER INTELLIGENCE & TELEMETRY DEEP-DIVE SHEET
+    selectedUserForDetail?.let { selectedUser ->
+        UserTelemetrySheet(
+            user = selectedUser,
+            onDismiss = { selectedUserForDetail = null },
+            onToggleAdmin = { newStatus ->
+                scope.launch {
+                    val res = SupabaseClient.setUserAdminRole(selectedUser.id, newStatus)
+                    if (res.isSuccess) {
+                        Toast.makeText(context, "Updated role for ${selectedUser.displayName}", Toast.LENGTH_SHORT).show()
+                        selectedUserForDetail = selectedUser.copy(isAdmin = newStatus)
+                        refreshAll()
+                    } else {
+                        Toast.makeText(context, "Failed to update role", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UserTelemetrySheet(
+    user: UserProfile,
+    onDismiss: () -> Unit,
+    onToggleAdmin: (Boolean) -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = StreamifyColors.BgElevated,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    ) {
+        val isSuperOwner = user.email.contains("sireenyadav", ignoreCase = true) ||
+                user.email.equals(com.streamify.app.BuildConfig.ADMIN_EMAIL, ignoreCase = true) ||
+                user.displayName.contains("sireen", ignoreCase = true)
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 12.dp)
+                .padding(bottom = 36.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // 1. Identity Header
+            if (user.avatarUrl.isNotBlank()) {
+                AsyncImage(
+                    model = user.avatarUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(CircleShape)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(CircleShape)
+                        .background(StreamifyColors.Primary.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = user.displayName.take(1).uppercase(),
+                        style = StreamifyType.HeadlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
+                        color = StreamifyColors.Primary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = user.displayName,
+                    style = StreamifyType.HeadlineMedium.copy(fontSize = 20.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                    color = StreamifyColors.TextMain
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    color = if (isSuperOwner) StreamifyColors.Primary.copy(alpha = 0.25f) else if (user.isAdmin) Color(0xFF7358FF).copy(alpha = 0.25f) else StreamifyColors.BgCard,
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = if (isSuperOwner) "OWNER 👑" else if (user.isAdmin) "ADMIN 🛡️" else "USER",
+                        style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                        color = if (isSuperOwner) StreamifyColors.Primary else if (user.isAdmin) Color(0xFF00E5FF) else StreamifyColors.TextSub,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = user.email,
+                style = StreamifyType.Caption,
+                color = StreamifyColors.TextSub
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 2. Real-Time Streaming Metrics
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    color = StreamifyColors.BgCard,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text("LISTENING TIME", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        val totalMins = user.listeningSeconds / 60
+                        val hrs = totalMins / 60
+                        val mins = totalMins % 60
+                        Text(
+                            text = if (hrs > 0) "${hrs}h ${mins}m" else "$totalMins mins",
+                            style = StreamifyType.TitleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                            color = StreamifyColors.Primary
+                        )
+                    }
+                }
+
+                Surface(
+                    color = StreamifyColors.BgCard,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text("TOTAL STREAMS", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "${user.totalPlays} plays",
+                            style = StreamifyType.TitleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                            color = Color(0xFF00E5FF)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 3. Audio DNA & Personal Stats Card
+            Surface(
+                color = StreamifyColors.BgCard,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("AUDIO DNA & PERSONAL STATS", style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.TextSub)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Persona", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
+                        Text(user.bio.ifBlank { "Music Explorer 🎧" }, style = StreamifyType.BodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.TextMain)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Top Genre", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
+                        Text(user.favoriteGenre.ifBlank { "All Genres" }, style = StreamifyType.BodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = Color(0xFF00E5FF))
+                    }
+
+                    if (user.topTrack.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Top Listened Song", style = StreamifyType.BodyMedium, color = StreamifyColors.TextSub)
+                            Text(user.topTrack, style = StreamifyType.BodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.Primary, maxLines = 1)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 4. Admin Action Buttons
+            if (!isSuperOwner) {
+                Button(
+                    onClick = { onToggleAdmin(!user.isAdmin) },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (user.isAdmin) Color(0xFFE91E63) else StreamifyColors.Primary
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Text(
+                        text = if (user.isAdmin) "Revoke Admin Privileges" else "Promote to Admin",
+                        style = StreamifyType.TitleSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                        color = if (user.isAdmin) Color.White else Color.Black
+                    )
+                }
+            }
+        }
     }
 }
