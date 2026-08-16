@@ -66,7 +66,7 @@ fun YtTopAppBar(
                 Spacer(modifier = Modifier.width(6.dp))
 
                 Text(
-                    text = "Music",
+                    text = "Streamify",
                     style = LocalAppTypography.current.headlineMedium.copy(
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,

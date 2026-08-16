@@ -338,7 +338,7 @@ fun SearchScreen(
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Text(
-                                        text = "Searching YouTube Music...",
+                                        text = "Searching Streamify Cloud...",
                                         style = LocalAppTypography.current.headlineMedium.copy(fontSize = 15.sp),
                                         color = Primary
                                     )
@@ -356,12 +356,12 @@ fun SearchScreen(
                             }
                         }
 
-                        // 4. Online YouTube Results
+                        // 4. Online Streamify Results
                         if (onlineMatches.isNotEmpty() && (selectedFilter == "All" || selectedFilter == "Songs" || selectedFilter == "Videos")) {
-                            item(key = "header_youtube_results", contentType = "header") {
+                            item(key = "header_online_results", contentType = "header") {
                                 YtSectionHeader(
-                                    title = "YouTube Results",
-                                    kicker = "Instant Audio Stream"
+                                    title = "Online Results",
+                                    kicker = "Instant High-Fidelity Stream"
                                 )
                             }
                             items(
@@ -374,7 +374,7 @@ fun SearchScreen(
                                     id = 0,
                                     title = onlineTrack.title,
                                     artist = onlineTrack.uploader,
-                                    album = "YouTube Music",
+                                    album = "Streamify",
                                     durationSec = onlineTrack.duration,
                                     filepath = onlineTrack.url,
                                     coverArtPath = onlineTrack.thumbnail.takeIf { it.isNotBlank() },
