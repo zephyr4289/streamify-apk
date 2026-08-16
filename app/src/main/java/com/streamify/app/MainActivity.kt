@@ -31,7 +31,14 @@ import coil.request.SuccessResult
 import com.streamify.app.data.remote.AuthManager
 import com.streamify.app.data.remote.AuthState
 import com.streamify.app.navigation.AppNavGraph
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import com.streamify.app.ui.components.LocalDockPosition
+import com.streamify.app.ui.components.LocalQuantumController
 import com.streamify.app.ui.components.MiniPlayerBar
+import com.streamify.app.ui.components.QuantumSonicTokenController
+import com.streamify.app.ui.components.QuantumSonicTokenOverlay
 import com.streamify.app.ui.components.YtBottomNavBar
 import com.streamify.app.ui.screens.FullPlayerSheet
 import com.streamify.app.ui.screens.PrismaticSplashScreen
@@ -86,9 +93,19 @@ class MainActivity : ComponentActivity() {
                 // Dynamic Full-Player Overlay & Dock State
                 var isPlayerExpanded by remember { mutableStateOf(false) }
 
+                // Quantum Sonic Token 3D Physics Engine
+                val quantumController = remember { QuantumSonicTokenController() }
+                val dockPositionState = remember { mutableStateOf(Offset.Zero) }
+
                 // 1. Android BackHandler: Collapse full player before exiting app
                 BackHandler(enabled = isPlayerExpanded) {
                     isPlayerExpanded = false
+                }
+
+                LaunchedEffect(playerState.currentTrack) {
+                    if (playerState.currentTrack != null) {
+                        quantumController.resolveStream()
+                    }
                 }
 
                 LaunchedEffect(playerState.currentTrack?.coverArtPath) {
@@ -163,99 +180,113 @@ class MainActivity : ComponentActivity() {
                         playerState.currentPosition.toFloat() / playerState.duration.toFloat()
                     else 0f
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(BgBase)
+                    CompositionLocalProvider(
+                        LocalQuantumController provides quantumController,
+                        LocalDockPosition provides dockPositionState
                     ) {
-                        // --- LAYER 1: Master Scaffold & Unified Dock ---
-                        Scaffold(
-                            snackbarHost = {
-                                SnackbarHost(hostState = snackbarHostState) { data ->
-                                    Snackbar(
-                                        snackbarData = data,
-                                        containerColor = Primary,
-                                        contentColor = Color.White
-                                    )
-                                }
-                            },
-                            bottomBar = {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .graphicsLayer { this.alpha = dockAlpha }
-                                        .windowInsetsPadding(WindowInsets.navigationBars)
-                                        .centerInLargeScreen()
-                                ) {
-                                    // Docked Mini-Player (Directly above BottomNav with zero overlap)
-                                    AnimatedVisibility(
-                                        visible = hasTrack,
-                                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(200)),
-                                        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(200))
-                                    ) {
-                                        MiniPlayerBar(
-                                            track = playerState.currentTrack,
-                                            isPlaying = playerState.isPlaying,
-                                            progress = progress,
-                                            onPlayPause = { playerViewModel.togglePlayPause() },
-                                            onNext = { playerViewModel.skipNext() },
-                                            onPrevious = { playerViewModel.skipPrevious() },
-                                            onExpand = { isPlayerExpanded = true },
-                                            onToggleLike = { playerViewModel.toggleLike() }
-                                        )
-                                    }
-
-                                    // Docked Bottom Navigation (100% accessible at all times)
-                                    YtBottomNavBar(
-                                        currentRoute = currentRoute,
-                                        onNavigate = { route ->
-                                            navController.navigate(route) {
-                                                popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
-                                        }
-                                    )
-                                }
-                            },
-                            containerColor = BgBase
-                        ) { paddingValues ->
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .windowInsetsPadding(WindowInsets.statusBars)
-                                    .padding(paddingValues)
-                                    .centerInLargeScreen()
-                            ) {
-                                AppNavGraph(
-                                    navController = navController,
-                                    playerViewModel = playerViewModel,
-                                    dominantColor = dominantColor
-                                )
-                            }
-                        }
-
-                        // --- LAYER 2: 120 FPS Spring Full-Player Overlay ---
-                        AnimatedVisibility(
-                            visible = isPlayerExpanded && hasTrack,
-                            enter = slideInVertically(
-                                initialOffsetY = { it },
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioLowBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
-                                )
-                            ) + fadeIn(animationSpec = tween(220)),
-                            exit = slideOutVertically(
-                                targetOffsetY = { it },
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
-                                )
-                            ) + fadeOut(animationSpec = tween(220)),
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .zIndex(10f)
+                                .background(BgBase)
                         ) {
+                            // --- LAYER 1: Master Scaffold & Unified Dock ---
+                            Scaffold(
+                                snackbarHost = {
+                                    SnackbarHost(hostState = snackbarHostState) { data ->
+                                        Snackbar(
+                                            snackbarData = data,
+                                            containerColor = Primary,
+                                            contentColor = Color.White
+                                        )
+                                    }
+                                },
+                                bottomBar = {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .graphicsLayer { this.alpha = dockAlpha }
+                                            .windowInsetsPadding(WindowInsets.navigationBars)
+                                            .centerInLargeScreen()
+                                            .onGloballyPositioned { coordinates ->
+                                                val pos = coordinates.positionInWindow()
+                                                dockPositionState.value = Offset(
+                                                    pos.x + (coordinates.size.width / 2f),
+                                                    pos.y + 28f
+                                                )
+                                            }
+                                    ) {
+                                        // Docked Mini-Player (Directly above BottomNav with zero overlap)
+                                        AnimatedVisibility(
+                                            visible = hasTrack,
+                                            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(200)),
+                                            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(200))
+                                        ) {
+                                            MiniPlayerBar(
+                                                track = playerState.currentTrack,
+                                                isPlaying = playerState.isPlaying,
+                                                progress = progress,
+                                                onPlayPause = { playerViewModel.togglePlayPause() },
+                                                onNext = { playerViewModel.skipNext() },
+                                                onPrevious = { playerViewModel.skipPrevious() },
+                                                onExpand = { isPlayerExpanded = true },
+                                                onToggleLike = { playerViewModel.toggleLike() }
+                                            )
+                                        }
+
+                                        // Docked Bottom Navigation (100% accessible at all times)
+                                        YtBottomNavBar(
+                                            currentRoute = currentRoute,
+                                            onNavigate = { route ->
+                                                navController.navigate(route) {
+                                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                                    launchSingleTop = true
+                                                    restoreState = true
+                                                }
+                                            }
+                                        )
+                                    }
+                                },
+                                containerColor = BgBase
+                            ) { paddingValues ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .windowInsetsPadding(WindowInsets.statusBars)
+                                        .padding(paddingValues)
+                                        .centerInLargeScreen()
+                                ) {
+                                    AppNavGraph(
+                                        navController = navController,
+                                        playerViewModel = playerViewModel,
+                                        dominantColor = dominantColor
+                                    )
+                                }
+                            }
+
+                            // --- LAYER 2: Quantum Sonic Token 3D Levitation Overlay ---
+                            QuantumSonicTokenOverlay(controller = quantumController)
+
+                            // --- LAYER 3: 120 FPS Spring Full-Player Overlay ---
+                            AnimatedVisibility(
+                                visible = isPlayerExpanded && hasTrack,
+                                enter = slideInVertically(
+                                    initialOffsetY = { it },
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioLowBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                ) + fadeIn(animationSpec = tween(220)),
+                                exit = slideOutVertically(
+                                    targetOffsetY = { it },
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                ) + fadeOut(animationSpec = tween(220)),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .zIndex(10f)
+                            ) {
                             FullPlayerSheet(
                                 track = playerState.currentTrack,
                                 isPlaying = playerState.isPlaying,

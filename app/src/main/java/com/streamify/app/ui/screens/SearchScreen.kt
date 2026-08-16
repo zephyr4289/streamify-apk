@@ -22,6 +22,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.*
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import com.streamify.app.ui.components.LocalDockPosition
+import com.streamify.app.ui.components.LocalQuantumController
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.*
 import kotlinx.coroutines.delay
@@ -43,6 +48,9 @@ fun SearchScreen(
     var query by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("All") }
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
+
+    val quantumController = LocalQuantumController.current
+    val dockPositionState = LocalDockPosition.current
 
     LaunchedEffect(context) {
         viewModel.init(context)
@@ -384,11 +392,27 @@ fun SearchScreen(
                                     source = "online"
                                 )
 
+                                var itemPosition by remember { mutableStateOf(Offset.Zero) }
+
                                 YtQueueTrackItem(
                                     track = trackModel,
                                     isPlaying = isResolving || (currentTrack?.filepath == onlineTrack.url),
                                     showDragHandle = false,
+                                    modifier = Modifier.onGloballyPositioned { coordinates ->
+                                        val pos = coordinates.positionInWindow()
+                                        itemPosition = Offset(pos.x + (coordinates.size.width / 2f), pos.y)
+                                    },
                                     onClick = {
+                                        val dockPos = dockPositionState.value
+                                        val origin = if (itemPosition != Offset.Zero) itemPosition else Offset(200f, 300f)
+                                        val target = if (dockPos != Offset.Zero) dockPos else Offset(200f, 800f)
+                                        quantumController.triggerFlight(
+                                            tapOrigin = origin,
+                                            dockDestination = target,
+                                            title = trackModel.title,
+                                            artist = trackModel.artist,
+                                            art = trackModel.coverArtPath
+                                        )
                                         viewModel.playOnlineTrack(
                                             onlineTrack,
                                             playerViewModel,
