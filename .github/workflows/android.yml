@@ -26,6 +26,9 @@ jobs:
       with:
         python-version: '3.11'
 
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
     - name: Install NDK & CMake
       run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1" "build-tools;34.0.0"
 

@@ -59,6 +59,16 @@ object YouTubeStreamResolver {
         return null
     }
 
+    fun isCdnExpired(url: String): Boolean {
+        if (url.isBlank() || !url.startsWith("http")) return true
+        val expireParam = Regex("[?&]expire=([0-9]+)").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
+        if (expireParam != null) {
+            val nowSec = System.currentTimeMillis() / 1000L
+            return nowSec >= (expireParam - 60L) // Treat as expired within 60s of expiration
+        }
+        return false
+    }
+
     suspend fun resolveStreamUrl(urlOrId: String): ResolvedStream? = withContext(Dispatchers.IO) {
         val videoId = extractVideoId(urlOrId) ?: return@withContext null
 

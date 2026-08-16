@@ -18,6 +18,7 @@ import com.streamify.app.data.models.Track
 import com.streamify.app.service.PlaybackService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +55,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var positionPollingJob: Job? = null
     private var sleepTimerJob: Job? = null
     private var lastPlayedTrackId: Int? = null
+    private var preResolvingTrackKey: String? = null
+
+    private fun isCdnExpired(url: String): Boolean =
+        com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(url)
 
     fun initialize(context: Context) {
         appContext = context.applicationContext

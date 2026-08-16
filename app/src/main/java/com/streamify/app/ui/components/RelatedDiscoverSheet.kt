@@ -254,7 +254,7 @@ fun RelatedDiscoverSheet(
 
                                 IconButton(onClick = {
                                     scope.launch {
-                                        playerViewModel.addToQueue(listOf(relTrack))
+                                        playerViewModel.addToQueue(relTrack)
                                     }
                                 }) {
                                     Icon(

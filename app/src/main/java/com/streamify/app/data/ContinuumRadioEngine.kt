@@ -69,7 +69,10 @@ object ContinuumRadioEngine {
     /**
      * Step 2: Autonomous Pagination & De-duplication
      */
-    suspend fun fetchNextRadioBatch(): List<Track> = withContext(Dispatchers.IO) {
+    suspend fun fetchNextRadioBatch(seedTrack: Track? = null, limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
+        if (currentRadioContext == null && seedTrack != null) {
+            return@withContext startRadio(seedTrack)
+        }
         val context = currentRadioContext ?: return@withContext emptyList()
         _isFetching.value = true
 
