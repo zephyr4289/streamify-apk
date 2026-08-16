@@ -11,6 +11,10 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
 class PlaybackService : MediaSessionService() {
+    companion object {
+        val syncAudioProcessor: SyncAudioProcessor = SyncAudioProcessor()
+    }
+
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
 
@@ -23,7 +27,7 @@ class PlaybackService : MediaSessionService() {
                 enableAudioTrackPlaybackParams: Boolean
             ): androidx.media3.exoplayer.audio.AudioSink? {
                 return DefaultAudioSink.Builder(context)
-                    .setAudioProcessors(arrayOf(CrossfadeAudioProcessor()))
+                    .setAudioProcessors(arrayOf(CrossfadeAudioProcessor(), syncAudioProcessor))
                     .build()
             }
         }

@@ -19,6 +19,7 @@ add_library(streamify_core SHARED
     engine/TaskOrchestrator.cc
     engine/TelemetryEngine.cc
     engine/ChronosProfiler.cc
+    engine/PtpEngine.cc
     ingest/AudioPipeline.cc
     dsp/SoftKneeLimiter.cc
     dsp/LufsNormalizer.cc

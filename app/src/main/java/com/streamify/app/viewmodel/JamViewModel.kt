@@ -20,12 +20,22 @@ sealed class JamUiState {
     data class Error(val message: String) : JamUiState()
 }
 
-class JamViewModel : ViewModel() {
+class JamViewModel(
+    private val appContext: android.content.Context? = null
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow<JamUiState>(JamUiState.Idle)
     val uiState: StateFlow<JamUiState> = _uiState.asStateFlow()
 
     private var syncJob: Job? = null
+    
+    private val meshEngine: com.streamify.app.data.network.MeshDiscoveryEngine? by lazy {
+        appContext?.let { com.streamify.app.data.network.MeshDiscoveryEngine.getInstance(it) }
+    }
+
+    private val precisionProtocol: com.streamify.app.service.PrecisionTimeProtocol? by lazy {
+        meshEngine?.let { com.streamify.app.service.PrecisionTimeProtocol.getInstance(it) }
+    }
 
     init {
         viewModelScope.launch {
@@ -44,6 +54,11 @@ class JamViewModel : ViewModel() {
         if (currentTrack == null) {
             _uiState.value = JamUiState.Error("Play a track before starting a Jam session")
             return
+        }
+
+        val user = SupabaseClient.currentUser.value
+        if (user != null) {
+            meshEngine?.startDiscovery(user.id)
         }
 
         viewModelScope.launch {
@@ -65,6 +80,11 @@ class JamViewModel : ViewModel() {
             return
         }
 
+        val user = SupabaseClient.currentUser.value
+        if (user != null) {
+            meshEngine?.startDiscovery(user.id)
+        }
+
         viewModelScope.launch {
             _uiState.value = JamUiState.Loading
             val result = SupabaseClient.joinJamSession(cleanCode)
@@ -82,13 +102,18 @@ class JamViewModel : ViewModel() {
         syncJob?.cancel()
         syncJob = viewModelScope.launch {
             while (isActive) {
-                delay(2000)
+                delay(1500)
                 val stateRes = SupabaseClient.joinJamSession(code)
                 stateRes.onSuccess { session ->
                     val isHost = session.hostUserId == SupabaseClient.currentUser.value?.id
                     _uiState.value = JamUiState.Active(session, isHost)
 
-                    // If not host, synchronize track and adjust clock drift using Hybrid Resolution
+                    // 1. Align PTP clock with any discovered LAN peers
+                    meshEngine?.discoveredPeers?.value?.values?.firstOrNull()?.let { peer ->
+                        precisionProtocol?.startClockAlignment(peer.ipAddress, isHost)
+                    }
+
+                    // 2. If not host, synchronize track and adjust clock drift using Hybrid PTP + PLL Resolution
                     if (!isHost && playerViewModel != null) {
                         val currentLocalTrack = playerViewModel.playerState.value.currentTrack
                         val targetTrack: Track? = if (session.currentTrackJson != null) {
@@ -123,19 +148,41 @@ class JamViewModel : ViewModel() {
                                     (targetTrack.artist.isNotBlank() && targetTrack.artist != (currentLocalTrack?.artist ?: ""))
 
                             if (isDifferentTrack) {
-                                playerViewModel.playTrack(targetTrack, listOf(targetTrack))
+                                val ptp = precisionProtocol
+                                if (ptp != null && ptp.isSynchronized.value) {
+                                    val targetAtomicTs = ptp.getSynchronizedClockMs() + 350L
+                                    playerViewModel.scheduleAtomicPlayback(targetTrack, targetAtomicTs, session.positionMs, ptp)
+                                } else {
+                                    playerViewModel.playTrack(targetTrack, listOf(targetTrack))
+                                }
                             } else {
-                                // Synchronize position & playback state with host clock
+                                // 3. Sub-15ms PLL Drift and Playhead Alignment
+                                val synchronizedNow = precisionProtocol?.getSynchronizedClockMs() ?: System.currentTimeMillis()
                                 val hostElapsed = if (session.isPlaying) {
-                                    (System.currentTimeMillis() - session.hostClockTimestamp).coerceAtLeast(0L)
+                                    (synchronizedNow - session.hostClockTimestamp).coerceAtLeast(0L)
                                 } else 0L
-                                val maxDurMs = if (targetTrack.durationSec > 0) targetTrack.durationSec * 1000L else 300000L
-                                val expectedPos = (session.positionMs + hostElapsed).coerceIn(0L, maxDurMs)
-                                val localPos = playerViewModel.playerState.value.currentPosition
-                                val driftMs = kotlin.math.abs(expectedPos - localPos)
 
-                                if (driftMs > 2000L) {
-                                    playerViewModel.seekTo(expectedPos)
+                                val maxDurMs = if (targetTrack.durationSec > 0) targetTrack.durationSec * 1000L else 300000L
+                                val expectedHostAcousticPos = (session.positionMs + hostElapsed).coerceIn(0L, maxDurMs)
+                                val clientAcousticPos = playerViewModel.getAcousticPositionMs()
+                                val driftMs = clientAcousticPos - expectedHostAcousticPos
+                                val absDrift = kotlin.math.abs(driftMs)
+
+                                when {
+                                    absDrift <= 12L -> {
+                                        // Zone 1: Sub-15ms locked! Restore standard playback speed
+                                        playerViewModel.setPlaybackSpeed(1.0f)
+                                    }
+                                    absDrift in 13L..150L -> {
+                                        // Zone 2: Continuous Phase Lock Loop micro-pitch scaling (Inaudible)
+                                        val targetSpeed = if (driftMs > 0) 0.996f else 1.004f
+                                        playerViewModel.setPlaybackSpeed(targetSpeed)
+                                    }
+                                    absDrift > 150L -> {
+                                        // Zone 3: Major scrub or lag -> Fast seek
+                                        playerViewModel.setPlaybackSpeed(1.0f)
+                                        playerViewModel.seekTo(expectedHostAcousticPos)
+                                    }
                                 }
 
                                 val isLocalPlaying = playerViewModel.playerState.value.isPlaying
@@ -154,6 +201,8 @@ class JamViewModel : ViewModel() {
         val currentSession = (uiState.value as? JamUiState.Active)?.session ?: return
         if (currentTrack == null) return
 
+        val synchronizedNow = precisionProtocol?.getSynchronizedClockMs() ?: System.currentTimeMillis()
+
         viewModelScope.launch {
             SupabaseClient.updateJamPlayback(
                 sessionCode = currentSession.sessionCode,
@@ -167,6 +216,8 @@ class JamViewModel : ViewModel() {
     fun leaveJam() {
         syncJob?.cancel()
         syncJob = null
+        meshEngine?.stopDiscovery()
+        precisionProtocol?.stop()
         SupabaseClient.leaveJamSession()
         _uiState.value = JamUiState.Idle
     }

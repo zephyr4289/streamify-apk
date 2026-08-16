@@ -120,5 +120,12 @@ object NativeBridge {
         mbids: Array<String>,
         weights: FloatArray
     ): Boolean
+
+    // Project Pulse: Sub-15ms Precision Time Protocol (IEEE 1588)
+    external fun processPtpTimestamps(t0: Long, t1: Long, t2: Long, t3: Long): Long
+    external fun getSynchronizedClockMs(): Long
+    external fun getPtpClockOffsetNanos(): Long
+    external fun getPtpRttNanos(): Long
+    external fun resetPtpState()
 }
 

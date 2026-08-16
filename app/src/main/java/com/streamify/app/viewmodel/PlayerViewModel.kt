@@ -626,6 +626,33 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         controller?.pause()
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        val ctrl = controller ?: return
+        val currentSpeed = ctrl.playbackParameters.speed
+        if (kotlin.math.abs(currentSpeed - speed) > 0.001f) {
+            ctrl.playbackParameters = androidx.media3.common.PlaybackParameters(speed, 1.0f)
+        }
+    }
+
+    fun getAcousticPositionMs(): Long {
+        val rawPos = controller?.currentPosition ?: _playerState.value.currentPosition
+        return com.streamify.app.service.PlaybackService.syncAudioProcessor.getAcousticPositionMs(rawPos)
+    }
+
+    fun scheduleAtomicPlayback(
+        track: Track,
+        targetAtomicTimestampMs: Long,
+        startPositionMs: Long = 0L,
+        precisionProtocol: com.streamify.app.service.PrecisionTimeProtocol
+    ) {
+        val ctrl = controller ?: return
+        val scheduler = com.streamify.app.service.ScheduledAudioScheduler(ctrl, precisionProtocol)
+        _playerState.value = _playerState.value.copy(currentTrack = track, queue = listOf(track))
+        scheduler.scheduleAtomicPlayback(track, targetAtomicTimestampMs, startPositionMs) {
+            _playerState.value = _playerState.value.copy(isPlaying = true)
+        }
+    }
+
     fun seekTo(positionMs: Long) {
         controller?.seekTo(positionMs)
         _playerState.value = _playerState.value.copy(currentPosition = positionMs)

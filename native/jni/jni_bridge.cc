@@ -6,6 +6,7 @@
 #include "../engine/TaskOrchestrator.h"
 #include "../engine/TelemetryEngine.h"
 #include "../engine/ChronosProfiler.h"
+#include "../engine/PtpEngine.h"
 #include "../dsp/LufsNormalizer.h"
 
 // Cached Global JNI References for zero lookup overhead
@@ -688,4 +689,50 @@ Java_com_streamify_app_data_NativeBridge_cacheSimilarTracks(
     bool ok = StreamifyDB::getInstance().cacheSimilarTracks(trackId, titleVec, artistVec, mbidVec, weightVec);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
+
+// Project Pulse: Sub-15ms Precision Time Protocol (IEEE 1588)
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_streamify_app_data_NativeBridge_processPtpTimestamps(
+    JNIEnv* /* env */,
+    jobject /* this */,
+    jlong t0,
+    jlong t1,
+    jlong t2,
+    jlong t3
+) {
+    return static_cast<jlong>(streamify::PtpEngine::getInstance().processTimestamps(t0, t1, t2, t3));
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_streamify_app_data_NativeBridge_getSynchronizedClockMs(
+    JNIEnv* /* env */,
+    jobject /* this */
+) {
+    return static_cast<jlong>(streamify::PtpEngine::getInstance().getSynchronizedClockMs());
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_streamify_app_data_NativeBridge_getPtpClockOffsetNanos(
+    JNIEnv* /* env */,
+    jobject /* this */
+) {
+    return static_cast<jlong>(streamify::PtpEngine::getInstance().getClockOffsetNanos());
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_streamify_app_data_NativeBridge_getPtpRttNanos(
+    JNIEnv* /* env */,
+    jobject /* this */
+) {
+    return static_cast<jlong>(streamify::PtpEngine::getInstance().getLastRttNanos());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_resetPtpState(
+    JNIEnv* /* env */,
+    jobject /* this */
+) {
+    streamify::PtpEngine::getInstance().reset();
+}
+
 
