@@ -139,7 +139,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             
             val onlineResults = withContext(Dispatchers.IO) {
                 try {
-                    val searchResult = com.streamify.app.data.network.ResilientMediaRouter.fetchWithFallback<List<OnlineSearchResult>>(
+                    val searchResult: List<OnlineSearchResult> = com.streamify.app.data.network.ResilientMediaRouter.fetchWithFallback<List<OnlineSearchResult>>(
                         timeoutMs = 2500L,
                         primary = {
                             // 1. Pure Kotlin Innertube HTTP/2 (<60ms)
@@ -178,8 +178,9 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             }
                             pyRes.getOrNull() ?: emptyList()
                         }
-                    )
-                    val semanticResults = if (com.streamify.app.data.network.SemanticSearchEngine.isSemanticQuery(cleanQuery)) {
+                    ) ?: emptyList()
+
+                    val semanticResults: List<OnlineSearchResult> = if (com.streamify.app.data.network.SemanticSearchEngine.isSemanticQuery(cleanQuery)) {
                         try {
                             com.streamify.app.data.network.SemanticSearchEngine.resolveMoodQuery(cleanQuery)
                         } catch (e: Exception) {
@@ -187,7 +188,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         }
                     } else emptyList()
 
-                    val finalResults = if (semanticResults.isNotEmpty()) {
+                    val finalResults: List<OnlineSearchResult> = if (semanticResults.isNotEmpty()) {
                         (semanticResults + searchResult).distinctBy { it.url.ifBlank { it.title } }
                     } else {
                         searchResult

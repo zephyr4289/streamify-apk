@@ -391,21 +391,23 @@ fun LibraryScreen(
                                         }
                                         IconButton(
                                             onClick = {
-                                                CoroutineScope(Dispatchers.Main).launch {
                                                 renameText = playlist.name
-                                            }) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.MoreVert,
-                                                    contentDescription = "Options",
-                                                    tint = TextSecondary,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
+                                                playlistToRename = playlist
                                             }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.MoreVert,
+                                                contentDescription = "Options",
+                                                tint = TextSecondary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
                                         }
                                     }
                                 }
                             }
-                        }                        "Songs" -> {
+                        }
+
+                        "Songs" -> {
                             if (allTracks.isEmpty()) {
                                 item {
                                     EmptyStateView(
@@ -621,7 +623,7 @@ fun LibraryScreen(
                                     }
                                 }
                             }
-                        }         }
+                        }
                     }
                 }
             }
