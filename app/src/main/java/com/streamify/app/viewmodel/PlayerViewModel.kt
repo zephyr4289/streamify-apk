@@ -326,7 +326,17 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private fun startPollingPosition() {
         positionPollingJob?.cancel()
         positionPollingJob = viewModelScope.launch {
+            var lastTickMs = System.currentTimeMillis()
             while (true) {
+                val now = System.currentTimeMillis()
+                val elapsedSec = (now - lastTickMs) / 1000L
+                if (elapsedSec >= 1L) {
+                    lastTickMs = now
+                    if (_playerState.value.isPlaying) {
+                        com.streamify.app.data.YtStatsTelemetryEngine.recordListeningSeconds(elapsedSec.coerceIn(1L, 5L))
+                    }
+                }
+
                 controller?.let { ctrl ->
                     val curState = _playerState.value
                     val playerDuration = if (ctrl.duration > 0) ctrl.duration else 0L

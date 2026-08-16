@@ -33,12 +33,16 @@ fun AlbumScreen(
     allTracks: List<Track>,
     playerViewModel: PlayerViewModel,
     onBack: () -> Unit,
-    onTrackClick: (Track, List<Track>) -> Unit
+    onTrackClick: (Track, List<Track>) -> Unit,
+    explicitTracks: List<Track>? = null,
+    headerTitle: String? = null,
+    headerSubtitle: String? = null
 ) {
     val context = LocalContext.current
-    val albumTracks = remember(albumName, allTracks) {
-        allTracks.filter { it.album.equals(albumName, ignoreCase = true) }
+    val albumTracks = remember(albumName, allTracks, explicitTracks) {
+        explicitTracks ?: allTracks.filter { it.album.equals(albumName, ignoreCase = true) }
     }
+    val displayTitle = headerTitle ?: albumName
     val currentTrack by playerViewModel.currentTrack.collectAsState()
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
     val firstTrack = albumTracks.firstOrNull()
@@ -79,7 +83,7 @@ fun AlbumScreen(
             }
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = "Album",
+                text = if (explicitTracks != null) "Playlist" else "Album",
                 style = LocalAppTypography.current.headlineMedium.copy(fontSize = 18.sp),
                 color = TextMain
             )
@@ -92,9 +96,10 @@ fun AlbumScreen(
         ) {
             // 1. Parallax Collapsing Hero Header
             item(key = "album_hero_header", contentType = "heroHeader") {
+                val displaySubtitle = headerSubtitle ?: "Album • ${firstTrack?.artist ?: "Unknown Artist"} • ${albumTracks.size} songs"
                 YtPlaylistHeroHeader(
-                    title = albumName,
-                    subtitle = "Album • ${firstTrack?.artist ?: "Unknown Artist"} • ${albumTracks.size} songs",
+                    title = displayTitle,
+                    subtitle = displaySubtitle,
                     artworkUrl = firstTrack?.coverArtPath,
                     scrollOffset = scrollOffset,
                     onPlay = {

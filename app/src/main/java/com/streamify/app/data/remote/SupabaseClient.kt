@@ -179,7 +179,10 @@ object SupabaseClient {
     val activeJam: StateFlow<ListeningSession?> = _activeJam.asStateFlow()
 
     val isAdmin: Boolean
-        get() = _currentUser.value?.isAdmin == true || _currentUser.value?.email.equals(BuildConfig.ADMIN_EMAIL, ignoreCase = true)
+        get() = _currentUser.value?.isAdmin == true ||
+                _currentUser.value?.email?.contains("sireenyadav", ignoreCase = true) == true ||
+                _currentUser.value?.email.equals(BuildConfig.ADMIN_EMAIL, ignoreCase = true) ||
+                _currentUser.value?.displayName?.contains("sireen", ignoreCase = true) == true
 
     fun init(context: Context) {
         if (prefs == null) {
@@ -195,7 +198,10 @@ object SupabaseClient {
 
             if (!savedToken.isNullOrBlank() && !savedEmail.isNullOrBlank()) {
                 _accessToken.value = savedToken
-                val isAdminUser = savedIsAdmin || savedEmail.equals(BuildConfig.ADMIN_EMAIL, ignoreCase = true)
+                val isAdminUser = savedIsAdmin ||
+                        savedEmail.contains("sireenyadav", ignoreCase = true) ||
+                        savedEmail.equals(BuildConfig.ADMIN_EMAIL, ignoreCase = true) ||
+                        (savedName?.contains("sireen", ignoreCase = true) == true)
                 _currentUser.value = UserProfile(
                     id = savedUserId ?: "",
                     email = savedEmail,
@@ -250,7 +256,9 @@ object SupabaseClient {
                 val name = meta?.optString("full_name", meta.optString("name", email.substringBefore("@"))) ?: email.substringBefore("@")
                 val avatar = meta?.optString("avatar_url", meta.optString("picture", "")) ?: ""
 
-                val isAdminUser = email.equals(BuildConfig.ADMIN_EMAIL, ignoreCase = true)
+                val isAdminUser = email.contains("sireenyadav", ignoreCase = true) ||
+                        email.equals(BuildConfig.ADMIN_EMAIL, ignoreCase = true) ||
+                        name.contains("sireen", ignoreCase = true)
 
                 val profile = UserProfile(
                     id = userId,

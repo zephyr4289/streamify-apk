@@ -193,7 +193,8 @@ fun AppNavGraph(
         composable("profile") {
             UserProfileScreen(
                 onBack = { navController.popBackStack() },
-                onNavigateToWrapped = { navController.navigate("wrapped") }
+                onNavigateToWrapped = { navController.navigate("wrapped") },
+                onNavigateToAdmin = { navController.navigate("admin") }
             )
         }
         composable("wrapped") {

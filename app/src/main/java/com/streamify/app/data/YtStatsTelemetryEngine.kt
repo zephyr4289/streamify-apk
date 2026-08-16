@@ -21,19 +21,36 @@ data class WrappedStats(
 
 object YtStatsTelemetryEngine {
 
+    fun recordListeningSeconds(seconds: Long) {
+        val context = TrackRepository.appContext ?: return
+        if (seconds <= 0) return
+        try {
+            val prefs = context.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
+            val currentSec = prefs.getLong("total_listened_seconds", 0L)
+            prefs.edit().putLong("total_listened_seconds", currentSec + seconds).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     fun computeWrappedStats(): Flow<WrappedStats> = flow {
         // 1. Off-Main-Thread Real Data Gathering
         val libraryTracks = TrackRepository.getAllTracks()
         val likedTracks = TrackRepository.getLikedTracks()
         val topPlayedTracks = TrackRepository.getTopPlayedTracks(10)
 
-        // 2. Real Telemetry Calculations
-        val totalSeconds = if (libraryTracks.isNotEmpty()) {
-            libraryTracks.sumOf { it.durationSec.toLong() }
+        // 2. Real Telemetry Calculations: Read actual accumulated playback time
+        val context = TrackRepository.appContext
+        val prefs = context?.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
+        val realListenedSeconds = prefs?.getLong("total_listened_seconds", 0L) ?: 0L
+
+        val totalMinutes = if (realListenedSeconds > 0) {
+            (realListenedSeconds / 60).toInt()
         } else {
-            0L
+            // Fallback for existing sessions: count duration of actually played tracks
+            val playedSeconds = topPlayedTracks.sumOf { it.durationSec.toLong() }
+            (playedSeconds / 60).toInt()
         }
-        val totalMinutes = (totalSeconds / 60).toInt().coerceAtLeast(libraryTracks.size * 3)
 
         val topPlayedCount = topPlayedTracks.size
 

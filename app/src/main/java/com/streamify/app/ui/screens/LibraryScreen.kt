@@ -117,6 +117,29 @@ fun LibraryScreen(
         return
     }
 
+    if (selectedPlaylistId != null) {
+        val allTracks = (uiState as? LibraryUiState.Success)?.tracks ?: emptyList()
+        val likedTracks = (uiState as? LibraryUiState.Success)?.likedTracks ?: emptyList()
+
+        val isLikedMusic = selectedPlaylistId == "liked_songs"
+        val pl = playlists.find { it.id == selectedPlaylistId }
+        val plTracks = if (isLikedMusic) likedTracks else allTracks.filter { it.id in (pl?.trackIds ?: emptyList()) }
+        val plTitle = if (isLikedMusic) "Liked Music" else (pl?.name ?: "Playlist")
+        val plSubtitle = if (isLikedMusic) "Auto-playlist • ${likedTracks.size} songs" else "Playlist • ${plTracks.size} songs"
+
+        AlbumScreen(
+            albumName = plTitle,
+            allTracks = allTracks,
+            playerViewModel = playerViewModel,
+            onBack = { selectedPlaylistId = null },
+            onTrackClick = onTrackClick,
+            explicitTracks = plTracks,
+            headerTitle = plTitle,
+            headerSubtitle = plSubtitle
+        )
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -226,9 +249,7 @@ fun LibraryScreen(
                                 YtLikedMusicCard(
                                     trackCount = likedTracks.size,
                                     onClick = {
-                                        if (likedTracks.isNotEmpty()) {
-                                            onTrackClick(likedTracks.first(), likedTracks)
-                                        }
+                                        selectedPlaylistId = "liked_songs"
                                     }
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))

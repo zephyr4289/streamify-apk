@@ -33,7 +33,8 @@ import java.util.Calendar
 @Composable
 fun UserProfileScreen(
     onBack: () -> Unit,
-    onNavigateToWrapped: () -> Unit
+    onNavigateToWrapped: () -> Unit,
+    onNavigateToAdmin: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -358,6 +359,85 @@ fun UserProfileScreen(
                     tint = TextSecondary,
                     modifier = Modifier.size(18.dp)
                 )
+            }
+        }
+
+        // Special Admin Command Center Card (Always visible for Sireen / Admin)
+        val isAdminUser = user?.isAdmin == true ||
+                user?.email?.contains("sireenyadav", ignoreCase = true) == true ||
+                user?.email.equals(com.streamify.app.BuildConfig.ADMIN_EMAIL, ignoreCase = true) ||
+                user?.displayName?.contains("sireen", ignoreCase = true) == true
+
+        if (isAdminUser) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                color = BgSurfaceElevated,
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Primary.copy(alpha = 0.6f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .clickable { onNavigateToAdmin() }
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Primary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AdminPanelSettings,
+                                contentDescription = null,
+                                tint = Primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Admin Command Center",
+                                    style = LocalAppTypography.current.songTitle.copy(
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = TextMain
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Primary.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = "OWNER",
+                                        style = LocalAppTypography.current.chipText.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                        color = Primary,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Telemetry, Edge Mesh cluster & DB control",
+                                style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }
