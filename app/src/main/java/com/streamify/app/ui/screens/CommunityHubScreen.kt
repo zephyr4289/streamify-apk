@@ -98,113 +98,128 @@ fun CommunityHubScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (state.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 120.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = Primary, strokeWidth = 3.dp)
-            }
-        } else if (state.communityPlaylists.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 120.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("🎶", fontSize = 42.sp)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "No community playlists yet",
-                        style = LocalAppTypography.current.headlineMedium.copy(fontSize = 16.sp),
-                        color = TextMain
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Publish your custom playlist from Library to see it here!",
-                        style = LocalAppTypography.current.songArtist,
-                        color = TextSecondary
-                    )
+        var isRefreshingCommunity by remember { mutableStateOf(false) }
+        val coroutineScope = rememberCoroutineScope()
+
+        com.streamify.app.ui.components.StreamifyPullToRefreshContainer(
+            isRefreshing = isRefreshingCommunity,
+            onRefresh = {
+                coroutineScope.launch {
+                    isRefreshingCommunity = true
+                    communityViewModel.loadCommunityFeed()
+                    kotlinx.coroutines.delay(400)
+                    isRefreshingCommunity = false
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 120.dp)
-            ) {
-                items(state.communityPlaylists, key = { it.id }) { playlist ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(64.dp)
-                            .clickable { onPlaylistClick(playlist) }
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (playlist.coverUrl.isNotBlank()) {
-                            YtThumbnail(
-                                url = playlist.coverUrl,
-                                size = 48.dp,
-                                cornerRadius = 4.dp
-                            )
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(BgSurfaceElevated),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.QueueMusic,
-                                    contentDescription = null,
-                                    tint = Primary,
-                                    modifier = Modifier.size(24.dp)
+        ) {
+            if (state.isLoading && !isRefreshingCommunity) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 120.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Primary, strokeWidth = 3.dp)
+                }
+            } else if (state.communityPlaylists.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 120.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("🎶", fontSize = 42.sp)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "No community playlists yet",
+                            style = LocalAppTypography.current.headlineMedium.copy(fontSize = 16.sp),
+                            color = TextMain
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Publish your custom playlist from Library to see it here!",
+                            style = LocalAppTypography.current.songArtist,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 120.dp)
+                ) {
+                    items(state.communityPlaylists, key = { it.id }) { playlist ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                                .clickable { onPlaylistClick(playlist) }
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (playlist.coverUrl.isNotBlank()) {
+                                YtThumbnail(
+                                    url = playlist.coverUrl,
+                                    size = 48.dp,
+                                    cornerRadius = 4.dp
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(BgSurfaceElevated),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.QueueMusic,
+                                        contentDescription = null,
+                                        tint = Primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = playlist.name,
+                                    style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
+                                    color = TextMain,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "by ${playlist.creatorName} • ${playlist.trackCount} songs",
+                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                    color = TextSecondary,
+                                    maxLines = 1
                                 )
                             }
-                        }
 
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = playlist.name,
-                                style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
-                                color = TextMain,
-                                maxLines = 1
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "by ${playlist.creatorName} • ${playlist.trackCount} songs",
-                                style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
-                                color = TextSecondary,
-                                maxLines = 1
-                            )
-                        }
-
-                        Surface(
-                            color = BgSurfaceElevated,
-                            shape = CircleShape
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                color = BgSurfaceElevated,
+                                shape = CircleShape
                             ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Favorite,
-                                    contentDescription = null,
-                                    tint = Primary,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "${playlist.likesCount}",
-                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
-                                    color = TextMain
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Favorite,
+                                        contentDescription = null,
+                                        tint = Primary,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "${playlist.likesCount}",
+                                        style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                                        color = TextMain
+                                    )
+                                }
                             }
                         }
                     }

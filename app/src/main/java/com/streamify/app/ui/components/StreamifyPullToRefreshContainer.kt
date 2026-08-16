@@ -1,0 +1,153 @@
+package com.streamify.app.ui.components
+
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.unit.dp
+import com.streamify.app.ui.theme.ActiveControl
+import com.streamify.app.ui.theme.Primary
+import com.streamify.app.util.StreamifyHapticEngine
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StreamifyPullToRefreshContainer(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val state = rememberPullToRefreshState()
+
+    // 1. Magnetic Haptic Edge Detection
+    val distanceFraction = state.distanceFraction
+    LaunchedEffect(distanceFraction) {
+        if (distanceFraction > 0f) {
+            StreamifyHapticEngine.evaluatePull(distanceFraction)
+        }
+    }
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        state = state,
+        modifier = modifier.fillMaxSize(),
+        indicator = {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                NeonOrbitalIndicator(
+                    progress = state.distanceFraction.coerceIn(0f, 1f),
+                    isRefreshing = isRefreshing
+                )
+            }
+        }
+    ) {
+        content()
+    }
+}
+
+@Composable
+fun NeonOrbitalIndicator(
+    progress: Float,
+    isRefreshing: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "NeonOrbitalTransition")
+
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 750, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "NeonRotation"
+    )
+
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "NeonPulse"
+    )
+
+    Canvas(modifier = modifier.size(42.dp)) {
+        val diameter = size.minDimension
+        val stroke = diameter / 9f
+        val centerOffset = Offset(size.width / 2f, size.height / 2f)
+
+        // 1. Background Track Ring
+        drawArc(
+            color = Color.White.copy(alpha = 0.08f),
+            startAngle = 0f,
+            sweepAngle = 360f,
+            useCenter = false,
+            style = Stroke(width = stroke, cap = StrokeCap.Round)
+        )
+
+        if (isRefreshing) {
+            // 2. GPU Radial Luminescent Bloom
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        ActiveControl.copy(alpha = 0.45f),
+                        Primary.copy(alpha = 0.15f),
+                        Color.Transparent
+                    ),
+                    center = centerOffset,
+                    radius = (diameter / 1.5f) * pulseScale
+                ),
+                radius = (diameter / 1.5f) * pulseScale,
+                center = centerOffset
+            )
+
+            // 3. Continuous 360° Neon Pulse Spinner
+            rotate(rotation, pivot = centerOffset) {
+                drawArc(
+                    brush = Brush.sweepGradient(
+                        listOf(
+                            Color.Transparent,
+                            Primary,
+                            ActiveControl
+                        )
+                    ),
+                    startAngle = 0f,
+                    sweepAngle = 300f,
+                    useCenter = false,
+                    style = Stroke(width = stroke, cap = StrokeCap.Round)
+                )
+            }
+        } else {
+            // 4. Kinetic Pull-Driven Arc Morph (0° -> 360°)
+            val sweep = progress * 360f
+            rotate(-90f, pivot = centerOffset) {
+                drawArc(
+                    color = ActiveControl,
+                    startAngle = 0f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    style = Stroke(width = stroke, cap = StrokeCap.Round)
+                )
+            }
+        }
+    }
+}

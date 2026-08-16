@@ -19,13 +19,54 @@ import androidx.compose.ui.unit.sp
 import com.streamify.app.data.PlaylistRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.ContextMenuSheet
+import com.streamify.app.ui.components.StreamifyPullToRefreshContainer
 import com.streamify.app.ui.components.YtPlaylistHeroHeader
 import com.streamify.app.ui.components.YtQueueTrackItem
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.PlayerViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+@Composable
+fun PlaylistDetailScreen(
+    playlistId: String,
+    playlistName: String,
+    playlistDescription: String,
+    playlistTracks: List<Track>,
+    playerViewModel: PlayerViewModel,
+    onBack: () -> Unit,
+    onTrackClick: (Track, List<Track>) -> Unit
+) {
+    var isRefreshing by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    StreamifyPullToRefreshContainer(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            coroutineScope.launch {
+                isRefreshing = true
+                try {
+                    PlaylistRepository.refresh()
+                } catch (e: Exception) {}
+                delay(400)
+                isRefreshing = false
+            }
+        }
+    ) {
+        AlbumScreen(
+            albumName = playlistName,
+            allTracks = playlistTracks,
+            playerViewModel = playerViewModel,
+            onBack = onBack,
+            onTrackClick = onTrackClick,
+            explicitTracks = playlistTracks,
+            headerTitle = playlistName,
+            headerSubtitle = if (playlistDescription.isNotBlank()) playlistDescription else "${playlistTracks.size} songs"
+        )
+    }
+}
 
 @Composable
 fun AlbumScreen(

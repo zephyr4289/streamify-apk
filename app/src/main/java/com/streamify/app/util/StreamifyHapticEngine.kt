@@ -105,6 +105,16 @@ object StreamifyHapticEngine {
     fun playbackPulse() = vibrate(playbackPulse)
     fun queueGrab() = vibrate(queueGrab)
 
+    private var thresholdCrossed = false
+    fun evaluatePull(progress: Float) {
+        if (progress >= 1f && !thresholdCrossed) {
+            thresholdCrossed = true
+            magneticDetent()
+        } else if (progress < 0.85f) {
+            thresholdCrossed = false
+        }
+    }
+
     private fun vibrate(effect: VibrationEffect?) {
         if (!isEnabled || effect == null) return
         val vib = vibrator ?: return

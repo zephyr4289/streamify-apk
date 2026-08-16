@@ -42,6 +42,7 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val communityState by communityViewModel.uiState.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
     val user by SupabaseClient.currentUser.collectAsState()
     val listState = rememberLazyListState()
 
@@ -81,223 +82,230 @@ fun HomeScreen(
             }
         )
 
-        // 3. Main Scrollable Discovery Feed
-        when (val state = uiState) {
-            is HomeUiState.Loading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        color = Primary,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
+        // 3. GPU Pull-To-Refresh Discovery Feed Container
+        StreamifyPullToRefreshContainer(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                viewModel.loadData()
+                communityViewModel.loadCommunityFeed()
             }
-            is HomeUiState.Error -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Error: ${state.message}",
-                        color = Primary,
-                        style = LocalAppTypography.current.songArtist
-                    )
+        ) {
+            when (val state = uiState) {
+                is HomeUiState.Loading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = Primary,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
                 }
-            }
-            is HomeUiState.Success -> {
-                // Filter content based on selected mood
-                val allTracks = state.allTracks
-                val displayTracks = when (selectedMood.lowercase()) {
-                    "workout" -> allTracks.filter { it.bpm >= 120f || it.bpm == 0f }.ifEmpty { allTracks }
-                    "relax", "chill" -> allTracks.filter { (it.bpm in 60f..110f) || it.bpm == 0f }.ifEmpty { allTracks }
-                    "focus" -> allTracks.filter { it.bpm in 70f..115f }.ifEmpty { allTracks }
-                    "energize" -> allTracks.filter { it.bpm >= 125f }.ifEmpty { allTracks }
-                    else -> allTracks
+                is HomeUiState.Error -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Error: ${state.message}",
+                            color = Primary,
+                            style = LocalAppTypography.current.songArtist
+                        )
+                    }
                 }
-
-                val screenConfig = LocalScreenConfiguration.current
-                val gridColumns = remember(screenConfig.widthDp) {
-                    ((screenConfig.widthDp.value / 158f).toInt()).coerceAtLeast(2)
-                }
-
-                val quickPickCandidates = if (displayTracks.isNotEmpty()) displayTracks else state.sessionRecommendations.ifEmpty { allTracks }
-                val quickPickColumns = remember(quickPickCandidates) {
-                    val pool = if (quickPickCandidates.isNotEmpty()) quickPickCandidates else allTracks
-                    pool.take(16).chunked(4)
-                }
-
-                val listenAgainCandidates = remember(state.topPlayed, state.recent) {
-                    val combined = (state.topPlayed + state.recent).distinctBy { it.id }
-                    if (combined.isNotEmpty()) combined else allTracks
-                }
-                val listenAgainColumns = remember(listenAgainCandidates, gridColumns) {
-                    listenAgainCandidates.take(gridColumns * 6).chunked(if (screenConfig.isTablet) 3 else 2)
-                }
-
-                val supermixPool = remember(state.madeForYou, state.sessionRecommendations) {
-                    (state.madeForYou + state.sessionRecommendations).distinctBy { it.id }.ifEmpty { allTracks }
-                }
-
-                val circadianColumns = remember(state.circadianRecommendations, gridColumns) {
-                    state.circadianRecommendations.take(gridColumns * 6).chunked(if (screenConfig.isTablet) 3 else 2)
-                }
-
-                val hybridColumns = remember(state.hybridRecommendations, gridColumns) {
-                    state.hybridRecommendations.take(gridColumns * 4).chunked(if (screenConfig.isTablet) 3 else 2)
-                }
-
-                val context = LocalContext.current
-                val updateState by StreamifyUpdateManager.updateState.collectAsState()
-
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 120.dp) // Fixed spacer protects from docked mini-player
-                ) {
-                    // In-App OTA Update Banner
-                    if (updateState is UpdateState.UpdateAvailable) {
-                        val available = updateState as UpdateState.UpdateAvailable
-                        item(key = "card_update_available", contentType = "updateBanner") {
-                            UpdateAvailableCard(
-                                updateState = available,
-                                onUpdateClick = {
-                                    ApkInstaller.downloadAndInstall(context, available.apkUrl)
-                                },
-                                onDismissClick = {
-                                    StreamifyUpdateManager.dismissUpdate(context, available.version)
-                                }
-                            )
-                        }
+                is HomeUiState.Success -> {
+                    val allTracks = state.allTracks
+                    val displayTracks = when (selectedMood.lowercase()) {
+                        "workout" -> allTracks.filter { it.bpm >= 120f || it.bpm == 0f }.ifEmpty { allTracks }
+                        "relax", "chill" -> allTracks.filter { (it.bpm in 60f..110f) || it.bpm == 0f }.ifEmpty { allTracks }
+                        "focus" -> allTracks.filter { it.bpm in 70f..115f }.ifEmpty { allTracks }
+                        "energize" -> allTracks.filter { it.bpm >= 125f }.ifEmpty { allTracks }
+                        else -> allTracks
                     }
 
-                    // Optional Broadcast Banner
-                    if (communityState.activeBroadcasts.isNotEmpty()) {
-                        item(key = "broadcast_banner") {
-                            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                BroadcastBanner(broadcasts = communityState.activeBroadcasts)
+                    val screenConfig = LocalScreenConfiguration.current
+                    val gridColumns = remember(screenConfig.widthDp) {
+                        ((screenConfig.widthDp.value / 158f).toInt()).coerceAtLeast(2)
+                    }
+
+                    val quickPickCandidates = if (displayTracks.isNotEmpty()) displayTracks else state.sessionRecommendations.ifEmpty { allTracks }
+                    val quickPickColumns = remember(quickPickCandidates) {
+                        val pool = if (quickPickCandidates.isNotEmpty()) quickPickCandidates else allTracks
+                        pool.take(16).chunked(4)
+                    }
+
+                    val listenAgainCandidates = remember(state.topPlayed, state.recent) {
+                        val combined = (state.topPlayed + state.recent).distinctBy { it.id }
+                        if (combined.isNotEmpty()) combined else allTracks
+                    }
+                    val listenAgainColumns = remember(listenAgainCandidates, gridColumns) {
+                        listenAgainCandidates.take(gridColumns * 6).chunked(if (screenConfig.isTablet) 3 else 2)
+                    }
+
+                    val supermixPool = remember(state.madeForYou, state.sessionRecommendations) {
+                        (state.madeForYou + state.sessionRecommendations).distinctBy { it.id }.ifEmpty { allTracks }
+                    }
+
+                    val circadianColumns = remember(state.circadianRecommendations, gridColumns) {
+                        state.circadianRecommendations.take(gridColumns * 6).chunked(if (screenConfig.isTablet) 3 else 2)
+                    }
+
+                    val hybridColumns = remember(state.hybridRecommendations, gridColumns) {
+                        state.hybridRecommendations.take(gridColumns * 4).chunked(if (screenConfig.isTablet) 3 else 2)
+                    }
+
+                    val context = LocalContext.current
+                    val updateState by StreamifyUpdateManager.updateState.collectAsState()
+
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 120.dp)
+                    ) {
+                        // In-App OTA Update Banner
+                        if (updateState is UpdateState.UpdateAvailable) {
+                            val available = updateState as UpdateState.UpdateAvailable
+                            item(key = "card_update_available", contentType = "updateBanner") {
+                                UpdateAvailableCard(
+                                    updateState = available,
+                                    onUpdateClick = {
+                                        ApkInstaller.downloadAndInstall(context, available.apkUrl)
+                                    },
+                                    onDismissClick = {
+                                        StreamifyUpdateManager.dismissUpdate(context, available.version)
+                                    }
+                                )
                             }
                         }
-                    }
 
-                    // SHELF 1: LISTEN AGAIN (Top Priority: 2-Row Horizontal Scroll Grid with Large Thumbnails)
-                    if (listenAgainColumns.isNotEmpty() && listenAgainColumns.first().isNotEmpty()) {
-                        item(key = "header_listen_again") {
-                            YtSectionHeader(
-                                title = "Listen Again",
-                                kicker = "Past Heavy Rotations"
-                            )
-                        }
-                        item(key = "grid_listen_again") {
-                            YtListenAgainGrid(
-                                columns = listenAgainColumns,
-                                onTrackClick = onTrackClick
-                            )
-                        }
-                    }
-
-                    // SHELF 2: QUICK PICKS (4-Row Horizontal Column Carousel)
-                    if (quickPickColumns.isNotEmpty() && quickPickColumns.first().isNotEmpty()) {
-                        item(key = "header_quick_picks") {
-                            YtSectionHeader(
-                                title = "Quick Picks",
-                                kicker = if (selectedMood != "All") "$selectedMood Mix" else "Start radio for"
-                            )
-                        }
-                        item(key = "carousel_quick_picks") {
-                            YtQuickPicksCarousel(
-                                columns = quickPickColumns,
-                                onTrackClick = onTrackClick
-                            )
-                        }
-                    }
-
-                    // SHELF 3: MY SUPERMIX & DYNAMIC STATIONS
-                    if (supermixPool.isNotEmpty()) {
-                        item(key = "header_supermix") {
-                            YtSectionHeader(
-                                title = "Mixed For You",
-                                kicker = "Personalized Stations"
-                            )
-                        }
-                        item(key = "row_supermix") {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                items(
-                                    items = supermixPool.take(8),
-                                    key = { "supermix_${it.id}" }
-                                ) { track ->
-                                    YtSupermixCard(
-                                        title = "${track.artist} Mix",
-                                        subtitle = "Continuous station with ${track.title}",
-                                        artworkUrl = track.coverArtPath,
-                                        onClick = { onTrackClick(track, supermixPool) }
-                                    )
+                        // Optional Broadcast Banner
+                        if (communityState.activeBroadcasts.isNotEmpty()) {
+                            item(key = "broadcast_banner") {
+                                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                    BroadcastBanner(broadcasts = communityState.activeBroadcasts)
                                 }
                             }
                         }
-                    }
 
-                    // SHELF 4: CIRCADIAN DAYPARTING RHYTHM
-                    if (state.circadianRecommendations.isNotEmpty()) {
-                        item(key = "header_circadian") {
-                            YtSectionHeader(
-                                title = state.circadianSlotTitle,
-                                kicker = "Circadian Acoustic Tuning"
-                            )
+                        // SHELF 1: LISTEN AGAIN
+                        if (listenAgainColumns.isNotEmpty() && listenAgainColumns.first().isNotEmpty()) {
+                            item(key = "header_listen_again") {
+                                YtSectionHeader(
+                                    title = "Listen Again",
+                                    kicker = "Past Heavy Rotations"
+                                )
+                            }
+                            item(key = "grid_listen_again") {
+                                YtListenAgainGrid(
+                                    columns = listenAgainColumns,
+                                    onTrackClick = onTrackClick
+                                )
+                            }
                         }
-                        item(key = "grid_circadian") {
-                            YtListenAgainGrid(
-                                columns = circadianColumns,
-                                onTrackClick = onTrackClick
-                            )
-                        }
-                    }
 
-                    // SHELF 5: HYBRID ASYMMETRIC RADAR
-                    if (state.hybridRecommendations.isNotEmpty()) {
-                        item(key = "header_hybrid") {
-                            YtSectionHeader(
-                                title = "Hybrid Radar ⚡",
-                                kicker = "Last.fm Graph × On-Device SIMD"
-                            )
+                        // SHELF 2: QUICK PICKS
+                        if (quickPickColumns.isNotEmpty() && quickPickColumns.first().isNotEmpty()) {
+                            item(key = "header_quick_picks") {
+                                YtSectionHeader(
+                                    title = "Quick Picks",
+                                    kicker = if (selectedMood != "All") "$selectedMood Mix" else "Start radio for"
+                                )
+                            }
+                            item(key = "carousel_quick_picks") {
+                                YtQuickPicksCarousel(
+                                    columns = quickPickColumns,
+                                    onTrackClick = onTrackClick
+                                )
+                            }
                         }
-                        item(key = "grid_hybrid") {
-                            YtListenAgainGrid(
-                                columns = hybridColumns,
-                                onTrackClick = onTrackClick
-                            )
-                        }
-                    }
 
-                    // SHELF 6: COMMUNITY TRENDING PLAYLISTS
-                    if (communityState.communityPlaylists.isNotEmpty()) {
-                        item(key = "header_community") {
-                            YtSectionHeader(
-                                title = "Community Trending",
-                                kicker = "Curated by Streamify Listeners",
-                                actionText = "See All",
-                                onActionClick = onNavigateToCommunity
-                            )
+                        // SHELF 3: MY SUPERMIX & DYNAMIC STATIONS
+                        if (supermixPool.isNotEmpty()) {
+                            item(key = "header_supermix") {
+                                YtSectionHeader(
+                                    title = "Mixed For You",
+                                    kicker = "Personalized Stations"
+                                )
+                            }
+                            item(key = "row_supermix") {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(
+                                        items = supermixPool.take(8),
+                                        key = { "supermix_${it.id}" }
+                                    ) { track ->
+                                        YtSupermixCard(
+                                            title = "${track.artist} Mix",
+                                            subtitle = "Continuous station with ${track.title}",
+                                            artworkUrl = track.coverArtPath,
+                                            onClick = { onTrackClick(track, supermixPool) }
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        item(key = "row_community") {
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                items(communityState.communityPlaylists) { playlist ->
-                                    YtSupermixCard(
-                                        title = playlist.name,
-                                        subtitle = "by ${playlist.creatorName}",
-                                        artworkUrl = playlist.coverUrl,
-                                        onClick = onNavigateToCommunity
-                                    )
+
+                        // SHELF 4: CIRCADIAN DAYPARTING RHYTHM
+                        if (state.circadianRecommendations.isNotEmpty()) {
+                            item(key = "header_circadian") {
+                                YtSectionHeader(
+                                    title = state.circadianSlotTitle,
+                                    kicker = "Circadian Acoustic Tuning"
+                                )
+                            }
+                            item(key = "grid_circadian") {
+                                YtListenAgainGrid(
+                                    columns = circadianColumns,
+                                    onTrackClick = onTrackClick
+                                )
+                            }
+                        }
+
+                        // SHELF 5: HYBRID ASYMMETRIC RADAR
+                        if (state.hybridRecommendations.isNotEmpty()) {
+                            item(key = "header_hybrid") {
+                                YtSectionHeader(
+                                    title = "Hybrid Radar ⚡",
+                                    kicker = "Last.fm Graph × On-Device SIMD"
+                                )
+                            }
+                            item(key = "grid_hybrid") {
+                                YtListenAgainGrid(
+                                    columns = hybridColumns,
+                                    onTrackClick = onTrackClick
+                                )
+                            }
+                        }
+
+                        // SHELF 6: COMMUNITY TRENDING PLAYLISTS
+                        if (communityState.communityPlaylists.isNotEmpty()) {
+                            item(key = "header_community") {
+                                YtSectionHeader(
+                                    title = "Community Trending",
+                                    kicker = "Curated by Streamify Listeners",
+                                    actionText = "See All",
+                                    onActionClick = onNavigateToCommunity
+                                )
+                            }
+                            item(key = "row_community") {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(communityState.communityPlaylists) { playlist ->
+                                        YtSupermixCard(
+                                            title = playlist.name,
+                                            subtitle = "by ${playlist.creatorName}",
+                                            artworkUrl = playlist.coverUrl,
+                                            onClick = onNavigateToCommunity
+                                        )
+                                    }
                                 }
                             }
                         }
