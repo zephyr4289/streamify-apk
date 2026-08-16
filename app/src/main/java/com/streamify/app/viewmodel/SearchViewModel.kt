@@ -305,10 +305,8 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         listOf(trackToPlay)
                     }
 
-                    // 3. Initialize Continuum Radio Engine with the playing track
-                    com.streamify.app.data.ContinuumRadioEngine.resetRadioSession(trackToPlay)
-
-                    playerViewModel.playTrack(trackToPlay, fullQueue)
+                    // 3. Play from search and kick off Continuum Radio Engine
+                    playerViewModel.playFromSearch(trackToPlay, fullQueue)
                 } else {
                     withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(context, "Could not resolve audio stream. Please try another track.", android.widget.Toast.LENGTH_SHORT).show()

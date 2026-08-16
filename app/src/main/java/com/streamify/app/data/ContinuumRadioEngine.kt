@@ -4,7 +4,6 @@ import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.NetworkEngine
 import com.streamify.app.data.network.YouTubeMusicSearchApi
 import com.streamify.app.data.network.YouTubeStreamResolver
-import com.streamify.app.viewmodel.OnlineSearchResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,11 +14,18 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.util.Collections
-import java.util.LinkedHashSet
+import java.util.HashSet
 import java.util.zip.GZIPInputStream
+
+val Track.videoId: String
+    get() = YouTubeStreamResolver.extractVideoId(filepath) ?: id.toString()
+
+data class RadioContext(
+    val videoId: String,
+    val playlistId: String? = null,
+    var continuationToken: String? = null
+)
 
 object ContinuumRadioEngine {
 
@@ -27,94 +33,74 @@ object ContinuumRadioEngine {
     private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
 
-    // O(1) Session History Deduplication Ring Buffer (The Echo Chamber Killer)
-    private val playedVideoIds = Collections.synchronizedSet(LinkedHashSet<String>())
-    private val playedSignatures = Collections.synchronizedSet(LinkedHashSet<String>())
-    private const val MAX_HISTORY_CAPACITY = 200
+    // O(1) De-duplication Sets (The Echo Chamber Killer)
+    private val playedVideoIds = Collections.synchronizedSet(HashSet<String>())
+    private val playedSignatures = Collections.synchronizedSet(HashSet<String>())
 
-    private var activeRadioSeedVideoId: String? = null
-    private var activeContinuationToken: String? = null
+    private val _discoveredQueue = MutableStateFlow<List<Track>>(emptyList())
+    val discoveredQueue: StateFlow<List<Track>> = _discoveredQueue.asStateFlow()
+
+    private var currentRadioContext: RadioContext? = null
 
     private val _isFetching = MutableStateFlow(false)
     val isFetching: StateFlow<Boolean> = _isFetching.asStateFlow()
 
-    /**
-     * Records a track into the O(1) session history ring buffer
-     */
-    fun recordTrackPlayed(track: Track) {
-        val videoId = YouTubeStreamResolver.extractVideoId(track.filepath)
-        if (videoId != null) {
-            synchronized(playedVideoIds) {
-                if (playedVideoIds.size >= MAX_HISTORY_CAPACITY) {
-                    val first = playedVideoIds.iterator().next()
-                    playedVideoIds.remove(first)
-                }
-                playedVideoIds.add(videoId)
-            }
-        }
-
-        val sig = normalizeSignature(track.title, track.artist)
-        if (sig.isNotBlank()) {
-            synchronized(playedSignatures) {
-                if (playedSignatures.size >= MAX_HISTORY_CAPACITY) {
-                    val first = playedSignatures.iterator().next()
-                    playedSignatures.remove(first)
-                }
-                playedSignatures.add(sig)
-            }
-        }
+    fun clearRadio() {
+        playedVideoIds.clear()
+        playedSignatures.clear()
+        _discoveredQueue.value = emptyList()
+        currentRadioContext = null
     }
 
     /**
-     * Initializes or resets a new Radio continuum session based on seed track
+     * Step 1: Initialize radio from search tap or autoplay
      */
-    fun resetRadioSession(seedTrack: Track) {
-        activeRadioSeedVideoId = YouTubeStreamResolver.extractVideoId(seedTrack.filepath)
-        activeContinuationToken = null
-        recordTrackPlayed(seedTrack)
+    suspend fun startRadio(seedTrack: Track): List<Track> = withContext(Dispatchers.IO) {
+        clearRadio()
+        val vId = seedTrack.videoId
+        playedVideoIds.add(vId)
+        playedSignatures.add(normalizeSignature(seedTrack.title, seedTrack.artist))
+        currentRadioContext = RadioContext(videoId = vId, playlistId = "RDAMVM$vId")
+
+        // Fetch initial radio batch (usually 15-25 tracks)
+        fetchNextRadioBatch()
     }
 
     /**
-     * Asynchronously fetches the next batch of infinite radio tracks using recursive Innertube continuation tokens
+     * Step 2: Autonomous Pagination & De-duplication
      */
-    suspend fun fetchNextRadioBatch(seedTrack: Track, limit: Int = 15): List<Track> = withContext(Dispatchers.IO) {
+    suspend fun fetchNextRadioBatch(): List<Track> = withContext(Dispatchers.IO) {
+        val context = currentRadioContext ?: return@withContext emptyList()
         _isFetching.value = true
+
         try {
-            val videoId = activeRadioSeedVideoId ?: YouTubeStreamResolver.extractVideoId(seedTrack.filepath) ?: "dQw4w9WgXcQ"
-            recordTrackPlayed(seedTrack)
+            val (candidates, nextContinuation) = executeNextRequest(context.videoId, context.continuationToken)
+            // Update continuation token for infinite pagination
+            context.continuationToken = nextContinuation
 
-            // 1. Execute Innertube /next request
-            val (candidates, nextContinuation) = executeNextRequest(videoId, activeContinuationToken)
-            if (nextContinuation != null) {
-                activeContinuationToken = nextContinuation
-            }
+            val uniqueTracks = mutableListOf<Track>()
+            for (track in candidates) {
+                val trackVId = track.videoId
+                val sig = normalizeSignature(track.title, track.artist)
 
-            // 2. O(1) Deduplication against session history
-            val freshCandidates = mutableListOf<Track>()
-            for (candidate in candidates) {
-                val cVideoId = YouTubeStreamResolver.extractVideoId(candidate.filepath)
-                val cSig = normalizeSignature(candidate.title, candidate.artist)
-
-                val isDuplicateVideo = cVideoId != null && playedVideoIds.contains(cVideoId)
-                val isDuplicateSig = cSig.isNotBlank() && playedSignatures.contains(cSig)
-
-                if (!isDuplicateVideo && !isDuplicateSig) {
-                    freshCandidates.add(candidate)
-                    if (cVideoId != null) playedVideoIds.add(cVideoId)
-                    if (cSig.isNotBlank()) playedSignatures.add(cSig)
+                // O(1) Echo Chamber Killer Check
+                if (!playedVideoIds.contains(trackVId) && !playedSignatures.contains(sig)) {
+                    playedVideoIds.add(trackVId)
+                    if (sig.isNotBlank()) playedSignatures.add(sig)
+                    uniqueTracks.add(track)
                 }
             }
 
-            // 3. Fallback: If continuation was empty or returned only duplicates, query Last.fm / Innertube search
-            if (freshCandidates.isEmpty()) {
-                val fallbackResults = YouTubeMusicSearchApi.search("${seedTrack.artist} ${seedTrack.title} mix", maxResults = limit)
+            // Fallback: If pagination returned no unique tracks, query Innertube search mix
+            if (uniqueTracks.isEmpty()) {
+                val fallbackResults = YouTubeMusicSearchApi.search("${context.videoId} mix", maxResults = 15)
                 for (item in fallbackResults) {
-                    val fVideoId = YouTubeStreamResolver.extractVideoId(item.url)
+                    val fVId = YouTubeStreamResolver.extractVideoId(item.url) ?: item.url
                     val fSig = normalizeSignature(item.title, item.uploader)
-                    if (fVideoId != null && !playedVideoIds.contains(fVideoId) && !playedSignatures.contains(fSig)) {
-                        playedVideoIds.add(fVideoId)
+                    if (!playedVideoIds.contains(fVId) && !playedSignatures.contains(fSig)) {
+                        playedVideoIds.add(fVId)
                         if (fSig.isNotBlank()) playedSignatures.add(fSig)
-                        freshCandidates.add(
+                        uniqueTracks.add(
                             Track(
                                 id = -(item.url.hashCode()),
                                 title = item.title,
@@ -133,13 +119,29 @@ object ContinuumRadioEngine {
                 }
             }
 
-            freshCandidates.take(limit)
+            // Append to live discovered queue
+            _discoveredQueue.value = _discoveredQueue.value + uniqueTracks
+            uniqueTracks
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
         } finally {
             _isFetching.value = false
         }
+    }
+
+    /**
+     * Step 3: The Predictive Pre-Fetch Trigger (Called by PlayerViewModel)
+     */
+    suspend fun ensureQueueDepth(currentQueueSize: Int, seedTrack: Track? = null): List<Track> {
+        if (currentRadioContext == null && seedTrack != null) {
+            return startRadio(seedTrack)
+        }
+        if (currentQueueSize <= 3) {
+            // Queue is running low, fetch the next page silently in background
+            return fetchNextRadioBatch()
+        }
+        return emptyList()
     }
 
     private fun executeNextRequest(videoId: String, continuationToken: String?): Pair<List<Track>, String?> {
@@ -198,7 +200,6 @@ object ContinuumRadioEngine {
         var nextContinuation: String? = null
 
         try {
-            // Find playlistPanelVideoRenderer items across tabs / continuations
             val candidateNodes = mutableListOf<JSONObject>()
             findJsonObjects(root, "playlistPanelVideoRenderer", candidateNodes)
 

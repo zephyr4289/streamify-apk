@@ -497,6 +497,15 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             .build()
     }
 
+    fun playFromSearch(tappedTrack: Track, searchContext: List<Track>) {
+        viewModelScope.launch {
+            // 1. Kick off Continuum Radio session in background
+            com.streamify.app.data.ContinuumRadioEngine.startRadio(tappedTrack)
+            // 2. Play the tapped track with the full search queue
+            playTrack(tappedTrack, searchContext.ifEmpty { listOf(tappedTrack) })
+        }
+    }
+
     fun playTrack(track: Track, queue: List<Track> = listOf(track)) {
         _playerState.value = _playerState.value.copy(currentTrack = track, queue = queue)
 
