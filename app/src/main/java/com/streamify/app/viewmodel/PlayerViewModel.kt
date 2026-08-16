@@ -306,6 +306,42 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 _playerState.value = _playerState.value.copy(isRepeatActive = repeatMode != Player.REPEAT_MODE_OFF)
             }
 
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                if (_playerState.value.isAutoPlayEnabled) {
+                    val currentIndex = ctrl.currentMediaItemIndex
+                    val totalItems = ctrl.mediaItemCount
+                    if (totalItems > 0 && totalItems - currentIndex <= 2) {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            val currentT = _playerState.value.currentTrack
+                            val newTracks = com.streamify.app.data.ContinuumRadioEngine.ensureQueueDepth(
+                                currentQueueSize = totalItems - currentIndex,
+                                seedTrack = currentT
+                            )
+                            if (newTracks.isNotEmpty()) {
+                                withContext(Dispatchers.Main) {
+                                    val currentQ = _playerState.value.queue.toMutableList()
+                                    val newMediaItems = mutableListOf<MediaItem>()
+                                    for (track in newTracks) {
+                                        if (!currentQ.any { it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true) }) {
+                                            currentQ.add(track)
+                                            newMediaItems.add(buildMediaItem(track))
+                                        }
+                                    }
+                                    if (newMediaItems.isNotEmpty()) {
+                                        _playerState.value = _playerState.value.copy(queue = currentQ)
+                                        ctrl.addMediaItems(newMediaItems)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 val currentT = _playerState.value.currentTrack
                 if (currentT != null) {
