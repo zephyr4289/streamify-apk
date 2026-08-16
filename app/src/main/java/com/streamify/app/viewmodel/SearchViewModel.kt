@@ -199,6 +199,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
 
     fun playOnlineTrack(
         onlineTrack: OnlineSearchResult,
+        allOnlineResults: List<OnlineSearchResult> = emptyList(),
         playerViewModel: com.streamify.app.viewmodel.PlayerViewModel,
         ingestionViewModel: com.streamify.app.viewmodel.IngestionViewModel,
         context: android.content.Context
@@ -278,7 +279,36 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         lyricsPath = null,
                         source = "online_stream"
                     )
-                    playerViewModel.playTrack(trackToPlay, listOf(trackToPlay))
+
+                    // 2. Assemble full search context queue from all on-screen results
+                    val fullQueue = if (allOnlineResults.isNotEmpty()) {
+                        allOnlineResults.map { item ->
+                            if (item.url == onlineTrack.url) {
+                                trackToPlay
+                            } else {
+                                Track(
+                                    id = -(item.url.hashCode()),
+                                    title = item.title,
+                                    artist = item.uploader,
+                                    album = "Online Stream",
+                                    durationSec = item.duration,
+                                    filepath = item.url,
+                                    coverArtPath = item.thumbnail.takeIf { it.isNotBlank() },
+                                    bpm = 0f,
+                                    key = "",
+                                    lyricsPath = null,
+                                    source = "online_stream"
+                                )
+                            }
+                        }
+                    } else {
+                        listOf(trackToPlay)
+                    }
+
+                    // 3. Initialize Continuum Radio Engine with the playing track
+                    com.streamify.app.data.ContinuumRadioEngine.resetRadioSession(trackToPlay)
+
+                    playerViewModel.playTrack(trackToPlay, fullQueue)
                 } else {
                     withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(context, "Could not resolve audio stream. Please try another track.", android.widget.Toast.LENGTH_SHORT).show()

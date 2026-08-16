@@ -230,56 +230,64 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     _playerState.value = _playerState.value.copy(sleepTimerEndTrack = false, sleepTimerMinutesLeft = null)
                 }
 
-                // NEURAL INFINITY RADIO: If we reached the last song in the queue (and auto-play is enabled), fetch recommendations
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && _playerState.value.isAutoPlayEnabled) {
+                // CONTINUUM INFINITE RADIO: When approaching the end of the queue (or queue size <= 2), fetch next radio batch
+                if (_playerState.value.isAutoPlayEnabled) {
                     val currentQueue = _playerState.value.queue
-                    val currentIdx = currentQueue.indexOfFirst { it.id.toString() == mediaItem?.mediaId }
-                    if (currentIdx >= 0 && currentIdx == currentQueue.size - 1) {
-                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val currentIdx = currentQueue.indexOfFirst {
+                        (it.id != 0 && it.id.toString() == mediaItem?.mediaId) || it.filepath == mediaItem?.mediaId || it.title == mediaItem?.mediaMetadata?.title
+                    }.takeIf { it >= 0 } ?: (ctrl.currentMediaItemIndex)
+
+                    if (currentIdx >= currentQueue.size - 2) {
+                        viewModelScope.launch(Dispatchers.IO) {
                             val currentT = _playerState.value.currentTrack
                             if (currentT != null) {
-                                var validId = currentT.id
-                                if (validId <= 0 && currentT.filepath.isNotBlank()) {
-                                    validId = com.streamify.app.data.NativeBridge.insertTrack(
-                                        filepath = currentT.filepath,
-                                        title = currentT.title,
-                                        artist = currentT.artist,
-                                        album = currentT.album,
-                                        durationSec = currentT.durationSec,
-                                        bpm = currentT.bpm
-                                    ).toInt()
-                                    if (validId > 0 && !currentT.coverArtPath.isNullOrBlank()) {
-                                        com.streamify.app.data.NativeBridge.updateTrackCoverArt(validId, currentT.coverArtPath!!)
-                                    }
-                                }
-                                if (validId > 0) {
-                                    val recentHistory = currentQueue.takeLast(20).map { it.id }.toIntArray()
-                                    val recs = repository.getRecommendations(validId, recentHistory, 1, 5)
-                                    if (recs.isNotEmpty()) {
-                                        val newQueue = currentQueue.toMutableList()
-                                        val newMediaItems = mutableListOf<MediaItem>()
-                                        for (rec in recs) {
-                                            if (!newQueue.any { it.id == rec.id }) {
-                                                newQueue.add(rec)
-                                                newMediaItems.add(
-                                                    MediaItem.Builder()
-                                                        .setMediaId(rec.id.toString())
-                                                        .setUri(rec.filepath)
-                                                        .setMediaMetadata(
-                                                            MediaMetadata.Builder()
-                                                                .setTitle(rec.title)
-                                                                .setArtist(rec.artist)
-                                                                .setAlbumTitle(rec.album)
-                                                                .setArtworkUri(android.net.Uri.parse(rec.coverArtPath ?: ""))
-                                                                .build()
-                                                        ).build()
-                                                )
-                                            }
+                                // 1. Query Infinite Continuum Radio Engine (Innertube continuation + O(1) deduplication)
+                                val continuumRecs = com.streamify.app.data.ContinuumRadioEngine.fetchNextRadioBatch(currentT, limit = 15)
+                                if (continuumRecs.isNotEmpty()) {
+                                    val newQueue = _playerState.value.queue.toMutableList()
+                                    val newMediaItems = mutableListOf<MediaItem>()
+                                    for (rec in continuumRecs) {
+                                        if (!newQueue.any { it.title.equals(rec.title, ignoreCase = true) && it.artist.equals(rec.artist, ignoreCase = true) }) {
+                                            newQueue.add(rec)
+                                            newMediaItems.add(buildMediaItem(rec))
                                         }
-                                        if (newMediaItems.isNotEmpty()) {
-                                            withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                                _playerState.value = _playerState.value.copy(queue = newQueue)
-                                                ctrl.addMediaItems(newMediaItems)
+                                    }
+                                    if (newMediaItems.isNotEmpty()) {
+                                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            _playerState.value = _playerState.value.copy(queue = newQueue)
+                                            ctrl.addMediaItems(newMediaItems)
+                                        }
+                                    }
+                                } else {
+                                    // 2. Fallback to on-device C++ embeddings if offline
+                                    var validId = currentT.id
+                                    if (validId <= 0 && currentT.filepath.isNotBlank()) {
+                                        validId = com.streamify.app.data.NativeBridge.insertTrack(
+                                            filepath = currentT.filepath,
+                                            title = currentT.title,
+                                            artist = currentT.artist,
+                                            album = currentT.album,
+                                            durationSec = currentT.durationSec,
+                                            bpm = currentT.bpm
+                                        ).toInt()
+                                    }
+                                    if (validId > 0) {
+                                        val recentHistory = currentQueue.takeLast(20).map { it.id }.toIntArray()
+                                        val localRecs = repository.getRecommendations(validId, recentHistory, 1, 5)
+                                        if (localRecs.isNotEmpty()) {
+                                            val newQueue = _playerState.value.queue.toMutableList()
+                                            val newMediaItems = mutableListOf<MediaItem>()
+                                            for (rec in localRecs) {
+                                                if (!newQueue.any { it.id == rec.id }) {
+                                                    newQueue.add(rec)
+                                                    newMediaItems.add(buildMediaItem(rec))
+                                                }
+                                            }
+                                            if (newMediaItems.isNotEmpty()) {
+                                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                                    _playerState.value = _playerState.value.copy(queue = newQueue)
+                                                    ctrl.addMediaItems(newMediaItems)
+                                                }
                                             }
                                         }
                                     }
@@ -306,7 +314,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             val resolved = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(currentT)
                             if (resolved != null && resolved.streamUrl.isNotBlank()) {
                                 val updated = currentT.copy(filepath = resolved.streamUrl)
-                                withContext(Dispatchers.Main) {
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
                                     val currentQueue = _playerState.value.queue.toMutableList()
                                     val idx = currentQueue.indexOfFirst {
                                         it.id == currentT.id || (it.title == currentT.title && it.artist == currentT.artist)
@@ -331,6 +339,43 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         })
     }
     
+    private fun preResolveLookaheadTrack(currentIndex: Int, queue: List<Track>) {
+        if (currentIndex < 0 || currentIndex >= queue.size - 1) return
+        val nextTrack = queue[currentIndex + 1]
+        val trackKey = "${nextTrack.title}_${nextTrack.artist}".lowercase()
+        if (preResolvingTrackKey == trackKey) return
+
+        val needsResolution = nextTrack.filepath.isBlank() ||
+                nextTrack.filepath.startsWith("online://") ||
+                (nextTrack.filepath.startsWith("http") && !nextTrack.filepath.contains("googlevideo.com")) ||
+                (nextTrack.filepath.contains("googlevideo.com") && isCdnExpired(nextTrack.filepath))
+
+        if (needsResolution) {
+            preResolvingTrackKey = trackKey
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val resolved = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(nextTrack)
+                    if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                        val warmTrack = nextTrack.copy(filepath = resolved.streamUrl)
+                        withContext(Dispatchers.Main) {
+                            val currentQ = _playerState.value.queue
+                            if (currentIndex + 1 < currentQ.size && (currentQ[currentIndex + 1].id == nextTrack.id || currentQ[currentIndex + 1].title == nextTrack.title)) {
+                                val updatedQ = currentQ.toMutableList()
+                                updatedQ[currentIndex + 1] = warmTrack
+                                _playerState.value = _playerState.value.copy(queue = updatedQ)
+                                controller?.replaceMediaItem(currentIndex + 1, buildMediaItem(warmTrack))
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Ignore background pre-resolve error
+                } finally {
+                    if (preResolvingTrackKey == trackKey) preResolvingTrackKey = null
+                }
+            }
+        }
+    }
+
     fun toggleAutoPlay() {
         _playerState.value = _playerState.value.copy(isAutoPlayEnabled = !_playerState.value.isAutoPlayEnabled)
     }
@@ -386,6 +431,16 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             duration = finalDuration,
                             currentTrack = updatedTrack
                         )
+                    }
+
+                    // 30-Second Predictive Lookahead Pre-Resolver for 0ms Gapless Playback
+                    if (curState.isPlaying && finalDuration > 0L) {
+                        val remainingMs = finalDuration - newPos
+                        val progressFraction = newPos.toFloat() / finalDuration.toFloat()
+                        if (remainingMs <= 30000L || progressFraction >= 0.75f) {
+                            val currentIdx = ctrl.currentMediaItemIndex
+                            preResolveLookaheadTrack(currentIdx, curState.queue)
+                        }
                     }
                 }
                 delay(200)

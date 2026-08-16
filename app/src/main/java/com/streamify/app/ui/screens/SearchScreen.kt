@@ -414,10 +414,11 @@ fun SearchScreen(
                                             art = trackModel.coverArtPath
                                         )
                                         viewModel.playOnlineTrack(
-                                            onlineTrack,
-                                            playerViewModel,
-                                            ingestionViewModel,
-                                            context
+                                            onlineTrack = onlineTrack,
+                                            allOnlineResults = onlineMatches,
+                                            playerViewModel = playerViewModel,
+                                            ingestionViewModel = ingestionViewModel,
+                                            context = context
                                         )
                                     },
                                     onMoreClick = { selectedOptionsTrack = trackModel }
