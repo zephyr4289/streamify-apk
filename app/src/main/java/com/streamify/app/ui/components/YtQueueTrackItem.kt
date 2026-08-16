@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.theme.*
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun YtQueueTrackItem(
     track: Track,
@@ -42,7 +43,13 @@ fun YtQueueTrackItem(
             .height(56.dp)
             // Extreme Performance: GPU translation bypasses Compose layout/measure passes
             .graphicsLayer { translationY = dragOffset }
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = {
+                    com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                    onMoreClick()
+                }
+            )
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

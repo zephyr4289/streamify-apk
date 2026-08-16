@@ -500,6 +500,25 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     fun toggleAutoPlay() {
         _playerState.value = _playerState.value.copy(isAutoPlayEnabled = !_playerState.value.isAutoPlayEnabled)
     }
+
+    fun playNext(track: Track) {
+        val ctrl = controller ?: return
+        val currentQueue = _playerState.value.queue.toMutableList()
+        val currentIndex = ctrl.currentMediaItemIndex.coerceAtLeast(0)
+        val insertIndex = (currentIndex + 1).coerceAtMost(currentQueue.size)
+
+        currentQueue.add(insertIndex, track)
+        _playerState.value = _playerState.value.copy(queue = currentQueue)
+        ctrl.addMediaItem(insertIndex, buildMediaItem(track))
+    }
+
+    fun addToQueue(track: Track) {
+        val ctrl = controller ?: return
+        val currentQueue = _playerState.value.queue.toMutableList()
+        currentQueue.add(track)
+        _playerState.value = _playerState.value.copy(queue = currentQueue)
+        ctrl.addMediaItem(buildMediaItem(track))
+    }
     
     private fun updateCurrentTrackFromMediaItem(mediaItem: MediaItem?) {
         if (mediaItem == null) {

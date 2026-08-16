@@ -22,6 +22,7 @@ import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyShapes
 import com.streamify.app.ui.theme.StreamifyType
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun TrackListItem(
     track: Track,
@@ -34,7 +35,13 @@ fun TrackListItem(
         modifier = modifier
             .fillMaxWidth()
             .height(StreamifyDimens.TrackRowHeight)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = {
+                    com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                    onOptionsClick()
+                }
+            )
             .padding(horizontal = StreamifyDimens.SpaceLG),
         verticalAlignment = Alignment.CenterVertically
     ) {

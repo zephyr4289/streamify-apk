@@ -4,39 +4,29 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Album
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.QueueMusic
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streamify.app.data.PlaylistRepository
-import com.streamify.app.data.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyShapes
 import com.streamify.app.ui.theme.StreamifyType
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,6 +37,8 @@ fun ContextMenuSheet(
     onAddToPlaylistClick: () -> Unit,
     onAddToQueueClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onPlayNextClick: (() -> Unit)? = null,
+    onStartJamClick: (() -> Unit)? = null,
     onGoToArtist: ((String) -> Unit)? = null,
     onGoToAlbum: ((String) -> Unit)? = null
 ) {
@@ -55,6 +47,7 @@ fun ContextMenuSheet(
     var showPlaylistDialog by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     val playlists by PlaylistRepository.playlists.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -68,7 +61,7 @@ fun ContextMenuSheet(
                 .fillMaxWidth()
                 .padding(bottom = StreamifyDimens.SpaceXL) // Navigation bar padding
         ) {
-            // Header
+            // Header: Cover Art + Title + Artist
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -80,18 +73,19 @@ fun ContextMenuSheet(
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(52.dp)
                         .clip(StreamifyShapes.CardShape)
                 )
                 Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = track.title,
-                        style = StreamifyType.TitleLarge,
+                        style = StreamifyType.TitleLarge.copy(fontSize = 17.sp, fontWeight = FontWeight.Bold),
                         color = StreamifyColors.TextMain,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = track.artist,
                         style = StreamifyType.BodyMedium,
@@ -104,7 +98,41 @@ fun ContextMenuSheet(
 
             HorizontalDivider(color = StreamifyColors.Divider, thickness = 1.dp)
 
-            // Actions
+            // 1. Play Next
+            ContextActionItem(
+                icon = Icons.Filled.PlaylistPlay,
+                text = "Play Next",
+                onClick = {
+                    onPlayNextClick?.invoke() ?: onAddToQueueClick()
+                    android.widget.Toast.makeText(context, "Playing next: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                    onDismissRequest()
+                }
+            )
+
+            // 2. Add to Queue
+            ContextActionItem(
+                icon = Icons.Filled.QueueMusic,
+                text = "Add to Queue",
+                onClick = {
+                    onAddToQueueClick()
+                    android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                    onDismissRequest()
+                }
+            )
+
+            // 3. Start a Jam Session / Broadcast
+            ContextActionItem(
+                icon = Icons.Filled.Radio,
+                text = "Start a Jam Session",
+                onClick = {
+                    onStartJamClick?.invoke() ?: run {
+                        android.widget.Toast.makeText(context, "Broadcasting ${track.title} to Jam Session", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    onDismissRequest()
+                }
+            )
+
+            // 4. Like / Favoriting
             ContextActionItem(
                 icon = Icons.Filled.Favorite,
                 text = if (track.isLiked) "Remove from Liked Songs" else "Like",
@@ -114,23 +142,41 @@ fun ContextMenuSheet(
                     onDismissRequest()
                 }
             )
+
+            // 5. Add to Playlist (with New Playlist creation)
             ContextActionItem(
-                icon = Icons.Filled.Add,
+                icon = Icons.Filled.PlaylistAdd,
                 text = "Add to Playlist",
                 onClick = {
                     showPlaylistDialog = true
                 }
             )
-            ContextActionItem(
-                icon = Icons.Filled.QueueMusic,
-                text = "Add to Queue",
-                onClick = {
-                    onAddToQueueClick()
-                    onDismissRequest()
-                }
-            )
-            val context = androidx.compose.ui.platform.LocalContext.current
 
+            // 6. Go to Artist
+            if (onGoToArtist != null && track.artist.isNotBlank() && track.artist != "Unknown Artist") {
+                ContextActionItem(
+                    icon = Icons.Filled.Person,
+                    text = "Go to Artist",
+                    onClick = {
+                        onGoToArtist(track.artist)
+                        onDismissRequest()
+                    }
+                )
+            }
+
+            // 7. Go to Album
+            if (onGoToAlbum != null && track.album.isNotBlank() && track.album != "Single" && track.album != "Local Import") {
+                ContextActionItem(
+                    icon = Icons.Filled.Album,
+                    text = "Go to Album",
+                    onClick = {
+                        onGoToAlbum(track.album)
+                        onDismissRequest()
+                    }
+                )
+            }
+
+            // 8. Download Offline
             ContextActionItem(
                 icon = Icons.Filled.Download,
                 text = "Download",
@@ -146,26 +192,8 @@ fun ContextMenuSheet(
                     onDismissRequest()
                 }
             )
-            if (onGoToArtist != null && track.artist.isNotBlank() && track.artist != "Unknown Artist") {
-                ContextActionItem(
-                    icon = Icons.Filled.Person,
-                    text = "Go to Artist",
-                    onClick = {
-                        onGoToArtist(track.artist)
-                        onDismissRequest()
-                    }
-                )
-            }
-            if (onGoToAlbum != null && track.album.isNotBlank() && track.album != "Single" && track.album != "Local Import") {
-                ContextActionItem(
-                    icon = Icons.Filled.Album,
-                    text = "Go to Album",
-                    onClick = {
-                        onGoToAlbum(track.album)
-                        onDismissRequest()
-                    }
-                )
-            }
+
+            // 9. Share Track
             ContextActionItem(
                 icon = Icons.Filled.Share,
                 text = "Share",
@@ -174,6 +202,8 @@ fun ContextMenuSheet(
                     onDismissRequest()
                 }
             )
+
+            // 10. Edit Info
             ContextActionItem(
                 icon = Icons.Filled.Edit,
                 text = "Edit Info",
@@ -188,7 +218,6 @@ fun ContextMenuSheet(
         var editTitle by remember { mutableStateOf(track.title) }
         var editArtist by remember { mutableStateOf(track.artist) }
         var editAlbum by remember { mutableStateOf(track.album) }
-        val coroutineScope = rememberCoroutineScope()
 
         AlertDialog(
             onDismissRequest = { showEditDialog = false },
@@ -218,11 +247,10 @@ fun ContextMenuSheet(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        coroutineScope.launch {
-                            TrackRepository.updateTrackMetadata(track.id, editTitle, editArtist, editAlbum)
-                            showEditDialog = false
-                            onDismissRequest()
-                        }
+                        val updated = track.copy(title = editTitle, artist = editArtist, album = editAlbum)
+                        com.streamify.app.data.TrackRepository.updateTrack(updated)
+                        showEditDialog = false
+                        onDismissRequest()
                     }
                 ) { Text("Save", color = StreamifyColors.Primary) }
             },
@@ -239,19 +267,30 @@ fun ContextMenuSheet(
             title = { Text("Add to Playlist", color = StreamifyColors.TextMain) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    TextButton(onClick = {
-                        showPlaylistDialog = false
-                        showCreatePlaylistDialog = true
-                    }) {
-                        Icon(Icons.Filled.Add, contentDescription = "Create", tint = StreamifyColors.Primary)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Create New Playlist", color = StreamifyColors.Primary)
+                    Surface(
+                        color = StreamifyColors.Primary.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showPlaylistDialog = false
+                                showCreatePlaylistDialog = true
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = "Create", tint = StreamifyColors.Primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Create New Playlist", color = StreamifyColors.Primary, fontWeight = FontWeight.Bold)
+                        }
                     }
                     HorizontalDivider(color = StreamifyColors.Divider)
                     if (playlists.isEmpty()) {
-                        Text("No playlists yet.", color = StreamifyColors.TextSub)
+                        Text("No playlists created yet.", color = StreamifyColors.TextSub)
                     } else {
-                        LazyColumn {
+                        LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
                             items(playlists) { playlist ->
                                 Text(
                                     text = playlist.name,
@@ -260,6 +299,7 @@ fun ContextMenuSheet(
                                         .fillMaxWidth()
                                         .clickable {
                                             PlaylistRepository.addTrackToPlaylist(playlist.id, track.id)
+                                            android.widget.Toast.makeText(context, "Added to ${playlist.name}", android.widget.Toast.LENGTH_SHORT).show()
                                             showPlaylistDialog = false
                                             onDismissRequest()
                                         }
@@ -279,27 +319,50 @@ fun ContextMenuSheet(
 
     if (showCreatePlaylistDialog) {
         var playlistName by remember { mutableStateOf("") }
+        val focusRequester = remember { FocusRequester() }
+
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+        }
+
         AlertDialog(
             onDismissRequest = { showCreatePlaylistDialog = false },
-            title = { Text("New Playlist", color = StreamifyColors.TextMain) },
+            title = { Text("Create New Playlist", color = StreamifyColors.TextMain) },
             text = {
-                TextField(
+                OutlinedTextField(
                     value = playlistName,
                     onValueChange = { playlistName = it },
                     label = { Text("Playlist Name") },
-                    colors = TextFieldDefaults.colors(focusedContainerColor = StreamifyColors.BgElevated, unfocusedContainerColor = StreamifyColors.BgElevated)
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = StreamifyColors.Primary,
+                        unfocusedBorderColor = StreamifyColors.TextDimmed,
+                        focusedLabelColor = StreamifyColors.Primary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
                 )
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         if (playlistName.isNotBlank()) {
                             PlaylistRepository.createPlaylist(playlistName)
+                            // Find and add track to the newly created playlist
+                            val currentPlaylists = PlaylistRepository.playlists.value
+                            val newPl = currentPlaylists.find { it.name == playlistName }
+                            if (newPl != null) {
+                                PlaylistRepository.addTrackToPlaylist(newPl.id, track.id)
+                            }
+                            android.widget.Toast.makeText(context, "Created \"$playlistName\" & added track", android.widget.Toast.LENGTH_SHORT).show()
                             showCreatePlaylistDialog = false
-                            showPlaylistDialog = true
+                            onDismissRequest()
                         }
-                    }
-                ) { Text("Create", color = StreamifyColors.Primary) }
+                    },
+                    enabled = playlistName.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary)
+                ) { Text("Create & Add", color = androidx.compose.ui.graphics.Color.Black, fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
                 TextButton(onClick = { showCreatePlaylistDialog = false }) { Text("Cancel", color = StreamifyColors.TextSub) }
@@ -340,4 +403,3 @@ private fun ContextActionItem(
         )
     }
 }
-

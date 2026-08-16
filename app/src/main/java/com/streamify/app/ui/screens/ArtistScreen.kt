@@ -188,6 +188,10 @@ fun ArtistScreen(
                 playerViewModel.toggleLike(track)
                 selectedOptionsTrack = null 
             },
+            onPlayNextClick = {
+                playerViewModel.playNext(track)
+                selectedOptionsTrack = null
+            },
             onAddToPlaylistClick = { selectedOptionsTrack = null },
             onAddToQueueClick = { 
                 playerViewModel.addToQueue(track)
