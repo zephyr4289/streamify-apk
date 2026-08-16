@@ -95,8 +95,8 @@ fun PrismaticSplashScreen(
                     strokeWidth = 2.dp.toPx()
                 )
 
-                // Text Reveal with traveling chromatic shimmer
-                val textLayout = textMeasurer.measure(
+                // 1. Text Reveal: STREAMIFY with traveling chromatic shimmer
+                val streamifyLayout = textMeasurer.measure(
                     text = AnnotatedString("S T R E A M I F Y"),
                     style = TextStyle(
                         color = Color.White,
@@ -106,16 +106,16 @@ fun PrismaticSplashScreen(
                         fontFamily = StreamifyFontFamily
                     )
                 )
-                val textOffset = Offset(
-                    center.x - (textLayout.size.width / 2f),
-                    center.y - (textLayout.size.height / 2f)
+                val streamifyOffset = Offset(
+                    center.x - (streamifyLayout.size.width / 2f),
+                    center.y - (streamifyLayout.size.height / 2f) - 14.dp.toPx()
                 )
 
                 // Shimmer gradient sweep
                 val shimmerX = (p1 * width * 1.5f) - (width * 0.25f)
                 drawText(
-                    textLayoutResult = textLayout,
-                    topLeft = textOffset,
+                    textLayoutResult = streamifyLayout,
+                    topLeft = streamifyOffset,
                     brush = Brush.horizontalGradient(
                         colors = listOf(
                             TextSecondary.copy(alpha = 0.4f),
@@ -128,6 +128,57 @@ fun PrismaticSplashScreen(
                         endX = shimmerX + 220f
                     )
                 )
+
+                // 2. Kinetic Flying Subtitle: "DEVELOPED BY SIREEN"
+                val flyProg = ((p1 - 0.22f) / 0.78f).coerceIn(0f, 1f)
+                if (flyProg > 0f) {
+                    val flyEase = 1f - (1f - flyProg).pow(3f) // Cubic ease-out flight curve
+                    val flyY = center.y + 16.dp.toPx() + ((1f - flyEase) * 22.dp.toPx()) // Flies upward into position
+                    val flyAlpha = (flyEase * 1.1f).coerceIn(0f, 1f)
+
+                    val sireenLayout = textMeasurer.measure(
+                        text = AnnotatedString("D E V E L O P E D   B Y   S I R E E N"),
+                        style = TextStyle(
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 3.5.sp,
+                            fontFamily = StreamifyFontFamily
+                        )
+                    )
+                    val sireenOffset = Offset(
+                        center.x - (sireenLayout.size.width / 2f),
+                        flyY
+                    )
+
+                    // Kinetic Flying Neon Glow Bloom
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Primary.copy(alpha = flyAlpha * 0.35f), Color.Transparent),
+                            center = Offset(center.x, flyY + (sireenLayout.size.height / 2f)),
+                            radius = sireenLayout.size.width * 0.65f
+                        ),
+                        radius = sireenLayout.size.width * 0.65f,
+                        center = Offset(center.x, flyY + (sireenLayout.size.height / 2f))
+                    )
+
+                    // Flying Text with synchronized chromatic laser sweep
+                    drawText(
+                        textLayoutResult = sireenLayout,
+                        topLeft = sireenOffset,
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Primary.copy(alpha = flyAlpha * 0.6f),
+                                Color.White.copy(alpha = flyAlpha),
+                                Primary.copy(alpha = flyAlpha * 0.9f),
+                                Color.White.copy(alpha = flyAlpha),
+                                Primary.copy(alpha = flyAlpha * 0.6f)
+                            ),
+                            startX = shimmerX - 180f,
+                            endX = shimmerX + 180f
+                        )
+                    )
+                }
             }
 
             // --- PHASE 2: ACOUSTIC SINGULARITY ZOOM ---
