@@ -8,16 +8,16 @@
 [![C++](https://img.shields.io/badge/C%2B%2B-17%20%7C%20ARM%20NEON%20SIMD-orange.svg)](https://isocpp.org)
 [![Python](https://img.shields.io/badge/Python-3.11%20(Chaquopy)-yellow.svg)](https://chaquo.com/chaquopy/)
 
-**Streamify APK** is an ultra-high-performance, production-grade Android music streaming and ingestion client built with a tri-language architecture (**Kotlin + Jetpack Compose**, **Native C++17 JNI Core**, and **Embedded Python 3.11 via Chaquopy**). It delivers a pixel-perfect, hyper-responsive **YouTube Music-tier OLED native interface**, high-speed on-device audio signal processing (BPM onset extraction & harmonic key detection), ARM NEON SIMD vector recommendations, sub-100ms Innertube streaming/search, 5-tier caching, Supabase cloud sync, and lossless background media downloads.
+**Streamify APK** is an ultra-high-performance, production-grade Android music streaming and ingestion client built with a tri-language architecture (**Kotlin + Jetpack Compose**, **Native C++17 JNI Core**, and **Embedded Python 3.11 via Chaquopy**). It delivers a pixel-perfect, hyper-responsive **YouTube Music-tier OLED native interface**, high-speed on-device audio signal processing (BPM onset extraction & harmonic key detection), ARM NEON SIMD vector recommendations, sub-100ms Innertube streaming/search, Apple Music-tier real-time syllable karaoke, zero-auth playlist importing, rich tactile physics haptics, in-app OTA updates, 5-tier caching, Supabase cloud sync, and lossless background media downloads.
 
 ---
 
 ## 📑 Table of Contents
 1. [Core Architectural Highlights](#-core-architectural-highlights)
 2. [YouTube Music UI Engine & Frontend Architecture](#-youtube-music-ui-engine--frontend-architecture)
-3. [Detailed System Architecture](#-detailed-system-architecture)
-4. [Deep-Dive Feature Breakdown](#-deep-dive-feature-breakdown)
-5. [The 14 Core Subsystem Engines of Streamify](#-the-14-core-subsystem-engines-of-streamify)
+3. [The 20 Core Subsystem Engines of Streamify](#-the-20-core-subsystem-engines-of-streamify)
+4. [Detailed System Architecture](#-detailed-system-architecture)
+5. [Deep-Dive Feature Breakdown](#-deep-dive-feature-breakdown)
 6. [Complete Repository Directory Map](#-complete-repository-directory-map)
 7. [Signal Processing & AI Vector Engine](#-signal-processing--ai-vector-engine)
 8. [5-Tier Zero-Bloat Caching Subsystem](#-5-tier-zero-bloat-caching-subsystem)
@@ -36,7 +36,12 @@
 │                                                                                  │
 │   🎨 KOTLIN & JETPACK COMPOSE (UI / YouTube Music Frontend Engine)               │
 │   • 100% YouTube Music OLED Deep Graphite Theme + System Roboto Typography       │
-│   • Z-Axis GPU Compositor Overlay with 64dp Docked Mini-Player                   │
+│   • Z-Axis GPU Compositor Overlay with Unified Dock & Mini-Player                │
+│   • 120 FPS Real-Time Syllable Karaoke Engine with Dual-Layer clipRect Sweep     │
+│   • 120 FPS 3D Quantum Sonic Token Levitation with Bezier Flight & Dock Impact   │
+│   • Rich Tactile Physics Haptic Engine with 6 Pre-Computed Waveform Signatures   │
+│   • Zero-Auth Universal Playlist Importer (Spotify, YouTube, Apple Music)        │
+│   • In-App Zero-Bloat OTA Update Engine with GitHub Releases & DownloadManager   │
 │   • 120 FPS Mathematical Drag-and-Drop Queue Reordering & Focal Auto-Scroll      │
 │   • Native Vertical Canvas Equalizer & 240° GPU Rotary Arc Dials                 │
 │   • Real-Data Telemetry Engine with Dynamic BPM Audio Persona & Supabase Sync    │
@@ -78,9 +83,9 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 │     • staticCompositionLocalOf unboxed token accessors skipping Compose composition tracking          │
 │                                                                                                        │
 │  2. 📱 GLOBAL SHELL & DOCKED MINI-PLAYER NAVIGATION                                                    │
-│     • Z-Axis GPU compositor architecture with zero layout padding recalculation during player slide    │
-│     • Docked 64dp mini-player with 2dp Canvas progress line and hardware swipe-to-dismiss              │
-│     • 4-tab docked bottom navigation bar (Home, Explore, Library, Upgrade/Profile)                     │
+│     • Unified Dock architecture: MiniPlayerBar + YtBottomNavBar stacked inside Scaffold bottomBar      │
+│     • FullPlayerSheet rendered as top-level AnimatedVisibility overlay with BackHandler support        │
+│     • Spring-physics sliding active indicator (Spring.DampingRatioMediumBouncy, Spring.StiffnessLow)   │
 │                                                                                                        │
 │  3. 🏠 HOME FEED & 4-ROW QUICK PICKS CAROUSEL                                                          │
 │     • Pre-chunked 4-row high-density Quick Picks carousel (56dp rows with 48x48 thumbnails)            │
@@ -98,20 +103,21 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 │     • Autoplay infinite continuation toggle switch and "Playing from [Source]" contextual origin       │
 │     • 3-bar animated Canvas equalizer drawn directly to GPU Skia pipeline without row recomposition   │
 │                                                                                                        │
-│  6. 🎤 ZERO-BLUR 120 FPS LYRICS ENGINE                                                                 │
-│     • Stark color contrast (#FFFFFF Bold vs #717171 SemiBold) replacing GPU shader blur traps         │
-│     • Fixed 24sp typography with graphicsLayer scaleX/scaleY preventing line-height jitter             │
-│     • Mathematical focal third auto-centering (35% from top) yielding automatically to user flings     │
+│  6. 🎤 APPLE MUSIC-TIER REAL-TIME SYLLABLE KARAOKE ENGINE                                              │
+│     • Draw-phase lambda reads (`() -> Long`) bypassing 100% of CPU layout recompositions              │
+│     • Sub-pixel character kerning coordinates via TextLayoutResult.getHorizontalPosition()             │
+│     • Dual-layer Canvas with clipRect vocal sweep and ambient radial dominantColor bloom               │
+│     • 35% viewport focal auto-scroll with Spring.StiffnessMediumLow and touch fling yielding          │
 │                                                                                                        │
 │  7. 🔍 SEARCH & EXPLORE OMNIBAR ENGINE                                                                 │
 │     • 48dp minimalist BasicTextField omnibar with 150ms keystroke debouncer (0.00ms typing latency)   │
 │     • Horizontal category filter chips (All, Songs, Videos, Albums, Artists, Playlists)                │
 │     • 52dp dense genre mood cards with vertical accent strips and 80x80 Top Result hero match card     │
 │                                                                                                        │
-│  8. 📚 LIBRARY & ALBUM PARALLAX COLLAPSING ENGINE                                                      │
+│  8. 📚 LIBRARY & UNIVERSAL PLAYLIST IMPORTER                                                           │
+│     • Zero-auth scraper for Spotify embed playlists, YouTube Piped API, and Apple Music JSON-LD        │
+│     • Semaphore(4) bounded concurrency stream resolver preventing YouTube rate limits (HTTP 429)       │
 │     • chunked(2) 2-column grid inside LazyColumn sharing the exact same cache for 0ms Grid/List swap   │
-│     • GPU-driven 180dp artwork parallax collapse reading firstVisibleItemScrollOffset                  │
-│     • Synthetic linear gradient Liked Music auto-playlist card with 0.01ms image-free rendering        │
 │                                                                                                        │
 │  9. 🎛️ PRO-AUDIO DSP STUDIO & EQUALIZER                                                               │
 │     • Native vertical Canvas sliders eliminating 270-degree rotation bounding-box bugs                 │
@@ -129,58 +135,11 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 
 ---
 
-## 🔬 Detailed System Architecture
-
-### 1. Presentation & UI Layer (Kotlin + Jetpack Compose)
-* **YouTube Music OLED Theme**: Full HSL color tokens (`#030303` OLED base, `#FF0000` YouTube Red accents, `#212121` elevated surfaces), fluid system typography, and responsive spacing tokens.
-* **Physics & Gestures**: Interactive spring bouncy animations (`DampingRatioLowBouncy`), horizontal drag-to-skip gestures, and custom canvas-drawn seekbars with touch magnification.
-* **Global Real-Time Event Bus**: Event-driven decoupled architecture using Kotlin `SharedFlow` (`UiEventBus.kt`) that pushes instant Snackbars to the root scaffold when background downloads or library mutations occur.
-
-### 2. Audio Engine & Native Services
-* **Media3 Playback Service**: Foreground audio service hosting ExoPlayer with lock-screen notification media controls, audio focus handling (ducking on notifications, pause on phone calls), and Bluetooth device routing.
-* **Dynamic Audio Device Switcher**: Real-time broadcast receiver monitoring audio peripherals (Bluetooth A2DP, wired 3.5mm jack, USB DACs, internal speakers) with dynamic UI route badges.
-* **DSP Audio Processing**: Android 10-band equalizer manager and loudness normalization tied to native audio session IDs.
-
-### 3. Native C++ Signal Processing & Persistence Core
-* **Acoustic Signal Analysis**: Native C++ processing via KissFFT STFT to compute real-time spectral flux, onset detection curves, autocorrelation-based BPM extraction (60–200 BPM range with octave correction), and 12-bin chromagram profile matching for musical keys.
-* **ARM NEON SIMD Vector Engine**: 512-dimensional vector cosine similarity calculated directly on ARM hardware registers (`vld1q_f32`, `vmlaq_f32`, `vaddvq_f32`) yielding <1ms nearest-neighbor recommendations.
-* **Rock-Solid SQLite3 Persistence**: Single shared connection with strict mutex locks, foreign key enforcement, WAL mode, and explicit checkpointing to eliminate race conditions and database corruption.
-
-### 4. Background Ingestion & Extraction (Chaquopy)
-* **WorkManager Integration**: Fault-tolerant background worker pipeline (`DownloadWorker.kt`) coordinating Python `yt-dlp` stream extraction, FFmpeg conversion, mutagen metadata stamping, and Android MediaStore indexing.
-
----
-
-## 🚀 Deep-Dive Feature Breakdown
-
-| Feature Module | Description & Technical Implementation |
-| :--- | :--- |
-| **YouTube Music Frontend** | Complete 10-part frontend overhaul with OLED Deep Graphite palette, 48x48 dense thumbnails, and zero-latency Roboto typography. |
-| **Acoustic AI Core ("Project Orpheus")** | Native C++ STFT spectral flux onset detection with Ellis Gaussian tempo prior for BPM; 12-bin temporal median-filtered Chromagram with Krumhansl-Schmuckler profiles for harmonic key extraction. |
-| **NEON SIMD Vector Search** | Hardware-accelerated 512-dimensional vector cosine similarity calculated on ARM64 registers (`vld1q_f32`, `vmlaq_f32`, `vaddvq_f32`) yielding <1ms nearest-neighbor recommendations. |
-| **Session-Aware ML Recommender** | Real-time Exponential Moving Average ($V_{\text{session}}$, $\alpha = 0.45$) capturing active listening mood + lifetime centroid ($V_{\text{long}}$) with multi-armed bandit $\epsilon$-greedy exploration and artist damping. |
-| **Real-Data Telemetry Engine** | Computes exact minutes listened ($\sum \text{duration} \times \text{plays}$), weighted BPM acoustic personas, and two-way sync with Supabase profiles. |
-| **Dynamic Task Orchestrator** | Dynamic resource-aware background task scheduler capping AI workers to efficiency cores with cooperative yielding during UI interaction. |
-| **Sub-100ms Search & Stream** | Pure Kotlin Innertube client and `YouTubeStreamResolver` bypassing Python runtimes for sub-200ms stream resolution and instant search. |
-| **Unified Stream Persistence** | Atomic SQLite upsert for all streamed tracks with automatic play count tracking, persistent stream URLs, and top 20 "On Repeat" shelf aggregation. |
-| **Exportify & M3U8 Engine** | Auto-discovers local Exportify / Spotify JSON files in `/sdcard/Download/` for 1-tap ingestion and exports standard `#EXTM3U` playlists to device storage. |
-| **iTunes 1400x1400 HD Covers** | Fetches and injects uncompressed 1400x1400 Retina cover art into downloaded and streamed tracks. |
-| **Dynamic Audio Routing** | Real-time audio peripheral monitoring (Bluetooth A2DP, wired 3.5mm, USB DAC, Speaker, HQ Stream) with dynamic UI routing badges. |
-| **5-Tier Caching** | Segmented disk cache for audio streaming chunks, memory/disk cover art caching (Coil), `.lrc` lyrics cache, stream URL LRU cache, and SQLite RAM cache. |
-| **Dynamic Full Player** | Horizontal pager (Cover Art ↔ LRC Synced Lyrics ↔ Reorderable Queue), animated palette mesh background, floating time tooltip canvas seekbar. |
-| **Reorderable Queue** | 120 FPS mathematical drag-and-drop queue management with cumulative touch offset tracking and instant Media3 synchronization. |
-| **Cloud Sync & Auth** | Supabase backend integration with Google 1-Tap OAuth, user profiles, synced playlists, and Admin Command Center telemetry. |
-| **Backup & Storage** | Full JSON database export/import engine, detailed storage breakdown (downloads vs cache), and one-tap cache flush. |
-| **Call Recording Filter** | MediaStore ingestion scanner automatically excludes voice memos and call recordings from polluting music library. |
-| **Hybrid Asymmetric Radar ("Project Apex")** | 5-Layer recommendation engine combining Last.fm crowd-sourced similarity graph with on-device ARM NEON SIMD spatial vectors, 16 K-Means mood clusters, and <15ms zero-audio Cold-Start text embeddings. |
-
----
-
-## ⚙️ The 14 Core Subsystem Engines of Streamify
+## ⚙️ The 20 Core Subsystem Engines of Streamify
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                  STREAMIFY 14-ENGINE SYSTEM RUNTIME                                    │
+│                                  STREAMIFY 20-ENGINE SYSTEM RUNTIME                                    │
 ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                                        │
 │  1. 🧠 AI RECOMMENDATION & VECTOR SEARCH ENGINE                                                        │
@@ -217,12 +176,12 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 │     • ElasticStorageAllocator: Dynamically scales cache limit (100MB to 2GB) using Android StatFs      │
 │     • Unified SQLite persistence: Permanent track IDs for streams powering Top 20 On Repeat shelves   │
 │                                                                                                        │
-│  6. 🎤 SYNCHRONIZED LYRICS & KARAOKE ENGINE ("PROJECT ARIA")                                            │
-│     Files: LyricsResolver.kt, LyricsCacheManager.kt, LyricsScreen.kt, LyricsData.kt                   │
-│     • Native Multi-Provider Racer: Concurrent HTTP/2 racing (LRCLIB, NetEase, Lyrics.ovh) in <100ms    │
-│     • Enhanced LRC Syllable Parser: Parses <mm:ss.xx> word timestamps for syllable-by-syllable sing-along│
-│     • 3D Depth-of-Field Karaoke UI: RenderEffect blur + scale on inactive lines with spring physics     │
-│     • Companion .lrc Auto-Export: Saves Song.lrc alongside downloads for 100% offline karaoke          │
+│  6. 🎤 REAL-TIME SYLLABLE KARAOKE ENGINE ("PROJECT ARIA")                                              │
+│     Files: YtSyllableLine.kt, LyricsScreen.kt, LyricsData.kt, LyricsCacheManager.kt                    │
+│     • Draw-phase lambda reads passing currentTimeMs as () -> Long to GPU Canvas                        │
+│     • Sub-pixel font kerning with layoutResult.getHorizontalPosition()                                 │
+│     • Dual-layer clipRect sweep: background graphite text + luminous stark white karaoke text        │
+│     • 35% viewport focal spring auto-scroll with user touch override protection                        │
 │                                                                                                        │
 │  7. 🎚️ DSP EQUALIZER, LOUDNESS & AUDIO ROUTING ENGINE ("PROJECT SONIC MAXX")                          │
 │     Files: SoftKneeLimiter.cc, CrossfadeAudioProcessor.kt, EqualizerManager.kt, AudioDeviceManager.kt │
@@ -231,11 +190,11 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 │     • Dynamic Peripheral Route Switcher: Auto-switches presets across Bluetooth, Wired DACs & Car EQ   │
 │     • Dynamic LUFS Psychoacoustic Normalizer: Real-time loudness calibration (-14 LUFS to -11 LUFS)    │
 │                                                                                                        │
-│  8. 🔄 UNIVERSAL PLAYLIST MIGRATION & FUZZY MATCH ENGINE ("PROJECT JANUS")                             │
-│     Files: ExportifyParser.kt, FuzzyMatcher.kt, StreamifyDB.cc, M3uManager.kt                          │
-│     • Dual-Threshold Levenshtein Matching: String similarity + duration tolerance matching in <5ms     │
-│     • High-Throughput Batch Importer: Ingests 500-track playlists in <200ms using SQLite transactions   │
-│     • Universal Format Converter: Seamlessly converts between Exportify CSV, Spotify JSON, and M3U8    │
+│  8. 🔄 ZERO-AUTH UNIVERSAL PLAYLIST IMPORTER ("PROJECT JANUS")                                         │
+│     Files: PlaylistLinkScraper.kt, BatchTrackResolver.kt, YtImportPlaylistSheet.kt, StreamifyDB.cc    │
+│     • Zero-Auth Scraper: Extracts tracklists from Spotify embed Next.js, YouTube Piped, and Apple LD   │
+│     • Semaphore(4) Bounded Concurrency: Resolves streams across 4 parallel workers (prevents 429 bans)│
+│     • High-Speed SQLite Batch Ingestion: Creates and links playlists atomically with full metadata     │
 │                                                                                                        │
 │  9. 📻 REAL-TIME COLLABORATIVE JAM & SOCIAL ENGINE ("PROJECT SYNCRO")                                  │
 │     Files: JamSessionManager.kt, JamScreen.kt, CommunityScreen.kt, SupabaseClient.kt                   │
@@ -268,9 +227,47 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 │     • SHA-256 PCM Proof-of-Compute: Cryptographic anti-sybil challenge verifying real DSP execution   │
 │     • 2-Peer Byzantine Consensus: Cosine similarity threshold (>0.88) verifying 512-D audio profiles   │
 │     • Local-First Caching: Eliminates 100% of bandwidth for tracks already present in user libraries    │
-│     • Deep Admin & Contributor Telemetry: Real-time active nodes stream & global bandwidth saved HUD   │
 │                                                                                                        │
-│  14. 🎨 YOUTUBE MUSIC FRONTEND & UI RENDERING ENGINE                                                   │
+│  14. 📳 RICH TACTILE PHYSICS HAPTIC ENGINE ("PROJECT HAPTIX")                                         │
+│     Files: StreamifyHapticEngine.kt, StreamifyApp.kt                                                   │
+│     • Zero-Allocation Pre-Computed Waveforms: 6 bespoke tactile signatures built at startup           │
+│     • LRA Hardware Adaptation: Dynamically checks areAllPrimitivesSupported() on Android 10-14+       │
+│     • Physical Triggers: Rotary scrubber ticks, like heartbeats, token impact snaps, switcher detents │
+│     • OEM Safety Net: Silent try-catch guards eliminating firmware-specific Doze/Vibrator crashes       │
+│                                                                                                        │
+│  15. ⚡ IN-APP ZERO-BLOAT OTA UPDATE ENGINE ("PROJECT MERCURY")                                        │
+│     Files: StreamifyUpdateManager.kt, ApkInstaller.kt, UpdateAvailableCard.kt, file_paths.xml          │
+│     • Cold-Start GitHub Releases Poller: Silent background Dispatchers.IO check with JSON parsing      │
+│     • Mathematical Semantic Versioning: Converts version strings to integers (e.g. 1.4.2 -> 10402)    │
+│     • System DownloadManager: 0 extra RAM/battery overhead during background APK downloading           │
+│     • FileProvider Package Installer: Launches native Android update dialog automatically on completion│
+│                                                                                                        │
+│  16. 🌀 120 FPS 3D QUANTUM SONIC TOKEN PHYSICS ENGINE                                                  │
+│     Files: QuantumSonicTokenController.kt, QuantumSonicTokenOverlay.kt                                 │
+│     • 4-Stage State Machine: LIFTING (120ms) -> LEVITATING (60ms) -> GLIDING (250ms) -> IMPACT (150ms) │
+│     • 3D Perspective Matrix: cameraDistance = 16f with dynamic rotationX/rotationY tilts               │
+│     • Quadratic Bezier Flight: Dynamic arc height calculation curving directly to docked mini-player   │
+│     • Disney Squash-and-Stretch: Volume preservation formula (scaleX = 1f + (1f - scaleY) * 0.5f)     │
+│                                                                                                        │
+│  17. 🌈 NETFLIX-TIER 4-PHASE PRISMATIC SPLASH SCREEN                                                   │
+│     Files: PrismaticSplashScreen.kt, MainActivity.kt                                                   │
+│     • Single GPU Canvas RenderNode: Genesis Shimmer -> Singularity Zoom -> 16 Sine-Wave Ribbons        │
+│     • BlendMode.Screen Color Blending: Intersecting rainbow sine ribbons with phase offset dynamics    │
+│     • Developer Credit Bar: "DEVELOPED BY SIREEN" signature bar with typography tracking               │
+│     • Parallel Backend Pre-Warming: Pre-warms Auth, Player, AudioSettings, and DB on Dispatchers.IO    │
+│                                                                                                        │
+│  18. 📱 UNIFIED DOCK & FULL PLAYER OVERLAY ARCHITECTURE                                                │
+│     Files: MainActivity.kt, YtBottomNavBar.kt, FullPlayerSheet.kt                                      │
+│     • Elimination of BottomSheetScaffold Z-Index Collisions: Bottom tabs remain 100% accessible        │
+│     • Stacked Dock: MiniPlayerBar + YtBottomNavBar in Scaffold bottomBar                               │
+│     • Top-Level AnimatedVisibility: Full player rendered on zIndex(10f) with Android BackHandler       │
+│                                                                                                        │
+│  19. 🧭 SPRING-PHYSICS FLUID BOTTOM NAVIGATION SLIDER                                                  │
+│     Files: YtBottomNavBar.kt                                                                           │
+│     • Fluid Pill Slider: BoxWithConstraints + animateDpAsState (Spring.DampingRatioMediumBouncy)       │
+│     • Micro-Scale Pop: 1.12x GPU graphicsLayer icon scaling on selection with smooth color tint        │
+│                                                                                                        │
+│  20. 🎨 YOUTUBE MUSIC FRONTEND & UI RENDERING ENGINE                                                   │
 │     Files: YtTopAppBar.kt, YtMoodFilterRail.kt, YtQuickPicksCarousel.kt, FullPlayerSheet.kt, ...        │
 │     • GPU-accelerated Z-Axis Compositor layer with derivedStateOf mini-player interpolation            │
 │     • 120 FPS mathematical drag reorder lists, zero-blur lyrics, and 240° GPU rotary arc dials         │
@@ -278,6 +275,59 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 │                                                                                                        │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 🔬 Detailed System Architecture
+
+### 1. Presentation & UI Layer (Kotlin + Jetpack Compose)
+* **YouTube Music OLED Theme**: Full HSL color tokens (`#030303` OLED base, `#FF0000` YouTube Red accents, `#212121` elevated surfaces), fluid system typography, and responsive spacing tokens.
+* **Physics & Gestures**: Interactive spring bouncy animations (`DampingRatioLowBouncy`), horizontal drag-to-skip gestures, and custom canvas-drawn seekbars with touch magnification.
+* **Global Real-Time Event Bus**: Event-driven decoupled architecture using Kotlin `SharedFlow` (`UiEventBus.kt`) that pushes instant Snackbars to the root scaffold when background downloads or library mutations occur.
+
+### 2. Audio Engine & Native Services
+* **Media3 Playback Service**: Foreground audio service hosting ExoPlayer with lock-screen notification media controls, audio focus handling (ducking on notifications, pause on phone calls), and Bluetooth device routing.
+* **Dynamic Audio Device Switcher**: Real-time broadcast receiver monitoring audio peripherals (Bluetooth A2DP, wired 3.5mm jack, USB DACs, internal speakers) with dynamic UI route badges.
+* **DSP Audio Processing**: Android 10-band equalizer manager and loudness normalization tied to native audio session IDs.
+
+### 3. Native C++ Signal Processing & Persistence Core
+* **Acoustic Signal Analysis**: Native C++ processing via KissFFT STFT to compute real-time spectral flux, onset detection curves, autocorrelation-based BPM extraction (60–200 BPM range with octave correction), and 12-bin chromagram profile matching for musical keys.
+* **ARM NEON SIMD Vector Engine**: 512-dimensional vector cosine similarity calculated directly on ARM hardware registers (`vld1q_f32`, `vmlaq_f32`, `vaddvq_f32`) yielding <1ms nearest-neighbor recommendations.
+* **Rock-Solid SQLite3 Persistence**: Single shared connection with strict mutex locks, foreign key enforcement, WAL mode, and explicit checkpointing to eliminate race conditions and database corruption.
+
+### 4. Background Ingestion & Extraction (Chaquopy)
+* **WorkManager Integration**: Fault-tolerant background worker pipeline (`DownloadWorker.kt`) coordinating Python `yt-dlp` stream extraction, FFmpeg conversion, mutagen metadata stamping, and Android MediaStore indexing.
+
+---
+
+## 🚀 Deep-Dive Feature Breakdown
+
+| Feature Module | Description & Technical Implementation |
+| :--- | :--- |
+| **Syllable Karaoke Engine** | Apple Music-tier 120 FPS syllable-by-syllable illumination via `Canvas` `clipRect`, draw-phase lambda timestamps, and 35% focal spring auto-scrolling. |
+| **Universal Playlist Importer** | Zero-auth scraping for Spotify, YouTube, and Apple Music playlists with `Semaphore(4)` bounded concurrency parallel stream resolution and SQLite persistence. |
+| **Rich Tactile Haptics** | Pre-computed zero-allocation `VibrationEffect` waveforms delivering bespoke tactile feedback for scrubber ticks, like heartbeats, 3D token snaps, and switcher detents. |
+| **In-App OTA Update Engine** | Silent cold-start GitHub Releases checking, integer semantic version math, OS `DownloadManager` integration, and native `FileProvider` package installer. |
+| **3D Quantum Sonic Token** | 120 FPS 3D perspective matrix levitation, quadratic Bezier arc flight, and Disney squash-and-stretch docking impact physics. |
+| **Prismatic Splash Screen** | 4-phase Canvas splash with Genesis Shimmer, Singularity Zoom, 16 Sine-Wave Prismatic Ribbons, Sireen credit bar, and parallel backend pre-warming. |
+| **YouTube Music Frontend** | Complete 10-part frontend overhaul with OLED Deep Graphite palette, 48x48 dense thumbnails, and zero-latency Roboto typography. |
+| **Acoustic AI Core ("Project Orpheus")** | Native C++ STFT spectral flux onset detection with Ellis Gaussian tempo prior for BPM; 12-bin temporal median-filtered Chromagram with Krumhansl-Schmuckler profiles for harmonic key extraction. |
+| **NEON SIMD Vector Search** | Hardware-accelerated 512-dimensional vector cosine similarity calculated on ARM64 registers (`vld1q_f32`, `vmlaq_f32`, `vaddvq_f32`) yielding <1ms nearest-neighbor recommendations. |
+| **Session-Aware ML Recommender** | Real-time Exponential Moving Average ($V_{\text{session}}$, $\alpha = 0.45$) capturing active listening mood + lifetime centroid ($V_{\text{long}}$) with multi-armed bandit $\epsilon$-greedy exploration and artist damping. |
+| **Real-Data Telemetry Engine** | Computes exact minutes listened ($\sum \text{duration} \times \text{plays}$), weighted BPM acoustic personas, and two-way sync with Supabase profiles. |
+| **Dynamic Task Orchestrator** | Dynamic resource-aware background task scheduler capping AI workers to efficiency cores with cooperative yielding during UI interaction. |
+| **Sub-100ms Search & Stream** | Pure Kotlin Innertube client and `YouTubeStreamResolver` bypassing Python runtimes for sub-200ms stream resolution and instant search. |
+| **Unified Stream Persistence** | Atomic SQLite upsert for all streamed tracks with automatic play count tracking, persistent stream URLs, and top 20 "On Repeat" shelf aggregation. |
+| **Exportify & M3U8 Engine** | Auto-discovers local Exportify / Spotify JSON files in `/sdcard/Download/` for 1-tap ingestion and exports standard `#EXTM3U` playlists to device storage. |
+| **iTunes 1400x1400 HD Covers** | Fetches and injects uncompressed 1400x1400 Retina cover art into downloaded and streamed tracks. |
+| **Dynamic Audio Routing** | Real-time audio peripheral monitoring (Bluetooth A2DP, wired 3.5mm, USB DAC, Speaker, HQ Stream) with dynamic UI routing badges. |
+| **5-Tier Caching** | Segmented disk cache for audio streaming chunks, memory/disk cover art caching (Coil), `.lrc` lyrics cache, stream URL LRU cache, and SQLite RAM cache. |
+| **Dynamic Full Player** | Horizontal pager (Cover Art ↔ LRC Synced Lyrics ↔ Reorderable Queue), animated palette mesh background, floating time tooltip canvas seekbar. |
+| **Reorderable Queue** | 120 FPS mathematical drag-and-drop queue management with cumulative touch offset tracking and instant Media3 synchronization. |
+| **Cloud Sync & Auth** | Supabase backend integration with Google 1-Tap OAuth, user profiles, synced playlists, and Admin Command Center telemetry. |
+| **Backup & Storage** | Full JSON database export/import engine, detailed storage breakdown (downloads vs cache), and one-tap cache flush. |
+| **Call Recording Filter** | MediaStore ingestion scanner automatically excludes voice memos and call recordings from polluting music library. |
+| **Hybrid Asymmetric Radar ("Project Apex")** | 5-Layer recommendation engine combining Last.fm crowd-sourced similarity graph with on-device ARM NEON SIMD spatial vectors, 16 K-Means mood clusters, and <15ms zero-audio Cold-Start text embeddings. |
 
 ---
 
@@ -303,14 +353,14 @@ streamify-apk/
 │   ├── proguard-rules.pro                           # R8 / ProGuard code shrinking and obfuscation rules for JNI and Chaquopy
 │   └── src/
 │       └── main/
-│           ├── AndroidManifest.xml                  # Android app manifest declaring activities, services, permissions, and intent filters
+│           ├── AndroidManifest.xml                  # Android app manifest declaring activities, services, permissions, FileProvider, and intent filters
 │           ├── assets/
 │           │   ├── card_art/                        # Fallback assets for browse categories and promo cards
 │           │   └── models/
 │           │       └── clap_int8.onnx               # Quantized 8-bit ONNX neural model for audio feature representation
 │           ├── java/com/streamify/app/
 │           │   ├── MainActivity.kt                  # Root Single-Activity container hosting Z-Axis GPU Compositor, NavHost, and EventBus
-│           │   ├── StreamifyApp.kt                  # Custom Android Application class initializing JNI, Chaquopy, and Supabase clients
+│           │   ├── StreamifyApp.kt                  # Custom Android Application class initializing JNI, Chaquopy, Supabase, and HapticEngine
 │           │   ├── data/
 │           │   │   ├── BackupManager.kt             # Chunked streaming database export and recovery engine (zero OOM on 50k+ tracks)
 │           │   │   ├── EdgeMeshRepository.kt        # Distributed edge mesh state manager and periodic WorkManager scheduler
@@ -338,6 +388,9 @@ streamify-apk/
 │           │   │   │   └── iTunesSearchApi.kt       # Apple iTunes Search API client for fetching high-resolution 1400x1400 album covers
 │           │   │   └── remote/
 │           │   │       ├── AuthManager.kt           # Google 1-Tap OAuth credentials and Supabase authentication session manager
+│           │   │       ├── BatchTrackResolver.kt    # Semaphore(4) bounded concurrency stream resolver for batch playlist ingestion
+│           │   │       ├── PlaylistLinkScraper.kt   # Zero-auth tracklist scraper for Spotify embed, YouTube Piped, and Apple Music
+│           │   │       ├── StreamifyUpdateManager.kt# In-app OTA update manager polling GitHub Releases with semantic versioning math
 │           │   │       └── SupabaseClient.kt        # Remote Supabase client handling user profiles, remote playlist sync, edge mesh and telemetry
 │           │   ├── navigation/
 │           │   │   └── AppNavGraph.kt               # Jetpack Compose animated navigation graph with custom horizontal and vertical transitions
@@ -360,11 +413,15 @@ streamify-apk/
 │           │   │   │   ├── BottomNavBar.kt          # Compatibility bridge navigation component
 │           │   │   │   ├── ContextMenuSheet.kt      # Bottom sheet modal providing track actions (Like, Add to Queue, Share, Download)
 │           │   │   │   ├── MiniPlayerBar.kt         # Docked 64dp mini-player with 2dp Canvas progress line and play/pause controls
+│           │   │   │   ├── QuantumSonicTokenController.kt # 120 FPS 3D physics controller with Bezier flight and Disney squash-and-stretch
+│           │   │   │   ├── QuantumSonicTokenOverlay.kt    # 120 FPS GPU Canvas rendering the floating 3D Ghost Card on zIndex(100f)
 │           │   │   │   ├── TrackListItem.kt         # Track list item row with cover art, titles, and overflow menu
+│           │   │   │   ├── UpdateAvailableCard.kt   # OLED Graphite in-app update banner with crimson gradient border and changelog
 │           │   │   │   ├── YtActiveEqualizer.kt     # 3-bar animated Canvas equalizer drawn with harmonic sine waves on GPU Skia
-│           │   │   │   ├── YtBottomNavBar.kt        # 4-tab docked YouTube Music bottom navigation bar with active indicators
+│           │   │   │   ├── YtBottomNavBar.kt        # 4-tab docked YouTube Music bottom navigation bar with spring-physics sliding pill
 │           │   │   │   ├── YtGenreCard.kt           # 52dp explore mood genre tile with colored vertical accent strip
 │           │   │   │   ├── YtGenreDistributionBar.kt# Spring-animated GPU-scaled horizontal distribution bar for Wrapped stats
+│           │   │   │   ├── YtImportPlaylistSheet.kt # OLED modal bottom sheet for zero-auth playlist importing with dynamic platform badges
 │           │   │   │   ├── YtLibraryFilterChips.kt  # Horizontal filter rail for Playlists, Songs, Albums, Artists, Downloads
 │           │   │   │   ├── YtListenAgainGrid.kt     # 2-row horizontal grid with 56dp item rows for instant replay
 │           │   │   │   ├── YtLyricLineItem.kt       # Zero-blur 120 FPS high-contrast lyric item with GPU graphicsLayer scaling
@@ -373,7 +430,7 @@ streamify-apk/
 │           │   │   │   ├── YtPersonaCard.kt         # BPM-reactive pulsating Canvas energy ring based on user listening tempo
 │           │   │   │   ├── YtPlayerActionPills.kt   # Player action pills rail (Like, Dislike, Comments, Download, Share, Radio)
 │           │   │   │   ├── YtPlayerBottomTabs.kt    # Full player bottom anchor tabs (UP NEXT, LYRICS, RELATED)
-│           │   │   │   ├── YtPlayerSeekBar.kt       # Canvas physics seekbar with spring thumb expansion (1x -> 2.2x) on drag
+│           │   │   │   ├── YtPlayerSeekBar.kt       # Canvas physics seekbar with rotary micro-ticks and spring thumb expansion
 │           │   │   │   ├── YtPlaylistHeroHeader.kt  # 180dp collapsing hero header with GPU parallax and YtLikedMusicCard
 │           │   │   │   ├── YtPresetFilterChips.kt   # Acoustic preset selector chips for DSP studio
 │           │   │   │   ├── YtQuickPicksCarousel.kt  # 4-row high-density horizontal carousel for quick picks
@@ -384,6 +441,7 @@ streamify-apk/
 │           │   │   │   ├── YtSortFilterBar.kt       # Sort activity selector and instant Grid/List view toggle
 │           │   │   │   ├── YtStudioArcDial.kt       # 120dp GPU Canvas rotary arc dial (240° sweep) for Sub-Bass & Spatial Audio
 │           │   │   │   ├── YtSupermixCard.kt        # 150dp YouTube Music Supermix card with play overlay badge
+│           │   │   │   ├── YtSyllableLine.kt        # 120 FPS dual-layer clipRect syllable karaoke sweep with sub-pixel font kerning
 │           │   │   │   ├── YtThumbnail.kt           # Pre-allocated size Coil async image wrapper skipping layout re-measures
 │           │   │   │   ├── YtTopAppBar.kt           # Top bar with play badge, Cast button, Search icon, and Profile Avatar
 │           │   │   │   ├── YtTopResultCard.kt       # 80x80 hero match card for exact artist/song search hits
@@ -394,12 +452,13 @@ streamify-apk/
 │           │   │   │   ├── CommunityHubScreen.kt    # Community playlists feed with OLED graphite styling and creator badges
 │           │   │   │   ├── EqualizerScreen.kt       # Equalizer & DSP studio with vertical sliders, rotary arc dials and presets
 │           │   │   │   ├── FullPlayerSheet.kt       # Flagship full player bottom sheet with radial glow, action pills, seekbar
-│           │   │   │   ├── HomeScreen.kt            # Overhauled Home feed with 4-row Quick Picks, Listen Again, Supermixes
+│           │   │   │   ├── HomeScreen.kt            # Overhauled Home feed with 4-row Quick Picks, Listen Again, Supermixes, OTA card
 │           │   │   │   ├── JamSessionScreen.kt      # Real-time collaborative listening room with 42sp PIN, listener avatars
-│           │   │   │   ├── LibraryScreen.kt         # Master Library screen with chunked 2-column grid toggle and filter chips
-│           │   │   │   ├── LyricsScreen.kt          # Synchronized lyrics screen with zero-blur focal third auto-centering
+│           │   │   │   ├── LibraryScreen.kt         # Master Library screen with chunked 2-column grid toggle and Universal Importer
+│           │   │   │   ├── LyricsScreen.kt          # Apple Music-tier Syllable Karaoke screen with 35% focal spring auto-centering
+│           │   │   │   ├── PrismaticSplashScreen.kt # 4-phase Netflix-tier Canvas splash screen with parallel backend pre-warming
 │           │   │   │   ├── QueueScreen.kt           # Master queue screen with 120 FPS mathematical drag reordering and Canvas EQ
-│           │   │   │   ├── SearchScreen.kt          # Search & Explore screen with 150ms debouncing and 2-column mood genre grid
+│           │   │   │   ├── SearchScreen.kt          # Search & Explore screen with 150ms debouncing and 3D Quantum Sonic Token trigger
 │           │   │   │   └── StatsWrappedScreen.kt    # 2026 Wrapped Screen bound to real telemetry with native share sheet
 │           │   │   └── theme/
 │           │   │       ├── Color.kt                 # OLED Deep Graphite (#030303), YouTube Red (#FF0000), Stark White tokens
@@ -407,6 +466,9 @@ streamify-apk/
 │           │   │       ├── Shape.kt                 # Docked geometry (0dp player corners, 4dp thumbnail radii, 8dp filter chips)
 │           │   │       ├── Theme.kt                 # Edge-to-edge system window binding and StreamifyTheme accessor
 │           │   │       └── Type.kt                  # System Roboto zero-latency typography tokens and static composition locals
+│           │   ├── util/
+│           │   │   ├── ApkInstaller.kt              # Android DownloadManager + FileProvider package installer helper
+│           │   │   └── StreamifyHapticEngine.kt     # Zero-allocation Rich Tactile Physics Haptic Engine with LRA hardware scaling
 │           │   └── viewmodel/
 │           │       ├── CommunityViewModel.kt        # ViewModel managing community playlists feed and public uploads
 │           │       ├── IngestionViewModel.kt        # ViewModel orchestrating background media scans and real-time C++ feature extraction
@@ -414,6 +476,9 @@ streamify-apk/
 │           │       ├── LibraryViewModel.kt          # ViewModel managing library filtering, liked tracks, and custom playlists
 │           │       ├── PlayerViewModel.kt           # Central player state machine with lock-free microsecond telemetry pushing
 │           │       └── SearchViewModel.kt           # ViewModel handling debounced sub-100ms Innertube search and local queries
+│           ├── res/
+│           │   └── xml/
+│           │       └── file_paths.xml               # FileProvider external files path specification for OTA APK updates
 │           └── python/download_engine/
 │               ├── __init__.py                      # Python package initialization marker
 │               ├── core.py                          # Core download orchestrator wrapping yt-dlp with FFmpeg audio extraction
