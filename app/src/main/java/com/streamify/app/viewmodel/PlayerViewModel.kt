@@ -57,9 +57,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var lastPlayedTrackId: Int? = null
     private var preResolvingTrackKey: String? = null
 
-    private fun isCdnExpired(url: String): Boolean =
-        com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(url)
-
     fun initialize(context: Context) {
         appContext = context.applicationContext
         repository.appContext = context.applicationContext
