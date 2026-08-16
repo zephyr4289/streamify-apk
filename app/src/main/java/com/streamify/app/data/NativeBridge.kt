@@ -130,6 +130,9 @@ object NativeBridge {
 
     // Zhipu AI NDK Key Vault
     external fun getZhipuKey(index: Int): String
+
+    // Atomic Database Purge
+    external fun nukeLocalDatabase(): Boolean
 }
 
 

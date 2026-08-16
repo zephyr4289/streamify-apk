@@ -1496,3 +1496,43 @@ std::vector<std::pair<std::string, float>> StreamifyDB::getCachedSimilarTracks(i
     sqlite3_finalize(stmt);
     return result;
 }
+
+bool StreamifyDB::nukeDatabase() {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex_);
+    sqlite3* db = getConnection();
+    if (!db) return false;
+
+    finalizeStatements();
+
+    char* errMsg = nullptr;
+    const char* nuke_sql = R"(
+        PRAGMA foreign_keys = OFF;
+        DELETE FROM user_liked_tracks;
+        DELETE FROM playlist_tracks;
+        DELETE FROM playlists;
+        DELETE FROM tracks;
+        DELETE FROM transitions;
+        DELETE FROM engagement_logs;
+        DELETE FROM hook_telemetry;
+        DELETE FROM markov_edges;
+        DELETE FROM markov_2nd_order;
+        DELETE FROM track_clusters;
+        DELETE FROM cluster_centroids;
+        DELETE FROM similar_tracks;
+        DELETE FROM track_cooccurrence;
+        DELETE FROM user_sessions;
+        DELETE FROM users;
+        VACUUM;
+        PRAGMA foreign_keys = ON;
+    )";
+
+    int rc = sqlite3_exec(db, nuke_sql, nullptr, nullptr, &errMsg);
+    if (rc != SQLITE_OK) {
+        if (errMsg) {
+            __android_log_print(ANDROID_LOG_ERROR, "StreamifyDB", "Nuke error: %s", errMsg);
+            sqlite3_free(errMsg);
+        }
+        return false;
+    }
+    return true;
+}

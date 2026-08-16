@@ -99,6 +99,9 @@ public:
     bool cacheSimilarTracks(int track_id, const std::vector<std::string>& titles, const std::vector<std::string>& artists, const std::vector<std::string>& mbids, const std::vector<float>& weights);
     std::vector<std::pair<std::string, float>> getCachedSimilarTracks(int track_id);
 
+    // Atomic Database Purge
+    bool nukeDatabase();
+
 private:
     StreamifyDB() = default;
     ~StreamifyDB();

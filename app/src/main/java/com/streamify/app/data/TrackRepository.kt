@@ -311,5 +311,10 @@ object TrackRepository {
         val all = getAllTracks().associateBy { it.id }
         ids.toList().mapNotNull { all[it] }
     }
+
+    fun hardResetState() {
+        _allTracks.value = emptyList()
+        _likedTracks.value = emptyList()
+    }
 }
 

@@ -577,6 +577,106 @@ fun SettingsScreen(
             }
 
             item {
+                SectionHeader("Danger Zone")
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+
+                var showConfirmDialog by remember { mutableStateOf(false) }
+                val nukeState by com.streamify.app.data.NuclearResetManager.nukeState.collectAsState()
+                val isNuking = nukeState !is com.streamify.app.data.NukeState.Idle && nukeState !is com.streamify.app.data.NukeState.Error
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color(0xFF200A0A)),
+                    shape = RoundedCornerShape(16.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.ui.graphics.Color(0xFFE53935).copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.Warning,
+                                contentDescription = "Danger",
+                                tint = androidx.compose.ui.graphics.Color(0xFFE53935),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                "Nuke Database & Start Fresh",
+                                style = StreamifyType.HeadlineSmall.copy(fontSize = 16.sp),
+                                color = androidx.compose.ui.graphics.Color.White,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            "Atomically wipes all local offline tracks, metadata, and acoustic embeddings. Your liked songs and custom playlists are backed up to the cloud first, and the feed is instantly re-seeded with fresh global trending tracks.",
+                            style = StreamifyType.Caption,
+                            color = androidx.compose.ui.graphics.Color(0xFFEF9A9A)
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = { showConfirmDialog = true },
+                            enabled = !isNuking,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = androidx.compose.ui.graphics.Color(0xFFD32F2F),
+                                disabledContainerColor = androidx.compose.ui.graphics.Color(0xFF5C1D1D)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "Nuke Database & Clean Start",
+                                color = androidx.compose.ui.graphics.Color.White,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                if (showConfirmDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showConfirmDialog = false },
+                        title = {
+                            Text(
+                                "Confirm Nuclear Purge",
+                                color = StreamifyColors.TextMain,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
+                        },
+                        text = {
+                            Text(
+                                "Are you sure you want to purge all local databases? Your cloud profile will be synced first to prevent data loss, and fresh trending charts will populate your feed immediately.",
+                                color = StreamifyColors.TextSub
+                            )
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showConfirmDialog = false
+                                    scope.launch {
+                                        com.streamify.app.data.NuclearResetManager.executeNuclearReset(context)
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFD32F2F))
+                            ) {
+                                Text("Yes, Nuke & Rebirth", color = androidx.compose.ui.graphics.Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showConfirmDialog = false }) {
+                                Text("Cancel", color = StreamifyColors.TextSub)
+                            }
+                        },
+                        containerColor = StreamifyColors.BgSurfaceElevated,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                }
+            }
+
+            item {
                 SectionHeader("About")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
                 
@@ -594,6 +694,63 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("Open Source High-Performance Architecture", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                    }
+                }
+            }
+        }
+
+        // Full-screen Nuclear Progress Overlay
+        val nukeState by com.streamify.app.data.NuclearResetManager.nukeState.collectAsState()
+        if (nukeState !is com.streamify.app.data.NukeState.Idle) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.85f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    when (nukeState) {
+                        is com.streamify.app.data.NukeState.BackingUp -> {
+                            CircularProgressIndicator(color = androidx.compose.ui.graphics.Color.White, strokeWidth = 3.dp)
+                            Text("Backing up to Cloud DB...", color = androidx.compose.ui.graphics.Color.White, style = StreamifyType.BodyLarge)
+                        }
+                        is com.streamify.app.data.NukeState.Purging -> {
+                            CircularProgressIndicator(color = androidx.compose.ui.graphics.Color(0xFFD32F2F), strokeWidth = 3.dp)
+                            Text("Purging Local SQLite & Caches...", color = androidx.compose.ui.graphics.Color.White, style = StreamifyType.BodyLarge)
+                        }
+                        is com.streamify.app.data.NukeState.Seeding -> {
+                            CircularProgressIndicator(color = androidx.compose.ui.graphics.Color(0xFF1DB954), strokeWidth = 3.dp)
+                            Text("Re-seeding Fresh Content...", color = androidx.compose.ui.graphics.Color.White, style = StreamifyType.BodyLarge)
+                        }
+                        is com.streamify.app.data.NukeState.Success -> {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = "Done",
+                                tint = androidx.compose.ui.graphics.Color(0xFF1DB954),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Text("Clean Start Complete! 🚀", color = androidx.compose.ui.graphics.Color.White, style = StreamifyType.BodyLarge)
+                        }
+                        is com.streamify.app.data.NukeState.Error -> {
+                            Icon(
+                                Icons.Filled.Error,
+                                contentDescription = "Error",
+                                tint = androidx.compose.ui.graphics.Color(0xFFD32F2F),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Text(
+                                (nukeState as com.streamify.app.data.NukeState.Error).message,
+                                color = androidx.compose.ui.graphics.Color.White,
+                                style = StreamifyType.BodyLarge
+                            )
+                            Button(onClick = { com.streamify.app.data.NuclearResetManager.resetState() }) {
+                                Text("Dismiss")
+                            }
+                        }
+                        else -> {}
                     }
                 }
             }

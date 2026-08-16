@@ -229,4 +229,12 @@ object PlaylistRepository {
             null
         }
     }
+
+    fun hardResetState() {
+        _playlists.value = emptyList()
+        val file = playlistFile
+        if (file != null && file.exists()) {
+            file.delete()
+        }
+    }
 }

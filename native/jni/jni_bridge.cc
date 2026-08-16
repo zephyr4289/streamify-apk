@@ -752,4 +752,11 @@ Java_com_streamify_app_data_NativeBridge_getZhipuKey(
     return env->NewStringUTF(ZHIPU_KEYS[safeIdx]);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_nukeLocalDatabase(JNIEnv* env, jobject /* this */) {
+    bool success = StreamifyDB::getInstance().nukeDatabase();
+    return success ? JNI_TRUE : JNI_FALSE;
+}
+
+
 
