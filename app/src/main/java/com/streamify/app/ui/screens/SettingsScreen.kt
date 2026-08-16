@@ -191,8 +191,8 @@ fun SettingsScreen(
                                 }
                             }
 
-                            // Special Admin Command Center Card for sireenyadav@gmail.com
-                            if (user?.isAdmin == true || user?.email.equals("sireenyadav@gmail.com", ignoreCase = true)) {
+                            // Special Admin Command Center Card
+                            if (com.streamify.app.data.remote.SupabaseClient.isAdmin || user?.isAdmin == true) {
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Button(
                                     onClick = onNavigateToAdmin,

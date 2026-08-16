@@ -577,16 +577,20 @@ fun AdminDashboardScreen(
                                 Spacer(modifier = Modifier.width(12.dp))
 
                                 Column(modifier = Modifier.weight(1f)) {
+                                    val isSuperOwner = profile.email.contains("sireenyadav", ignoreCase = true) ||
+                                            profile.email.equals(com.streamify.app.BuildConfig.ADMIN_EMAIL, ignoreCase = true) ||
+                                            profile.displayName.contains("sireen", ignoreCase = true)
+
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(profile.displayName, style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
-                                        if (profile.isAdmin || profile.email.equals("sireenyadav@gmail.com", ignoreCase = true)) {
+                                        if (profile.isAdmin || isSuperOwner) {
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Surface(
                                                 color = StreamifyColors.Primary.copy(alpha = 0.2f),
                                                 shape = RoundedCornerShape(4.dp)
                                             ) {
                                                 Text(
-                                                    "ADMIN",
+                                                    if (isSuperOwner) "OWNER" else "ADMIN",
                                                     style = StreamifyType.Caption,
                                                     color = StreamifyColors.Primary,
                                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
@@ -598,7 +602,12 @@ fun AdminDashboardScreen(
                                     Text("${profile.totalPlays} plays • ${(profile.listeningSeconds / 60)} mins", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
                                 }
 
-                                if (!profile.email.equals("sireenyadav@gmail.com", ignoreCase = true)) {
+                                val isSelfOrOwner = profile.email.contains("sireenyadav", ignoreCase = true) ||
+                                        profile.email.equals(com.streamify.app.BuildConfig.ADMIN_EMAIL, ignoreCase = true) ||
+                                        profile.displayName.contains("sireen", ignoreCase = true) ||
+                                        profile.id == user?.id
+
+                                if (!isSelfOrOwner) {
                                     IconButton(onClick = {
                                         scope.launch {
                                             val newRole = !profile.isAdmin

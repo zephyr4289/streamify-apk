@@ -88,12 +88,15 @@ class JamViewModel : ViewModel() {
                     val isHost = session.hostUserId == SupabaseClient.currentUser.value?.id
                     _uiState.value = JamUiState.Active(session, isHost)
 
-                    // If not host, adjust player drift if delta > 2000ms
+                    // If not host, synchronize track and adjust clock drift
                     if (!isHost && playerViewModel != null && session.currentTrackJson != null) {
                         val remoteTrackId = session.currentTrackJson.optInt("id", 0)
-                        val currentLocalId = playerViewModel.playerState.value.currentTrack?.id ?: 0
+                        val remoteTitle = session.currentTrackJson.optString("title", "")
+                        val currentLocalTrack = playerViewModel.playerState.value.currentTrack
+                        val isDifferentTrack = (remoteTrackId != 0 && remoteTrackId != (currentLocalTrack?.id ?: 0)) ||
+                                (remoteTitle.isNotBlank() && remoteTitle != (currentLocalTrack?.title ?: ""))
 
-                        if (remoteTrackId != 0 && remoteTrackId != currentLocalId) {
+                        if (isDifferentTrack) {
                             val art = session.currentTrackJson.optString("coverArtPath", "")
                             val track = Track(
                                 id = remoteTrackId,
@@ -109,6 +112,23 @@ class JamViewModel : ViewModel() {
                                 source = "jam"
                             )
                             playerViewModel.playTrack(track, listOf(track))
+                        } else {
+                            // Sync position & playback state with host clock
+                            val hostElapsed = if (session.isPlaying) {
+                                (System.currentTimeMillis() - session.hostClockTimestamp).coerceAtLeast(0L)
+                            } else 0L
+                            val expectedPos = session.positionMs + hostElapsed
+                            val localPos = playerViewModel.playerState.value.currentPosition
+                            val driftMs = kotlin.math.abs(expectedPos - localPos)
+
+                            if (driftMs > 2500L) {
+                                playerViewModel.seekTo(expectedPos)
+                            }
+
+                            val isLocalPlaying = playerViewModel.playerState.value.isPlaying
+                            if (isLocalPlaying != session.isPlaying) {
+                                if (session.isPlaying) playerViewModel.play() else playerViewModel.pause()
+                            }
                         }
                     }
                 }

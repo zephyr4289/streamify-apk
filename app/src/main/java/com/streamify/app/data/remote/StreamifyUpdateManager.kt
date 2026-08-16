@@ -99,19 +99,18 @@ object StreamifyUpdateManager {
         _updateState.value = UpdateState.NotAvailable
     }
 
-    // Mathematical Semantic Version Comparison (e.g., "1.4.2" -> 10402)
+    // Robust Segment-by-Segment Semantic Version Comparison (e.g. "1.104.0" vs "1.4.2")
     private fun isNewerVersion(remote: String, current: String): Boolean {
         val remoteParts = remote.split(".").map { it.filter { c -> c.isDigit() }.toIntOrNull() ?: 0 }
         val currentParts = current.split(".").map { it.filter { c -> c.isDigit() }.toIntOrNull() ?: 0 }
+        val maxLen = maxOf(remoteParts.size, currentParts.size)
 
-        val remoteInt = (remoteParts.getOrElse(0) { 0 } * 10000) +
-                (remoteParts.getOrElse(1) { 0 } * 100) +
-                (remoteParts.getOrElse(2) { 0 })
-
-        val currentInt = (currentParts.getOrElse(0) { 0 } * 10000) +
-                (currentParts.getOrElse(1) { 0 } * 100) +
-                (currentParts.getOrElse(2) { 0 })
-
-        return remoteInt > currentInt
+        for (i in 0 until maxLen) {
+            val r = remoteParts.getOrElse(i) { 0 }
+            val c = currentParts.getOrElse(i) { 0 }
+            if (r > c) return true
+            if (r < c) return false
+        }
+        return false
     }
 }

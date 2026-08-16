@@ -515,6 +515,14 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         if (ctrl.isPlaying) ctrl.pause() else ctrl.play()
     }
 
+    fun play() {
+        controller?.play()
+    }
+
+    fun pause() {
+        controller?.pause()
+    }
+
     fun seekTo(positionMs: Long) {
         controller?.seekTo(positionMs)
         _playerState.value = _playerState.value.copy(currentPosition = positionMs)
