@@ -1,7 +1,7 @@
 package com.streamify.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
@@ -9,10 +9,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -33,7 +35,7 @@ fun QuantumSonicTokenOverlay(
 
     val density = LocalDensity.current
 
-    // 120 FPS Physics Loop
+    // 120 FPS Frame-Clock Physics Loop
     LaunchedEffect(controller.stage) {
         var lastFrameTime = System.currentTimeMillis()
         var totalTime = 0L
@@ -45,34 +47,50 @@ fun QuantumSonicTokenOverlay(
             totalTime += delta
 
             controller.updatePhysics(delta, totalTime)
-            delay(8L) // ~120fps tick
+            delay(8L) // ~120 FPS tick rate
         }
-        delay(120L) // Settle final impact
+        delay(80L)
         controller.reset()
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .zIndex(100f) // Absolute highest Z-layer
+            .zIndex(100f) // Topmost overlay layer
     ) {
-        // The Floating 3D Ghost Proxy Card
+        val screenWidthPx = constraints.maxWidth.toFloat()
+        val cardWidthDp = (maxWidth * 0.88f).coerceIn(280.dp, 560.dp)
+        val cardWidthPx = with(density) { cardWidthDp.toPx() }
+        val cardHeightPx = with(density) { 60.dp.toPx() }
+
+        // Symmetrically center on the current X coordinate, bounded by screen edges
+        val xClamped = (controller.currentPosition.x - (cardWidthPx / 2f))
+            .coerceIn(8f, (screenWidthPx - cardWidthPx - 8f).coerceAtLeast(8f))
+        val yClamped = (controller.currentPosition.y - (cardHeightPx / 2f)).coerceAtLeast(0f)
+
+        // ─── APPLE AIRDROP LUMINESCENCE SHOCKWAVE (Impact Bloom) ───
+        if (controller.stage == TokenStage.IMPACT || controller.stage == TokenStage.DISSOLVE) {
+            ImpactBloomCanvas(
+                center = Offset(controller.destination.x, controller.destination.y),
+                progress = controller.impactProgress
+            )
+        }
+
+        // ─── FLOATING 3D QUANTUM GHOST CARD ───
         Box(
             modifier = Modifier
-                .offset {
-                    IntOffset(
-                        x = (controller.currentPosition.x - 160.dp.toPx()).toInt().coerceAtLeast(0),
-                        y = controller.currentPosition.y.toInt().coerceAtLeast(0)
-                    )
-                }
-                .width(340.dp)
+                .offset { IntOffset(xClamped.toInt(), yClamped.toInt()) }
+                .width(cardWidthDp)
                 .height(60.dp)
                 .graphicsLayer {
                     this.scaleX = controller.scaleX
                     this.scaleY = controller.scaleY
                     this.rotationX = controller.rotationX
                     this.rotationY = controller.rotationY
+                    this.transformOrigin = TransformOrigin.Center
                     this.cameraDistance = 16f * density.density
+                    // Smoothly fade out at the end of impact
+                    this.alpha = if (controller.stage == TokenStage.DISSOLVE) 0.3f else 1f
                 }
                 .shadow(
                     elevation = if (controller.stage == TokenStage.LEVITATING) 24.dp else 12.dp,
@@ -90,6 +108,38 @@ fun QuantumSonicTokenOverlay(
 }
 
 @Composable
+fun ImpactBloomCanvas(
+    center: Offset,
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.fillMaxSize()) {
+        val safeCenter = if (center != Offset.Zero) center else Offset(size.width / 2f, size.height - 100f)
+
+        // Ring 1: High-velocity glow ring (Expands 0 -> 130dp, Alpha 0.85 -> 0.0)
+        val glowRadius = 130.dp.toPx() * progress
+        val glowAlpha = ((1f - progress) * 0.85f).coerceIn(0f, 1f)
+
+        drawCircle(
+            color = ActiveControl.copy(alpha = glowAlpha),
+            radius = glowRadius,
+            center = safeCenter,
+            style = Stroke(width = 6.dp.toPx())
+        )
+
+        // Ring 2: Concentrated white-hot core flash (Expands 0 -> 55dp, Alpha 0.95 -> 0.0)
+        val coreRadius = 55.dp.toPx() * (progress * 1.3f).coerceAtMost(1f)
+        val coreAlpha = ((1f - (progress * 1.5f)).coerceIn(0f, 1f) * 0.95f)
+
+        drawCircle(
+            color = Color.White.copy(alpha = coreAlpha),
+            radius = coreRadius,
+            center = safeCenter
+        )
+    }
+}
+
+@Composable
 private fun QuantumGhostCard(
     title: String,
     artist: String,
@@ -100,7 +150,7 @@ private fun QuantumGhostCard(
         Brush.sweepGradient(
             listOf(
                 Color.Transparent,
-                ActiveControl.copy(alpha = 0.8f),
+                ActiveControl.copy(alpha = 0.85f),
                 Primary,
                 Color.Transparent
             )
@@ -108,8 +158,8 @@ private fun QuantumGhostCard(
     } else {
         Brush.linearGradient(
             listOf(
-                ActiveControl.copy(alpha = 0.5f),
-                Primary.copy(alpha = 0.5f)
+                ActiveControl.copy(alpha = 0.6f),
+                Primary.copy(alpha = 0.6f)
             )
         )
     }
@@ -153,12 +203,6 @@ private fun QuantumGhostCard(
                     )
                 }
             }
-
-            // Animated Quantum Pulsing Equalizer
-            YtActiveEqualizer(
-                color = Primary,
-                modifier = Modifier.size(width = 16.dp, height = 14.dp)
-            )
         }
     }
 }

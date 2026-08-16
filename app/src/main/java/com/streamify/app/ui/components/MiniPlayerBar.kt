@@ -37,16 +37,41 @@ fun MiniPlayerBar(
     onExpand: () -> Unit,
     onToggleLike: (() -> Unit)? = null,
     alpha: Float = 1f,
+    tokenController: QuantumSonicTokenController? = null,
     modifier: Modifier = Modifier
 ) {
     if (track == null) return
+
+    var isAbsorbing by remember { mutableStateOf(false) }
+    if (tokenController != null) {
+        LaunchedEffect(tokenController.stage) {
+            if (tokenController.stage == TokenStage.IMPACT) {
+                isAbsorbing = true
+                kotlinx.coroutines.delay(220)
+                isAbsorbing = false
+            }
+        }
+    }
+
+    val pulseScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isAbsorbing) 1.025f else 1.0f,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+            stiffness = 1600f
+        ),
+        label = "MiniPlayerPulse"
+    )
 
     Surface(
         color = BgSurfaceElevated,
         modifier = modifier
             .fillMaxWidth()
             .height(64.dp)
-            .graphicsLayer { this.alpha = alpha }
+            .graphicsLayer {
+                this.alpha = alpha
+                this.scaleX = pulseScale
+                this.scaleY = pulseScale
+            }
     ) {
         Box(
             modifier = Modifier

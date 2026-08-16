@@ -250,7 +250,8 @@ class MainActivity : ComponentActivity() {
                                                 onNext = { playerViewModel.skipNext() },
                                                 onPrevious = { playerViewModel.skipPrevious() },
                                                 onExpand = { isPlayerExpanded = true },
-                                                onToggleLike = { playerViewModel.toggleLike() }
+                                                onToggleLike = { playerViewModel.toggleLike() },
+                                                tokenController = quantumController
                                             )
                                         }
 

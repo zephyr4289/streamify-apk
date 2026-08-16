@@ -14,22 +14,18 @@ import kotlin.math.sin
 val LocalQuantumController = staticCompositionLocalOf { QuantumSonicTokenController() }
 val LocalDockPosition = staticCompositionLocalOf<MutableState<Offset>> { mutableStateOf(Offset.Zero) }
 
-// The 4 Stages of the Kinetic Timeline
-enum class TokenStage { IDLE, LIFTING, LEVITATING, GLIDING, IMPACT, DONE }
+// The Kinetic Morphing Stages
+enum class TokenStage { IDLE, LIFTING, LEVITATING, GLIDING, IMPACT, DISSOLVE, DONE }
 
 class QuantumSonicTokenController {
     var stage by mutableStateOf(TokenStage.IDLE)
         private set
 
-    // Origin coordinates (where the user tapped)
+    // Origin & Destination coordinates
     var origin by mutableStateOf(Offset.Zero)
         private set
-
-    // Destination coordinates (the docked mini-player)
     var destination by mutableStateOf(Offset.Zero)
         private set
-
-    // Current position in window during flight
     var currentPosition by mutableStateOf(Offset.Zero)
         private set
 
@@ -41,20 +37,16 @@ class QuantumSonicTokenController {
     var trackArt by mutableStateOf<String?>(null)
         private set
 
-    // Animation progress values
-    var liftProgress by mutableStateOf(0f)
-        private set
-    var glideProgress by mutableStateOf(0f)
+    // Progress
+    var progress by mutableStateOf(0f)
         private set
     var impactProgress by mutableStateOf(0f)
         private set
 
-    // 3D Physics & GPU Transformation values
+    // 3D Matrix Transform Values
     var rotationX by mutableStateOf(0f)
         private set
     var rotationY by mutableStateOf(0f)
-        private set
-    var translationY by mutableStateOf(0f)
         private set
     var scaleX by mutableStateOf(1f)
         private set
@@ -74,46 +66,48 @@ class QuantumSonicTokenController {
         trackTitle = title
         trackArtist = artist
         trackArt = art
-        liftProgress = 0f
-        glideProgress = 0f
+        progress = 0f
         impactProgress = 0f
+        scaleX = 1f
+        scaleY = 1f
+        rotationX = 0f
+        rotationY = 0f
         stage = TokenStage.LIFTING
     }
 
-    // 120 FPS Physics tick updater
     fun updatePhysics(deltaTimeMs: Long, totalTimeMs: Long) {
         when (stage) {
             TokenStage.LIFTING -> {
-                // 0ms - 250ms: 3D Lift-Off
-                liftProgress = (liftProgress + (deltaTimeMs / 250f)).coerceAtMost(1f)
-                val t = liftProgress
-                translationY = -30f * t
-                scaleX = 1f + (0.06f * t)
+                progress = (progress + (deltaTimeMs / 200f)).coerceAtMost(1f)
+                val t = progress
+                val liftY = -24f * t
+                scaleX = 1f + (0.05f * t)
                 scaleY = scaleX
-                rotationX = -8f * t
-                rotationY = 4f * (1f - t)
-                currentPosition = origin.copy(y = origin.y + translationY)
+                rotationX = -6f * t
+                rotationY = 3f * (1f - t)
+                currentPosition = origin.copy(y = origin.y + liftY)
                 if (t >= 1f) stage = TokenStage.LEVITATING
             }
 
             TokenStage.LEVITATING -> {
-                // Zero-Gravity Jiggle (While resolving stream)
                 val t = totalTimeMs / 1000f
-                translationY = -30f + (8f * sin(2 * PI.toFloat() * 1.5f * t))
-                rotationY = 4f * cos(2 * PI.toFloat() * 1.5f * t)
-                rotationX = -8f + (2f * sin(2 * PI.toFloat() * 1.2f * t))
-                currentPosition = origin.copy(y = origin.y + translationY)
+                val floatY = -24f + (6f * sin(2 * PI.toFloat() * 1.5f * t))
+                rotationY = 3f * cos(2 * PI.toFloat() * 1.5f * t)
+                rotationX = -6f + (2f * sin(2 * PI.toFloat() * 1.2f * t))
+                currentPosition = origin.copy(y = origin.y + floatY)
             }
 
             TokenStage.GLIDING -> {
-                // Parabolic Bezier Arc Glide (350ms)
-                glideProgress = (glideProgress + (deltaTimeMs / 350f)).coerceAtMost(1f)
-                val t = glideProgress
+                progress = (progress + (deltaTimeMs / 360f)).coerceAtMost(1f)
+                val t = progress
                 val easeOut = 1f - (1f - t).pow(3f)
 
-                // Quadratic Bezier Curve: P0(origin) -> P1(control) -> P2(destination)
+                // Parabolic Bezier trajectory
                 val p0 = origin
-                val p1 = Offset(origin.x, (destination.y - 200f).coerceAtLeast(origin.y))
+                val p1 = Offset(
+                    origin.x + (destination.x - origin.x) * 0.3f,
+                    (origin.y - 180f).coerceAtLeast(60f)
+                )
                 val p2 = destination
 
                 val oneMinusT = 1f - easeOut
@@ -121,10 +115,13 @@ class QuantumSonicTokenController {
                 val y = (oneMinusT * oneMinusT * p0.y) + (2 * oneMinusT * easeOut * p1.y) + (easeOut * easeOut * p2.y)
 
                 currentPosition = Offset(x, y)
-                scaleX = 1.06f - (0.06f * easeOut)
-                scaleY = scaleX
-                rotationX = -8f * (1f - easeOut)
-                rotationY = 4f * (1f - easeOut) * cos(2 * PI.toFloat() * 1.5f * (totalTimeMs / 1000f))
+
+                // Volume-preserving flight stretch
+                val flightStretch = (sin(easeOut * PI.toFloat()) * 0.08f)
+                scaleX = 1f - flightStretch
+                scaleY = 1f + flightStretch
+                rotationX = -6f * (1f - easeOut)
+                rotationY = 3f * (1f - easeOut) * cos(2 * PI.toFloat() * (totalTimeMs / 1000f))
 
                 if (t >= 1f) {
                     stage = TokenStage.IMPACT
@@ -134,21 +131,26 @@ class QuantumSonicTokenController {
             }
 
             TokenStage.IMPACT -> {
-                // Disney Squash-and-Stretch Volume Preservation (150ms)
-                impactProgress = (impactProgress + (deltaTimeMs / 150f)).coerceAtMost(1f)
+                impactProgress = (impactProgress + (deltaTimeMs / 180f)).coerceAtMost(1f)
                 val t = impactProgress
                 currentPosition = destination
 
-                scaleY = when {
-                    t < 0.2f -> 1.0f - (0.10f * (t / 0.2f)) // Drop to 0.90
-                    t < 0.5f -> 0.90f + (0.15f * ((t - 0.2f) / 0.3f)) // Bounce to 1.05
-                    else -> 1.05f - (0.05f * ((t - 0.5f) / 0.5f)) // Settle to 1.00
+                // Disney Volume-Preserving Squash and Stretch on landing
+                val squashY = when {
+                    t < 0.25f -> 1.0f - (0.12f * (t / 0.25f)) // Compress to 0.88
+                    t < 0.60f -> 0.88f + (0.18f * ((t - 0.25f) / 0.35f)) // Rebound to 1.06
+                    else -> 1.06f - (0.06f * ((t - 0.60f) / 0.40f)) // Settle to 1.00
                 }
-                scaleX = 1f + (1f - scaleY) * 0.5f // Volume preservation
+                scaleY = squashY
+                scaleX = 1f + (1f - squashY) * 0.7f // Volume conservation
                 rotationX = 0f
                 rotationY = 0f
 
-                if (t >= 1f) stage = TokenStage.DONE
+                if (t >= 1f) stage = TokenStage.DISSOLVE
+            }
+
+            TokenStage.DISSOLVE -> {
+                stage = TokenStage.DONE
             }
 
             else -> {}
@@ -158,19 +160,18 @@ class QuantumSonicTokenController {
     fun resolveStream() {
         if (stage == TokenStage.LEVITATING || stage == TokenStage.LIFTING) {
             stage = TokenStage.GLIDING
+            progress = 0f
         }
     }
 
     fun reset() {
         stage = TokenStage.IDLE
-        liftProgress = 0f
-        glideProgress = 0f
+        progress = 0f
         impactProgress = 0f
-        translationY = 0f
-        rotationX = 0f
-        rotationY = 0f
         scaleX = 1f
         scaleY = 1f
+        rotationX = 0f
+        rotationY = 0f
         currentPosition = Offset.Zero
     }
 }
