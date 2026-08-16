@@ -162,6 +162,15 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                 repository.updateSessionVector(validId, 0.45f)
                                 repository.recordTrackPlay(validId)
                             }
+                            appContext?.let { ctx ->
+                                com.streamify.app.data.EdgeMeshRepository.getInstance(ctx).scheduleOpportunisticCompute(
+                                    context = ctx,
+                                    trackId = currentT.id.toString(),
+                                    trackTitle = currentT.title,
+                                    trackArtist = currentT.artist,
+                                    audioPath = currentT.filePath
+                                )
+                            }
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
