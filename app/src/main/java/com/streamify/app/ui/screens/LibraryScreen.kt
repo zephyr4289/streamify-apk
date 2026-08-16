@@ -58,79 +58,49 @@ fun LibraryScreen(
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
 
     var showSpotifyImportDialog by remember { mutableStateOf(false) }
-    var spotifyUrlInput by remember { mutableStateOf("") }
-    val searchViewModel: SearchViewModel = viewModel()
-
-    val jsonFilePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            searchViewModel.importLocalPlaylistJson(uri, ingestionViewModel, context)
-            showSpotifyImportDialog = false
-        }
-    }
-
-    LaunchedEffect(context) {
-        ingestionViewModel.observeDownloads(context)
-    }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.loadLibrary()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        viewModel.loadLibrary()
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
+    var importProgress by remember { mutableStateOf<com.streamify.app.data.remote.ImportProgress?>(null) }
+    var isScraping by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     if (showSpotifyImportDialog) {
-        AlertDialog(
-            onDismissRequest = { showSpotifyImportDialog = false },
-            title = { Text("Import Playlist", color = TextMain, style = LocalAppTypography.current.headlineMedium) },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = spotifyUrlInput,
-                        onValueChange = { spotifyUrlInput = it },
-                        label = { Text("Spotify Playlist / Track URL", color = TextSecondary) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = TextMain,
-                            unfocusedTextColor = TextSecondary,
-                            focusedBorderColor = Primary,
-                            cursorColor = Primary
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = BgSurfaceElevated)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedButton(
-                        onClick = { jsonFilePickerLauncher.launch("application/json") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Primary)
-                    ) {
-                        Text("Import Local JSON File")
+        YtImportPlaylistSheet(
+            importProgress = importProgress,
+            isScraping = isScraping,
+            onImportClick = { url ->
+                coroutineScope.launch {
+                    isScraping = true
+                    try {
+                        val scraped = com.streamify.app.data.remote.PlaylistLinkScraper.scrapePlaylist(url)
+                        isScraping = false
+                        com.streamify.app.data.remote.BatchTrackResolver.resolveAndImportPlaylist(scraped, context).collect { progress ->
+                            importProgress = progress
+                            if (progress.isComplete) {
+                                viewModel.loadLibrary()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        isScraping = false
+                        importProgress = com.streamify.app.data.remote.ImportProgress(
+                            total = 0,
+                            completed = 0,
+                            currentTrackTitle = "",
+                            isComplete = false,
+                            errorMessage = e.message ?: "Failed to scrape playlist"
+                        )
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    searchViewModel.importSpotifyPlaylist(spotifyUrlInput, ingestionViewModel, context)
-                    showSpotifyImportDialog = false
-                    spotifyUrlInput = ""
-                }) {
-                    Text("Import", color = Primary)
-                }
+            onPlayPlaylist = { plId ->
+                selectedPlaylistId = plId
+                showSpotifyImportDialog = false
+                importProgress = null
+                viewModel.loadLibrary()
             },
-            dismissButton = {
-                TextButton(onClick = { showSpotifyImportDialog = false }) {
-                    Text("Cancel", color = TextSecondary)
-                }
-            },
-            containerColor = BgSurfaceElevated
+            onDismiss = {
+                showSpotifyImportDialog = false
+                importProgress = null
+                isScraping = false
+            }
         )
     }
 
