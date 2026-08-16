@@ -15,7 +15,7 @@
 ## 📑 Table of Contents
 1. [Core Architectural Highlights](#-core-architectural-highlights)
 2. [YouTube Music UI Engine & Frontend Architecture](#-youtube-music-ui-engine--frontend-architecture)
-3. [The 20 Core Subsystem Engines of Streamify](#-the-20-core-subsystem-engines-of-streamify)
+3. [The 22 Core Subsystem Engines of Streamify](#-the-22-core-subsystem-engines-of-streamify)
 4. [Detailed System Architecture](#-detailed-system-architecture)
 5. [Deep-Dive Feature Breakdown](#-deep-dive-feature-breakdown)
 6. [Complete Repository Directory Map](#-complete-repository-directory-map)
@@ -135,11 +135,11 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 
 ---
 
-## ⚙️ The 20 Core Subsystem Engines of Streamify
+## ⚙️ The 22 Core Subsystem Engines of Streamify
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                  STREAMIFY 20-ENGINE SYSTEM RUNTIME                                    │
+│                                  STREAMIFY 22-ENGINE SYSTEM RUNTIME                                    │
 ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                                        │
 │  1. 🧠 AI RECOMMENDATION & VECTOR SEARCH ENGINE                                                        │
@@ -197,10 +197,10 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 │     • High-Speed SQLite Batch Ingestion: Creates and links playlists atomically with full metadata     │
 │                                                                                                        │
 │  9. 📻 REAL-TIME COLLABORATIVE JAM & SOCIAL ENGINE ("PROJECT SYNCRO")                                  │
-│     Files: JamSessionManager.kt, JamScreen.kt, CommunityScreen.kt, SupabaseClient.kt                   │
-│     • WebSocket/Realtime Jam Hub: Host/Listener synchronized audio playback with low-latency seek sync  │
+│     Files: JamViewModel.kt, JamScreen.kt, CommunityScreen.kt, SupabaseClient.kt                        │
+│     • WebSocket/Realtime Jam Hub: Host/Listener synchronized audio playback with host clock drift seek │
+│     • JWT Auto-Refresh Guard: Decodes exp timestamps and refreshes tokens before PGRST503 exceptions   │
 │     • Public/Private Jam Rooms: 6-character room codes with QR code sharing and guest queue democracy   │
-│     • Social Listening Stream: Real-time "Friends Are Listening To" live ticker and status updates      │
 │                                                                                                        │
 │  10. ⏰ CIRCADIAN BIORHYTHMIC MUSIC ENGINE ("PROJECT CHRONOS")                                         │
 │     Files: ChronosProfiler.cc, ChronosProfiler.h, TimeGreeting.kt, CircadianData.kt                    │
@@ -238,7 +238,7 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 │  15. ⚡ IN-APP ZERO-BLOAT OTA UPDATE ENGINE ("PROJECT MERCURY")                                        │
 │     Files: StreamifyUpdateManager.kt, ApkInstaller.kt, UpdateAvailableCard.kt, file_paths.xml          │
 │     • Cold-Start GitHub Releases Poller: Silent background Dispatchers.IO check with JSON parsing      │
-│     • Mathematical Semantic Versioning: Converts version strings to integers (e.g. 1.4.2 -> 10402)    │
+│     • Segment-by-Segment Semantic Versioning: Robust integer comparison (e.g. 1.104.0 vs 1.4.2)        │
 │     • System DownloadManager: 0 extra RAM/battery overhead during background APK downloading           │
 │     • FileProvider Package Installer: Launches native Android update dialog automatically on completion│
 │                                                                                                        │
@@ -249,11 +249,10 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 │     • Quadratic Bezier Flight: Dynamic arc height calculation curving directly to docked mini-player   │
 │     • Disney Squash-and-Stretch: Volume preservation formula (scaleX = 1f + (1f - scaleY) * 0.5f)     │
 │                                                                                                        │
-│  17. 🌈 NETFLIX-TIER 4-PHASE PRISMATIC SPLASH SCREEN                                                   │
+│  17. 🌈 120 FPS KINETIC FLYING SPLASH SCREEN & AMBIENT BLOOM                                           │
 │     Files: PrismaticSplashScreen.kt, MainActivity.kt                                                   │
-│     • Single GPU Canvas RenderNode: Genesis Shimmer -> Singularity Zoom -> 16 Sine-Wave Ribbons        │
-│     • BlendMode.Screen Color Blending: Intersecting rainbow sine ribbons with phase offset dynamics    │
-│     • Developer Credit Bar: "DEVELOPED BY SIREEN" signature bar with typography tracking               │
+│     • 120 FPS Kinetic Flying "DEVELOPED BY SIREEN": GPU 3D z-axis translation with chromatic shimmer   │
+│     • Dual-Orb Radial Ambient Bloom: Dynamic breathing glow synced with app initial state pre-warming  │
 │     • Parallel Backend Pre-Warming: Pre-warms Auth, Player, AudioSettings, and DB on Dispatchers.IO    │
 │                                                                                                        │
 │  18. 📱 UNIFIED DOCK & FULL PLAYER OVERLAY ARCHITECTURE                                                │
@@ -272,6 +271,21 @@ Streamify features a completely overhauled, 100% authentic **YouTube Music front
 │     • GPU-accelerated Z-Axis Compositor layer with derivedStateOf mini-player interpolation            │
 │     • 120 FPS mathematical drag reorder lists, zero-blur lyrics, and 240° GPU rotary arc dials         │
 │     • Real-data statistical telemetry aggregator with BPM acoustic persona and Supabase Cloud sync     │
+│                                                                                                        │
+│  21. 🔄 INFINITE CONTINUATION & 0MS PREDICTIVE RADIO ENGINE ("PROJECT CONTINUUM")                      │
+│     Files: ContinuumRadioEngine.kt, PlayerViewModel.kt, SearchViewModel.kt, RelatedDiscoverSheet.kt    │
+│     • Recursive Innertube Continuation Token Engine: Infinite `/youtubei/v1/next` `RDAMVM...` autoloop │
+│     • O(1) HashSet De-duplication ("Echo Chamber Killer"): Drops repeated songs in <0.01ms memory check│
+│     • Full Search Context Queue Assembly: Converts visible search results into immediate UP NEXT queue │
+│     • 30-Second Predictive Lookahead Pre-Resolver: Pre-resolves track N+1 CDN stream for 0ms gapless   │
+│     • Dedicated YouTube Music "RELATED" Discovery Bottom Sheet with instant queue append controls      │
+│                                                                                                        │
+│  22. ⚡ AUTONOMOUS STREAMING DSP & CLOUD CONSENSUS MESH ("PROJECT AETHER")                              │
+│     Files: OnlineTrackProcessor.kt, TrackRepository.kt, SupabaseClient.kt                              │
+│     • Non-blocking background worker automatically enqueuing streamed online tracks for DSP processing  │
+│     • Downloads 30s chorus audio slices (~600KB) to extract native Aubio BPM, Key, and MFCC vectors   │
+│     • Instant Supabase Cloud sync registering extracted acoustic features into global PostgreSQL mesh  │
+│     • Real-time UI updates immediately lighting up the `128 BPM • C#` neural badge on player screens   │
 │                                                                                                        │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
