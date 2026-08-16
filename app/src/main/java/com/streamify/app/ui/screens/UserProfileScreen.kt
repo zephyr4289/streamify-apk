@@ -17,17 +17,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.streamify.app.data.YtStatsTelemetryEngine
+import com.streamify.app.data.remote.AuthManager
+import com.streamify.app.data.remote.AuthState
 import com.streamify.app.data.remote.SupabaseClient
-import com.streamify.app.data.remote.UserProfile
-import com.streamify.app.ui.theme.StreamifyColors
-import com.streamify.app.ui.theme.StreamifyDimens
-import com.streamify.app.ui.theme.StreamifyType
+import com.streamify.app.ui.components.YtWrappedHeroCard
+import com.streamify.app.ui.theme.*
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UserProfileScreen(
     onBack: () -> Unit,
@@ -36,65 +38,119 @@ fun UserProfileScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val user by SupabaseClient.currentUser.collectAsState()
+    val authState by AuthManager.authState.collectAsState()
+    val stats by YtStatsTelemetryEngine.computeWrappedStats().collectAsState(initial = null)
 
     var showEditDialog by remember { mutableStateOf(false) }
     var editName by remember(user) { mutableStateOf(user?.displayName ?: "") }
     var editBio by remember(user) { mutableStateOf(user?.bio ?: "") }
     var editGenre by remember(user) { mutableStateOf(user?.favoriteGenre ?: "All") }
     var isSaving by remember { mutableStateOf(false) }
+    var isSigningIn by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Profile & Cloud Sync", style = StreamifyType.HeadlineMedium) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = StreamifyColors.TextMain)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showEditDialog = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Profile", tint = StreamifyColors.Primary)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = StreamifyColors.BgBase)
+    // Dynamic Musical Chronotype Calculation based on local device time & real library BPM
+    val chronotype = remember(stats) {
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val bpm = stats?.averageBpm ?: 124
+        when (hour) {
+            in 21..23, in 0..4 -> Triple(
+                "The Night Explorer 🦉",
+                "Peak nocturnal listening • $bpm BPM acoustic signature",
+                Color(0xFF8B5CF6)
             )
-        },
-        containerColor = StreamifyColors.BgBase
-    ) { innerPadding ->
+            in 5..11 -> Triple(
+                "The Morning Motor 🌅",
+                "High-energy daybreak kickstart • $bpm BPM acoustic signature",
+                Color(0xFFF59E0B)
+            )
+            in 12..16 -> Triple(
+                "The Afternoon Groover ☀️",
+                "Steady focus & rhythm cadence • $bpm BPM acoustic signature",
+                Color(0xFF3B82F6)
+            )
+            else -> Triple(
+                "The Evening Unwinder 🌆",
+                "Mellow dusk transitions • $bpm BPM acoustic signature",
+                Color(0xFFEC4899)
+            )
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BgBase)
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 120.dp)
+    ) {
+        // Top App Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = TextMain,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Profile & Cloud Account",
+                    style = LocalAppTypography.current.headlineMedium.copy(fontSize = 18.sp),
+                    color = TextMain
+                )
+            }
+
+            if (user != null) {
+                IconButton(onClick = { showEditDialog = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = "Edit Profile",
+                        tint = TextMain,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Avatar & Identity
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = StreamifyDimens.SpaceLG)
-                .verticalScroll(rememberScrollState()),
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Large User Avatar
             val currentUser = user
             if (currentUser != null && currentUser.avatarUrl.isNotBlank()) {
                 AsyncImage(
                     model = currentUser.avatarUrl,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(96.dp)
+                        .size(88.dp)
                         .clip(CircleShape)
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .size(96.dp)
+                        .size(88.dp)
                         .clip(CircleShape)
-                        .background(StreamifyColors.PrimaryDark),
+                        .background(BgSurfaceElevated),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        currentUser?.displayName?.take(1)?.uppercase() ?: "U",
-                        style = StreamifyType.HeadlineLarge,
-                        color = StreamifyColors.TextMain,
-                        fontSize = 36.sp
+                        text = currentUser?.displayName?.take(1)?.uppercase() ?: "G",
+                        style = LocalAppTypography.current.headlineLarge.copy(fontSize = 32.sp),
+                        color = TextMain
                     )
                 }
             }
@@ -102,31 +158,30 @@ fun UserProfileScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                currentUser?.displayName ?: "Streamify Listener",
-                style = StreamifyType.HeadlineMedium,
-                color = StreamifyColors.TextMain
+                text = currentUser?.displayName ?: "Guest Listener",
+                style = LocalAppTypography.current.headlineLarge.copy(fontSize = 20.sp, fontWeight = FontWeight.Bold),
+                color = TextMain
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                currentUser?.email ?: "Offline Mode",
-                style = StreamifyType.Caption,
-                color = StreamifyColors.TextSub
+                text = currentUser?.email ?: "Offline Local Storage Mode",
+                style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                color = TextSecondary
             )
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Bio
             Text(
-                currentUser?.bio ?: "Music lover on Streamify 🎧",
-                style = StreamifyType.BodyMedium,
-                color = StreamifyColors.TextSub
+                text = currentUser?.bio ?: "Music lover exploring acoustic soundscapes on Streamify 🎧",
+                style = LocalAppTypography.current.songArtist.copy(fontSize = 13.sp),
+                color = TextSecondary
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             // Cloud Sync Status Pill
             Surface(
-                color = StreamifyColors.Primary.copy(alpha = 0.15f),
+                color = if (currentUser != null) Primary.copy(alpha = 0.15f) else BgSurfaceElevated,
                 shape = RoundedCornerShape(20.dp)
             ) {
                 Row(
@@ -134,108 +189,175 @@ fun UserProfileScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Default.CloudDone,
+                        imageVector = if (currentUser != null) Icons.Filled.CloudDone else Icons.Filled.CloudOff,
                         contentDescription = null,
-                        tint = StreamifyColors.Primary,
+                        tint = if (currentUser != null) Primary else TextSecondary,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        "Cloud Sync Enabled (Supabase Postgres)",
-                        style = StreamifyType.CaptionBold,
-                        color = StreamifyColors.Primary
+                        text = if (currentUser != null) "Cloud Sync Active (PostgreSQL + pgvector)" else "Local Only • Sign in to sync across devices",
+                        style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                        color = if (currentUser != null) Primary else TextSecondary
                     )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Listening Telemetry & Stats Cards
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Surface(
-                    color = StreamifyColors.BgCard,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("FAVORITE GENRE", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(currentUser?.favoriteGenre ?: "All", style = StreamifyType.HeadlineSmall, color = StreamifyColors.TextMain)
-                    }
-                }
-
-                Surface(
-                    color = StreamifyColors.BgCard,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("TOTAL PLAYS", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("${currentUser?.totalPlays ?: 142}", style = StreamifyType.HeadlineSmall, color = StreamifyColors.Primary)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Project Chronos: Musical Chronotype Card
-            Surface(
-                color = StreamifyColors.BgElevated,
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF7358FF).copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Bedtime,
-                            contentDescription = null,
-                            tint = Color(0xFF7358FF),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("MUSICAL CHRONOTYPE", style = StreamifyType.Caption, color = Color(0xFF7358FF))
-                        Text("The Night Explorer 🦉", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
-                        Text("Peak listening at 11 PM • 124 BPM average", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
-                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Streamify Wrapped Banner Button
-            Surface(
-                color = StreamifyColors.Primary,
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onNavigateToWrapped() }
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+            // Auth Action Button (Sign In / Sign Out)
+            if (isSigningIn) {
+                CircularProgressIndicator(color = Primary, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
+            } else {
+                Button(
+                    onClick = {
+                        if (currentUser != null) {
+                            AuthManager.signOut(context)
+                            Toast.makeText(context, "Signed out", Toast.LENGTH_SHORT).show()
+                        } else {
+                            isSigningIn = true
+                            scope.launch {
+                                val res = AuthManager.signInWithGoogle(context)
+                                isSigningIn = false
+                                if (res.isSuccess) {
+                                    Toast.makeText(context, "Signed in as ${res.getOrNull()?.displayName}!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val err = res.exceptionOrNull()?.message ?: "Sign in failed"
+                                    if (!err.contains("cancelled", ignoreCase = true)) {
+                                        Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (currentUser != null) BgSurfaceElevated else ActiveControl
+                    ),
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
                 ) {
-                    Column {
-                        Text("Streamify Wrapped 2026 🎉", style = StreamifyType.BodyLargeBold, color = StreamifyColors.BgBase)
-                        Text("View your yearly & monthly listening stats", style = StreamifyType.Caption, color = StreamifyColors.BgBase.copy(alpha = 0.8f))
-                    }
-                    Icon(Icons.Default.ArrowForward, contentDescription = null, tint = StreamifyColors.BgBase)
+                    Text(
+                        text = if (currentUser != null) "Sign Out" else "Sign In with Google",
+                        style = LocalAppTypography.current.chipText.copy(fontSize = 13.sp),
+                        color = if (currentUser != null) Primary else TextOnActiveChip,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Real Telemetry Numbers Hero Card
+        val currentStats = stats
+        if (currentStats != null) {
+            YtWrappedHeroCard(
+                totalMinutes = currentStats.totalMinutes,
+                totalTracks = currentStats.totalTracks,
+                likedSongs = currentStats.likedSongs,
+                topPlayedCount = currentStats.topPlayedCount
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Dynamic Musical Chronotype Card
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = BgSurfaceElevated,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(chronotype.third.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Bedtime,
+                        contentDescription = null,
+                        tint = chronotype.third,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "MUSICAL CHRONOTYPE",
+                        style = LocalAppTypography.current.songArtist.copy(
+                            fontSize = 11.sp,
+                            letterSpacing = 0.5.sp
+                        ),
+                        color = chronotype.third
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = chronotype.first,
+                        style = LocalAppTypography.current.headlineMedium.copy(fontSize = 16.sp),
+                        color = TextMain
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = chronotype.second,
+                        style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                        color = TextSecondary
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Streamify Wrapped Banner Button
+        Surface(
+            color = BgSurfaceElevated,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .clickable { onNavigateToWrapped() }
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Stars,
+                        contentDescription = null,
+                        tint = Primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Streamify Wrapped 2026 🎉",
+                            style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
+                            color = TextMain
+                        )
+                        Text(
+                            text = "Explore your full acoustic audio persona & top genres",
+                            style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                            color = TextSecondary
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = Icons.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }
@@ -244,29 +366,50 @@ fun UserProfileScreen(
     if (showEditDialog) {
         AlertDialog(
             onDismissRequest = { showEditDialog = false },
-            title = { Text("Edit Profile", style = StreamifyType.HeadlineSmall) },
+            title = { Text("Edit Profile", style = LocalAppTypography.current.headlineMedium, color = TextMain) },
             text = {
                 Column {
                     OutlinedTextField(
                         value = editName,
                         onValueChange = { editName = it },
-                        label = { Text("Display Name") },
+                        label = { Text("Display Name", color = TextSecondary) },
                         singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ActiveControl,
+                            unfocusedBorderColor = Divider,
+                            focusedTextColor = TextMain,
+                            unfocusedTextColor = TextMain
+                        ),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     OutlinedTextField(
                         value = editBio,
                         onValueChange = { editBio = it },
-                        label = { Text("Bio") },
+                        label = { Text("Bio", color = TextSecondary) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ActiveControl,
+                            unfocusedBorderColor = Divider,
+                            focusedTextColor = TextMain,
+                            unfocusedTextColor = TextMain
+                        ),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     OutlinedTextField(
                         value = editGenre,
                         onValueChange = { editGenre = it },
-                        label = { Text("Favorite Genre") },
+                        label = { Text("Favorite Genre", color = TextSecondary) },
                         singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ActiveControl,
+                            unfocusedBorderColor = Divider,
+                            focusedTextColor = TextMain,
+                            unfocusedTextColor = TextMain
+                        ),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -289,17 +432,18 @@ fun UserProfileScreen(
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary, contentColor = StreamifyColors.BgBase)
+                    colors = ButtonDefaults.buttonColors(containerColor = ActiveControl),
+                    shape = RoundedCornerShape(20.dp)
                 ) {
-                    Text("Save")
+                    Text("Save", color = TextOnActiveChip, style = LocalAppTypography.current.chipText)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showEditDialog = false }) {
-                    Text("Cancel", color = StreamifyColors.TextSub)
+                    Text("Cancel", color = TextSecondary)
                 }
             },
-            containerColor = StreamifyColors.BgElevated
+            containerColor = BgSurfaceElevated
         )
     }
 }

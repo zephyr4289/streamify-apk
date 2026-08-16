@@ -26,12 +26,15 @@ import androidx.navigation.compose.rememberNavController
 import coil.Coil
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.streamify.app.data.remote.AuthManager
+import com.streamify.app.data.remote.AuthState
 import com.streamify.app.navigation.AppNavGraph
 import com.streamify.app.ui.components.BottomNavBar
 import com.streamify.app.ui.components.BottomTab
 import com.streamify.app.ui.components.MiniPlayerBar
 import com.streamify.app.ui.components.YtBottomNavBar
 import com.streamify.app.ui.screens.FullPlayerSheet
+import com.streamify.app.ui.screens.YtOnboardingScreen
 import com.streamify.app.ui.theme.BgBase
 import com.streamify.app.ui.theme.Primary
 import com.streamify.app.ui.theme.StreamifyDimens
@@ -79,6 +82,9 @@ class MainActivity : ComponentActivity() {
                     label = "dominantColor"
                 )
 
+                val authState by AuthManager.authState.collectAsState()
+                var isOnboardingDone by remember { mutableStateOf(AuthManager.hasSeenOnboarding()) }
+
                 LaunchedEffect(playerState.currentTrack?.coverArtPath) {
                     val path = playerState.currentTrack?.coverArtPath
                     if (path != null) {
@@ -104,73 +110,81 @@ class MainActivity : ComponentActivity() {
                     val prefs = getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
                     com.streamify.app.service.CrossfadeAudioProcessor.crossfadeDurationMs =
                         (prefs.getFloat("crossfade_val", 0f) * 1000).toLong()
+                    AuthManager.init(this@MainActivity)
                     playerViewModel.initialize(this@MainActivity)
                     com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
                 }
 
-                val configuration = LocalConfiguration.current
-                val density = LocalDensity.current
-                val hasTrack = playerState.currentTrack != null
-                val peekHeight = if (hasTrack) 120.dp else 0.dp // 64dp Docked MiniPlayer + 56dp BottomNav
+                if (!isOnboardingDone && authState !is AuthState.Authenticated) {
+                    YtOnboardingScreen(
+                        onComplete = {
+                            isOnboardingDone = true
+                        }
+                    )
+                } else {
+                    val configuration = LocalConfiguration.current
+                    val density = LocalDensity.current
+                    val hasTrack = playerState.currentTrack != null
+                    val peekHeight = if (hasTrack) 120.dp else 0.dp // 64dp Docked MiniPlayer + 56dp BottomNav
 
-                val sheetState = rememberStandardBottomSheetState(
-                    initialValue = SheetValue.PartiallyExpanded,
-                    skipHiddenState = true
-                )
-                val scaffoldState = rememberBottomSheetScaffoldState(
-                    bottomSheetState = sheetState,
-                    snackbarHostState = remember { SnackbarHostState() }
-                )
+                    val sheetState = rememberStandardBottomSheetState(
+                        initialValue = SheetValue.PartiallyExpanded,
+                        skipHiddenState = true
+                    )
+                    val scaffoldState = rememberBottomSheetScaffoldState(
+                        bottomSheetState = sheetState,
+                        snackbarHostState = remember { SnackbarHostState() }
+                    )
 
-                LaunchedEffect(Unit) {
-                    UiEventBus.events.collect { event ->
-                        when (event) {
-                            is UiEvent.ShowSnackbar -> {
-                                scaffoldState.snackbarHostState.showSnackbar(
-                                    message = event.message,
-                                    duration = SnackbarDuration.Short
+                    LaunchedEffect(Unit) {
+                        UiEventBus.events.collect { event ->
+                            when (event) {
+                                is UiEvent.ShowSnackbar -> {
+                                    scaffoldState.snackbarHostState.showSnackbar(
+                                        message = event.message,
+                                        duration = SnackbarDuration.Short
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+                    val peekHeightPx = with(density) { peekHeight.toPx() }
+
+                    // Extreme Performance: derivedStateOf calculation runs only when offset updates, bound to GPU graphicsLayer
+                    val sheetFraction by remember {
+                        derivedStateOf {
+                            try {
+                                val offset = sheetState.requireOffset()
+                                if (offset.isNaN() || screenHeightPx <= peekHeightPx) {
+                                    if (sheetState.targetValue == SheetValue.Expanded) 1f else 0f
+                                } else {
+                                    1f - ((offset) / (screenHeightPx - peekHeightPx)).coerceIn(0f, 1f)
+                                }
+                            } catch (e: Exception) {
+                                if (sheetState.targetValue == SheetValue.Expanded) 1f else 0f
+                            }
+                        }
+                    }
+
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentRoute = navBackStackEntry?.destination?.route ?: "home"
+
+                    BottomSheetScaffold(
+                        scaffoldState = scaffoldState,
+                        sheetPeekHeight = peekHeight,
+                        sheetContainerColor = BgBase,
+                        containerColor = BgBase,
+                        snackbarHost = {
+                            SnackbarHost(hostState = scaffoldState.snackbarHostState) { data ->
+                                Snackbar(
+                                    snackbarData = data,
+                                    containerColor = Primary,
+                                    contentColor = Color.White
                                 )
                             }
-                        }
-                    }
-                }
-
-                val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-                val peekHeightPx = with(density) { peekHeight.toPx() }
-
-                // Extreme Performance: derivedStateOf calculation runs only when offset updates, bound to GPU graphicsLayer
-                val sheetFraction by remember {
-                    derivedStateOf {
-                        try {
-                            val offset = sheetState.requireOffset()
-                            if (offset.isNaN() || screenHeightPx <= peekHeightPx) {
-                                if (sheetState.targetValue == SheetValue.Expanded) 1f else 0f
-                            } else {
-                                1f - ((offset) / (screenHeightPx - peekHeightPx)).coerceIn(0f, 1f)
-                            }
-                        } catch (e: Exception) {
-                            if (sheetState.targetValue == SheetValue.Expanded) 1f else 0f
-                        }
-                    }
-                }
-
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route ?: "home"
-
-                BottomSheetScaffold(
-                    scaffoldState = scaffoldState,
-                    sheetPeekHeight = peekHeight,
-                    sheetContainerColor = BgBase,
-                    containerColor = BgBase,
-                    snackbarHost = {
-                        SnackbarHost(hostState = scaffoldState.snackbarHostState) { data ->
-                            Snackbar(
-                                snackbarData = data,
-                                containerColor = Primary,
-                                contentColor = Color.White
-                            )
-                        }
-                    },
+                        },
                     sheetContent = {
                         if (hasTrack) {
                             val progress = if (playerState.duration > 0)
