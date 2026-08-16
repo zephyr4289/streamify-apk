@@ -24,7 +24,7 @@ class IngestionWorker(
     private val notificationId = 54321
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
-        return createForegroundInfo("Scanning Local Music", 0, 1)
+        return createForegroundInfo("Indexing Local Music", 0, 1)
     }
 
     private fun createForegroundInfo(title: String, current: Int, total: Int): ForegroundInfo {
@@ -55,11 +55,12 @@ class IngestionWorker(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             try {
-                setForeground(createForegroundInfo("Scanning Local Music", 0, 0))
+                setForeground(createForegroundInfo("Indexing Local Music", 0, 0))
             } catch (e: Throwable) {
                 // Background scan continues even if foreground notification is restricted
             }
 
+            // 1. Direct MediaStore projection query (Zero IPC Binder bottlenecks)
             val localFiles = MediaStoreScanner.scanLocalMusic(applicationContext)
             val existingTracks = NativeBridge.getAllTracks()
             val existingPaths = existingTracks.map { it.filepath }.toSet()
@@ -69,6 +70,7 @@ class IngestionWorker(
 
             NativeBridge.setTotalAiTasks(newFiles.size)
 
+            // 2. Fast Non-Blocking Bulk Insertion (Zero startup DSP decoding)
             newFiles.forEachIndexed { index, file ->
                 val finalAlbum = if (file.album.isNotBlank() && !file.album.equals("<unknown>", ignoreCase = true)) {
                     file.album
@@ -89,42 +91,15 @@ class IngestionWorker(
 
                 if (trackId > 0) {
                     insertedCount++
-
-                    // Extract embedded cover art if present
-                    try {
-                        val retriever = android.media.MediaMetadataRetriever()
-                        retriever.setDataSource(file.dataPath)
-                        val artBytes = retriever.embeddedPicture
-                        if (artBytes != null && artBytes.isNotEmpty()) {
-                            val coversDir = java.io.File(applicationContext.filesDir, "covers")
-                            if (!coversDir.exists()) coversDir.mkdirs()
-                            val artFile = java.io.File(coversDir, "art_${file.dataPath.hashCode()}.jpg")
-                            artFile.writeBytes(artBytes)
-                            NativeBridge.updateTrackCoverArt(trackId, artFile.absolutePath)
-                        }
-                        retriever.release()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    // Process audio for real BPM and ONNX vector embedding (cooperatively throttled)
-                    try {
-                        NativeBridge.processAudioFile(trackId, file.dataPath)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    // Progressive refinement: Refresh repository every 3 tracks or first track
-                    if (insertedCount == 1 || insertedCount % 3 == 0) {
-                        TrackRepository.refresh()
-                    }
                 }
 
-                val progress = (index + 1).toFloat() / newFiles.size.toFloat()
-                setProgress(workDataOf("PROGRESS" to progress))
-                kotlinx.coroutines.delay(20) // Cooperative yield for UI smoothness
+                if (index % 50 == 0 || index == newFiles.size - 1) {
+                    val progress = (index + 1).toFloat() / newFiles.size.toFloat()
+                    setProgress(workDataOf("PROGRESS" to progress))
+                }
             }
 
+            // 3. Single Atomic Refresh at the end of the scan (Zero redundant DB queries)
             if (insertedCount > 0 || existingTracks.isEmpty()) {
                 TrackRepository.refresh()
             }
@@ -136,4 +111,3 @@ class IngestionWorker(
         }
     }
 }
-

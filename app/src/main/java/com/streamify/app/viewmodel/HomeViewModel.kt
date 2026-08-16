@@ -94,24 +94,36 @@ class HomeViewModel(
                 val topPlayed = try { repository.getTopPlayedTracks(20) } catch (e: Exception) { emptyList() }
                 val recent = allTracks.takeLast(6)
 
-                // 5. Hybrid Asymmetric Crowd + SIMD Recommendation Shelf
-                val seedTrack = sessionRecs.firstOrNull() ?: allTracks.firstOrNull()
-                val hybridRecs = if (seedTrack != null) {
+                // 5. Multi-Seed Ensemble & Hybrid Radar (Shatters single-genre Phonk loop)
+                val distinctSeeds = ReRanker.getDistinctGenreSeeds(sessionRecs.ifEmpty { allTracks }, limit = 3)
+                val hybridRecs = if (distinctSeeds.isNotEmpty()) {
                     try {
                         val timeOfDay = com.streamify.app.util.TimeGreeting.getCurrentTimeOfDay()
                         val audioDevice = com.streamify.app.service.AudioDeviceManager.getCurrentDeviceType()
-                        hybridFetcher.getHybridRecommendations(seedTrack, timeOfDay, audioDevice, limit = 8)
+                        val candidates = mutableListOf<Track>()
+                        for (seed in distinctSeeds) {
+                            val recs = hybridFetcher.getHybridRecommendations(seed, timeOfDay, audioDevice, limit = 5)
+                            candidates.addAll(recs)
+                        }
+                        ReRanker.reRank(
+                            candidates = candidates.distinctBy { it.id },
+                            maxPerArtist = 2,
+                            maxPerTempoCluster = 3,
+                            explorationRatio = 0.25f,
+                            explorationPool = allTracks,
+                            limit = 8
+                        )
                     } catch (e: Exception) {
                         emptyList()
                     }
                 } else emptyList()
 
-                // 6. Online 2-Hop Graph Discovery
-                val topArtists = ReRanker.extractTopArtists(sessionRecs.ifEmpty { topPlayed.ifEmpty { allTracks } }, limit = 2)
+                // 6. Online 2-Hop Graph Discovery Across Diverse Artists
+                val topArtists = ReRanker.extractTopArtists(sessionRecs.ifEmpty { madeForYou.ifEmpty { allTracks } }, limit = 3)
                 val onlineDiscoveries = mutableListOf<Track>()
 
                 for (artist in topArtists) {
-                    val queryResults = try { iTunesSearchApi.search("$artist mix", maxResults = 5) } catch (e: Exception) { emptyList() }
+                    val queryResults = try { iTunesSearchApi.search(artist, maxResults = 4) } catch (e: Exception) { emptyList() }
                     for (item in queryResults) {
                         val pseudoId = -(item.url.hashCode())
                         onlineDiscoveries.add(
