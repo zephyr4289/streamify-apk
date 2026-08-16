@@ -265,12 +265,17 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 ) { innerPadding ->
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        // Viewport: NavHost (with fixed bottom padding for the 120dp docked shell)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                    ) {
+                        // Viewport: NavHost (with fixed bottom padding for the 120dp docked shell and centered on tablets)
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(bottom = if (hasTrack) 56.dp else 56.dp)
+                                .centerInLargeScreen()
                         ) {
                             AppNavGraph(
                                 navController = navController,
@@ -290,7 +295,10 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             alpha = (1f - (sheetFraction * 2.0f)).coerceIn(0f, 1f),
-                            modifier = Modifier.align(Alignment.BottomCenter)
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .windowInsetsPadding(WindowInsets.navigationBars)
+                                .centerInLargeScreen()
                         )
                     }
                 }

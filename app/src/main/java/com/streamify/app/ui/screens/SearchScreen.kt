@@ -200,13 +200,18 @@ fun SearchScreen(
                 }
 
                 item(key = "genre_grid", contentType = "genre_grid") {
+                    val screenConfig = LocalScreenConfiguration.current
+                    val genreColumns = remember(screenConfig.widthDp) {
+                        ((screenConfig.widthDp.value / 158f).toInt()).coerceAtLeast(2)
+                    }
+
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        genres.chunked(2).forEach { rowGenres ->
+                        genres.chunked(genreColumns).forEach { rowGenres ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -223,8 +228,10 @@ fun SearchScreen(
                                         )
                                     }
                                 }
-                                if (rowGenres.size == 1) {
-                                    Spacer(modifier = Modifier.weight(1f))
+                                if (rowGenres.size < genreColumns) {
+                                    repeat(genreColumns - rowGenres.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
                                 }
                             }
                         }

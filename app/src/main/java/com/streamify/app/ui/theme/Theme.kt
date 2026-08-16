@@ -74,10 +74,13 @@ fun StreamifyTheme(
         }
     }
 
+    val screenConfiguration = rememberScreenConfiguration()
+
     CompositionLocalProvider(
         LocalAppTypography provides StreamifyTypography(),
         LocalAppShapes provides StreamifyShapeTokens(),
-        LocalAppDimens provides StreamifyDimenTokens()
+        LocalAppDimens provides StreamifyDimenTokens(),
+        LocalScreenConfiguration provides screenConfiguration
     ) {
         MaterialTheme(
             colorScheme = StreamifyDarkColorScheme,

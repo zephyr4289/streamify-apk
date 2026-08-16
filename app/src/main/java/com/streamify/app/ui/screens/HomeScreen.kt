@@ -114,6 +114,11 @@ fun HomeScreen(
                     else -> allTracks
                 }
 
+                val screenConfig = LocalScreenConfiguration.current
+                val gridColumns = remember(screenConfig.widthDp) {
+                    ((screenConfig.widthDp.value / 158f).toInt()).coerceAtLeast(2)
+                }
+
                 val quickPickCandidates = if (displayTracks.isNotEmpty()) displayTracks else state.sessionRecommendations.ifEmpty { allTracks }
                 val quickPickColumns = remember(quickPickCandidates) {
                     val pool = if (quickPickCandidates.isNotEmpty()) quickPickCandidates else allTracks
@@ -124,20 +129,20 @@ fun HomeScreen(
                     val combined = (state.topPlayed + state.recent).distinctBy { it.id }
                     if (combined.isNotEmpty()) combined else allTracks
                 }
-                val listenAgainColumns = remember(listenAgainCandidates) {
-                    listenAgainCandidates.take(12).chunked(2)
+                val listenAgainColumns = remember(listenAgainCandidates, gridColumns) {
+                    listenAgainCandidates.take(gridColumns * 6).chunked(if (screenConfig.isTablet) 3 else 2)
                 }
 
                 val supermixPool = remember(state.madeForYou, state.sessionRecommendations) {
                     (state.madeForYou + state.sessionRecommendations).distinctBy { it.id }.ifEmpty { allTracks }
                 }
 
-                val circadianColumns = remember(state.circadianRecommendations) {
-                    state.circadianRecommendations.take(12).chunked(2)
+                val circadianColumns = remember(state.circadianRecommendations, gridColumns) {
+                    state.circadianRecommendations.take(gridColumns * 6).chunked(if (screenConfig.isTablet) 3 else 2)
                 }
 
-                val hybridColumns = remember(state.hybridRecommendations) {
-                    state.hybridRecommendations.take(8).chunked(2)
+                val hybridColumns = remember(state.hybridRecommendations, gridColumns) {
+                    state.hybridRecommendations.take(gridColumns * 4).chunked(if (screenConfig.isTablet) 3 else 2)
                 }
 
                 LazyColumn(

@@ -240,6 +240,11 @@ fun LibraryScreen(
                     }
                 }
 
+                val screenConfig = LocalScreenConfiguration.current
+                val gridColumns = remember(screenConfig.widthDp) {
+                    ((screenConfig.widthDp.value / 158f).toInt()).coerceAtLeast(2)
+                }
+
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 120.dp)
@@ -320,9 +325,9 @@ fun LibraryScreen(
                                     }
                                 }
                             } else {
-                                // 2-Column Grid inside LazyColumn (Zero Cache Allocation Spikes)
+                                // Responsive Dynamic-Column Grid inside LazyColumn
                                 items(
-                                    items = playlists.chunked(2),
+                                    items = playlists.chunked(gridColumns),
                                     key = { "row_${it.first().id}" },
                                     contentType = { "playlistGridRow" }
                                 ) { rowPlaylists ->
@@ -333,27 +338,22 @@ fun LibraryScreen(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         rowPlaylists.forEach { playlist ->
+                                            val playlistTracks = allTracks.filter { it.playlistId == playlist.id }
+                                            val firstTrack = playlistTracks.firstOrNull()
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
                                                     .clickable { selectedPlaylistId = playlist.id }
                                             ) {
                                                 Column {
-                                                    Box(
+                                                    YtThumbnail(
+                                                        url = playlist.customCoverPath ?: firstTrack?.coverArtPath,
+                                                        size = 150.dp,
+                                                        cornerRadius = 6.dp,
                                                         modifier = Modifier
                                                             .fillMaxWidth()
                                                             .aspectRatio(1f)
-                                                            .clip(RoundedCornerShape(6.dp))
-                                                            .background(BgSurfaceElevated),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Filled.QueueMusic,
-                                                            contentDescription = null,
-                                                            tint = Primary,
-                                                            modifier = Modifier.size(36.dp)
-                                                        )
-                                                    }
+                                                    )
                                                     Spacer(modifier = Modifier.height(6.dp))
                                                     Text(
                                                         text = playlist.name,
@@ -362,15 +362,18 @@ fun LibraryScreen(
                                                         maxLines = 1
                                                     )
                                                     Text(
-                                                        text = "${playlist.trackIds.size} songs",
+                                                        text = "Playlist • ${playlistTracks.size} tracks",
                                                         style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
-                                                        color = TextSecondary
+                                                        color = TextSecondary,
+                                                        maxLines = 1
                                                     )
                                                 }
                                             }
                                         }
-                                        if (rowPlaylists.size == 1) {
-                                            Spacer(modifier = Modifier.weight(1f))
+                                        if (rowPlaylists.size < gridColumns) {
+                                            repeat(gridColumns - rowPlaylists.size) {
+                                                Spacer(modifier = Modifier.weight(1f))
+                                            }
                                         }
                                     }
                                 }
@@ -434,7 +437,7 @@ fun LibraryScreen(
                                 }
                             } else {
                                 items(
-                                    items = albums.keys.toList().sorted().chunked(2),
+                                    items = albums.keys.toList().sorted().chunked(gridColumns),
                                     key = { "album_row_${it.first()}" },
                                     contentType = { "albumGridRow" }
                                 ) { rowAlbums ->
@@ -477,8 +480,10 @@ fun LibraryScreen(
                                                 }
                                             }
                                         }
-                                        if (rowAlbums.size == 1) {
-                                            Spacer(modifier = Modifier.weight(1f))
+                                        if (rowAlbums.size < gridColumns) {
+                                            repeat(gridColumns - rowAlbums.size) {
+                                                Spacer(modifier = Modifier.weight(1f))
+                                            }
                                         }
                                     }
                                 }

@@ -64,8 +64,8 @@ fun FullPlayerSheet(
 ) {
     if (track == null) return
 
-    val configuration = LocalConfiguration.current
-    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val screenConfig = LocalScreenConfiguration.current
+    val isLandscape = screenConfig.isLandscape || screenConfig.isTablet
     var isVideoMode by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
     val communityViewModel: CommunityViewModel = viewModel()
@@ -84,7 +84,10 @@ fun FullPlayerSheet(
                         BgBase.copy(alpha = 0.85f),
                         BgBase
                     ),
-                    center = Offset(size.width / 2, size.height * 0.28f),
+                    center = Offset(
+                        size.width / 2,
+                        if (isLandscape) size.height / 2 else size.height * 0.28f
+                    ),
                     radius = size.width * 1.15f
                 )
             )
@@ -95,6 +98,9 @@ fun FullPlayerSheet(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .centerInLargeScreen()
                     .padding(horizontal = 24.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -240,6 +246,9 @@ fun FullPlayerSheet(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .centerInLargeScreen()
                     .padding(top = 16.dp, bottom = 8.dp)
             ) {
                 // --- TOP BAR (Collapse Chevron, Song/Video Switcher, Actions) ---
