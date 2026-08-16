@@ -250,20 +250,33 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 lastPlayedTrackId = newTrackId
                 savePlayerState(context)
                 
-                // Auto-Fetch Lyrics if missing using Chaquopy robust engine
+                // Auto-Fetch Lyrics if missing using ResilientMediaRouter (Kotlin LRCLIB/NetEase racer first, lazy Python fallback)
                 val playingTrack = _playerState.value.currentTrack
                 if (playingTrack != null && playingTrack.id > 0 && playingTrack.lyricsPath.isNullOrBlank()) {
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         try {
-                            val lyricsText = try {
-                                val py = com.chaquo.python.Python.getInstance()
-                                val lyricsModule = py.getModule("download_engine.lyrics")
-                                lyricsModule.callAttr("fetch_lyrics", playingTrack.title, playingTrack.artist, playingTrack.durationSec).toString()
-                            } catch (e: Exception) {
-                                ""
-                            }
+                            val lyricsText = com.streamify.app.data.network.ResilientMediaRouter.fetchWithFallback<String>(
+                                timeoutMs = 2500L,
+                                primary = {
+                                    com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(
+                                        playingTrack.title,
+                                        playingTrack.artist,
+                                        playingTrack.durationSec
+                                    )
+                                },
+                                fallback = {
+                                    val pyRes = com.streamify.app.data.network.PythonEngine.executeFallback(
+                                        "download_engine.lyrics",
+                                        "fetch_lyrics",
+                                        playingTrack.title,
+                                        playingTrack.artist,
+                                        playingTrack.durationSec
+                                    ) { pyObj -> pyObj.toString() }
+                                    pyRes.getOrNull()
+                                }
+                            ) ?: ""
 
-                            if (lyricsText.isNotBlank()) {
+                            if (lyricsText.isNotBlank() && (lyricsText.contains("[") || lyricsText.length > 20)) {
                                 val lyricsDir = java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), ".Streamify/lyrics")
                                 if (!lyricsDir.exists()) lyricsDir.mkdirs()
                                 

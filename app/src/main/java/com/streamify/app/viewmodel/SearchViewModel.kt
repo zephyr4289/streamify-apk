@@ -139,50 +139,54 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             
             val onlineResults = withContext(Dispatchers.IO) {
                 try {
-                    // Fast Primary: Direct YouTube Music & YouTube Innertube API (~80ms)
-                    val ytMusicResults = com.streamify.app.data.network.YouTubeMusicSearchApi.search(cleanQuery, maxResults = 25)
-                    if (ytMusicResults.isNotEmpty()) {
-                        searchCache.put(cleanQuery.lowercase(), ytMusicResults)
-                        return@withContext ytMusicResults
-                    }
-
-                    // Secondary: Python YouTube search extraction
-                    val py = Python.getInstance()
-                    val searchModule = py.getModule("download_engine.search")
-                    val pyResultJson = searchModule.callAttr("search_youtube", cleanQuery, 25).toString()
-                    if (pyResultJson.isNotBlank() && pyResultJson.startsWith("[")) {
-                        val jsonArr = org.json.JSONArray(pyResultJson)
-                        val results = mutableListOf<OnlineSearchResult>()
-                        for (i in 0 until jsonArr.length()) {
-                            val item = jsonArr.getJSONObject(i)
-                            results.add(
-                                OnlineSearchResult(
-                                    title = item.optString("title", "Unknown"),
-                                    uploader = item.optString("uploader", "Unknown"),
-                                    url = item.optString("url", ""),
-                                    duration = item.optInt("duration", 0),
-                                    thumbnail = item.optString("thumbnail", "")
-                                )
-                            )
+                    val searchResult = com.streamify.app.data.network.ResilientMediaRouter.fetchWithFallback<List<OnlineSearchResult>>(
+                        timeoutMs = 2500L,
+                        primary = {
+                            // 1. Pure Kotlin Innertube HTTP/2 (<60ms)
+                            val yt = com.streamify.app.data.network.YouTubeMusicSearchApi.search(cleanQuery, maxResults = 25)
+                            if (yt.isNotEmpty()) yt
+                            else com.streamify.app.data.network.iTunesSearchApi.search(cleanQuery, maxResults = 25)
+                        },
+                        fallback = {
+                            // 2. Lazy Python Engine fallback
+                            val pyRes = com.streamify.app.data.network.PythonEngine.executeFallback(
+                                "download_engine.search",
+                                "search_youtube",
+                                cleanQuery,
+                                25
+                            ) { pyObj ->
+                                val str = pyObj.toString()
+                                if (str.isNotBlank() && str.startsWith("[")) {
+                                    val jsonArr = org.json.JSONArray(str)
+                                    val results = mutableListOf<OnlineSearchResult>()
+                                    for (i in 0 until jsonArr.length()) {
+                                        val item = jsonArr.getJSONObject(i)
+                                        results.add(
+                                            OnlineSearchResult(
+                                                title = item.optString("title", "Unknown"),
+                                                uploader = item.optString("uploader", "Unknown"),
+                                                url = item.optString("url", ""),
+                                                duration = item.optInt("duration", 0),
+                                                thumbnail = item.optString("thumbnail", "")
+                                            )
+                                        )
+                                    }
+                                    results
+                                } else {
+                                    emptyList()
+                                }
+                            }
+                            pyRes.getOrNull() ?: emptyList()
                         }
-                        if (results.isNotEmpty()) {
-                            searchCache.put(cleanQuery.lowercase(), results)
-                            return@withContext results
-                        }
-                    }
+                    ) ?: emptyList()
 
-                    // Ultra-fast Fallback: Apple iTunes Global Edge CDN (~60ms)
-                    val itunesResults = com.streamify.app.data.network.iTunesSearchApi.search(cleanQuery, maxResults = 25)
-                    if (itunesResults.isNotEmpty()) {
-                        searchCache.put(cleanQuery.lowercase(), itunesResults)
-                        return@withContext itunesResults
+                    if (searchResult.isNotEmpty()) {
+                        searchCache.put(cleanQuery.lowercase(), searchResult)
                     }
-
-                    emptyList<OnlineSearchResult>()
+                    searchResult
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    e.printStackTrace()
                     emptyList<OnlineSearchResult>()
                 }
             }

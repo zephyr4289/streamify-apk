@@ -36,15 +36,9 @@ class StreamifyApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         
-        // 1. Safe Python start
-        try {
-            if (!Python.isStarted()) {
-                Python.start(AndroidPlatform(this))
-            }
-        } catch (e: Throwable) {
-            android.util.Log.e("StreamifyApp", "Chaquopy Python initialization failed or not available on this device", e)
-        }
-        
+        // 1. Ensure TrackRepository application context is bound
+        com.streamify.app.data.TrackRepository.appContext = this
+
         // 2. Ensure database directory exists before C++ sqlite3_open_v2
         try {
             val dbFile = getDatabasePath("streamify.db")
