@@ -308,7 +308,7 @@ fun LibraryScreen(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         rowPlaylists.forEach { playlist ->
-                                            val playlistTracks = allTracks.filter { it.playlistId == playlist.id }
+                                            val playlistTracks = allTracks.filter { it.id in playlist.trackIds }
                                             val firstTrack = playlistTracks.firstOrNull()
                                             Box(
                                                 modifier = Modifier
@@ -317,7 +317,7 @@ fun LibraryScreen(
                                             ) {
                                                 Column {
                                                     YtThumbnail(
-                                                        url = playlist.customCoverPath ?: firstTrack?.coverArtPath,
+                                                        url = firstTrack?.coverArtPath,
                                                         size = 150.dp,
                                                         cornerRadius = 6.dp,
                                                         modifier = Modifier

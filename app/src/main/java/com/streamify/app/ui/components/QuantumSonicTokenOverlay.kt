@@ -156,8 +156,7 @@ private fun QuantumGhostCard(
 
             // Animated Quantum Pulsing Equalizer
             YtActiveEqualizer(
-                isPlaying = true,
-                barColor = Primary,
+                color = Primary,
                 modifier = Modifier.size(width = 16.dp, height = 14.dp)
             )
         }
