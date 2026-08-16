@@ -215,8 +215,82 @@ object SupabaseClient {
         }
     }
 
+    fun isJwtExpired(jwt: String?): Boolean {
+        if (jwt.isNullOrBlank()) return true
+        try {
+            val parts = jwt.split(".")
+            if (parts.size >= 2) {
+                val decodedBytes = android.util.Base64.decode(parts[1], android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+                val payloadJson = String(decodedBytes, Charsets.UTF_8)
+                val json = JSONObject(payloadJson)
+                val exp = json.optLong("exp", 0L)
+                if (exp > 0) {
+                    val nowSec = System.currentTimeMillis() / 1000L
+                    return nowSec >= (exp - 60L) // Treat as expired if within 60s of expiration
+                }
+            }
+        } catch (e: Exception) {
+            // ignore decoding errors
+        }
+        return false
+    }
+
+    suspend fun refreshSession(): Boolean = withContext(Dispatchers.IO) {
+        val rt = prefs?.getString("refresh_token", null)
+        if (rt.isNullOrBlank()) {
+            _accessToken.value = null
+            prefs?.edit()?.remove("access_token")?.apply()
+            return@withContext false
+        }
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/auth/v1/token?grant_type=refresh_token")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 8000
+                readTimeout = 8000
+                doOutput = true
+                doInput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONObject().apply {
+                put("refresh_token", rt)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+
+            val code = conn.responseCode
+            if (code in 200..299) {
+                val respStr = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val json = JSONObject(respStr)
+                val newToken = json.getString("access_token")
+                val newRefreshToken = json.optString("refresh_token", rt)
+
+                _accessToken.value = newToken
+                prefs?.edit()?.apply {
+                    putString("access_token", newToken)
+                    putString("refresh_token", newRefreshToken)
+                    apply()
+                }
+                true
+            } else {
+                _accessToken.value = null
+                prefs?.edit()?.remove("access_token")?.remove("refresh_token")?.apply()
+                false
+            }
+        } catch (e: Exception) {
+            _accessToken.value = null
+            false
+        }
+    }
+
     private fun getAuthToken(): String {
-        return _accessToken.value ?: BuildConfig.SUPABASE_ANON_KEY
+        val token = _accessToken.value
+        if (token.isNullOrBlank() || isJwtExpired(token)) {
+            return BuildConfig.SUPABASE_ANON_KEY
+        }
+        return token
     }
 
     // ========================================================================
@@ -249,6 +323,7 @@ object SupabaseClient {
             if (code in 200..299) {
                 val json = JSONObject(respStr)
                 val token = json.getString("access_token")
+                val refreshToken = json.optString("refresh_token", "")
                 val userObj = json.getJSONObject("user")
                 val userId = userObj.getString("id")
                 val email = userObj.optString("email", "")
@@ -273,6 +348,7 @@ object SupabaseClient {
 
                 prefs?.edit()?.apply {
                     putString("access_token", token)
+                    if (refreshToken.isNotBlank()) putString("refresh_token", refreshToken)
                     putString("user_id", userId)
                     putString("user_email", email)
                     putString("display_name", name)
@@ -666,17 +742,12 @@ object SupabaseClient {
     suspend fun createJamSession(track: Track, positionMs: Long): Result<ListeningSession> = withContext(Dispatchers.IO) {
         val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in with Google in Profile to start a Jam session"))
         try {
+            if (isJwtExpired(_accessToken.value)) {
+                refreshSession()
+            }
             ensureProfile(user)
             val sessionCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Prefer", "return=representation")
-            }
 
             val trackObj = JSONObject().apply {
                 put("id", track.id)
@@ -698,11 +769,33 @@ object SupabaseClient {
                 put("participant_ids", JSONArray().put(user.id))
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            fun executePost(token: String): Pair<Int, String> {
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                    setRequestProperty("Authorization", "Bearer $token")
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Prefer", "return=representation")
+                }
+                conn.outputStream.use { it.write(body.toString().toByteArray()) }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: ""
+                return Pair(code, text)
+            }
 
-            val code = conn.responseCode
+            var (code, resp) = executePost(getAuthToken())
+
+            // If token expired, auto-refresh and retry
+            if (code !in 200..299 && (resp.contains("JWT expired", ignoreCase = true) || code == 401 || resp.contains("PGRST503"))) {
+                refreshSession()
+                val retryResult = executePost(getAuthToken())
+                code = retryResult.first
+                resp = retryResult.second
+            }
+
             if (code in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
                 val arr = JSONArray(resp)
                 val o = arr.getJSONObject(0)
                 val jam = ListeningSession(
@@ -720,9 +813,7 @@ object SupabaseClient {
                 _activeJam.value = jam
                 Result.success(jam)
             } else {
-                val errStream = conn.errorStream
-                val errText = errStream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: "HTTP $code"
-                Result.failure(Exception("Failed to initialize Jam: $errText"))
+                Result.failure(Exception("Failed to initialize Jam: $resp"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -732,17 +823,35 @@ object SupabaseClient {
     suspend fun joinJamSession(sessionCode: String): Result<ListeningSession> = withContext(Dispatchers.IO) {
         val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in with Google in Profile to join a Jam"))
         try {
+            if (isJwtExpired(_accessToken.value)) {
+                refreshSession()
+            }
             ensureProfile(user)
             val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+
+            fun executeGet(token: String): Pair<Int, String> {
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                    setRequestProperty("Authorization", "Bearer $token")
+                }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: ""
+                return Pair(code, text)
             }
 
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            var (code, resp) = executeGet(getAuthToken())
+
+            if (code !in 200..299 && (resp.contains("JWT expired", ignoreCase = true) || code == 401 || resp.contains("PGRST503"))) {
+                refreshSession()
+                val retryResult = executeGet(getAuthToken())
+                code = retryResult.first
+                resp = retryResult.second
+            }
+
+            if (code in 200..299) {
                 val arr = JSONArray(resp)
                 if (arr.length() > 0) {
                     val o = arr.getJSONObject(0)
@@ -763,7 +872,7 @@ object SupabaseClient {
                     Result.failure(Exception("Jam room code not found"))
                 }
             } else {
-                Result.failure(Exception("Could not join Jam session (HTTP ${conn.responseCode})"))
+                Result.failure(Exception("Could not join Jam session: $resp"))
             }
         } catch (e: Exception) {
             Result.failure(e)
