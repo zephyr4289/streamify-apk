@@ -794,7 +794,7 @@ object SupabaseClient {
                 put("participant_ids", JSONArray().put(user.id))
             }
 
-            fun executePost(token: String): Pair<Int, String> {
+            fun executePost(token: String, requestBody: JSONObject): Pair<Int, String> {
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     doOutput = true
@@ -803,19 +803,27 @@ object SupabaseClient {
                     setRequestProperty("Content-Type", "application/json")
                     setRequestProperty("Prefer", "return=representation")
                 }
-                conn.outputStream.use { it.write(body.toString().toByteArray()) }
+                conn.outputStream.use { it.write(requestBody.toString().toByteArray()) }
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
                 val text = stream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: ""
                 return Pair(code, text)
             }
 
-            var (code, resp) = executePost(getAuthToken())
+            var (code, resp) = executePost(getAuthToken(), body)
 
             // If token expired, auto-refresh and retry
             if (code !in 200..299 && (resp.contains("JWT expired", ignoreCase = true) || code == 401 || resp.contains("PGRST503"))) {
                 refreshSession()
-                val retryResult = executePost(getAuthToken())
+                val retryResult = executePost(getAuthToken(), body)
+                code = retryResult.first
+                resp = retryResult.second
+            }
+
+            // PGRST204 resilience: If remote table lacks current_track_json column, strip and retry
+            if (code !in 200..299 && resp.contains("current_track_json", ignoreCase = true)) {
+                body.remove("current_track_json")
+                val retryResult = executePost(getAuthToken(), body)
                 code = retryResult.first
                 resp = retryResult.second
             }
@@ -880,12 +888,34 @@ object SupabaseClient {
                 val arr = JSONArray(resp)
                 if (arr.length() > 0) {
                     val o = arr.getJSONObject(0)
+                    val rawTrackJson = o.optJSONObject("current_track_json")
+                    val currentTrackId = o.optString("current_track_id")
+                    
+                    // Fallback to local track metadata if current_track_json column is absent in cloud schema
+                    val effectiveTrackJson = rawTrackJson ?: run {
+                        if (currentTrackId.isNotBlank()) {
+                            val localTrack = com.streamify.app.data.TrackRepository.getAllTracks().find {
+                                it.id.toString() == currentTrackId || it.filepath.contains(currentTrackId)
+                            }
+                            localTrack?.let {
+                                JSONObject().apply {
+                                    put("id", it.id)
+                                    put("title", it.title)
+                                    put("artist", it.artist)
+                                    put("filepath", it.filepath)
+                                    put("coverArtPath", it.coverArtPath ?: "")
+                                    put("durationSec", it.durationSec)
+                                }
+                            }
+                        } else null
+                    }
+
                     val jam = ListeningSession(
                         id = o.optString("id"),
                         sessionCode = o.optString("session_code"),
                         hostUserId = o.optString("host_user_id"),
-                        currentTrackId = o.optString("current_track_id"),
-                        currentTrackJson = o.optJSONObject("current_track_json"),
+                        currentTrackId = currentTrackId,
+                        currentTrackJson = effectiveTrackJson,
                         positionMs = o.optLong("position_ms", 0L),
                         isPlaying = o.optBoolean("is_playing", false),
                         hostClockTimestamp = o.optLong("host_clock_timestamp", System.currentTimeMillis()),
@@ -908,14 +938,6 @@ object SupabaseClient {
         try {
             val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "PATCH"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Prefer", "return=minimal")
-            }
 
             val trackObj = JSONObject().apply {
                 put("id", track.id)
@@ -934,8 +956,39 @@ object SupabaseClient {
                 put("host_clock_timestamp", System.currentTimeMillis())
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            Result.success(conn.responseCode in 200..299)
+            fun executePatch(token: String, patchBody: JSONObject): Pair<Int, String> {
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "PATCH"
+                    doOutput = true
+                    setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                    setRequestProperty("Authorization", "Bearer $token")
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Prefer", "return=minimal")
+                }
+                conn.outputStream.use { it.write(patchBody.toString().toByteArray()) }
+                val code = conn.responseCode
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                val text = stream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: ""
+                return Pair(code, text)
+            }
+
+            var (code, resp) = executePatch(getAuthToken(), body)
+
+            if (code !in 200..299 && (resp.contains("JWT expired", ignoreCase = true) || code == 401 || resp.contains("PGRST503"))) {
+                refreshSession()
+                val retryResult = executePatch(getAuthToken(), body)
+                code = retryResult.first
+                resp = retryResult.second
+            }
+
+            if (code !in 200..299 && resp.contains("current_track_json", ignoreCase = true)) {
+                body.remove("current_track_json")
+                val retryResult = executePatch(getAuthToken(), body)
+                code = retryResult.first
+                resp = retryResult.second
+            }
+
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             Result.failure(e)
         }
