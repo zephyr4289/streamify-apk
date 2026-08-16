@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -235,6 +236,9 @@ fun SearchScreen(
             // STATE B: SEARCH RESULTS HUB
             // ==========================================
             when (val state = uiState) {
+                is SearchUiState.Idle -> {
+                    // Search idle state
+                }
                 is SearchUiState.Loading -> {
                     Box(
                         modifier = Modifier

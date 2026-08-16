@@ -132,6 +132,14 @@ fun HomeScreen(
                     (state.madeForYou + state.sessionRecommendations).distinctBy { it.id }.ifEmpty { allTracks }
                 }
 
+                val circadianColumns = remember(state.circadianRecommendations) {
+                    state.circadianRecommendations.take(12).chunked(2)
+                }
+
+                val hybridColumns = remember(state.hybridRecommendations) {
+                    state.hybridRecommendations.take(8).chunked(2)
+                }
+
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -209,9 +217,6 @@ fun HomeScreen(
 
                     // SHELF 4: CIRCADIAN DAYPARTING RHYTHM
                     if (state.circadianRecommendations.isNotEmpty()) {
-                        val circadianColumns = remember(state.circadianRecommendations) {
-                            state.circadianRecommendations.take(12).chunked(2)
-                        }
                         item(key = "header_circadian") {
                             YtSectionHeader(
                                 title = state.circadianSlotTitle,
@@ -228,9 +233,6 @@ fun HomeScreen(
 
                     // SHELF 5: HYBRID ASYMMETRIC RADAR
                     if (state.hybridRecommendations.isNotEmpty()) {
-                        val hybridColumns = remember(state.hybridRecommendations) {
-                            state.hybridRecommendations.take(8).chunked(2)
-                        }
                         item(key = "header_hybrid") {
                             YtSectionHeader(
                                 title = "Hybrid Radar ⚡",

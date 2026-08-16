@@ -223,6 +223,23 @@ fun LibraryScreen(
                 val allTracks = state.tracks
                 val likedTracks = state.likedTracks
 
+                val albums = remember(allTracks) {
+                    allTracks.groupBy { it.album.ifBlank { "Unknown Album" } }
+                }
+                val artists = remember(allTracks) {
+                    allTracks.groupBy { it.artist.ifBlank { "Unknown Artist" } }
+                }
+                val downloaded = remember(allTracks) {
+                    allTracks.filter { it.filepath.isNotBlank() && it.source.contains("download", ignoreCase = true) }
+                }
+                val folders = remember(allTracks) {
+                    allTracks.filter { it.filepath.isNotBlank() }.groupBy {
+                        val path = it.filepath
+                        val lastSlash = path.lastIndexOf('/')
+                        if (lastSlash != -1) path.substring(0, lastSlash) else "Unknown Folder"
+                    }
+                }
+
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 120.dp)
@@ -377,9 +394,6 @@ fun LibraryScreen(
                         }
 
                         "Albums" -> {
-                            val albums = remember(allTracks) {
-                                allTracks.groupBy { it.album.ifBlank { "Unknown Album" } }
-                            }
                             if (!isGridView) {
                                 items(
                                     items = albums.keys.toList().sorted(),
@@ -472,9 +486,6 @@ fun LibraryScreen(
                         }
 
                         "Artists" -> {
-                            val artists = remember(allTracks) {
-                                allTracks.groupBy { it.artist.ifBlank { "Unknown Artist" } }
-                            }
                             items(
                                 items = artists.keys.toList().sorted(),
                                 key = { "artist_$it" },
@@ -526,9 +537,6 @@ fun LibraryScreen(
                         }
 
                         "Downloads" -> {
-                            val downloaded = remember(allTracks) {
-                                allTracks.filter { it.filepath.isNotBlank() && it.source.contains("download", ignoreCase = true) }
-                            }
                             items(
                                 items = downloaded,
                                 key = { "download_${it.id}" },
@@ -545,13 +553,6 @@ fun LibraryScreen(
                         }
 
                         "Device files" -> {
-                            val folders = remember(allTracks) {
-                                allTracks.filter { it.filepath.isNotBlank() }.groupBy {
-                                    val path = it.filepath
-                                    val lastSlash = path.lastIndexOf('/')
-                                    if (lastSlash != -1) path.substring(0, lastSlash) else "Unknown Folder"
-                                }
-                            }
                             items(
                                 items = folders.keys.toList().sorted(),
                                 key = { "folder_$it" },

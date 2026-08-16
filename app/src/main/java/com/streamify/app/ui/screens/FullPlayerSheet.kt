@@ -36,7 +36,7 @@ import com.streamify.app.ui.components.*
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.CommunityViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun FullPlayerSheet(
     track: Track?,
