@@ -98,9 +98,29 @@ class MainActivity : ComponentActivity() {
                 val quantumController = remember { QuantumSonicTokenController() }
                 val dockPositionState = remember { mutableStateOf(Offset.Zero) }
 
-                // 1. Android BackHandler: Collapse full player before exiting app
-                BackHandler(enabled = isPlayerExpanded) {
-                    isPlayerExpanded = false
+                // --- PILLAR 4: Root Safe Harbor & Double-Back-to-Exit Guard ---
+                var lastBackPressedTime by remember { mutableStateOf(0L) }
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = navBackStackEntry?.destination?.route ?: "home"
+
+                BackHandler(enabled = true) {
+                    if (isPlayerExpanded) {
+                        isPlayerExpanded = false
+                    } else if (currentRoute != "home") {
+                        navController.navigate("home") {
+                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    } else {
+                        val now = System.currentTimeMillis()
+                        if (now - lastBackPressedTime < 2000) {
+                            this@MainActivity.finish()
+                        } else {
+                            lastBackPressedTime = now
+                            android.widget.Toast.makeText(this@MainActivity, "Press back again to exit", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
 
                 LaunchedEffect(playerState.currentTrack) {
@@ -168,8 +188,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    val navBackStackEntry by navController.currentBackStackEntryAsState()
-                    val currentRoute = navBackStackEntry?.destination?.route ?: "home"
                     val hasTrack = playerState.currentTrack != null
 
                     // 2. GPU Fade for the Unified Dock during expansion

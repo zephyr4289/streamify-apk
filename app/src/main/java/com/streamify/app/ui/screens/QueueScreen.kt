@@ -1,5 +1,6 @@
 package com.streamify.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +27,11 @@ fun QueueScreen(
 ) {
     val playerState by playerViewModel.playerState.collectAsState()
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
+
+    // --- PILLAR 1: Context Menu Back Trapping ---
+    BackHandler(enabled = selectedOptionsTrack != null) {
+        selectedOptionsTrack = null
+    }
     val nowPlaying = playerState.currentTrack
     val queue = playerState.queue
     val listState = rememberLazyListState()

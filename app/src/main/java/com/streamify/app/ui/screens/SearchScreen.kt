@@ -1,5 +1,6 @@
 package com.streamify.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -48,6 +49,14 @@ fun SearchScreen(
     var query by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("All") }
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
+
+    // --- PILLAR 1: Deterministic Search State Unwinding ---
+    BackHandler(enabled = selectedOptionsTrack != null) {
+        selectedOptionsTrack = null
+    }
+    BackHandler(enabled = query.isNotBlank()) {
+        query = ""
+    }
 
     val quantumController = LocalQuantumController.current
     val dockPositionState = LocalDockPosition.current

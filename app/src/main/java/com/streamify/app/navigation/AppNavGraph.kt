@@ -100,7 +100,33 @@ fun AppNavGraph(
                 }
             )
         }
-        composable("queue") {
+        composable(
+            "queue",
+            enterTransition = {
+                androidx.compose.animation.slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(250))
+            },
+            exitTransition = {
+                androidx.compose.animation.slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(250))
+            },
+            popEnterTransition = {
+                androidx.compose.animation.slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(250))
+            },
+            popExitTransition = {
+                androidx.compose.animation.slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(250))
+            }
+        ) {
             QueueScreen(
                 playerViewModel = playerViewModel,
                 onTrackClick = { trackId ->
@@ -108,7 +134,8 @@ fun AppNavGraph(
                     if (track != null) {
                         playerViewModel.playTrack(track, playerViewModel.playerState.value.queue)
                     }
-                }
+                },
+                onClose = { navController.popBackStack() }
             )
         }
         composable(
@@ -116,26 +143,26 @@ fun AppNavGraph(
             enterTransition = {
                 androidx.compose.animation.slideInVertically(
                     initialOffsetY = { it },
-                    animationSpec = tween(400)
-                ) + fadeIn(animationSpec = tween(400))
+                    animationSpec = tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(250))
             },
             exitTransition = {
                 androidx.compose.animation.slideOutVertically(
                     targetOffsetY = { it },
-                    animationSpec = tween(400)
-                ) + fadeOut(animationSpec = tween(400))
+                    animationSpec = tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(250))
             },
             popEnterTransition = {
                 androidx.compose.animation.slideInVertically(
                     initialOffsetY = { it },
-                    animationSpec = tween(400)
-                ) + fadeIn(animationSpec = tween(400))
+                    animationSpec = tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(250))
             },
             popExitTransition = {
                 androidx.compose.animation.slideOutVertically(
                     targetOffsetY = { it },
-                    animationSpec = tween(400)
-                ) + fadeOut(animationSpec = tween(400))
+                    animationSpec = tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(250))
             }
         ) {
             val playerState = playerViewModel.playerState.collectAsState().value
@@ -157,7 +184,8 @@ fun AppNavGraph(
                 lyrics = lyricsLines,
                 currentPositionMs = playerState.currentPosition,
                 dominantColor = dominantColor,
-                onSeek = { ms -> playerViewModel.seekTo(ms) }
+                onSeek = { ms -> playerViewModel.seekTo(ms) },
+                onClose = { navController.popBackStack() }
             )
         }
         composable("downloads") {

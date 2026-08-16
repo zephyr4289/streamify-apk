@@ -1,6 +1,7 @@
 package com.streamify.app.ui.screens
 
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -72,6 +73,14 @@ fun FullPlayerSheet(
 
     var showRelatedSheet by remember { mutableStateOf(false) }
     val playerViewModel: com.streamify.app.viewmodel.PlayerViewModel = viewModel()
+
+    // --- PILLAR 2: LIFO Sub-Sheet Back Trapping ---
+    BackHandler(enabled = showCommentsSheet) {
+        showCommentsSheet = false
+    }
+    BackHandler(enabled = showRelatedSheet) {
+        showRelatedSheet = false
+    }
 
     Box(
         modifier = Modifier

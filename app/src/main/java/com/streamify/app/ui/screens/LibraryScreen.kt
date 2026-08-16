@@ -2,6 +2,7 @@ package com.streamify.app.ui.screens
 
 import android.os.Environment
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -63,6 +64,28 @@ fun LibraryScreen(
     var importProgress by remember { mutableStateOf<com.streamify.app.data.remote.ImportProgress?>(null) }
     var isScraping by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    // --- PILLAR 1: Deterministic Hierarchical Back Trapping ---
+    BackHandler(enabled = playlistToRename != null) {
+        playlistToRename = null
+    }
+    BackHandler(enabled = showSpotifyImportDialog) {
+        showSpotifyImportDialog = false
+        isScraping = false
+        importProgress = null
+    }
+    BackHandler(enabled = selectedOptionsTrack != null) {
+        selectedOptionsTrack = null
+    }
+    BackHandler(enabled = selectedPlaylistId != null) {
+        selectedPlaylistId = null
+    }
+    BackHandler(enabled = selectedAlbumName != null) {
+        selectedAlbumName = null
+    }
+    BackHandler(enabled = selectedFolder != null) {
+        selectedFolder = null
+    }
 
     if (playlistToRename != null) {
         AlertDialog(
