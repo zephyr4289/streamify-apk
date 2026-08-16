@@ -249,7 +249,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                     val newQueue = _playerState.value.queue.toMutableList()
                                     val newMediaItems = mutableListOf<MediaItem>()
                                     for (rec in continuumRecs) {
-                                        if (!newQueue.any { it.title.equals(rec.title, ignoreCase = true) && it.artist.equals(rec.artist, ignoreCase = true) }) {
+                                        val isDup = newQueue.any {
+                                            com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rec.title, rec.artist)
+                                        }
+                                        if (!isDup) {
                                             newQueue.add(rec)
                                             newMediaItems.add(buildMediaItem(rec))
                                         }
@@ -328,7 +331,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                     val currentQ = _playerState.value.queue.toMutableList()
                                     val newMediaItems = mutableListOf<MediaItem>()
                                     for (track in newTracks) {
-                                        if (!currentQ.any { it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true) }) {
+                                        val isDup = currentQ.any {
+                                            com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
+                                        }
+                                        if (!isDup) {
                                             currentQ.add(track)
                                             newMediaItems.add(buildMediaItem(track))
                                         }
@@ -535,12 +541,32 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             .build()
     }
 
-    fun playFromSearch(tappedTrack: Track, searchContext: List<Track>) {
+    fun playFromSearch(tappedTrack: Track, searchContext: List<Track> = listOf(tappedTrack)) {
         viewModelScope.launch {
-            // 1. Kick off Continuum Radio session in background
-            com.streamify.app.data.ContinuumRadioEngine.startRadio(tappedTrack)
-            // 2. Play the tapped track with the full search queue
-            playTrack(tappedTrack, searchContext.ifEmpty { listOf(tappedTrack) })
+            // 1. Play tapped track immediately with 0ms delay
+            playTrack(tappedTrack, listOf(tappedTrack))
+
+            // 2. Asynchronously fetch YouTube Innertube Algorithmic Radio (RDAMVM...)
+            val radioTracks = com.streamify.app.data.ContinuumRadioEngine.startRadio(tappedTrack)
+            if (radioTracks.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    val currentQ = _playerState.value.queue.toMutableList()
+                    val newMediaItems = mutableListOf<MediaItem>()
+                    for (rt in radioTracks) {
+                        val isDup = currentQ.any {
+                            com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rt.title, rt.artist)
+                        }
+                        if (!isDup) {
+                            currentQ.add(rt)
+                            newMediaItems.add(buildMediaItem(rt))
+                        }
+                    }
+                    if (newMediaItems.isNotEmpty()) {
+                        _playerState.value = _playerState.value.copy(queue = currentQ)
+                        controller?.addMediaItems(newMediaItems)
+                    }
+                }
+            }
         }
     }
 

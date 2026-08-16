@@ -19,6 +19,45 @@ static bool equalsIgnoreCase(const std::string& a, const std::string& b) {
     return true;
 }
 
+static uint64_t computeFnv1aRootHash(const std::string& title) {
+    if (title.empty()) return 0;
+    std::vector<std::string> tokens;
+    std::string current;
+    for (char c : title) {
+        if (std::isalnum(static_cast<unsigned char>(c))) {
+            current.push_back(std::tolower(static_cast<unsigned char>(c)));
+        } else {
+            if (current.length() > 2 && current != "the" && current != "and" &&
+                current != "official" && current != "video" && current != "audio" &&
+                current != "lyric" && current != "lyrics" && current != "live" &&
+                current != "remaster" && current != "remastered" && current != "slowed" &&
+                current != "acoustic" && current != "feat" && current != "ft") {
+                tokens.push_back(current);
+            }
+            current.clear();
+        }
+    }
+    if (current.length() > 2 && current != "the" && current != "and" &&
+        current != "official" && current != "video" && current != "audio" &&
+        current != "lyric" && current != "lyrics" && current != "live" &&
+        current != "remaster" && current != "remastered" && current != "slowed" &&
+        current != "acoustic" && current != "feat" && current != "ft") {
+        tokens.push_back(current);
+    }
+    if (tokens.empty()) return 0;
+
+    std::sort(tokens.begin(), tokens.end());
+
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    for (const auto& token : tokens) {
+        for (char c : token) {
+            hash ^= static_cast<uint64_t>(c);
+            hash *= 0x100000001b3ULL;
+        }
+    }
+    return hash;
+}
+
 RecommendEngine& RecommendEngine::getInstance() {
     static RecommendEngine instance;
     return instance;
@@ -42,6 +81,19 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
 
     std::unordered_set<int> excluded_tracks(recentHistory.begin(), recentHistory.end());
     excluded_tracks.insert(currentTrackId);
+
+    // Layer 3: O(1) FNV-1a Root Title Exclusion Set
+    std::unordered_set<uint64_t> selected_title_hashes;
+    uint64_t curTitleHash = computeFnv1aRootHash(curTrack->title);
+    if (curTitleHash != 0) selected_title_hashes.insert(curTitleHash);
+
+    for (int histId : recentHistory) {
+        auto hTrack = db.getTrackById(histId);
+        if (hTrack) {
+            uint64_t hHash = computeFnv1aRootHash(hTrack->title);
+            if (hHash != 0) selected_title_hashes.insert(hHash);
+        }
+    }
 
     // Fetch user liked tracks for affinity boosting (user_id = 1)
     std::vector<int> likedIdsVec = db.getUserLikedTrackIds(1);
@@ -100,6 +152,12 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
             int track_id = candidateTrack->id;
             if (excluded_tracks.count(track_id) > 0) continue;
             if (candidate_ids_added.count(track_id) > 0) continue;
+
+            // Zero-Allocation Duplicate Version Filter
+            uint64_t candTitleHash = computeFnv1aRootHash(candidateTrack->title);
+            if (candTitleHash != 0 && selected_title_hashes.count(candTitleHash) > 0) {
+                continue; // Hard nuke duplicate versions (Live/Audio/Remaster/Lyric video)
+            }
 
             float cosine_sim = res.similarity;
             
@@ -164,6 +222,11 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
             if (excluded_tracks.count(track_id) > 0) continue;
             if (candidate_ids_added.count(track_id) > 0) continue;
 
+            uint64_t candTitleHash = computeFnv1aRootHash(candidateTrack.title);
+            if (candTitleHash != 0 && selected_title_hashes.count(candTitleHash) > 0) {
+                continue;
+            }
+
             float base_score = 0.50f;
             if (!curTrack->artist.empty() && equalsIgnoreCase(curTrack->artist, candidateTrack.artist)) {
                 base_score += artist_boost;
@@ -194,9 +257,9 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
         candidates.resize(targetTopK);
     }
 
-    // Diversity Injection (O(K) lookup with hash-set)
+    // Layer 3: Maximal Marginal Relevance (MMR) & Artist Saturation Cap
     std::vector<Recommendation> diverse_candidates;
-    std::unordered_set<std::string> artists_in_top;
+    std::unordered_map<std::string, int> artist_counts;
     
     for (const auto& rec : candidates) {
         auto cTrack = db.getTrackById(rec.trackId);
@@ -205,16 +268,19 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
         std::string lowerArtist = cTrack->artist;
         std::transform(lowerArtist.begin(), lowerArtist.end(), lowerArtist.begin(), ::tolower);
         
-        if (diverse_candidates.size() < 5) {
-            if (artists_in_top.size() > 0 && artists_in_top.count(lowerArtist) > 0) {
-                if (diverse_candidates.size() == 4 && artists_in_top.size() == 1) {
-                    continue; // Skip track to guarantee 5th track diversity
-                }
-            }
+        uint64_t cTitleHash = computeFnv1aRootHash(cTrack->title);
+        if (cTitleHash != 0 && selected_title_hashes.count(cTitleHash) > 0) {
+            continue; // Duplicate version check
+        }
+
+        int currentCount = artist_counts[lowerArtist];
+        if (currentCount >= 2 && candidates.size() > static_cast<size_t>(limit)) {
+            continue; // Artist saturation cap: max 2 songs per artist in top queue
         }
         
         diverse_candidates.push_back(rec);
-        artists_in_top.insert(lowerArtist);
+        if (cTitleHash != 0) selected_title_hashes.insert(cTitleHash);
+        artist_counts[lowerArtist] = currentCount + 1;
         
         if (diverse_candidates.size() >= static_cast<size_t>(limit)) break;
     }

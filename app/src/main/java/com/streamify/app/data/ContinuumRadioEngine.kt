@@ -33,9 +33,10 @@ object ContinuumRadioEngine {
     private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
 
-    // O(1) De-duplication Sets (The Echo Chamber Killer)
+    // O(1) De-duplication Sets & Dynamic Diversity Pools
     private val playedVideoIds = Collections.synchronizedSet(HashSet<String>())
-    private val playedSignatures = Collections.synchronizedSet(HashSet<String>())
+    private val playedRootHashes = Collections.synchronizedSet(HashSet<Long>())
+    private val playedArtistCounts = Collections.synchronizedMap(HashMap<String, Int>())
 
     private val _discoveredQueue = MutableStateFlow<List<Track>>(emptyList())
     val discoveredQueue: StateFlow<List<Track>> = _discoveredQueue.asStateFlow()
@@ -47,7 +48,8 @@ object ContinuumRadioEngine {
 
     fun clearRadio() {
         playedVideoIds.clear()
-        playedSignatures.clear()
+        playedRootHashes.clear()
+        playedArtistCounts.clear()
         _discoveredQueue.value = emptyList()
         currentRadioContext = null
     }
@@ -59,7 +61,11 @@ object ContinuumRadioEngine {
         clearRadio()
         val vId = seedTrack.videoId
         playedVideoIds.add(vId)
-        playedSignatures.add(normalizeSignature(seedTrack.title, seedTrack.artist))
+        val seedHash = FuzzyTitleMatcher.extractRootHash(seedTrack.title)
+        if (seedHash != 0L) playedRootHashes.add(seedHash)
+        if (seedTrack.artist.isNotBlank()) {
+            playedArtistCounts[seedTrack.artist.lowercase().trim()] = 1
+        }
         currentRadioContext = RadioContext(videoId = vId, playlistId = "RDAMVM$vId")
 
         // Fetch initial radio batch (usually 15-25 tracks)
@@ -84,12 +90,19 @@ object ContinuumRadioEngine {
             val uniqueTracks = mutableListOf<Track>()
             for (track in candidates) {
                 val trackVId = track.videoId
-                val sig = normalizeSignature(track.title, track.artist)
+                val rootHash = FuzzyTitleMatcher.extractRootHash(track.title)
+                val artistKey = track.artist.lowercase().trim()
+                val artistCount = playedArtistCounts[artistKey] ?: 0
 
-                // O(1) Echo Chamber Killer Check
-                if (!playedVideoIds.contains(trackVId) && !playedSignatures.contains(sig)) {
+                // 1. Root Hash collision or Jaccard fuzzy similarity check
+                val isVariation = (rootHash != 0L && playedRootHashes.contains(rootHash)) ||
+                        uniqueTracks.any { FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist) }
+
+                // 2. Artist Saturation Cap (max 2 songs per artist in the upcoming queue)
+                if (!playedVideoIds.contains(trackVId) && !isVariation && artistCount < 2) {
                     playedVideoIds.add(trackVId)
-                    if (sig.isNotBlank()) playedSignatures.add(sig)
+                    if (rootHash != 0L) playedRootHashes.add(rootHash)
+                    playedArtistCounts[artistKey] = artistCount + 1
                     uniqueTracks.add(track)
                 }
             }
@@ -99,10 +112,17 @@ object ContinuumRadioEngine {
                 val fallbackResults = YouTubeMusicSearchApi.search("${context.videoId} mix", maxResults = 15)
                 for (item in fallbackResults) {
                     val fVId = YouTubeStreamResolver.extractVideoId(item.url) ?: item.url
-                    val fSig = normalizeSignature(item.title, item.uploader)
-                    if (!playedVideoIds.contains(fVId) && !playedSignatures.contains(fSig)) {
+                    val fRootHash = FuzzyTitleMatcher.extractRootHash(item.title)
+                    val fArtistKey = item.uploader.lowercase().trim()
+                    val fArtistCount = playedArtistCounts[fArtistKey] ?: 0
+
+                    val isVariation = (fRootHash != 0L && playedRootHashes.contains(fRootHash)) ||
+                            uniqueTracks.any { FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, item.title, item.uploader) }
+
+                    if (!playedVideoIds.contains(fVId) && !isVariation && fArtistCount < 2) {
                         playedVideoIds.add(fVId)
-                        if (fSig.isNotBlank()) playedSignatures.add(fSig)
+                        if (fRootHash != 0L) playedRootHashes.add(fRootHash)
+                        playedArtistCounts[fArtistKey] = fArtistCount + 1
                         uniqueTracks.add(
                             Track(
                                 id = -(item.url.hashCode()),
