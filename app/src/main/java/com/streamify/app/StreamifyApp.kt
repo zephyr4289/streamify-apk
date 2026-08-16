@@ -98,6 +98,12 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         }
 
         try {
+            com.streamify.app.service.OnlineTrackProcessor.init(this)
+        } catch (e: Throwable) {
+            android.util.Log.e("StreamifyApp", "Failed to initialize OnlineTrackProcessor", e)
+        }
+
+        try {
             com.streamify.app.util.StreamifyHapticEngine.init(this)
         } catch (e: Throwable) {
             android.util.Log.e("StreamifyApp", "Failed to initialize StreamifyHapticEngine", e)

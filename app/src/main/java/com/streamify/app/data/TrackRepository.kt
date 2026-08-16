@@ -111,6 +111,11 @@ object TrackRepository {
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+
+            // 4. Enqueue to OnlineTrackProcessor for autonomous background native C++ DSP processing
+            if (updatedTrack.bpm <= 0f || !updatedTrack.isProcessed) {
+                com.streamify.app.service.OnlineTrackProcessor.enqueue(updatedTrack, ctx)
+            }
         }
 
         refresh()
