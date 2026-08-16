@@ -76,6 +76,36 @@ object YouTubeStreamResolver {
         return@withContext resolved
     }
 
+    suspend fun resolveTrackStream(track: com.streamify.app.data.models.Track): ResolvedStream? = withContext(Dispatchers.IO) {
+        // 1. Direct Video ID / URL resolution
+        if (track.filepath.isNotBlank()) {
+            val videoId = extractVideoId(track.filepath)
+            if (videoId != null) {
+                val stream = resolveStreamUrl(videoId)
+                if (stream != null && stream.streamUrl.isNotBlank()) {
+                    return@withContext stream
+                }
+            }
+        }
+
+        // 2. Dynamic Search Resolution for missing/placeholder/expired tracks
+        val query = "${track.title} ${track.artist}".trim()
+        if (query.isNotBlank()) {
+            val results = YouTubeMusicSearchApi.search(query, maxResults = 3)
+            val topMatch = results.firstOrNull()
+            if (topMatch != null) {
+                val videoId = extractVideoId(topMatch.url)
+                if (videoId != null) {
+                    val stream = resolveStreamUrl(videoId)
+                    if (stream != null && stream.streamUrl.isNotBlank()) {
+                        return@withContext stream
+                    }
+                }
+            }
+        }
+        return@withContext null
+    }
+
     private suspend fun raceClientEndpoints(videoId: String): ResolvedStream? = coroutineScope {
         val winnerDeferred = CompletableDeferred<ResolvedStream?>()
 

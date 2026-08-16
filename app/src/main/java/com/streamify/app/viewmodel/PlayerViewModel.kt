@@ -297,6 +297,37 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             override fun onRepeatModeChanged(repeatMode: Int) {
                 _playerState.value = _playerState.value.copy(isRepeatActive = repeatMode != Player.REPEAT_MODE_OFF)
             }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val currentT = _playerState.value.currentTrack
+                if (currentT != null) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            val resolved = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(currentT)
+                            if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                                val updated = currentT.copy(filepath = resolved.streamUrl)
+                                withContext(Dispatchers.Main) {
+                                    val currentQueue = _playerState.value.queue.toMutableList()
+                                    val idx = currentQueue.indexOfFirst {
+                                        it.id == currentT.id || (it.title == currentT.title && it.artist == currentT.artist)
+                                    }
+                                    if (idx >= 0) {
+                                        currentQueue[idx] = updated
+                                        _playerState.value = _playerState.value.copy(queue = currentQueue, currentTrack = updated)
+                                        val mediaItem = buildMediaItem(updated)
+                                        ctrl.replaceMediaItem(idx, mediaItem)
+                                        ctrl.seekTo(idx, 0L)
+                                        ctrl.prepare()
+                                        ctrl.play()
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            }
         })
     }
     
@@ -366,15 +397,95 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         positionPollingJob?.cancel()
     }
 
+    private fun isCdnExpired(url: String): Boolean {
+        try {
+            val match = Regex("[?&]expire=([0-9]+)").find(url)
+            if (match != null) {
+                val expireSec = match.groupValues[1].toLongOrNull() ?: return false
+                val nowSec = System.currentTimeMillis() / 1000L
+                return nowSec >= (expireSec - 300L) // Expired if within 5 min of expiry
+            }
+        } catch (e: Exception) {
+            // ignore parsing error
+        }
+        return false
+    }
+
+    private fun buildMediaItem(t: Track): MediaItem {
+        val uri = if (t.filepath.startsWith("http://") || t.filepath.startsWith("https://")) {
+            android.net.Uri.parse(t.filepath)
+        } else if (t.filepath.startsWith("file://")) {
+            android.net.Uri.parse(t.filepath)
+        } else if (t.filepath.isNotBlank() && !t.filepath.startsWith("online://")) {
+            android.net.Uri.fromFile(java.io.File(t.filepath))
+        } else {
+            android.net.Uri.EMPTY
+        }
+
+        return MediaItem.Builder()
+            .setMediaId(if (t.id != 0) t.id.toString() else t.filepath)
+            .setUri(uri)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(t.title)
+                    .setArtist(t.artist)
+                    .setAlbumTitle(t.album)
+                    .setArtworkUri(if (!t.coverArtPath.isNullOrBlank()) {
+                        if (t.coverArtPath.startsWith("http") || t.coverArtPath.startsWith("file")) {
+                            android.net.Uri.parse(t.coverArtPath)
+                        } else {
+                            android.net.Uri.fromFile(java.io.File(t.coverArtPath))
+                        }
+                    } else null)
+                    .build()
+            )
+            .build()
+    }
+
     fun playTrack(track: Track, queue: List<Track> = listOf(track)) {
-        _playerState.value = _playerState.value.copy(queue = queue)
-        
+        _playerState.value = _playerState.value.copy(currentTrack = track, queue = queue)
+
+        val needsResolution = track.filepath.isBlank() ||
+                track.filepath.startsWith("online://") ||
+                (track.filepath.startsWith("http") && track.filepath.contains("googlevideo.com") && isCdnExpired(track.filepath)) ||
+                (!track.filepath.startsWith("http") && !track.filepath.startsWith("file") && !java.io.File(track.filepath).exists())
+
+        if (needsResolution) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val resolved = try {
+                    com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(track)
+                } catch (e: Exception) {
+                    null
+                }
+
+                val playableTrack = if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                    track.copy(filepath = resolved.streamUrl)
+                } else {
+                    track
+                }
+
+                val updatedQueue = queue.map {
+                    if (it.id == track.id || (it.title == track.title && it.artist == track.artist)) playableTrack else it
+                }
+
+                withContext(Dispatchers.Main) {
+                    executePlayback(playableTrack, updatedQueue)
+                }
+            }
+        } else {
+            executePlayback(track, queue)
+        }
+    }
+
+    private fun executePlayback(track: Track, queue: List<Track>) {
+        _playerState.value = _playerState.value.copy(currentTrack = track, queue = queue)
+
         // Auto-register streamed track into SQLite & Streamify Playlist & AI Vector store
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val registered = repository.registerStreamedTrack(track, appContext)
                 if (registered.id > 0) {
-                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    withContext(Dispatchers.Main) {
                         val cur = _playerState.value.currentTrack
                         if (cur != null && cur.title == track.title && cur.artist == track.artist) {
                             _playerState.value = _playerState.value.copy(currentTrack = registered)
@@ -385,42 +496,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 e.printStackTrace()
             }
         }
-        
-        val mediaItems = queue.map { t ->
-            val uri = if (t.filepath.startsWith("http://") || t.filepath.startsWith("https://")) {
-                android.net.Uri.parse(t.filepath)
-            } else if (t.filepath.startsWith("file://")) {
-                android.net.Uri.parse(t.filepath)
-            } else if (t.filepath.isNotBlank()) {
-                android.net.Uri.fromFile(java.io.File(t.filepath))
-            } else {
-                android.net.Uri.EMPTY
-            }
 
-            MediaItem.Builder()
-                .setMediaId(if (t.id != 0) t.id.toString() else t.filepath)
-                .setUri(uri)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(t.title)
-                        .setArtist(t.artist)
-                        .setAlbumTitle(t.album)
-                        .setArtworkUri(if (!t.coverArtPath.isNullOrBlank()) {
-                            if (t.coverArtPath.startsWith("http") || t.coverArtPath.startsWith("file")) {
-                                android.net.Uri.parse(t.coverArtPath)
-                            } else {
-                                android.net.Uri.fromFile(java.io.File(t.coverArtPath))
-                            }
-                        } else null)
-                        .build()
-                )
-                .build()
-        }
-        
+        val mediaItems = queue.map { buildMediaItem(it) }
+
         controller?.apply {
             setMediaItems(mediaItems)
-            val startIndex = queue.indexOfFirst { 
-                (it.id != 0 && it.id == track.id) || (it.filepath.isNotBlank() && it.filepath == track.filepath) || it.title == track.title 
+            val startIndex = queue.indexOfFirst {
+                (it.id != 0 && it.id == track.id) || (it.filepath.isNotBlank() && it.filepath == track.filepath) || it.title == track.title
             }.takeIf { it >= 0 } ?: 0
             seekTo(startIndex, C.TIME_UNSET)
             prepare()
