@@ -264,3 +264,46 @@ def get_stream_url(url):
     except Exception as e:
         print(f"Stream URL error: {e}")
         return ""
+
+def fetch_youtube_playlist(url, max_entries=500):
+    ydl_opts = {
+        'extract_flat': 'in_playlist',
+        'skip_download': True,
+        'quiet': True,
+        'no_warnings': True,
+        'playlistend': max_entries,
+        'ignoreerrors': True,
+        'nocheckcertificate': True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if not info:
+                return json.dumps({'title': 'Imported Playlist', 'tracks': []})
+            
+            entries = info.get('entries', [])
+            results = []
+            for entry in entries:
+                if not entry:
+                    continue
+                title = entry.get('title', 'Unknown Title')
+                artist = entry.get('uploader') or entry.get('channel') or 'Unknown Artist'
+                duration = entry.get('duration', 0)
+                vid = entry.get('id', '')
+                thumbnail = entry.get('thumbnail') or (f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg" if vid else '')
+                results.append({
+                    'id': vid,
+                    'title': title,
+                    'artist': artist,
+                    'duration': duration,
+                    'thumbnail': thumbnail
+                })
+            
+            playlist_title = info.get('title') or 'Imported YouTube Playlist'
+            return json.dumps({
+                'title': playlist_title,
+                'tracks': results
+            })
+    except Exception as e:
+        print(f"fetch_youtube_playlist error: {e}")
+        return json.dumps({'title': 'Imported Playlist', 'tracks': []})
