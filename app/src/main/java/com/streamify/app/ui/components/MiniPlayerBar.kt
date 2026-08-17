@@ -8,9 +8,11 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -147,6 +149,21 @@ fun MiniPlayerBar(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+
+                // Like / Heart Action
+                if (onToggleLike != null) {
+                    IconButton(onClick = {
+                        com.streamify.app.util.StreamifyHapticEngine.heartbeatFlutter()
+                        onToggleLike()
+                    }) {
+                        Icon(
+                            imageVector = if (track.isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = if (track.isLiked) "Unlike" else "Like",
+                            tint = if (track.isLiked) StreamifyColors.Primary else TextMain,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
 
                 // Play / Pause Action

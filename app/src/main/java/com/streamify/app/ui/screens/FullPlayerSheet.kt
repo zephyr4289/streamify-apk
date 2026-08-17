@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material.icons.outlined.Shuffle
 import androidx.compose.material3.*
@@ -241,30 +243,61 @@ fun FullPlayerSheet(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Track Title & Artist Marquee
-                    Column(
+                    // Track Title, Artist & Like Button Row
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp)
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = track.title,
-                            style = LocalAppTypography.current.playerTitle.copy(fontSize = 18.sp),
-                            color = TextMain,
-                            maxLines = 1,
-                            modifier = Modifier.basicMarquee()
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "${track.artist}${if (track.album.isNotBlank() && track.album != "Streamify") " • " + track.album else ""}",
-                            style = LocalAppTypography.current.playerArtist.copy(fontSize = 13.sp),
-                            color = TextSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = track.title,
+                                style = LocalAppTypography.current.playerTitle.copy(fontSize = 18.sp),
+                                color = TextMain,
+                                maxLines = 1,
+                                modifier = Modifier.basicMarquee()
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "${track.artist}${if (track.album.isNotBlank() && track.album != "Streamify") " • " + track.album else ""}",
+                                style = LocalAppTypography.current.playerArtist.copy(fontSize = 13.sp),
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        IconButton(onClick = {
+                            com.streamify.app.util.StreamifyHapticEngine.heartbeatFlutter()
+                            onToggleLike()
+                        }) {
+                            Icon(
+                                imageVector = if (track.isLiked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = if (track.isLiked) "Unlike" else "Like",
+                                tint = if (track.isLiked) StreamifyColors.Primary else TextMain,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // YouTube Music Action Pills (Like, Comments, Radio, Jam)
+                    YtPlayerActionPills(
+                        isLiked = track.isLiked,
+                        onToggleLike = {
+                            com.streamify.app.util.StreamifyHapticEngine.heartbeatFlutter()
+                            onToggleLike()
+                        },
+                        onCommentsClick = { showCommentsSheet = true },
+                        onRadioClick = onRadioClick,
+                        onJamClick = onJamClick,
+                        onDownloadClick = { /* Download */ }
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     // Precision Canvas SeekBar
                     YtPlayerSeekBar(
