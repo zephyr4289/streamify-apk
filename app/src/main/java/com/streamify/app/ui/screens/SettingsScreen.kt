@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Download
 import com.streamify.app.BuildConfig
+import com.streamify.app.data.TrackRepository
 import com.streamify.app.data.remote.StreamifyUpdateManager
 import com.streamify.app.data.remote.UpdateState
 import com.streamify.app.ui.theme.StreamifyColors
@@ -33,6 +34,8 @@ import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.viewmodel.PlayerViewModel
 import com.streamify.app.service.CrossfadeAudioProcessor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @Composable
 private fun SectionHeader(title: String) {

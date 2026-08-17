@@ -66,7 +66,7 @@ fun LibraryScreen(
     var playlistForOptions by remember { mutableStateOf<com.streamify.app.data.Playlist?>(null) }
     var renameText by remember { mutableStateOf("") }
     var isScraping by remember { mutableStateOf(false) }
-    var importProgress by remember { mutableStateOf<com.streamify.app.data.SpotifyImportProgress?>(null) }
+    var importProgress by remember { mutableStateOf<com.streamify.app.data.remote.ImportProgress?>(null) }
     val contextMenuController = LocalContextMenuController.current
     var isRefreshing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()

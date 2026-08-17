@@ -6,13 +6,16 @@ import com.streamify.app.data.models.Track
 import com.streamify.app.data.remote.ListeningSession
 import com.streamify.app.data.remote.SupabaseClient
 import org.json.JSONObject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed class JamUiState {
     object Idle : JamUiState()

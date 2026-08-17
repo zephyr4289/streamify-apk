@@ -14,6 +14,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.ContextMenuSheet
+import com.streamify.app.ui.components.LocalContextMenuController
+import com.streamify.app.ui.components.MenuOrigin
 import com.streamify.app.ui.components.YtQueueHeader
 import com.streamify.app.ui.components.YtQueueTrackItem
 import com.streamify.app.ui.theme.*
@@ -118,14 +120,14 @@ fun QueueScreen(
                         onDragStart = {
                             draggedItemIndex = index
                             draggedItemOffset = 0f
-                            com.streamify.app.util.StreamifyHapticEngine.dragPickup()
+                            com.streamify.app.util.StreamifyHapticEngine.queueGrab()
                         },
                         onDragMove = { deltaY ->
                             draggedItemOffset += deltaY
                             val targetIndex = (index + (draggedItemOffset / itemHeightPx).toInt())
                                 .coerceIn(0, upNext.size - 1)
                             if (targetIndex != index) {
-                                playerViewModel.moveQueueItem(index, targetIndex)
+                                playerViewModel.reorderQueue(index, targetIndex)
                                 draggedItemIndex = targetIndex
                                 draggedItemOffset = 0f
                                 com.streamify.app.util.StreamifyHapticEngine.magneticDetent()

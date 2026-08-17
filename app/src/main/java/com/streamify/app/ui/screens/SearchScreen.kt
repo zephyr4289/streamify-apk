@@ -388,12 +388,12 @@ fun SearchScreen(
                                 val trackModel = Track(
                                     id = (onlineTrack.url.hashCode() and 0x7FFFFFFF),
                                     title = onlineTrack.title,
-                                    artist = onlineTrack.artist,
+                                    artist = onlineTrack.uploader,
                                     album = "Streamify Cloud",
                                     filepath = onlineTrack.url,
-                                    durationSec = onlineTrack.durationSec,
+                                    durationSec = onlineTrack.duration,
                                     bpm = 0f,
-                                    coverArtPath = onlineTrack.thumbnailUrl,
+                                    coverArtPath = onlineTrack.thumbnail,
                                     lyricsPath = null,
                                     source = "online"
                                 )
