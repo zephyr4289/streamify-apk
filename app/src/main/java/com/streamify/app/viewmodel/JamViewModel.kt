@@ -174,8 +174,8 @@ class JamViewModel(
 
                         val currentLocalTrack = playerViewModel.playerState.value.currentTrack
                         if (trackId.isNotBlank() && currentLocalTrack?.id.toString() != trackId) {
-                            val cloudTrack = SupabaseClient.fetchTrackById(trackId)
-                            val allLocalTracks = com.streamify.app.data.TrackRepository.getAllTracks()
+                            val cloudTrack = withContext(Dispatchers.IO) { SupabaseClient.fetchTrackById(trackId) }
+                            val allLocalTracks = withContext(Dispatchers.IO) { com.streamify.app.data.TrackRepository.getAllTracks() }
                             val target = cloudTrack ?: allLocalTracks.find {
                                 it.id.toString() == trackId || (it.filepath.isNotBlank() && it.filepath.contains(trackId))
                             }
