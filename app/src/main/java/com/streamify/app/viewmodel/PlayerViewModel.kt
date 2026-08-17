@@ -696,15 +696,23 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun playTrack(track: Track, queue: List<Track> = listOf(track), autoHydrateRadio: Boolean = true) {
-        val targetIndex = queue.indexOfFirst {
-            (it.id != 0 && it.id == track.id) || (it.filepath.isNotBlank() && it.filepath == track.filepath) || it.title == track.title
+        val hydratedTrack = repository.hydrateTrack(track)
+        val hydratedQueue = queue.map { qTrack ->
+            if (qTrack.id == track.id || (qTrack.title.equals(track.title, ignoreCase = true) && qTrack.artist.equals(track.artist, ignoreCase = true))) {
+                hydratedTrack
+            } else {
+                repository.hydrateTrack(qTrack)
+            }
+        }
+        val targetIndex = hydratedQueue.indexOfFirst {
+            (it.id != 0 && it.id == hydratedTrack.id) || (it.filepath.isNotBlank() && it.filepath == hydratedTrack.filepath) || it.title == hydratedTrack.title
         }.takeIf { it >= 0 } ?: 0
 
         // 1. Immediately update UI state and pause old track for instantaneous tactile response
         _playerState.value = _playerState.value.copy(
-            currentTrack = track,
+            currentTrack = hydratedTrack,
             currentIndex = targetIndex,
-            queue = queue,
+            queue = hydratedQueue,
             isPlaying = true,
             isBuffering = true
         )
@@ -713,11 +721,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         // 2. Tracked Single Job - cancel previous resolution jobs to prevent race conditions
         playJob?.cancel()
         playJob = viewModelScope.launch {
-            playTrackInternal(track, targetIndex, queue)
+            playTrackInternal(hydratedTrack, targetIndex, hydratedQueue)
 
             // Asynchronously hydrate upcoming continuum radio if queue is small (e.g. 1-3 songs)
-            if (autoHydrateRadio && queue.size <= 3) {
-                hydrateContinuumRadio(track)
+            if (autoHydrateRadio && hydratedQueue.size <= 3) {
+                hydrateContinuumRadio(hydratedTrack)
             }
         }
     }
@@ -1064,49 +1072,57 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
     
     fun toggleLike(trackToToggle: Track? = null, context: android.content.Context? = null) {
-        val track = trackToToggle ?: _playerState.value.currentTrack ?: return
+        val currentTrack = trackToToggle ?: _playerState.value.currentTrack ?: return
 
-        val newIsLiked = !track.isLiked
-        val updatedQueue = _playerState.value.queue.map { item ->
-            if ((item.id != 0 && item.id == track.id) || (item.filepath.isNotBlank() && item.filepath == track.filepath)) {
-                item.copy(isLiked = newIsLiked)
-            } else item
-        }
-        val updatedCurrent = if (_playerState.value.currentTrack?.let { 
-            (it.id != 0 && it.id == track.id) || (it.filepath.isNotBlank() && it.filepath == track.filepath) 
-        } == true) {
-            _playerState.value.currentTrack?.copy(isLiked = newIsLiked)
-        } else {
-            _playerState.value.currentTrack
-        }
-
-        _playerState.value = _playerState.value.copy(
-            queue = updatedQueue,
-            currentTrack = updatedCurrent
-        )
-
-        viewModelScope.launch {
-            val msg = if (newIsLiked) "Added to Liked Songs" else "Removed from Liked Songs"
-            UiEventBus.emitEvent(UiEvent.ShowSnackbar(msg))
-        }
-
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            repository.toggleLike(track.id, track = track)
-            if (newIsLiked && track.filepath.isNotBlank()) {
-                com.streamify.app.service.AudioCacheManager.markStickyTrack(track.filepath)
-            }
-        }
-
-        // Auto-download liked online songs if setting is enabled
-        if (newIsLiked && (track.filepath.startsWith("http") || track.source.contains("online", ignoreCase = true))) {
+        // 1. Launch authoritative DB toggle operation
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                com.streamify.app.viewmodel.IngestionViewModel.enqueueDownloadDirect(
-                    url = if (track.filepath.startsWith("http")) track.filepath else "https://www.youtube.com/watch?v=${track.id}",
-                    title = track.title,
-                    artist = track.artist,
-                    album = "Streamify",
-                    quality = "320"
-                )
+                val actualIsLiked = repository.toggleLike(currentTrack.id, track = currentTrack)
+                withContext(Dispatchers.Main) {
+                    val updatedQueue = _playerState.value.queue.map { item ->
+                        if ((item.id != 0 && item.id == currentTrack.id) || 
+                            (item.filepath.isNotBlank() && item.filepath == currentTrack.filepath) ||
+                            (item.title.equals(currentTrack.title, ignoreCase = true) && item.artist.equals(currentTrack.artist, ignoreCase = true))) {
+                            item.copy(isLiked = actualIsLiked)
+                        } else item
+                    }
+                    val updatedCurrent = if (_playerState.value.currentTrack?.let { 
+                        (it.id != 0 && it.id == currentTrack.id) || 
+                        (it.filepath.isNotBlank() && it.filepath == currentTrack.filepath) ||
+                        (it.title.equals(currentTrack.title, ignoreCase = true) && it.artist.equals(currentTrack.artist, ignoreCase = true))
+                    } == true) {
+                        _playerState.value.currentTrack?.copy(isLiked = actualIsLiked)
+                    } else {
+                        _playerState.value.currentTrack
+                    }
+
+                    _playerState.value = _playerState.value.copy(
+                        queue = updatedQueue,
+                        currentTrack = updatedCurrent
+                    )
+
+                    val msg = if (actualIsLiked) "Added to Liked Songs" else "Removed from Liked Songs"
+                    UiEventBus.emitEvent(UiEvent.ShowSnackbar(msg))
+                }
+
+                if (actualIsLiked && currentTrack.filepath.isNotBlank()) {
+                    com.streamify.app.service.AudioCacheManager.markStickyTrack(currentTrack.filepath)
+                }
+
+                // Auto-download liked online songs if setting is enabled
+                if (actualIsLiked && (currentTrack.filepath.startsWith("http") || currentTrack.source.contains("online", ignoreCase = true))) {
+                    try {
+                        com.streamify.app.viewmodel.IngestionViewModel.enqueueDownloadDirect(
+                            url = if (currentTrack.filepath.startsWith("http")) currentTrack.filepath else "https://www.youtube.com/watch?v=${currentTrack.id}",
+                            title = currentTrack.title,
+                            artist = currentTrack.artist,
+                            album = "Streamify",
+                            quality = "320"
+                        )
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }

@@ -65,7 +65,7 @@ class HomeViewModel(
                             if (ytResults.isNotEmpty()) {
                                 ytResults.mapNotNull { res ->
                                     val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(res.url, res.thumbnail) ?: return@mapNotNull null
-                                    Track(
+                                    val trackObj = Track(
                                         id = -(vid.hashCode()),
                                         title = res.title,
                                         artist = res.uploader,
@@ -77,12 +77,13 @@ class HomeViewModel(
                                         key = "C",
                                         lyricsPath = null,
                                         source = "online_stream",
-                                        isLiked = false
+                                        isLiked = repository.isTrackLiked(Track(title = res.title, artist = res.uploader))
                                     )
+                                    repository.hydrateTrack(trackObj)
                                 }
                             } else {
                                 iTunesSearchApi.search(seed, maxResults = 6).map { res ->
-                                    Track(
+                                    val trackObj = Track(
                                         id = kotlin.math.abs(res.title.hashCode()),
                                         title = res.title,
                                         artist = res.uploader,
@@ -94,8 +95,9 @@ class HomeViewModel(
                                         key = "C",
                                         lyricsPath = null,
                                         source = "online_stream",
-                                        isLiked = false
+                                        isLiked = repository.isTrackLiked(Track(title = res.title, artist = res.uploader))
                                     )
+                                    repository.hydrateTrack(trackObj)
                                 }
                             }
                         } catch (e: Exception) {
@@ -188,7 +190,7 @@ class HomeViewModel(
                         if (yt.isNotEmpty()) {
                             yt.mapNotNull { item ->
                                 val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(item.url, item.thumbnail) ?: return@mapNotNull null
-                                Track(
+                                val trackObj = Track(
                                     id = -(vid.hashCode()),
                                     title = item.title,
                                     artist = item.uploader,
@@ -200,12 +202,13 @@ class HomeViewModel(
                                     key = "",
                                     lyricsPath = null,
                                     source = "online_stream",
-                                    isLiked = false
+                                    isLiked = repository.isTrackLiked(Track(title = item.title, artist = item.uploader))
                                 )
+                                repository.hydrateTrack(trackObj)
                             }
                         } else {
                             iTunesSearchApi.search(artist, maxResults = 4).map { item ->
-                                Track(
+                                val trackObj = Track(
                                     id = -(item.title.hashCode()),
                                     title = item.title,
                                     artist = item.uploader,
@@ -217,8 +220,9 @@ class HomeViewModel(
                                     key = "",
                                     lyricsPath = null,
                                     source = "online_stream",
-                                    isLiked = false
+                                    isLiked = repository.isTrackLiked(Track(title = item.title, artist = item.uploader))
                                 )
+                                repository.hydrateTrack(trackObj)
                             }
                         }
                     } catch (e: Exception) {
@@ -228,18 +232,21 @@ class HomeViewModel(
                 }
 
                 val finalDisplayPool = if (allTracks.isNotEmpty()) allTracks else cloudDiscoveryPool
+                val hydrateList: (List<Track>) -> List<Track> = { list -> list.map { repository.hydrateTrack(it) } }
 
                 withContext(Dispatchers.Main) {
                     _uiState.value = HomeUiState.Success(
-                        hybridRecommendations = hybridRecs.ifEmpty { cloudDiscoveryPool.take(8) },
-                        sessionRecommendations = sessionRecs.ifEmpty { cloudDiscoveryPool.take(8) },
-                        circadianRecommendations = circadianRecs.ifEmpty { cloudDiscoveryPool.take(8) },
+                        hybridRecommendations = hydrateList(hybridRecs.ifEmpty { cloudDiscoveryPool.take(8) }),
+                        sessionRecommendations = hydrateList(sessionRecs.ifEmpty { cloudDiscoveryPool.take(8) }),
+                        circadianRecommendations = hydrateList(circadianRecs.ifEmpty { cloudDiscoveryPool.take(8) }),
                         circadianSlotTitle = slotTitle,
-                        madeForYou = madeForYou.ifEmpty { cloudDiscoveryPool.take(8) },
-                        onlineDiscoveries = (onlineDiscoveries + cloudDiscoveryPool).distinctBy { "${it.title}:::${it.artist}".lowercase() }.take(12),
-                        recent = recent.ifEmpty { cloudDiscoveryPool.take(6) },
-                        topPlayed = topPlayed.ifEmpty { cloudDiscoveryPool.take(6) },
-                        allTracks = finalDisplayPool
+                        madeForYou = hydrateList(madeForYou.ifEmpty { cloudDiscoveryPool.take(8) }),
+                        onlineDiscoveries = hydrateList((onlineDiscoveries + cloudDiscoveryPool).distinctBy { "${it.title}:::${it.artist}".lowercase() }.take(12)),
+                        recent = hydrateList(recent.ifEmpty { cloudDiscoveryPool.take(6) }),
+                        topPlayed = hydrateList(topPlayed.take(8)),
+                        allTracks = finalDisplayPool,
+                        trending = hydrateList(cloudDiscoveryPool.take(15)),
+                        heavyRotation = hydrateList(topPlayed.take(8))
                     )
                 }
             } catch (e: Exception) {

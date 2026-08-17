@@ -72,6 +72,39 @@ object TrackRepository {
         liked
     }
     
+    fun isTrackLiked(track: Track): Boolean {
+        if (track.id > 0 && _likedTracks.value.any { it.id == track.id }) {
+            return true
+        }
+        return _likedTracks.value.any { liked ->
+            com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(liked.title, liked.artist, track.title, track.artist)
+        }
+    }
+
+    fun hydrateTrack(track: Track): Track {
+        val liked = isTrackLiked(track)
+        val matchedInDb = if (track.id <= 0) {
+            _allTracks.value.find { 
+                it.id > 0 && (
+                    it.filepath == track.filepath || 
+                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
+                )
+            }
+        } else {
+            _allTracks.value.find { it.id == track.id }
+        }
+
+        return if (matchedInDb != null) {
+            track.copy(
+                id = matchedInDb.id,
+                coverArtPath = if (!matchedInDb.coverArtPath.isNullOrBlank()) matchedInDb.coverArtPath else track.coverArtPath,
+                isLiked = liked
+            )
+        } else {
+            track.copy(isLiked = liked)
+        }
+    }
+
     suspend fun registerStreamedTrack(track: Track, context: android.content.Context? = null): Track = withContext(Dispatchers.IO) {
         val albumName = if (track.album.isNotBlank() && !track.album.equals("Single", ignoreCase = true)) track.album else "Streamify"
         val canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist)
@@ -91,12 +124,24 @@ object TrackRepository {
         )
 
         val savedId = if (validId > 0) validId else track.id
+        val isLikedInDb = if (savedId > 0) {
+            try {
+                val likedIds = NativeBridge.getLikedTracks(1).map { it.id }.toSet()
+                likedIds.contains(savedId)
+            } catch (e: Exception) {
+                isTrackLiked(track)
+            }
+        } else {
+            isTrackLiked(track)
+        }
+
         val updatedTrack = track.copy(
             id = savedId,
             filepath = canonicalPath,
             coverArtPath = sanitizedCover,
             album = albumName,
-            source = "online_stream"
+            source = "online_stream",
+            isLiked = isLikedInDb
         )
 
         if (savedId > 0) {
