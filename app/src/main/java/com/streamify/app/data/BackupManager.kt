@@ -126,7 +126,7 @@ object BackupManager {
                             tIds.add(tIdsArray.getInt(j))
                         }
                     }
-                    PlaylistRepository.addPlaylist(Playlist(id, name, desc, tIds))
+                    PlaylistRepository.addPlaylist(Playlist(id = id, name = name, description = desc, trackIds = tIds))
                 }
             }
 

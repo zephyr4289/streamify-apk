@@ -138,8 +138,8 @@ class MainActivity : ComponentActivity() {
                 }
 
                 LaunchedEffect(playerState.currentTrack) {
-                    if (playerState.currentTrack != null) {
-                        quantumController.resolveStream()
+                    if (playerState.currentTrack != null && quantumController.stage == com.streamify.app.ui.components.TokenStage.FLYING) {
+                        quantumController.reset()
                     }
                 }
 

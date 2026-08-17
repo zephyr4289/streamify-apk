@@ -189,18 +189,6 @@ object TrackRepository {
         recs.mapNotNull { rec -> all[rec.trackId] }
     }
 
-    suspend fun getCloudSongRadio(track: Track, limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
-        val cloudRadio = com.streamify.app.data.remote.SupabaseClient.fetchCloudSongRadio(track, limit)
-        if (cloudRadio.isNotEmpty()) return@withContext cloudRadio
-        
-        // Fallback to local recommendations if offline or cloud empty
-        if (track.id > 0) {
-            getRecommendations(track.id, limit = limit)
-        } else {
-            emptyList()
-        }
-    }
-
     suspend fun processAudioFile(trackId: Int, filePath: String): Int = withContext(Dispatchers.IO) {
         val result = NativeBridge.processAudioFile(trackId, filePath)
         refresh()

@@ -32,7 +32,9 @@ import com.streamify.app.data.remote.UserProfile
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 @Composable
 private fun MetricCard(
@@ -108,7 +110,7 @@ fun AdminDashboardScreen(
 
     LaunchedEffect(Unit) {
         refreshAll()
-        SupabaseClient.liveProfileUpdates.collect { record ->
+        SupabaseClient.liveProfileUpdates.collect { record: JSONObject ->
             val uId = record.optString("id", "")
             if (uId.isNotBlank()) {
                 val currentTelem = telemetry ?: return@collect

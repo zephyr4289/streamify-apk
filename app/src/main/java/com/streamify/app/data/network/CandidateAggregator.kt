@@ -224,9 +224,9 @@ object CandidateAggregator {
     private suspend fun fetchMarkovCandidates(trackId: Int): List<Track> = withContext(Dispatchers.IO) {
         if (trackId <= 0) return@withContext emptyList()
         try {
-            val markovRecs = NativeBridge.getMarkovTransitions(trackId, limit = 20)
+            val ids = NativeBridge.getCooccurrenceRecommendations(trackId, limit = 20)
             val catalog = TrackRepository.allTracks.value.associateBy { it.id }
-            markovRecs.mapNotNull { catalog[it.trackId] }
+            ids.mapNotNull { catalog[it] }
         } catch (e: Exception) {
             emptyList()
         }

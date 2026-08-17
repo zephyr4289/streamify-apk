@@ -7,7 +7,9 @@ import com.streamify.app.data.models.Track
 import com.streamify.app.data.TrackRepository
 import com.streamify.app.data.EdgeMeshRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
@@ -1290,7 +1292,7 @@ object SupabaseClient {
     private val schemaColumnBlacklist = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap.KeySetView<String, Boolean>>()
     private val PGRST204_REGEX = java.util.regex.Pattern.compile("Could not find the '(\\w+)' column", java.util.regex.Pattern.CASE_INSENSITIVE)
 
-    private fun executeAdaptivePostgrestRequest(
+    private suspend fun executeAdaptivePostgrestRequest(
         url: URL,
         method: String,
         table: String,
