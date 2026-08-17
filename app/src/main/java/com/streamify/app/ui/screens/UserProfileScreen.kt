@@ -40,8 +40,9 @@ fun UserProfileScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val user by SupabaseClient.currentUser.collectAsState()
-    val authState by AuthManager.authState.collectAsState()
-    val stats by YtStatsTelemetryEngine.computeWrappedStats().collectAsState(initial = null)
+    val cachedStats by YtStatsTelemetryEngine.cachedWrappedStats.collectAsState()
+    val computedStats by remember { YtStatsTelemetryEngine.computeWrappedStats() }.collectAsState(initial = cachedStats)
+    val stats = computedStats ?: cachedStats
 
     var showEditDialog by remember { mutableStateOf(false) }
     var editName by remember(user) { mutableStateOf(user?.displayName ?: "") }

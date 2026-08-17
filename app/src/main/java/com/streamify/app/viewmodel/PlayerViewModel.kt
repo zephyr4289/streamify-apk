@@ -246,7 +246,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 }
                 
                 val currentT = _playerState.value.currentTrack
-                val newTrackId = mediaItem?.mediaId?.toIntOrNull()
+                val newTrackId = mediaItem?.mediaId?.removePrefix("trk_")?.toIntOrNull() ?: currentT?.id?.takeIf { it > 0 }
                 if (currentT != null) {
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         try {
@@ -259,7 +259,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             appContext?.let { ctx ->
                                 com.streamify.app.data.EdgeMeshRepository.getInstance(ctx).scheduleOpportunisticCompute(
                                     context = ctx,
-                                    trackId = currentT.id.toString(),
+                                    trackId = (if (validId > 0) validId else currentT.id).toString(),
                                     trackTitle = currentT.title,
                                     trackArtist = currentT.artist,
                                     audioPath = currentT.filepath
@@ -591,13 +591,21 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         positionPollingJob?.cancel()
         positionPollingJob = viewModelScope.launch {
             var lastTickMs = System.currentTimeMillis()
+            var accumulatedPlaySec = 0L
             while (true) {
                 val now = System.currentTimeMillis()
                 val elapsedSec = (now - lastTickMs) / 1000L
                 if (elapsedSec >= 1L) {
                     lastTickMs = now
                     if (_playerState.value.isPlaying) {
-                        com.streamify.app.data.YtStatsTelemetryEngine.recordListeningSeconds(elapsedSec.coerceIn(1L, 5L))
+                        accumulatedPlaySec += elapsedSec.coerceIn(1L, 5L)
+                        if (accumulatedPlaySec >= 10L) {
+                            com.streamify.app.data.YtStatsTelemetryEngine.recordListeningSeconds(accumulatedPlaySec)
+                            accumulatedPlaySec = 0L
+                        }
+                    } else if (accumulatedPlaySec > 0L) {
+                        com.streamify.app.data.YtStatsTelemetryEngine.recordListeningSeconds(accumulatedPlaySec)
+                        accumulatedPlaySec = 0L
                     }
                 }
 

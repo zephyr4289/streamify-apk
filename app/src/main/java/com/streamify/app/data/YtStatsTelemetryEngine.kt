@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import org.json.JSONArray
+import org.json.JSONObject
+
 data class WrappedStats(
     val totalMinutes: Int,
     val totalTracks: Int,
@@ -36,15 +39,39 @@ object YtStatsTelemetryEngine {
     private val _cachedWrappedStats = MutableStateFlow<WrappedStats?>(null)
     val cachedWrappedStats: StateFlow<WrappedStats?> = _cachedWrappedStats.asStateFlow()
 
+    init {
+        // Hydrate from persistent disk cache on engine initialization (0ms instant startup)
+        try {
+            val context = TrackRepository.appContext
+            val prefs = context?.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
+            val savedJson = prefs?.getString("wrapped_2026_cached_json", null)
+            if (!savedJson.isNullOrBlank()) {
+                val diskStats = deserializeWrappedStats(savedJson)
+                if (diskStats != null) {
+                    _cachedWrappedStats.value = diskStats
+                }
+            }
+        } catch (e: Exception) {
+            // Safe fallback
+        }
+    }
+
     fun recordListeningSeconds(seconds: Long) {
         val context = TrackRepository.appContext ?: return
         if (seconds <= 0) return
         try {
             val prefs = context.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
             val currentSec = prefs.getLong("total_listened_seconds", 0L)
-            prefs.edit().putLong("total_listened_seconds", currentSec + seconds).apply()
-            // Invalidate memoized cache on new playback activity
-            _cachedWrappedStats.value = null
+            val newTotalSec = currentSec + seconds
+            prefs.edit().putLong("total_listened_seconds", newTotalSec).apply()
+
+            // Non-destructive in-place RAM & Disk update (Never wipe cache to null!)
+            val cur = _cachedWrappedStats.value
+            if (cur != null) {
+                val updated = cur.copy(totalMinutes = (newTotalSec / 60).toInt())
+                _cachedWrappedStats.value = updated
+                prefs.edit().putString("wrapped_2026_cached_json", serializeWrappedStats(updated)).apply()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -91,31 +118,77 @@ object YtStatsTelemetryEngine {
     }
 
     fun computeWrappedStats(forceRefresh: Boolean = false): Flow<WrappedStats> = flow {
-        // Tier 1: Instant 0ms RAM Cache Return
+        val context = TrackRepository.appContext
+        val prefs = context?.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
+
+        // Tier 0: Disk Storage Hydration if memory is cold
+        if (_cachedWrappedStats.value == null && prefs != null) {
+            val savedJson = prefs.getString("wrapped_2026_cached_json", null)
+            if (!savedJson.isNullOrBlank()) {
+                val diskStats = deserializeWrappedStats(savedJson)
+                if (diskStats != null) {
+                    _cachedWrappedStats.value = diskStats
+                }
+            }
+        }
+
+        // Tier 1: Instant 0ms RAM / Disk Cache Return
         _cachedWrappedStats.value?.takeIf { !forceRefresh }?.let { cached ->
             emit(cached)
             return@flow
         }
 
-        // Tier 2: Hot Local Matrix Computation (<5ms off main thread)
-        val libraryTracks = TrackRepository.getAllTracks()
+        // Tier 2: Hot Local Unified Matrix Computation (<5ms off main thread)
         val likedTracks = TrackRepository.getLikedTracks()
-        val topPlayedTracks = TrackRepository.getTopPlayedTracks(10)
+        val topPlayedTracks = TrackRepository.getTopPlayedTracks(20)
+        val libraryTracks = TrackRepository.getAllTracks()
 
-        val context = TrackRepository.appContext
-        val prefs = context?.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
         val realListenedSeconds = prefs?.getLong("total_listened_seconds", 0L) ?: 0L
 
         val totalMinutes = if (realListenedSeconds > 0) {
             (realListenedSeconds / 60).toInt()
         } else {
             val playedSeconds = topPlayedTracks.sumOf { it.durationSec.toLong() }
-            if (playedSeconds > 0) (playedSeconds / 60).toInt() else 0
+            if (playedSeconds > 0) (playedSeconds / 60).toInt() else (likedTracks.size * 3)
         }
 
+        // Unified distinct corpus across liked songs, top streams, and local library
+        val unifiedCorpus = (topPlayedTracks + likedTracks + libraryTracks).distinctBy {
+            "${it.title.lowercase().trim()}_${it.artist.lowercase().trim()}"
+        }
+
+        val totalTracks = unifiedCorpus.size
+        val likedCount = likedTracks.size
         val topPlayedCount = topPlayedTracks.size
 
-        val validBpms = libraryTracks.map { it.bpm }.filter { it > 40f && it < 240f }
+        // Select Top 5 Songs with strict priority: Top Played -> Liked Songs -> Unified Corpus
+        val top5Songs = mutableListOf<Track>()
+        for (t in topPlayedTracks) {
+            if (top5Songs.none { FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, t.title, t.artist) }) {
+                top5Songs.add(t)
+                if (top5Songs.size >= 5) break
+            }
+        }
+        if (top5Songs.size < 5) {
+            for (t in likedTracks) {
+                if (top5Songs.none { FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, t.title, t.artist) }) {
+                    top5Songs.add(t)
+                    if (top5Songs.size >= 5) break
+                }
+            }
+        }
+        if (top5Songs.size < 5) {
+            for (t in unifiedCorpus) {
+                if (top5Songs.none { FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, t.title, t.artist) }) {
+                    top5Songs.add(t)
+                    if (top5Songs.size >= 5) break
+                }
+            }
+        }
+
+        // Weighted BPM calculation across user's true favorites
+        val validBpms = (likedTracks.map { it.bpm } + topPlayedTracks.map { it.bpm } + unifiedCorpus.map { it.bpm })
+            .filter { it in 45f..230f }
         val weightedBpm = if (validBpms.isNotEmpty()) {
             validBpms.average().toInt()
         } else {
@@ -151,7 +224,9 @@ object YtStatsTelemetryEngine {
         val genreScores = mutableMapOf<String, Int>()
         genreKeywords.keys.forEach { genreScores[it] = 0 }
 
-        libraryTracks.forEach { track ->
+        // Double-weight liked songs & top played tracks so user's true favorites shape the genre distribution
+        val weightedList = (likedTracks + topPlayedTracks + unifiedCorpus)
+        weightedList.forEach { track ->
             val metadata = "${track.title} ${track.artist} ${track.album}".lowercase()
             var matched = false
             for ((genre, keywords) in genreKeywords) {
@@ -180,13 +255,7 @@ object YtStatsTelemetryEngine {
                 )
             }
 
-        val top5Songs = if (topPlayedTracks.isNotEmpty()) {
-            topPlayedTracks.take(5)
-        } else {
-            libraryTracks.take(5)
-        }
-
-        val topArtists = libraryTracks.groupBy { it.artist.ifBlank { "Unknown Artist" } }
+        val topArtists = (likedTracks + topPlayedTracks + unifiedCorpus).groupBy { it.artist.ifBlank { "Unknown Artist" } }
             .mapValues { it.value.size }
             .entries
             .sortedByDescending { it.value }
@@ -195,8 +264,8 @@ object YtStatsTelemetryEngine {
 
         val stats = WrappedStats(
             totalMinutes = totalMinutes,
-            totalTracks = libraryTracks.size,
-            likedSongs = likedTracks.size,
+            totalTracks = totalTracks,
+            likedSongs = likedCount,
             topPlayedCount = topPlayedCount,
             averageBpm = weightedBpm,
             personaName = personaName,
@@ -207,8 +276,9 @@ object YtStatsTelemetryEngine {
             topArtists = topArtists
         )
 
-        // Cache in RAM for instant 0ms returns
+        // Cache in RAM & Disk
         _cachedWrappedStats.value = stats
+        prefs?.edit()?.putString("wrapped_2026_cached_json", serializeWrappedStats(stats))?.apply()
 
         // Emits immediately in <5ms without waiting for network I/O
         emit(stats)
@@ -222,4 +292,112 @@ object YtStatsTelemetryEngine {
             }
         }
     }.flowOn(Dispatchers.Default)
+
+    private fun serializeWrappedStats(stats: WrappedStats): String {
+        return JSONObject().apply {
+            put("totalMinutes", stats.totalMinutes)
+            put("totalTracks", stats.totalTracks)
+            put("likedSongs", stats.likedSongs)
+            put("topPlayedCount", stats.topPlayedCount)
+            put("averageBpm", stats.averageBpm)
+            put("personaName", stats.personaName)
+            put("personaEmoji", stats.personaEmoji)
+            put("personaDescription", stats.personaDescription)
+
+            val genreArr = JSONArray()
+            stats.topGenres.forEach { (genre, pct) ->
+                genreArr.put(JSONObject().apply {
+                    put("genre", genre)
+                    put("percentage", pct.toDouble())
+                })
+            }
+            put("topGenres", genreArr)
+
+            val trackArr = JSONArray()
+            stats.top5Tracks.forEach { track ->
+                trackArr.put(JSONObject().apply {
+                    put("id", track.id)
+                    put("title", track.title)
+                    put("artist", track.artist)
+                    put("album", track.album)
+                    put("durationSec", track.durationSec)
+                    put("filepath", track.filepath)
+                    put("coverArtPath", track.coverArtPath ?: "")
+                    put("bpm", track.bpm.toDouble())
+                    put("isLiked", track.isLiked)
+                })
+            }
+            put("top5Tracks", trackArr)
+
+            val artistArr = JSONArray()
+            stats.topArtists.forEach { (artist, count) ->
+                artistArr.put(JSONObject().apply {
+                    put("artist", artist)
+                    put("count", count)
+                })
+            }
+            put("topArtists", artistArr)
+        }.toString()
+    }
+
+    private fun deserializeWrappedStats(jsonStr: String): WrappedStats? {
+        if (jsonStr.isBlank()) return null
+        return try {
+            val obj = JSONObject(jsonStr)
+            val genreList = mutableListOf<Pair<String, Float>>()
+            val genreArr = obj.optJSONArray("topGenres")
+            if (genreArr != null) {
+                for (i in 0 until genreArr.length()) {
+                    val g = genreArr.getJSONObject(i)
+                    genreList.add(g.getString("genre") to g.getDouble("percentage").toFloat())
+                }
+            }
+
+            val trackList = mutableListOf<Track>()
+            val trackArr = obj.optJSONArray("top5Tracks")
+            if (trackArr != null) {
+                for (i in 0 until trackArr.length()) {
+                    val t = trackArr.getJSONObject(i)
+                    trackList.add(
+                        Track(
+                            id = t.optInt("id", 0),
+                            title = t.optString("title", ""),
+                            artist = t.optString("artist", ""),
+                            album = t.optString("album", ""),
+                            durationSec = t.optInt("durationSec", 0),
+                            filepath = t.optString("filepath", ""),
+                            coverArtPath = t.optString("coverArtPath", "").ifBlank { null },
+                            bpm = t.optDouble("bpm", 0.0).toFloat(),
+                            isLiked = t.optBoolean("isLiked", true)
+                        )
+                    )
+                }
+            }
+
+            val artistList = mutableListOf<Pair<String, Int>>()
+            val artistArr = obj.optJSONArray("topArtists")
+            if (artistArr != null) {
+                for (i in 0 until artistArr.length()) {
+                    val a = artistArr.getJSONObject(i)
+                    artistList.add(a.getString("artist") to a.getInt("count"))
+                }
+            }
+
+            WrappedStats(
+                totalMinutes = obj.optInt("totalMinutes", 0),
+                totalTracks = obj.optInt("totalTracks", 0),
+                likedSongs = obj.optInt("likedSongs", 0),
+                topPlayedCount = obj.optInt("topPlayedCount", 0),
+                averageBpm = obj.optInt("averageBpm", 124),
+                personaName = obj.optString("personaName", "Harmonic Groove Weaver"),
+                personaEmoji = obj.optString("personaEmoji", "🌌"),
+                personaDescription = obj.optString("personaDescription", ""),
+                topGenres = genreList,
+                top5Tracks = trackList,
+                topArtists = artistList
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
 }
