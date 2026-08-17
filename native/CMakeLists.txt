@@ -29,6 +29,15 @@ add_library(streamify_core SHARED
     third_party/sqlite3/sqlite3.c
 )
 
+target_compile_options(streamify_core PRIVATE
+    $<$<CONFIG:Release>:-O3 -ffast-math -flto -fvisibility=hidden -DNDEBUG>
+    -Wall -Wextra
+)
+
+target_link_options(streamify_core PRIVATE
+    $<$<CONFIG:Release>:-flto -Wl,--gc-sections>
+)
+
 target_include_directories(streamify_core PRIVATE 
     dsp/kissfft
 )

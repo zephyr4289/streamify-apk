@@ -49,7 +49,7 @@ android {
 
         externalNativeBuild {
             cmake {
-                cppFlags += "-std=c++17 -O3 -flto"
+                cppFlags += "-std=c++20 -O3 -flto"
                 arguments += "-DANDROID_STL=c++_shared"
             }
         }
