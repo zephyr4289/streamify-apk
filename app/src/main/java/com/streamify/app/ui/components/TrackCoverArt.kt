@@ -33,8 +33,18 @@ fun TrackCoverArt(
     modifier: Modifier = Modifier,
     shape: Shape = StreamifyShapes.CardShape
 ) {
-    val fallbackColors = remember(title, artist) {
-        val seed = (title + artist).hashCode()
+    val descriptor = remember(coverArtPath, title, artist) {
+        val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(coverArtPath ?: "")
+        com.streamify.app.data.network.YouTubeStreamResolver.buildThumbnailPipeline(
+            rawUrl = coverArtPath,
+            videoId = vid,
+            title = title,
+            artist = artist
+        )
+    }
+
+    val fallbackColors = remember(descriptor.fallbackColorSeed) {
+        val seed = descriptor.fallbackColorSeed
         val hue1 = kotlin.math.abs(seed % 360).toFloat()
         val hue2 = kotlin.math.abs((seed * 31) % 360).toFloat()
         listOf(
@@ -48,9 +58,37 @@ fun TrackCoverArt(
             .clip(shape)
             .background(Brush.linearGradient(fallbackColors))
     ) {
-        if (!coverArtPath.isNullOrBlank()) {
+        if (!descriptor.primary.isNullOrBlank()) {
             SubcomposeAsyncImage(
-                model = coverArtPath,
+                model = descriptor.primary,
+                contentDescription = "$title cover",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                error = {
+                    if (!descriptor.secondary.isNullOrBlank() && descriptor.secondary != descriptor.primary) {
+                        SubcomposeAsyncImage(
+                            model = descriptor.secondary,
+                            contentDescription = "$title cover",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                            error = {
+                                GenerativeCoverContent(title = title, artist = artist)
+                            },
+                            loading = {
+                                GenerativeCoverContent(title = title, artist = artist)
+                            }
+                        )
+                    } else {
+                        GenerativeCoverContent(title = title, artist = artist)
+                    }
+                },
+                loading = {
+                    GenerativeCoverContent(title = title, artist = artist)
+                }
+            )
+        } else if (!descriptor.secondary.isNullOrBlank()) {
+            SubcomposeAsyncImage(
+                model = descriptor.secondary,
                 contentDescription = "$title cover",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

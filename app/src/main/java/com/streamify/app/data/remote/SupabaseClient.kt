@@ -545,16 +545,9 @@ object SupabaseClient {
                         val key = to.optString("key_signature", "C")
 
                         if (title.isNotBlank()) {
-                            val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(streamUrl, coverUrl)
-                            val canonicalFilepath = if (videoId != null) {
-                                "https://www.youtube.com/watch?v=$videoId"
-                            } else if (streamUrl.startsWith("http") && !streamUrl.contains("googlevideo.com")) {
-                                streamUrl
-                            } else if (streamUrl.startsWith("/") || streamUrl.startsWith("file://")) {
-                                streamUrl
-                            } else {
-                                "https://www.youtube.com/watch?v=${kotlin.math.abs((title.trim().lowercase() + artist.trim().lowercase()).hashCode())}"
-                            }
+                            val canonicalFilepath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(streamUrl, title, artist)
+                            val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalFilepath, coverUrl)
+                            val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(coverUrl, videoId)
 
                             val localId = com.streamify.app.data.NativeBridge.upsertStreamedTrack(
                                 filepath = canonicalFilepath,
@@ -562,7 +555,7 @@ object SupabaseClient {
                                 artist = artist,
                                 album = album,
                                 durationSec = duration,
-                                coverArtPath = coverUrl,
+                                coverArtPath = sanitizedCover ?: "",
                                 lyricsPath = "",
                                 bpm = bpm,
                                 key = key
@@ -640,16 +633,9 @@ object SupabaseClient {
             val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
             val trackCloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
             
-            val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
-            val canonicalStreamUrl = if (videoId != null) {
-                "https://www.youtube.com/watch?v=$videoId"
-            } else if (track.filepath.startsWith("http") && !track.filepath.contains("googlevideo.com")) {
-                track.filepath
-            } else if (track.filepath.startsWith("/") || track.filepath.startsWith("file://")) {
-                track.filepath
-            } else {
-                "https://www.youtube.com/watch?v=${kotlin.math.abs(cleanSig.hashCode())}"
-            }
+            val canonicalStreamUrl = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist)
+            val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalStreamUrl, track.coverArtPath)
+            val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
 
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks")
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -667,7 +653,7 @@ object SupabaseClient {
                 put("artist", track.artist)
                 put("album", track.album)
                 put("duration_sec", track.durationSec)
-                put("cover_url", track.coverArtPath ?: "")
+                put("cover_url", sanitizedCover ?: "")
                 put("stream_url", canonicalStreamUrl)
                 put("bpm", track.bpm)
                 put("key_signature", track.key)

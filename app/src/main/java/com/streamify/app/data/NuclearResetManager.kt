@@ -78,8 +78,10 @@ object NuclearResetManager {
 
             // 3. Remove local vector store binary file
             try {
-                val vectorFile = File(context.filesDir, "vector_store.bin")
+                val vectorFile = File(context.filesDir, "vectors.bin")
                 if (vectorFile.exists()) vectorFile.delete()
+                val legacyVectorFile = File(context.filesDir, "vector_store.bin")
+                if (legacyVectorFile.exists()) legacyVectorFile.delete()
             } catch (e: Exception) {
                 // Ignore file removal errors
             }

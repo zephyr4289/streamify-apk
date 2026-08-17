@@ -468,6 +468,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
         val needsResolution = nextTrack.filepath.isBlank() ||
                 nextTrack.filepath.startsWith("online://") ||
+                nextTrack.filepath.startsWith("ytsearch:") ||
                 (nextTrack.filepath.startsWith("http") && !nextTrack.filepath.contains("googlevideo.com")) ||
                 (nextTrack.filepath.contains("googlevideo.com") && isCdnExpired(nextTrack.filepath))
 
@@ -475,7 +476,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             preResolvingTrackKey = trackKey
             viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    val resolved = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(nextTrack)
+                    val resolved = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack).getOrNull()
                     if (resolved != null && resolved.streamUrl.isNotBlank()) {
                         val warmTrack = nextTrack.copy(filepath = resolved.streamUrl)
                         withContext(Dispatchers.Main) {
@@ -666,40 +667,53 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
     }
 
-    fun playTrack(track: Track, queue: List<Track> = listOf(track)) {
-        _playerState.value = _playerState.value.copy(currentTrack = track, queue = queue)
-
+    fun validateAndPrepareTrackForPlayback(
+        track: Track,
+        onReady: (Track) -> Unit,
+        onFailure: (Throwable) -> Unit = {}
+    ) {
         val needsResolution = track.filepath.isBlank() ||
                 track.filepath.startsWith("online://") ||
+                track.filepath.startsWith("ytsearch:") ||
                 (track.filepath.startsWith("http") && !track.filepath.contains("googlevideo.com")) ||
                 (track.filepath.startsWith("http") && track.filepath.contains("googlevideo.com") && isCdnExpired(track.filepath)) ||
                 (!track.filepath.startsWith("http") && !track.filepath.startsWith("file") && !java.io.File(track.filepath).exists())
 
         if (needsResolution) {
             viewModelScope.launch(Dispatchers.IO) {
-                val resolved = try {
-                    com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(track)
-                } catch (e: Exception) {
-                    null
-                }
-
-                val playableTrack = if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                    track.copy(filepath = resolved.streamUrl)
+                val result = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(track)
+                val resolved = result.getOrNull()
+                if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                    val playableTrack = track.copy(filepath = resolved.streamUrl)
+                    withContext(Dispatchers.Main) {
+                        onReady(playableTrack)
+                    }
                 } else {
-                    track
-                }
-
-                val updatedQueue = queue.map {
-                    if (it.id == track.id || (it.title == track.title && it.artist == track.artist)) playableTrack else it
-                }
-
-                withContext(Dispatchers.Main) {
-                    executePlayback(playableTrack, updatedQueue)
+                    withContext(Dispatchers.Main) {
+                        val ex = result.exceptionOrNull() ?: Exception("Unresolvable track stream")
+                        onFailure(ex)
+                    }
                 }
             }
         } else {
-            executePlayback(track, queue)
+            onReady(track)
         }
+    }
+
+    fun playTrack(track: Track, queue: List<Track> = listOf(track)) {
+        _playerState.value = _playerState.value.copy(currentTrack = track, queue = queue)
+        validateAndPrepareTrackForPlayback(
+            track = track,
+            onReady = { playableTrack ->
+                val updatedQueue = queue.map {
+                    if (it.id == track.id || (it.title == track.title && it.artist == track.artist)) playableTrack else it
+                }
+                executePlayback(playableTrack, updatedQueue)
+            },
+            onFailure = { error ->
+                android.util.Log.e("PlayerViewModel", "Playback failed for ${track.title}: ${error.message}")
+            }
+        )
     }
 
     private fun executePlayback(track: Track, queue: List<Track>) {

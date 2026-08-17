@@ -54,17 +54,17 @@ object iTunesSearchApi {
                 val durationSec = (durationMs / 1000).toInt()
                 val rawThumb = item.optString("artworkUrl100", "")
                 val hdThumb = if (rawThumb.isNotBlank()) {
-                    rawThumb.replace("100x100bb", "1400x1400bb").replace("100x100", "1400x1400")
+                    rawThumb.replace(Regex("\\d+x\\d+bb"), "600x600bb").replace("100x100", "600x600")
                 } else ""
 
                 val trackId = item.optString("trackId", "")
-                val searchUrl = "https://www.youtube.com/results?search_query=" + URLEncoder.encode("$title $artist", "UTF-8")
+                val canonicalQuery = "ytsearch:${title.trim()} ${artist.trim()}"
 
                 results.add(
                     OnlineSearchResult(
                         title = title,
                         uploader = artist,
-                        url = searchUrl,
+                        url = canonicalQuery,
                         duration = durationSec,
                         thumbnail = hdThumb
                     )
@@ -117,7 +117,7 @@ object iTunesSearchApi {
                 if (normTargetTitle in trackName || trackName in normTargetTitle) {
                     val rawArt = item.optString("artworkUrl100", "")
                     if (rawArt.isNotBlank()) {
-                        return@withContext rawArt.replace("100x100bb", "1400x1400bb").replace("100x100", "1400x1400")
+                        return@withContext rawArt.replace(Regex("\\d+x\\d+bb"), "600x600bb").replace("100x100", "600x600")
                     }
                 }
             }

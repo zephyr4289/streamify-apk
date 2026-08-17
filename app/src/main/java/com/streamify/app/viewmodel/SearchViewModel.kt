@@ -226,41 +226,17 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         streamJob = viewModelScope.launch {
             _resolvingTrackUrl.value = onlineTrack.url
             try {
-                // Check stream URL cache (TTL 2 hours for instant 0ms stream start)
-                val now = System.currentTimeMillis()
-                val cachedEntry = streamUrlCache.get(onlineTrack.url)
-                val directUrl = if (cachedEntry != null && (now - cachedEntry.second) < 7200000L) {
-                    cachedEntry.first
-                } else {
-                    // 1. Instantaneous Native Kotlin HTTP Innertube Player Resolution (sub-200ms)
-                    val nativeStream = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamUrl(onlineTrack.url)
-                    val resolvedUrl = if (nativeStream != null && nativeStream.streamUrl.isNotBlank()) {
-                        nativeStream.streamUrl
-                    } else {
-                        // 2. Robust Secondary Fallback: Chaquopy yt-dlp Extraction
-                        withContext(Dispatchers.IO) {
-                            try {
-                                val py = Python.getInstance()
-                                val searchModule = py.getModule("download_engine.search")
-                                val rawStreamResult = searchModule.callAttr("get_stream_url", onlineTrack.url).toString()
-                                if (rawStreamResult.trim().startsWith("{")) {
-                                    val jsonObj = org.json.JSONObject(rawStreamResult)
-                                    jsonObj.optString("url", "")
-                                } else {
-                                    rawStreamResult
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                                ""
-                            }
-                        }
-                    }
-
-                    if (resolvedUrl.isNotBlank()) {
-                        streamUrlCache.put(onlineTrack.url, Pair(resolvedUrl, now))
-                    }
-                    resolvedUrl
-                }
+                val candidateTrack = Track(
+                    id = 0,
+                    title = onlineTrack.title,
+                    artist = onlineTrack.uploader,
+                    album = "Online Stream",
+                    durationSec = onlineTrack.duration,
+                    filepath = onlineTrack.url,
+                    coverArtPath = onlineTrack.thumbnail
+                )
+                val resolveResult = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(candidateTrack)
+                val directUrl = resolveResult.getOrNull()?.streamUrl ?: ""
 
                 if (directUrl.isNotBlank()) {
                     // 1. Persist canonical watch URL to native C++ SQLite store for playback history & AI recommendations

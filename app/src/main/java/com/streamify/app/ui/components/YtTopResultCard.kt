@@ -43,7 +43,9 @@ fun YtTopResultCard(
             YtThumbnail(
                 url = track.coverArtPath,
                 size = 80.dp,
-                cornerRadius = 6.dp
+                cornerRadius = 6.dp,
+                title = track.title,
+                artist = track.artist
             )
 
             Spacer(modifier = Modifier.width(14.dp))

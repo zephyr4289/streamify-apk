@@ -58,7 +58,9 @@ private fun YtMediumCard(
         YtThumbnail(
             url = track.coverArtPath,
             size = 120.dp,
-            cornerRadius = 8.dp
+            cornerRadius = 8.dp,
+            title = track.title,
+            artist = track.artist
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(

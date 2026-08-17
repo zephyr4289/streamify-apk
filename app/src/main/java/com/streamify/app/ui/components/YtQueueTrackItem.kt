@@ -63,7 +63,9 @@ fun YtQueueTrackItem(
             YtThumbnail(
                 url = track.coverArtPath,
                 size = 48.dp,
-                cornerRadius = 4.dp
+                cornerRadius = 4.dp,
+                title = track.title,
+                artist = track.artist
             )
 
             if (isPlaying) {

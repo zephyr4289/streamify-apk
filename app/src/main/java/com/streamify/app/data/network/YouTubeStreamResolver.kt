@@ -20,6 +20,14 @@ data class ResolvedStream(
     val durationSec: Int
 )
 
+data class ThumbnailDescriptor(
+    val primary: String?,
+    val secondary: String?,
+    val fallbackColorSeed: Int
+)
+
+class UnresolvableTrackException(msg: String = "Unable to resolve playable audio stream") : Exception(msg)
+
 object YouTubeStreamResolver {
 
     private const val INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
@@ -39,22 +47,67 @@ object YouTubeStreamResolver {
         ClientConfig("WEB_REMIX", "1.20230515.01.00", "67")
     )
 
+    // ========================================================================
+    // INVARIANT 1: STORAGE GATEKEEPER & IDENTITY SANITIZATION
+    // ========================================================================
+    fun sanitizeForStorage(rawIdentifier: String, title: String, artist: String): String {
+        val trimmed = rawIdentifier.trim()
+        if (trimmed.startsWith("/") || trimmed.startsWith("file://")) {
+            return trimmed
+        }
+
+        val videoId = extractVideoId(trimmed)
+        if (videoId != null) {
+            return "https://www.youtube.com/watch?v=$videoId"
+        }
+
+        if (trimmed.contains("googlevideo.com") || trimmed.contains("search_query=") || trimmed.isBlank()) {
+            return "ytsearch:${title.trim()} ${artist.trim()}".trim()
+        }
+
+        return trimmed
+    }
+
+    fun sanitizeCoverUrl(rawUrl: String?, videoId: String?): String? {
+        if (rawUrl.isNullOrBlank()) {
+            return videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+        }
+        val trimmed = rawUrl.trim()
+        return when {
+            trimmed.contains("mzstatic.com") -> trimmed.replace(Regex("\\d+x\\d+bb"), "600x600bb")
+            trimmed.contains("googleusercontent.com") && !trimmed.contains("=") -> "$trimmed=w544-h544-l90-rj"
+            trimmed.contains("googlevideo.com") -> videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+            else -> trimmed
+        }
+    }
+
+    // ========================================================================
+    // INVARIANT 4: 3-TIER IMAGE DEGRADATION DESCRIPTOR
+    // ========================================================================
+    fun buildThumbnailPipeline(
+        rawUrl: String?,
+        videoId: String?,
+        title: String,
+        artist: String
+    ): ThumbnailDescriptor {
+        val sanitizedPrimary = sanitizeCoverUrl(rawUrl, videoId)
+        val secondaryUrl = videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+        val proceduralSeed = (title.trim().lowercase() + artist.trim().lowercase()).hashCode()
+
+        return ThumbnailDescriptor(
+            primary = sanitizedPrimary,
+            secondary = secondaryUrl,
+            fallbackColorSeed = proceduralSeed
+        )
+    }
+
     fun extractVideoId(urlOrId: String, fallbackThumbnail: String? = null): String? {
         val trimmed = urlOrId.trim()
         if (trimmed.length == 11 && !trimmed.contains("/") && !trimmed.contains("?") && !trimmed.contains("&") && !trimmed.contains(".")) {
             return trimmed
         }
-        val matchWatch = Regex("[?&]v=([a-zA-Z0-9_-]{11})").find(trimmed)
+        val matchWatch = Regex("(?:[?&]v=|youtu\\.be/|/embed/|/live/|^)([a-zA-Z0-9_-]{11})").find(trimmed)
         if (matchWatch != null) return matchWatch.groupValues[1]
-
-        val matchShort = Regex("youtu\\.be/([a-zA-Z0-9_-]{11})").find(trimmed)
-        if (matchShort != null) return matchShort.groupValues[1]
-
-        val matchEmbed = Regex("/embed/([a-zA-Z0-9_-]{11})").find(trimmed)
-        if (matchEmbed != null) return matchEmbed.groupValues[1]
-
-        val matchLive = Regex("/live/([a-zA-Z0-9_-]{11})").find(trimmed)
-        if (matchLive != null) return matchLive.groupValues[1]
 
         val matchYtImg = Regex("i\\.ytimg\\.com/vi(_webp)?/([a-zA-Z0-9_-]{11})").find(trimmed)
         if (matchYtImg != null) return matchYtImg.groupValues[2]
@@ -65,7 +118,7 @@ object YouTubeStreamResolver {
             val matchThumbImg = Regex("i\\.ytimg\\.com/vi(_webp)?/([a-zA-Z0-9_-]{11})").find(thumbTrimmed)
             if (matchThumbImg != null) return matchThumbImg.groupValues[2]
 
-            val matchThumbWatch = Regex("[?&]v=([a-zA-Z0-9_-]{11})").find(thumbTrimmed)
+            val matchThumbWatch = Regex("(?:[?&]v=|youtu\\.be/|/embed/|/live/|^)([a-zA-Z0-9_-]{11})").find(thumbTrimmed)
             if (matchThumbWatch != null) return matchThumbWatch.groupValues[1]
         }
 
@@ -77,59 +130,141 @@ object YouTubeStreamResolver {
         return "https://www.youtube.com/watch?v=$videoId"
     }
 
-    fun isCdnExpired(url: String): Boolean {
+    fun parseExpiry(url: String): Long {
+        if (url.isBlank()) return 0L
+        val expireEpochSec = Regex("[?&]expire=([0-9]+)").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: return 0L
+        return expireEpochSec * 1000L
+    }
+
+    fun isCdnExpired(url: String, safetyMarginMs: Long = 600_000L): Boolean {
         if (url.isBlank() || !url.startsWith("http")) return true
-        val expireParam = Regex("[?&]expire=([0-9]+)").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
-        if (expireParam != null) {
-            val nowSec = System.currentTimeMillis() / 1000L
-            return nowSec >= (expireParam - 60L) // Treat as expired within 60s of expiration
+        val expireEpochMs = parseExpiry(url)
+        if (expireEpochMs > 0L) {
+            return System.currentTimeMillis() >= (expireEpochMs - safetyMarginMs)
         }
         return false
     }
 
-    suspend fun resolveStreamUrl(urlOrId: String, fallbackThumbnail: String? = null): ResolvedStream? = withContext(Dispatchers.IO) {
-        val videoId = extractVideoId(urlOrId, fallbackThumbnail) ?: return@withContext null
-
-        // 1. Zero-RTT Edge Cache Check (0ms Instant Replay)
-        val cached = StreamEdgeCache.getStream(videoId)
-        if (cached != null) {
-            return@withContext cached
-        }
-
-        // 2. Parallel Client Racing ("Happy Eyeballs" <80ms)
-        val resolved = raceClientEndpoints(videoId)
-        if (resolved != null) {
-            StreamEdgeCache.putStream(videoId, resolved)
-        }
-        return@withContext resolved
-    }
-
-    suspend fun resolveTrackStream(track: com.streamify.app.data.models.Track): ResolvedStream? = withContext(Dispatchers.IO) {
-        // 1. Direct Video ID / URL / Thumbnail resolution
-        val videoId = extractVideoId(track.filepath, track.coverArtPath)
-        if (videoId != null) {
-            val stream = resolveStreamUrl(videoId, track.coverArtPath)
-            if (stream != null && stream.streamUrl.isNotBlank()) {
-                return@withContext stream
+    // ========================================================================
+    // INVARIANT 2: UNIFIED JIT 3-TIER STREAM RESOLUTION CASCADE
+    // ========================================================================
+    suspend fun resolveStreamJit(track: com.streamify.app.data.models.Track): Result<ResolvedStream> = withContext(Dispatchers.IO) {
+        // Tier 0: Offline Local File Exists
+        if (track.filepath.startsWith("/") || track.filepath.startsWith("file://")) {
+            val localFile = java.io.File(track.filepath.removePrefix("file://"))
+            if (localFile.exists()) {
+                return@withContext Result.success(
+                    ResolvedStream(
+                        streamUrl = track.filepath,
+                        mimeType = "audio/mpeg",
+                        bitrate = 320000,
+                        durationSec = track.durationSec
+                    )
+                )
             }
         }
 
-        // 2. Dynamic Search Resolution for missing/placeholder/expired tracks
-        val query = "${track.title} ${track.artist}".trim()
-        if (query.isNotBlank()) {
-            val results = YouTubeMusicSearchApi.search(query, maxResults = 3)
-            val topMatch = results.firstOrNull()
-            if (topMatch != null) {
-                val matchedVideoId = extractVideoId(topMatch.url, topMatch.thumbnail)
-                if (matchedVideoId != null) {
-                    val stream = resolveStreamUrl(matchedVideoId, topMatch.thumbnail)
-                    if (stream != null && stream.streamUrl.isNotBlank()) {
-                        return@withContext stream
-                    }
+        // 1. Determine Video ID (or search online if missing/unresolved)
+        var videoId = extractVideoId(track.filepath, track.coverArtPath)
+        if (videoId == null) {
+            val cleanQuery = if (track.filepath.startsWith("ytsearch:")) {
+                track.filepath.removePrefix("ytsearch:").trim()
+            } else {
+                "${track.title} ${track.artist}".trim()
+            }
+
+            if (cleanQuery.isNotBlank()) {
+                val searchMatches = YouTubeMusicSearchApi.search(cleanQuery, maxResults = 2)
+                val topMatch = searchMatches.firstOrNull()
+                if (topMatch != null) {
+                    videoId = extractVideoId(topMatch.url, topMatch.thumbnail)
                 }
             }
         }
-        return@withContext null
+
+        if (videoId == null) {
+            return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
+        }
+
+        // 2. In-Memory LRU Cache with 600s safety margin
+        val cached = StreamEdgeCache.getStream(videoId)
+        if (cached != null && !isCdnExpired(cached.streamUrl, safetyMarginMs = 600_000L)) {
+            return@withContext Result.success(cached)
+        }
+
+        // 3. Tier 1: Native HTTP/2 Innertube Client Race (<80ms)
+        val nativeResolved = raceClientEndpoints(videoId)
+        if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
+            StreamEdgeCache.putStream(videoId, nativeResolved)
+            return@withContext Result.success(nativeResolved)
+        }
+
+        // 4. Tier 2: Chaquopy Python yt-dlp Subprocess Fallback
+        try {
+            val pyFallbackResult = PythonEngine.executeFallback(
+                moduleName = "download_engine.search",
+                function = "get_stream_url",
+                args = arrayOf("https://www.youtube.com/watch?v=$videoId")
+            ) { pyObj ->
+                val strVal = pyObj.toString().trim()
+                if (strVal.startsWith("{")) {
+                    val jsonObj = JSONObject(strVal)
+                    jsonObj.optString("url", "")
+                } else {
+                    strVal
+                }
+            }
+
+            val pythonStreamUrl = pyFallbackResult.getOrNull()
+            if (!pythonStreamUrl.isNullOrBlank()) {
+                val pyResolved = ResolvedStream(
+                    streamUrl = pythonStreamUrl,
+                    mimeType = "audio/webm",
+                    bitrate = 160000,
+                    durationSec = track.durationSec
+                )
+                StreamEdgeCache.putStream(videoId, pyResolved)
+                return@withContext Result.success(pyResolved)
+            }
+        } catch (e: Throwable) {
+            // Log & proceed to Tier 3
+        }
+
+        // 5. Tier 3: Query YouTube Music Search Query Match and retry
+        try {
+            val fallbackSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 3)
+            for (candidate in fallbackSearch) {
+                val candVideoId = extractVideoId(candidate.url, candidate.thumbnail)
+                if (candVideoId != null && candVideoId != videoId) {
+                    val retryResolved = raceClientEndpoints(candVideoId)
+                    if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
+                        StreamEdgeCache.putStream(candVideoId, retryResolved)
+                        return@withContext Result.success(retryResolved)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Failed tier 3
+        }
+
+        return@withContext Result.failure(UnresolvableTrackException("Stream exhaustion for ${track.title} - ${track.artist}"))
+    }
+
+    suspend fun resolveStreamUrl(urlOrId: String, fallbackThumbnail: String? = null): ResolvedStream? = withContext(Dispatchers.IO) {
+        val dummyTrack = com.streamify.app.data.models.Track(
+            id = 0,
+            title = "",
+            artist = "",
+            album = "",
+            durationSec = 0,
+            filepath = urlOrId,
+            coverArtPath = fallbackThumbnail
+        )
+        resolveStreamJit(dummyTrack).getOrNull()
+    }
+
+    suspend fun resolveTrackStream(track: com.streamify.app.data.models.Track): ResolvedStream? = withContext(Dispatchers.IO) {
+        resolveStreamJit(track).getOrNull()
     }
 
     private suspend fun raceClientEndpoints(videoId: String): ResolvedStream? = coroutineScope {

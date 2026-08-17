@@ -63,16 +63,9 @@ object TrackRepository {
     
     suspend fun registerStreamedTrack(track: Track, context: android.content.Context? = null): Track = withContext(Dispatchers.IO) {
         val albumName = if (track.album.isNotBlank() && !track.album.equals("Single", ignoreCase = true)) track.album else "Streamify"
-        val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
-        val canonicalPath = if (videoId != null) {
-            "https://www.youtube.com/watch?v=$videoId"
-        } else if (track.filepath.startsWith("http") && !track.filepath.contains("googlevideo.com")) {
-            track.filepath
-        } else if (track.filepath.startsWith("/") || track.filepath.startsWith("file://")) {
-            track.filepath
-        } else {
-            "https://www.youtube.com/watch?v=${kotlin.math.abs((track.title.trim().lowercase() + track.artist.trim().lowercase()).hashCode())}"
-        }
+        val canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist)
+        val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
+        val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
 
         val validId = NativeBridge.upsertStreamedTrack(
             filepath = canonicalPath,
@@ -80,7 +73,7 @@ object TrackRepository {
             artist = track.artist,
             album = albumName,
             durationSec = track.durationSec,
-            coverArtPath = track.coverArtPath ?: "",
+            coverArtPath = sanitizedCover ?: "",
             lyricsPath = track.lyricsPath ?: "",
             bpm = track.bpm,
             key = track.key
@@ -90,6 +83,7 @@ object TrackRepository {
         val updatedTrack = track.copy(
             id = savedId,
             filepath = canonicalPath,
+            coverArtPath = sanitizedCover,
             album = albumName,
             source = "online_stream"
         )
@@ -225,20 +219,25 @@ object TrackRepository {
     }
 
     suspend fun upsertStreamedTrack(track: Track): Int = withContext(Dispatchers.IO) {
+        val canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist)
+        val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
+        val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
+
         val id = NativeBridge.upsertStreamedTrack(
-            filepath = track.filepath,
+            filepath = canonicalPath,
             title = track.title,
             artist = track.artist,
             album = track.album,
             durationSec = track.durationSec,
-            coverArtPath = track.coverArtPath ?: "",
+            coverArtPath = sanitizedCover ?: "",
             lyricsPath = track.lyricsPath ?: "",
             bpm = track.bpm,
             key = track.key
         )
+        val sanitizedTrack = track.copy(id = id, filepath = canonicalPath, coverArtPath = sanitizedCover)
         // Also mirror to Supabase cloud catalog asynchronously
         try {
-            com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(track)
+            com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(sanitizedTrack)
         } catch (e: Exception) {
             // Ignore
         }
