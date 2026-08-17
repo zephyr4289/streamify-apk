@@ -200,6 +200,8 @@ object SupabaseClient {
     private val _activeJam = MutableStateFlow<ListeningSession?>(null)
     val activeJam: StateFlow<ListeningSession?> = _activeJam.asStateFlow()
 
+    val liveProfileUpdates = MutableSharedFlow<JSONObject>(extraBufferCapacity = 64)
+
     val isAdmin: Boolean
         get() = _currentUser.value?.isAdmin == true ||
                 _currentUser.value?.email?.contains("sireenyadav", ignoreCase = true) == true ||
@@ -702,7 +704,26 @@ object SupabaseClient {
                 }
                 webSocket.send(joinTasteMsg.toString())
 
-                // 3. Heartbeat loop (every 25s)
+                // 3. Join profiles channel for reactive multi-tenant updates & Admin Live telemetry
+                val joinProfilesMsg = JSONObject().apply {
+                    put("topic", "realtime:public:profiles")
+                    put("event", "phx_join")
+                    put("payload", JSONObject().apply {
+                        put("config", JSONObject().apply {
+                            put("postgres_changes", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("event", "*")
+                                    put("schema", "public")
+                                    put("table", "profiles")
+                                })
+                            })
+                        })
+                    })
+                    put("ref", "profiles_sub")
+                }
+                webSocket.send(joinProfilesMsg.toString())
+
+                // 4. Heartbeat loop (every 25s)
                 heartbeatJob?.cancel()
                 heartbeatJob = syncScope.launch {
                     while (_isRealtimeConnected.value) {
@@ -717,7 +738,7 @@ object SupabaseClient {
                     }
                 }
 
-                // 4. Trigger Cursor-based Delta Reconciliation on Connect/Wake
+                // 5. Trigger Cursor-based Delta Reconciliation on Connect/Wake
                 syncScope.launch {
                     fetchDeltasSince(lastSyncWatermarkMs)
                 }
@@ -799,6 +820,26 @@ object SupabaseClient {
                         _currentUser.value = cur.copy(listeningSeconds = totalSec)
                     }
                 }
+                "profiles" -> {
+                    val uId = record.optString("id", "")
+                    val listeningSec = record.optLong("listening_seconds", 0L)
+                    val totalPlays = record.optInt("total_plays", 0)
+                    val topTrack = record.optString("top_track", "")
+                    val bio = record.optString("bio", "")
+                    val genre = record.optString("favorite_genre", "")
+
+                    val cur = _currentUser.value
+                    if (cur != null && cur.id == uId) {
+                        _currentUser.value = cur.copy(
+                            listeningSeconds = if (listeningSec > 0) listeningSec else cur.listeningSeconds,
+                            totalPlays = if (totalPlays > 0) totalPlays else cur.totalPlays,
+                            topTrack = topTrack.ifBlank { cur.topTrack },
+                            bio = bio.ifBlank { cur.bio },
+                            favoriteGenre = genre.ifBlank { cur.favoriteGenre }
+                        )
+                    }
+                    liveProfileUpdates.emit(record)
+                }
             }
             lastSyncWatermarkMs = System.currentTimeMillis()
         }
@@ -872,7 +913,41 @@ object SupabaseClient {
             if (ok && totalDurationDelta > 0) {
                 val cur = _currentUser.value
                 if (cur != null) {
-                    _currentUser.value = cur.copy(listeningSeconds = cur.listeningSeconds + totalDurationDelta)
+                    val newSec = cur.listeningSeconds + totalDurationDelta
+                    val newPlays = cur.totalPlays + events.count { it.optDouble("completion_ratio", 0.0) >= 0.5 }
+                    val topTrackTitle = cur.topTrack
+
+                    _currentUser.value = cur.copy(
+                        listeningSeconds = newSec,
+                        totalPlays = newPlays
+                    )
+
+                    // Patch Supabase profiles table atomically
+                    try {
+                        val patchUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}")
+                        val patchConn = (patchUrl.openConnection() as HttpURLConnection).apply {
+                            requestMethod = "PATCH"
+                            doOutput = true
+                            setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                            setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                            setRequestProperty("Content-Type", "application/json")
+                            setRequestProperty("Prefer", "return=minimal")
+                        }
+                        val nowIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                            timeZone = java.util.TimeZone.getTimeZone("UTC")
+                        }.format(java.util.Date())
+
+                        val patchBody = JSONObject().apply {
+                            put("listening_seconds", newSec)
+                            put("total_plays", newPlays)
+                            if (topTrackTitle.isNotBlank()) put("top_track", topTrackTitle)
+                            put("last_active_at", nowIso)
+                        }
+                        patchConn.outputStream.use { it.write(patchBody.toString().toByteArray()) }
+                        patchConn.responseCode
+                    } catch (e: Exception) {
+                        // Silent fallback
+                    }
                 }
             }
             ok
@@ -1560,25 +1635,14 @@ object SupabaseClient {
                     var rawTotalPlays = o.optInt("total_plays", 0)
                     var rawTopTrack = o.optString("top_track", "")
                     var rawBio = o.optString("bio", "")
-                    var rawGenre = o.optString("favorite_genre", "All")
+                    var rawGenre = o.optString("favorite_genre", "")
 
                     if (isCurrent) {
                         if (localSec > rawListeningSeconds) rawListeningSeconds = localSec
                         if (localTotalPlays > rawTotalPlays) rawTotalPlays = localTotalPlays
                         if (localTopTrackTitle.isNotBlank() && rawTopTrack.isBlank()) rawTopTrack = localTopTrackTitle
                         if (rawBio.isBlank()) rawBio = "⚡ Kinetic Pulse Runner (Owner)"
-                    } else if (rawListeningSeconds == 0L) {
-                        // Deterministic fallback for display until user's device pushes telemetry
-                        val hash = kotlin.math.abs(uId.hashCode() + uEmail.hashCode())
-                        rawListeningSeconds = ((hash % 1200) + 180) * 60L
-                        rawTotalPlays = (rawListeningSeconds / 190).toInt().coerceAtLeast(14)
-                        if (rawTopTrack.isBlank()) rawTopTrack = "Midnight City • M83"
-                        if (rawGenre.isBlank() || rawGenre == "All") {
-                            rawGenre = listOf("Electronic & Synthwave", "Pop & Modern Hits", "Indie & Rock", "Hip-Hop", "Chill Lo-Fi")[(hash % 5)]
-                        }
-                        if (rawBio.isBlank()) {
-                            rawBio = listOf("⚡ Kinetic Pulse Runner", "🌌 Harmonic Groove Weaver", "🌙 Midnight Lofi Dreamer")[(hash % 3)]
-                        }
+                        if (rawGenre.isBlank()) rawGenre = "All"
                     }
 
                     users.add(
@@ -1587,7 +1651,7 @@ object SupabaseClient {
                             email = uEmail,
                             displayName = o.optString("display_name", "User"),
                             avatarUrl = o.optString("avatar_url", ""),
-                            bio = rawBio.ifBlank { "Music Explorer 🎧" },
+                            bio = rawBio.ifBlank { if (rawListeningSeconds > 0) "Music Explorer 🎧" else "New Explorer 🎧" },
                             favoriteGenre = rawGenre.ifBlank { "All" },
                             topTrack = rawTopTrack,
                             isAdmin = o.optBoolean("is_admin", false),

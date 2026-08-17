@@ -108,6 +108,27 @@ fun AdminDashboardScreen(
 
     LaunchedEffect(Unit) {
         refreshAll()
+        SupabaseClient.liveProfileUpdates.collect { record ->
+            val uId = record.optString("id", "")
+            if (uId.isNotBlank()) {
+                val currentTelem = telemetry ?: return@collect
+                val currentUsers = currentTelem.userList.toMutableList()
+                val idx = currentUsers.indexOfFirst { it.id == uId }
+                if (idx >= 0) {
+                    val old = currentUsers[idx]
+                    val updated = old.copy(
+                        listeningSeconds = record.optLong("listening_seconds", old.listeningSeconds),
+                        totalPlays = record.optInt("total_plays", old.totalPlays),
+                        topTrack = record.optString("top_track", old.topTrack),
+                        bio = record.optString("bio", old.bio),
+                        favoriteGenre = record.optString("favorite_genre", old.favoriteGenre),
+                        lastActiveAt = record.optString("last_active_at", old.lastActiveAt)
+                    )
+                    currentUsers[idx] = updated
+                    telemetry = currentTelem.copy(userList = currentUsers)
+                }
+            }
+        }
     }
 
     Column(
@@ -602,9 +623,13 @@ fun AdminDashboardScreen(
                                         }
                                     }
                                     Text(profile.email, style = StreamifyType.Caption, color = StreamifyColors.TextSub)
-                                    Text("${profile.totalPlays} plays • ${(profile.listeningSeconds / 60)} mins • ${profile.favoriteGenre}", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
+                                    val mins = profile.listeningSeconds / 60
+                                    val genreText = if (profile.favoriteGenre.isNotBlank() && profile.favoriteGenre != "All") " • ${profile.favoriteGenre}" else ""
+                                    Text("${profile.totalPlays} plays • $mins mins$genreText", style = StreamifyType.Caption, color = StreamifyColors.TextDimmed)
                                     if (profile.topTrack.isNotBlank()) {
                                         Text("🎧 Top: ${profile.topTrack}", style = StreamifyType.Caption.copy(fontSize = 10.sp), color = StreamifyColors.Primary, maxLines = 1)
+                                    } else {
+                                        Text("🎧 No tracks played yet", style = StreamifyType.Caption.copy(fontSize = 10.sp), color = StreamifyColors.TextSub, maxLines = 1)
                                     }
                                 }
 

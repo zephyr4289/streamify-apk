@@ -91,9 +91,9 @@ object YtStatsTelemetryEngine {
         val totalMinutes = if (realListenedSeconds > 0) {
             (realListenedSeconds / 60).toInt()
         } else {
-            // Fallback for existing sessions: count duration of actually played tracks
+            // Count duration of actually played tracks
             val playedSeconds = topPlayedTracks.sumOf { it.durationSec.toLong() }
-            if (playedSeconds > 0) (playedSeconds / 60).toInt() else (libraryTracks.take(15).sumOf { it.durationSec.toLong() } / 60).toInt().coerceAtLeast(142)
+            if (playedSeconds > 0) (playedSeconds / 60).toInt() else 0
         }
 
         val topPlayedCount = topPlayedTracks.size
