@@ -31,11 +31,11 @@ object StreamEdgeCache {
         val timestamp: Long = System.currentTimeMillis()
     )
 
-    fun isNearExpiry(url: String): Boolean {
+    fun isNearExpiry(url: String, safetyMarginSec: Long = 7200L): Boolean {
         if (url.isBlank() || !url.startsWith("http")) return true
         val expireEpoch = expiryRegex.find(url)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: return false
         val nowSec = System.currentTimeMillis() / 1000L
-        return nowSec >= (expireEpoch - 60L) // Treat as near-expiry within 60s
+        return nowSec >= (expireEpoch - safetyMarginSec) // 2-hour early safety buffer
     }
 
     fun getStream(videoId: String): ResolvedStream? {

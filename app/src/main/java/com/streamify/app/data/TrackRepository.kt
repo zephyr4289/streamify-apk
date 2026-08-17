@@ -16,25 +16,36 @@ object TrackRepository {
     val allTracks: StateFlow<List<Track>> = _allTracks.asStateFlow()
     val trackFlow: StateFlow<List<Track>> = allTracks
 
+    private val _localTracks = MutableStateFlow<List<Track>>(emptyList())
+    val localTracks: StateFlow<List<Track>> = _localTracks.asStateFlow()
+
     private val _likedTracks = MutableStateFlow<List<Track>>(emptyList())
     val likedTracks: StateFlow<List<Track>> = _likedTracks.asStateFlow()
 
     suspend fun refresh(): List<Track> = withContext(Dispatchers.IO) {
+        val prefs = appContext?.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
+        val isLocalAudioEnabled = prefs?.getBoolean("enable_local_audio", false) ?: false
+
         val likedIds = NativeBridge.getLikedTracks(1).map { it.id }.toSet()
-        val fetchedTracks = NativeBridge.getAllTracks().map { native ->
+        val allNative = NativeBridge.getAllTracks().map { native ->
             native.toTrack().copy(isLiked = likedIds.contains(native.id))
         }
-        _allTracks.value = fetchedTracks
-        _likedTracks.value = fetchedTracks.filter { it.isLiked }
 
-        // Background Cloud Sync
+        val (localOnly, cloudTracks) = allNative.partition { it.source == "local" }
+        _localTracks.value = localOnly
+
+        val finalTracks = if (isLocalAudioEnabled) allNative else cloudTracks
+        _allTracks.value = finalTracks
+        _likedTracks.value = finalTracks.filter { it.isLiked }
+
+        // Background Cloud Sync (only sync cloud tracks to avoid local path pollution)
         try {
-            com.streamify.app.data.remote.SupabaseClient.syncCloudLikes(fetchedTracks)
+            com.streamify.app.data.remote.SupabaseClient.syncCloudLikes(cloudTracks)
         } catch (e: Exception) {
             // Ignore offline cloud sync errors
         }
 
-        fetchedTracks
+        finalTracks
     }
     
     suspend fun getAllTracks(): List<Track> = withContext(Dispatchers.IO) {

@@ -278,6 +278,47 @@ fun SettingsScreen(
             }
 
             item {
+                SectionHeader("Storage & Integration")
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+                
+                var isLocalAudioEnabled by remember { mutableStateOf(audioPrefs.getBoolean("enable_local_audio", false)) }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Enable Local Device Audio", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                            Text("Scan and display MP3 files from device storage. When disabled, Streamify runs 100% cloud-first with instant multi-device synchronization.", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Switch(
+                            checked = isLocalAudioEnabled,
+                            onCheckedChange = { checked ->
+                                isLocalAudioEnabled = checked
+                                audioPrefs.edit().putBoolean("enable_local_audio", checked).apply()
+                                scope.launch(Dispatchers.IO) {
+                                    TrackRepository.refresh()
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = androidx.compose.ui.graphics.Color.Black,
+                                checkedTrackColor = StreamifyColors.Primary
+                            )
+                        )
+                    }
+                }
+            }
+
+            item {
                 SectionHeader("Audio Effects")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
                 

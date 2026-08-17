@@ -57,19 +57,34 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
+            val audioPrefs = remember { getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE) }
+            val isLocalEnabled = remember { audioPrefs.getBoolean("enable_local_audio", false) }
+
             val permissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestMultiplePermissions()
             ) { permissions ->
-                if (permissions.values.any { it }) {
+                if (permissions.values.any { it } && isLocalEnabled) {
                     enqueueMediaScan(this@MainActivity)
                 }
             }
 
             LaunchedEffect(Unit) {
-                if (!PermissionHelper.hasPermissions(this@MainActivity)) {
-                    permissionLauncher.launch(PermissionHelper.REQUIRED_PERMISSIONS)
+                if (isLocalEnabled) {
+                    if (!PermissionHelper.hasPermissions(this@MainActivity)) {
+                        permissionLauncher.launch(PermissionHelper.REQUIRED_PERMISSIONS)
+                    } else {
+                        enqueueMediaScan(this@MainActivity)
+                    }
+                }
+            }
+
+            val authState by AuthManager.authState.collectAsState()
+            LaunchedEffect(authState) {
+                val user = com.streamify.app.data.remote.SupabaseClient.currentUser.value
+                if (user != null) {
+                    com.streamify.app.data.remote.SupabaseClient.startRealtimeSync(user.id)
                 } else {
-                    enqueueMediaScan(this@MainActivity)
+                    com.streamify.app.data.remote.SupabaseClient.stopRealtimeSync()
                 }
             }
 
@@ -87,7 +102,6 @@ class MainActivity : ComponentActivity() {
                     label = "dominantColor"
                 )
 
-                val authState by AuthManager.authState.collectAsState()
                 var isOnboardingDone by remember { mutableStateOf(AuthManager.hasSeenOnboarding()) }
                 var isSplashDone by remember { mutableStateOf(false) }
 

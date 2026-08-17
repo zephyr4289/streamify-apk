@@ -236,6 +236,26 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     val durSec = if (ctrl.duration > 0) (ctrl.duration / 1000L).toInt() else (_playerState.value.currentTrack?.durationSec ?: 0)
                     val ratio = if (durSec > 0) (posSec.toFloat() / durSec.toFloat()).coerceIn(0f, 1f) else 0.5f
 
+                    // Real-Time Cloud Telemetry Sync
+                    val currentTrackObj = _playerState.value.currentTrack
+                    if (currentTrackObj != null && posSec > 5) {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            try {
+                                val cleanSig = (currentTrackObj.title.trim().lowercase() + "_" + currentTrackObj.artist.trim().lowercase())
+                                val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
+                                val eventJson = org.json.JSONObject().apply {
+                                    put("track_id", cloudId)
+                                    put("duration_sec", posSec)
+                                    put("completion_ratio", ratio)
+                                    put("hour_of_day", currentHour)
+                                }
+                                com.streamify.app.data.remote.SupabaseClient.ingestTelemetryBatch(listOf(eventJson))
+                            } catch (e: Exception) {
+                                // Safe fallback
+                            }
+                        }
+                    }
+
                     NativeBridge.pushTelemetryEvent(NativeBridge.EVENT_PLAY_TRANSITION, lastPlayedTrackId!!.toLong(), newTrackId.toFloat())
                     viewModelScope.launch {
                         if (wasSkipped && ctrl.currentPosition < 10000) {

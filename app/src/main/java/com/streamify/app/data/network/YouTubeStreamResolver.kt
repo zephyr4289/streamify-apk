@@ -136,7 +136,7 @@ object YouTubeStreamResolver {
         return expireEpochSec * 1000L
     }
 
-    fun isCdnExpired(url: String, safetyMarginMs: Long = 600_000L): Boolean {
+    fun isCdnExpired(url: String, safetyMarginMs: Long = 7_200_000L): Boolean {
         if (url.isBlank() || !url.startsWith("http")) return true
         val expireEpochMs = parseExpiry(url)
         if (expireEpochMs > 0L) {

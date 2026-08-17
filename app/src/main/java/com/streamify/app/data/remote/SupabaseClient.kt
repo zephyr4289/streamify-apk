@@ -18,6 +18,15 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import com.streamify.app.data.network.NetworkEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 data class UserProfile(
     val id: String,
@@ -625,6 +634,271 @@ object SupabaseClient {
             conn.responseCode in 200..299
         } catch (e: Exception) {
             false
+        }
+    }
+
+    // ========================================================================
+    // PILLAR 2: REAL-TIME WEBSOCKET CDC & CURSOR DELTA RECONCILIATION
+    // ========================================================================
+    private var realtimeWebSocket: WebSocket? = null
+    private var heartbeatJob: Job? = null
+    private val syncScope = CoroutineScope(Dispatchers.IO)
+    private var lastSyncWatermarkMs: Long = System.currentTimeMillis()
+    private val _isRealtimeConnected = MutableStateFlow(false)
+    val isRealtimeConnected: StateFlow<Boolean> = _isRealtimeConnected.asStateFlow()
+
+    fun startRealtimeSync(userId: String) {
+        if (_isRealtimeConnected.value && realtimeWebSocket != null) return
+        val wsUrl = BuildConfig.SUPABASE_URL
+            .replace("https://", "wss://")
+            .replace("http://", "ws://") + "/realtime/v1/websocket?apikey=${BuildConfig.SUPABASE_ANON_KEY}&vsn=1.0.0"
+
+        val request = Request.Builder()
+            .url(wsUrl)
+            .build()
+
+        realtimeWebSocket = NetworkEngine.client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                _isRealtimeConnected.value = true
+                android.util.Log.i("SupabaseRealtime", "Connected to Supabase Realtime WebSocket")
+
+                // 1. Join user_likes channel
+                val joinLikesMsg = JSONObject().apply {
+                    put("topic", "realtime:public:user_likes")
+                    put("event", "phx_join")
+                    put("payload", JSONObject().apply {
+                        put("config", JSONObject().apply {
+                            put("postgres_changes", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("event", "*")
+                                    put("schema", "public")
+                                    put("table", "user_likes")
+                                    put("filter", "user_id=eq.$userId")
+                                })
+                            })
+                        })
+                    })
+                    put("ref", "likes_sub")
+                }
+                webSocket.send(joinLikesMsg.toString())
+
+                // 2. Join user_taste_profiles channel
+                val joinTasteMsg = JSONObject().apply {
+                    put("topic", "realtime:public:user_taste_profiles")
+                    put("event", "phx_join")
+                    put("payload", JSONObject().apply {
+                        put("config", JSONObject().apply {
+                            put("postgres_changes", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("event", "*")
+                                    put("schema", "public")
+                                    put("table", "user_taste_profiles")
+                                    put("filter", "user_id=eq.$userId")
+                                })
+                            })
+                        })
+                    })
+                    put("ref", "taste_sub")
+                }
+                webSocket.send(joinTasteMsg.toString())
+
+                // 3. Heartbeat loop (every 25s)
+                heartbeatJob?.cancel()
+                heartbeatJob = syncScope.launch {
+                    while (_isRealtimeConnected.value) {
+                        delay(25000L)
+                        val heartbeat = JSONObject().apply {
+                            put("topic", "phoenix")
+                            put("event", "heartbeat")
+                            put("payload", JSONObject())
+                            put("ref", "hb_${System.currentTimeMillis()}")
+                        }
+                        webSocket.send(heartbeat.toString())
+                    }
+                }
+
+                // 4. Trigger Cursor-based Delta Reconciliation on Connect/Wake
+                syncScope.launch {
+                    fetchDeltasSince(lastSyncWatermarkMs)
+                }
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                try {
+                    val root = JSONObject(text)
+                    val event = root.optString("event", "")
+                    val payload = root.optJSONObject("payload") ?: return
+
+                    if (event == "postgres_changes") {
+                        val data = payload.optJSONObject("data") ?: return
+                        val table = data.optString("table", "")
+                        val eventType = data.optString("type", "")
+                        val record = data.optJSONObject("record") ?: data.optJSONObject("old_record") ?: return
+
+                        handleIncomingCdcEvent(table, eventType, record)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("SupabaseRealtime", "CDC Parse error: ${e.message}")
+                }
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                _isRealtimeConnected.value = false
+                heartbeatJob?.cancel()
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                _isRealtimeConnected.value = false
+                heartbeatJob?.cancel()
+                // Auto-reconnect with 3s backoff
+                syncScope.launch {
+                    delay(3000L)
+                    val u = _currentUser.value
+                    if (u != null) {
+                        startRealtimeSync(u.id)
+                    }
+                }
+            }
+        })
+    }
+
+    fun stopRealtimeSync() {
+        heartbeatJob?.cancel()
+        realtimeWebSocket?.close(1000, "User logout / paused")
+        realtimeWebSocket = null
+        _isRealtimeConnected.value = false
+    }
+
+    private fun handleIncomingCdcEvent(table: String, eventType: String, record: JSONObject) {
+        syncScope.launch {
+            when (table) {
+                "user_likes" -> {
+                    val trackId = record.optString("track_id", "")
+                    if (trackId.isNotBlank()) {
+                        when (eventType.uppercase()) {
+                            "INSERT" -> {
+                                val fetchedTrack = fetchTrackById(trackId)
+                                if (fetchedTrack != null) {
+                                    val currentLiked = TrackRepository.likedTracks.value
+                                    if (currentLiked.none { it.filepath == fetchedTrack.filepath || it.title == fetchedTrack.title }) {
+                                        TrackRepository.registerStreamedTrack(fetchedTrack)
+                                        TrackRepository.refresh()
+                                    }
+                                }
+                            }
+                            "DELETE" -> {
+                                TrackRepository.refresh()
+                            }
+                        }
+                    }
+                }
+                "user_taste_profiles" -> {
+                    val totalSec = record.optLong("total_listening_seconds", 0L)
+                    val cur = _currentUser.value
+                    if (cur != null && totalSec > cur.listeningSeconds) {
+                        _currentUser.value = cur.copy(listeningSeconds = totalSec)
+                    }
+                }
+            }
+            lastSyncWatermarkMs = System.currentTimeMillis()
+        }
+    }
+
+    suspend fun fetchDeltasSince(sinceTimestampMs: Long): List<String> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext emptyList()
+        try {
+            val isoSince = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(java.util.Date(sinceTimestampMs))
+
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_likes?user_id=eq.${user.id}&created_at=gte.$isoSince&select=track_id")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+
+            val deltaTrackIds = mutableListOf<String>()
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                for (i in 0 until arr.length()) {
+                    val tid = arr.getJSONObject(i).optString("track_id", "")
+                    if (tid.isNotBlank()) deltaTrackIds.add(tid)
+                }
+            }
+
+            if (deltaTrackIds.isNotEmpty()) {
+                TrackRepository.refresh()
+            }
+            lastSyncWatermarkMs = System.currentTimeMillis()
+            deltaTrackIds
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun ingestTelemetryBatch(events: List<JSONObject>): Boolean = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext false
+        if (events.isEmpty()) return@withContext true
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_history")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+            }
+
+            val body = JSONArray()
+            var totalDurationDelta = 0L
+            for (evt in events) {
+                val dur = evt.optLong("duration_sec", 0L)
+                totalDurationDelta += dur
+                val item = JSONObject().apply {
+                    put("user_id", user.id)
+                    put("track_id", evt.optString("track_id", ""))
+                    put("duration_played_sec", dur)
+                    put("completion_ratio", evt.optDouble("completion_ratio", 1.0))
+                    put("hour_of_day", evt.optInt("hour_of_day", 12))
+                }
+                body.put(item)
+            }
+
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            val ok = conn.responseCode in 200..299
+
+            if (ok && totalDurationDelta > 0) {
+                val cur = _currentUser.value
+                if (cur != null) {
+                    _currentUser.value = cur.copy(listeningSeconds = cur.listeningSeconds + totalDurationDelta)
+                }
+            }
+            ok
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun fetchCloudTasteProfile(userId: String): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_taste_profiles?user_id=eq.$userId&select=*")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                if (arr.length() > 0) {
+                    return@withContext arr.getJSONObject(0)
+                }
+            }
+            null
+        } catch (e: Exception) {
+            null
         }
     }
 
