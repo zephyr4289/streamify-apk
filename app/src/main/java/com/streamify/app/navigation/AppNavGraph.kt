@@ -97,6 +97,9 @@ fun AppNavGraph(
                 playerViewModel = playerViewModel,
                 onTrackClick = { track, allTracks ->
                     playerViewModel.playTrack(track, allTracks)
+                },
+                onSettingsClick = {
+                    navController.navigate("settings")
                 }
             )
         }
@@ -222,7 +225,8 @@ fun AppNavGraph(
             UserProfileScreen(
                 onBack = { navController.popBackStack() },
                 onNavigateToWrapped = { navController.navigate("wrapped") },
-                onNavigateToAdmin = { navController.navigate("admin") }
+                onNavigateToAdmin = { navController.navigate("admin") },
+                onNavigateToSettings = { navController.navigate("settings") }
             )
         }
         composable("wrapped") {

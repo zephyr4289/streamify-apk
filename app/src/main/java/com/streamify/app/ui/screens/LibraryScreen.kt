@@ -42,7 +42,8 @@ fun LibraryScreen(
     playerViewModel: PlayerViewModel,
     viewModel: LibraryViewModel = viewModel(),
     ingestionViewModel: IngestionViewModel = viewModel(),
-    onTrackClick: (Track, List<Track>) -> Unit
+    onTrackClick: (Track, List<Track>) -> Unit,
+    onSettingsClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
@@ -394,6 +395,14 @@ fun LibraryScreen(
                     Icon(
                         imageVector = Icons.Filled.Sync,
                         contentDescription = "Rescan Storage",
+                        tint = TextMain,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                IconButton(onClick = onSettingsClick) {
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
+                        contentDescription = "Settings",
                         tint = TextMain,
                         modifier = Modifier.size(22.dp)
                     )

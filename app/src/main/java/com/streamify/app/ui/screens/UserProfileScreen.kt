@@ -34,7 +34,8 @@ import java.util.Calendar
 fun UserProfileScreen(
     onBack: () -> Unit,
     onNavigateToWrapped: () -> Unit,
-    onNavigateToAdmin: () -> Unit = {}
+    onNavigateToAdmin: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -348,6 +349,62 @@ fun UserProfileScreen(
                         )
                         Text(
                             text = "Explore your full acoustic audio persona & top genres",
+                            style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                            color = TextSecondary
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = Icons.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        // App Settings & Preferences Card (Audio Quality, Equalizer, Database Reset)
+        Surface(
+            color = BgSurfaceElevated,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .clickable { onNavigateToSettings() }
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Settings",
+                            tint = Primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Settings & Playback",
+                            style = LocalAppTypography.current.songTitle.copy(
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = TextMain
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Audio quality, Equalizer & Database Reset",
                             style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
                             color = TextSecondary
                         )
