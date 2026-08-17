@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
                 // Quantum Sonic Token 3D Physics Engine
                 val quantumController = remember { QuantumSonicTokenController() }
                 val dockPositionState = remember { mutableStateOf(Offset.Zero) }
+                val contextMenuController = remember { com.streamify.app.ui.components.TrackContextMenuController() }
 
                 // --- PILLAR 4: Root Safe Harbor & Double-Back-to-Exit Guard ---
                 var lastBackPressedTime by remember { mutableStateOf(0L) }
@@ -216,7 +217,8 @@ class MainActivity : ComponentActivity() {
 
                     CompositionLocalProvider(
                         LocalQuantumController provides quantumController,
-                        LocalDockPosition provides dockPositionState
+                        LocalDockPosition provides dockPositionState,
+                        com.streamify.app.ui.components.LocalContextMenuController provides contextMenuController
                     ) {
                         Box(
                             modifier = Modifier
@@ -300,6 +302,18 @@ class MainActivity : ComponentActivity() {
 
                             // --- LAYER 2: Quantum Sonic Token 3D Levitation Overlay ---
                             QuantumSonicTokenOverlay(controller = quantumController)
+
+                            // --- LAYER 2b: Global Track Context Menu Host ---
+                            com.streamify.app.ui.components.GlobalTrackContextMenuHost(
+                                controller = contextMenuController,
+                                playerViewModel = playerViewModel,
+                                onGoToArtist = { artist ->
+                                    navController.navigate("artist/${android.net.Uri.encode(artist)}")
+                                },
+                                onGoToAlbum = { album ->
+                                    navController.navigate("album/${android.net.Uri.encode(album)}")
+                                }
+                            )
 
                             // --- LAYER 3: 120 FPS Spring Full-Player Overlay ---
                             AnimatedVisibility(

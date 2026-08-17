@@ -48,6 +48,7 @@ fun RelatedDiscoverSheet(
     var isLoading by remember { mutableStateOf(true) }
 
     val allTracks by TrackRepository.allTracks.collectAsState()
+    val contextMenuController = LocalContextMenuController.current
 
     LaunchedEffect(track) {
         isLoading = true
@@ -73,6 +74,7 @@ fun RelatedDiscoverSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = StreamifyColors.BgElevated,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = { BottomSheetDefaults.DragHandle(color = StreamifyColors.TextDimmed) }
     ) {
         Column(
@@ -159,10 +161,15 @@ fun RelatedDiscoverSheet(
                                     Column(
                                         modifier = Modifier
                                             .width(120.dp)
-                                            .clickable {
-                                                onTrackClick(artTrack)
-                                                onDismiss()
-                                            }
+                                            .trackItemGestures(
+                                                track = artTrack,
+                                                origin = MenuOrigin.RELATED,
+                                                controller = contextMenuController,
+                                                onShortClick = {
+                                                    onTrackClick(artTrack)
+                                                    onDismiss()
+                                                }
+                                            )
                                     ) {
                                         Box(
                                             modifier = Modifier
@@ -212,10 +219,15 @@ fun RelatedDiscoverSheet(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        onTrackClick(relTrack)
-                                        onDismiss()
-                                    }
+                                    .trackItemGestures(
+                                        track = relTrack,
+                                        origin = MenuOrigin.RELATED,
+                                        controller = contextMenuController,
+                                        onShortClick = {
+                                            onTrackClick(relTrack)
+                                            onDismiss()
+                                        }
+                                    )
                                     .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -253,15 +265,12 @@ fun RelatedDiscoverSheet(
                                 }
 
                                 IconButton(onClick = {
-                                    scope.launch {
-                                        playerViewModel.addToQueue(relTrack)
-                                    }
+                                    contextMenuController.show(relTrack, origin = MenuOrigin.RELATED)
                                 }) {
                                     Icon(
-                                        imageVector = Icons.Filled.PlaylistAdd,
-                                        contentDescription = "Add to Queue",
-                                        tint = StreamifyColors.TextSub,
-                                        modifier = Modifier.size(22.dp)
+                                        Icons.Filled.MoreVert,
+                                        contentDescription = "More Options",
+                                        tint = StreamifyColors.TextSub
                                     )
                                 }
                             }

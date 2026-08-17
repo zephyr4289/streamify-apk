@@ -58,11 +58,18 @@ private fun YtCompactTrackRow(
     onClick: () -> Unit,
     onMoreClick: () -> Unit
 ) {
+    val contextMenuController = LocalContextMenuController.current
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp)
-            .clickable(onClick = onClick)
+            .trackItemGestures(
+                track = track,
+                origin = MenuOrigin.HOME,
+                controller = contextMenuController,
+                onShortClick = onClick
+            )
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -98,7 +105,10 @@ private fun YtCompactTrackRow(
         }
 
         IconButton(
-            onClick = onMoreClick,
+            onClick = {
+                contextMenuController.show(track = track, origin = MenuOrigin.HOME)
+                onMoreClick()
+            },
             modifier = Modifier.size(32.dp)
         ) {
             Icon(

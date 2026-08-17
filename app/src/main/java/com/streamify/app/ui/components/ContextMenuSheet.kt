@@ -27,7 +27,87 @@ import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyShapes
 import com.streamify.app.ui.theme.StreamifyType
+import androidx.compose.foundation.combinedClickable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+enum class MenuOrigin { HOME, SEARCH, QUEUE, PLAYLIST, DOWNLOADS, RELATED }
+
+data class ContextMenuState(
+    val isOpen: Boolean = false,
+    val track: Track? = null,
+    val origin: MenuOrigin = MenuOrigin.HOME,
+    val playlistId: String? = null
+)
+
+class TrackContextMenuController {
+    private val _state = MutableStateFlow(ContextMenuState())
+    val state: StateFlow<ContextMenuState> = _state.asStateFlow()
+
+    fun show(track: Track, origin: MenuOrigin = MenuOrigin.HOME, playlistId: String? = null) {
+        _state.value = ContextMenuState(
+            isOpen = true,
+            track = track,
+            origin = origin,
+            playlistId = playlistId
+        )
+    }
+
+    fun dismiss() {
+        _state.update { it.copy(isOpen = false) }
+    }
+}
+
+val LocalContextMenuController = staticCompositionLocalOf<TrackContextMenuController> {
+    TrackContextMenuController()
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+fun Modifier.trackItemGestures(
+    track: Track,
+    origin: MenuOrigin = MenuOrigin.HOME,
+    playlistId: String? = null,
+    controller: TrackContextMenuController,
+    onShortClick: () -> Unit
+): Modifier = this.then(
+    Modifier.combinedClickable(
+        onClick = onShortClick,
+        onLongClick = {
+            com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+            controller.show(track = track, origin = origin, playlistId = playlistId)
+        }
+    )
+)
+
+@Composable
+fun GlobalTrackContextMenuHost(
+    controller: TrackContextMenuController,
+    playerViewModel: com.streamify.app.viewmodel.PlayerViewModel,
+    onGoToArtist: ((String) -> Unit)? = null,
+    onGoToAlbum: ((String) -> Unit)? = null
+) {
+    val state by controller.state.collectAsState()
+    if (state.isOpen && state.track != null) {
+        val track = state.track!!
+        ContextMenuSheet(
+            track = track,
+            onDismissRequest = { controller.dismiss() },
+            onLikeClick = { playerViewModel.toggleLike(track) },
+            onAddToPlaylistClick = {},
+            onAddToQueueClick = { playerViewModel.addToQueue(track) },
+            onPlayNextClick = { playerViewModel.playNext(track) },
+            onStartRadioClick = { playerViewModel.startSongRadio(track) },
+            onGoToArtist = onGoToArtist,
+            onGoToAlbum = onGoToAlbum,
+            onRemoveFromPlaylistClick = if (state.origin == MenuOrigin.PLAYLIST && state.playlistId != null) {
+                { PlaylistRepository.removeTrackFromPlaylist(state.playlistId!!, track.id) }
+            } else null
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,10 +118,12 @@ fun ContextMenuSheet(
     onAddToPlaylistClick: () -> Unit,
     onAddToQueueClick: () -> Unit,
     onPlayNextClick: (() -> Unit)? = null,
+    onStartRadioClick: (() -> Unit)? = null,
     onStartJamClick: (() -> Unit)? = null,
     onGoToArtist: ((String) -> Unit)? = null,
     onGoToAlbum: ((String) -> Unit)? = null,
-    onRemoveFromPlaylistClick: (() -> Unit)? = null
+    onRemoveFromPlaylistClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showEditDialog by remember { mutableStateOf(false) }
@@ -118,6 +200,17 @@ fun ContextMenuSheet(
                 onClick = {
                     onAddToQueueClick()
                     android.widget.Toast.makeText(context, "Added to queue: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
+                    onDismissRequest()
+                }
+            )
+
+            // 2b. Start Radio
+            ContextActionItem(
+                icon = Icons.Filled.Radio,
+                text = "Start Radio",
+                onClick = {
+                    onStartRadioClick?.invoke()
+                    android.widget.Toast.makeText(context, "Starting radio based on ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
                     onDismissRequest()
                 }
             )

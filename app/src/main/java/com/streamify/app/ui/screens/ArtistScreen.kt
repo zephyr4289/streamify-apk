@@ -37,7 +37,7 @@ fun ArtistScreen(
         allTracks.filter { it.artist.contains(artistName, ignoreCase = true) }
     }
     val currentTrack by playerViewModel.currentTrack.collectAsState()
-    var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
+    val contextMenuController = LocalContextMenuController.current
 
     val firstTrackWithCover = artistTracks.find { !it.coverArtPath.isNullOrBlank() }
 
@@ -64,59 +64,59 @@ fun ArtistScreen(
             }
             Spacer(modifier = Modifier.width(StreamifyDimens.SpaceSM))
             Text(
-                text = "Artist",
-                style = StreamifyType.TitleMedium,
-                color = StreamifyColors.TextSub
+                text = artistName,
+                style = StreamifyType.HeadlineMedium,
+                color = StreamifyColors.TextMain,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
 
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 120.dp)
+            contentPadding = PaddingValues(bottom = StreamifyDimens.SpaceGiant * 2)
         ) {
-            // Header
+            // Artist Header Hero
             item {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(StreamifyDimens.SpaceLG),
+                        .padding(StreamifyDimens.SpaceMD),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Box(
+                    AsyncImage(
+                        model = firstTrackWithCover?.coverArtPath,
+                        contentDescription = artistName,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(160.dp)
+                            .size(180.dp)
                             .clip(CircleShape)
-                            .background(StreamifyColors.BgElevated),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        TrackCoverArt(
-                            coverArtPath = firstTrackWithCover?.coverArtPath,
-                            title = "",
-                            artist = artistName,
-                            modifier = Modifier.fillMaxSize(),
-                            shape = CircleShape
-                        )
-                    }
+                            .background(StreamifyColors.BgSurfaceElevated)
+                    )
 
-                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
 
                     Text(
                         text = artistName,
                         style = StreamifyType.HeadlineLarge,
-                        color = StreamifyColors.TextMain
+                        color = StreamifyColors.TextMain,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
                     )
 
                     Spacer(modifier = Modifier.height(StreamifyDimens.SpaceXS))
 
                     Text(
-                        text = "${artistTracks.size} tracks available",
+                        text = "${artistTracks.size} Songs",
                         style = StreamifyType.BodyMedium,
                         color = StreamifyColors.TextSub
                     )
 
-                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceLG))
+                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
 
-                    // Play & Shuffle Action Buttons
+                    // Play All & Shuffle Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center,
@@ -129,15 +129,17 @@ fun ArtistScreen(
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
-                            shape = RoundedCornerShape(24.dp),
-                            modifier = Modifier.height(48.dp)
+                            shape = CircleShape,
+                            modifier = Modifier.padding(end = StreamifyDimens.SpaceSM)
                         ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.Black)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Play", style = StreamifyType.TitleSmall, color = Color.Black)
+                            Icon(
+                                imageVector = Icons.Filled.PlayArrow,
+                                contentDescription = "Play All",
+                                tint = Color.Black
+                            )
+                            Spacer(modifier = Modifier.width(StreamifyDimens.SpaceXS))
+                            Text("Play", color = Color.Black, fontWeight = FontWeight.Bold)
                         }
-
-                        Spacer(modifier = Modifier.width(StreamifyDimens.SpaceMD))
 
                         OutlinedButton(
                             onClick = {
@@ -146,13 +148,16 @@ fun ArtistScreen(
                                     onTrackClick(shuffled.first(), shuffled)
                                 }
                             },
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = StreamifyColors.TextMain),
-                            modifier = Modifier.height(48.dp)
+                            shape = CircleShape,
+                            border = BorderStroke(1.dp, StreamifyColors.Primary)
                         ) {
-                            Icon(Icons.Filled.Shuffle, contentDescription = null, tint = StreamifyColors.TextMain)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Shuffle", style = StreamifyType.TitleSmall, color = StreamifyColors.TextMain)
+                            Icon(
+                                imageVector = Icons.Filled.Shuffle,
+                                contentDescription = "Shuffle",
+                                tint = StreamifyColors.Primary
+                            )
+                            Spacer(modifier = Modifier.width(StreamifyDimens.SpaceXS))
+                            Text("Shuffle", color = StreamifyColors.Primary)
                         }
                     }
                 }
@@ -160,10 +165,14 @@ fun ArtistScreen(
 
             item {
                 Text(
-                    text = "Songs",
-                    style = StreamifyType.TitleMedium,
+                    text = "Popular Songs",
+                    style = StreamifyType.TitleLarge,
                     color = StreamifyColors.TextMain,
-                    modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD)
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(
+                        horizontal = StreamifyDimens.SpaceMD,
+                        vertical = StreamifyDimens.SpaceSM
+                    )
                 )
             }
 
@@ -172,31 +181,11 @@ fun ArtistScreen(
                     track = track,
                     isPlaying = currentTrack?.id == track.id,
                     onClick = { onTrackClick(track, artistTracks) },
-                    onOptionsClick = { selectedOptionsTrack = track },
+                    onOptionsClick = { contextMenuController.show(track, origin = MenuOrigin.HOME) },
                     onSwipeQueue = { playerViewModel.addToQueue(track) },
                     onSwipeLike = { playerViewModel.toggleLike(track) }
                 )
             }
         }
-    }
-
-    selectedOptionsTrack?.let { track ->
-        com.streamify.app.ui.components.ContextMenuSheet(
-            track = track,
-            onDismissRequest = { selectedOptionsTrack = null },
-            onLikeClick = { 
-                playerViewModel.toggleLike(track)
-                selectedOptionsTrack = null 
-            },
-            onPlayNextClick = {
-                playerViewModel.playNext(track)
-                selectedOptionsTrack = null
-            },
-            onAddToPlaylistClick = { selectedOptionsTrack = null },
-            onAddToQueueClick = { 
-                playerViewModel.addToQueue(track)
-                selectedOptionsTrack = null 
-            }
-        )
     }
 }

@@ -87,7 +87,7 @@ fun AlbumScreen(
     }
     val displayTitle = headerTitle ?: albumName
     val currentTrack by playerViewModel.currentTrack.collectAsState()
-    var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
+    val contextMenuController = LocalContextMenuController.current
     var showOptionsMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf(displayTitle) }
@@ -304,36 +304,15 @@ fun AlbumScreen(
                     isPlaying = currentTrack?.id == track.id,
                     showDragHandle = false,
                     onClick = { onTrackClick(track, albumTracks) },
-                    onMoreClick = { selectedOptionsTrack = track }
+                    onMoreClick = {
+                        contextMenuController.show(
+                            track = track,
+                            origin = if (playlistId != null) com.streamify.app.ui.components.MenuOrigin.PLAYLIST else com.streamify.app.ui.components.MenuOrigin.HOME,
+                            playlistId = playlistId
+                        )
+                    }
                 )
             }
         }
-    }
-
-    // Context Options Menu Bottom Sheet
-    selectedOptionsTrack?.let { track ->
-        ContextMenuSheet(
-            track = track,
-            onDismissRequest = { selectedOptionsTrack = null },
-            onLikeClick = {
-                playerViewModel.toggleLike(track)
-                selectedOptionsTrack = null
-            },
-            onPlayNextClick = {
-                playerViewModel.playNext(track)
-                selectedOptionsTrack = null
-            },
-            onAddToPlaylistClick = { selectedOptionsTrack = null },
-            onAddToQueueClick = {
-                playerViewModel.addToQueue(track)
-                selectedOptionsTrack = null
-            },
-            onRemoveFromPlaylistClick = if (playlistId != null && playlistId != "liked_songs") {
-                {
-                    PlaylistRepository.removeTrackFromPlaylist(playlistId, track.id)
-                    selectedOptionsTrack = null
-                }
-            } else null
-        )
     }
 }

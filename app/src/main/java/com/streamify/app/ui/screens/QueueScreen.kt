@@ -26,12 +26,7 @@ fun QueueScreen(
     onClose: (() -> Unit)? = null
 ) {
     val playerState by playerViewModel.playerState.collectAsState()
-    var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
-
-    // --- PILLAR 1: Context Menu Back Trapping ---
-    BackHandler(enabled = selectedOptionsTrack != null) {
-        selectedOptionsTrack = null
-    }
+    val contextMenuController = LocalContextMenuController.current
     val nowPlaying = playerState.currentTrack
     val queue = playerState.queue
     val listState = rememberLazyListState()
@@ -88,7 +83,7 @@ fun QueueScreen(
                         dragOffset = 0f,
                         showDragHandle = false,
                         onClick = { /* Already playing */ },
-                        onMoreClick = { selectedOptionsTrack = nowPlaying }
+                        onMoreClick = { contextMenuController.show(nowPlaying, origin = MenuOrigin.QUEUE) }
                     )
                 }
             }
@@ -113,28 +108,27 @@ fun QueueScreen(
                     contentType = { _, _ -> "trackRow" }
                 ) { index, track ->
                     val isBeingDragged = draggedItemIndex == index
+                    val dragOffset = if (isBeingDragged) draggedItemOffset else 0f
 
                     YtQueueTrackItem(
                         track = track,
                         isPlaying = false,
-                        dragOffset = if (isBeingDragged) draggedItemOffset else 0f,
+                        dragOffset = dragOffset,
+                        showDragHandle = true,
                         onDragStart = {
                             draggedItemIndex = index
                             draggedItemOffset = 0f
+                            com.streamify.app.util.StreamifyHapticEngine.dragPickup()
                         },
-                        onDragMove = { dragAmount ->
-                            draggedItemOffset += dragAmount
-                            // 120fps Mathematical Reorder swap calculation
+                        onDragMove = { deltaY ->
+                            draggedItemOffset += deltaY
                             val targetIndex = (index + (draggedItemOffset / itemHeightPx).toInt())
-                            if (targetIndex != index && targetIndex in upNext.indices) {
-                                val fromRealIndex = queue.indexOfFirst { it.id == track.id }
-                                val targetTrack = upNext[targetIndex]
-                                val toRealIndex = queue.indexOfFirst { it.id == targetTrack.id }
-                                if (fromRealIndex != -1 && toRealIndex != -1) {
-                                    playerViewModel.reorderQueue(fromRealIndex, toRealIndex)
-                                }
+                                .coerceIn(0, upNext.size - 1)
+                            if (targetIndex != index) {
+                                playerViewModel.moveQueueItem(index, targetIndex)
                                 draggedItemIndex = targetIndex
-                                draggedItemOffset -= (targetIndex - index) * itemHeightPx
+                                draggedItemOffset = 0f
+                                com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
                             }
                         },
                         onDragEnd = {
@@ -145,7 +139,7 @@ fun QueueScreen(
                             onTrackClick(track.id)
                             playerViewModel.playTrack(track, queue)
                         },
-                        onMoreClick = { selectedOptionsTrack = track }
+                        onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.QUEUE) }
                     )
                 }
             } else if (nowPlaying == null) {
@@ -165,26 +159,5 @@ fun QueueScreen(
                 }
             }
         }
-    }
-
-    // Context Options Menu Bottom Sheet
-    selectedOptionsTrack?.let { track ->
-        ContextMenuSheet(
-            track = track,
-            onDismissRequest = { selectedOptionsTrack = null },
-            onLikeClick = {
-                playerViewModel.toggleLike(track)
-                selectedOptionsTrack = null
-            },
-            onPlayNextClick = {
-                playerViewModel.playNext(track)
-                selectedOptionsTrack = null
-            },
-            onAddToPlaylistClick = { selectedOptionsTrack = null },
-            onAddToQueueClick = {
-                playerViewModel.addToQueue(track)
-                selectedOptionsTrack = null
-            }
-        )
     }
 }

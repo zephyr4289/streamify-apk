@@ -48,12 +48,10 @@ fun SearchScreen(
 
     var query by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("All") }
-    var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
+
+    val contextMenuController = LocalContextMenuController.current
 
     // --- PILLAR 1: Deterministic Search State Unwinding ---
-    BackHandler(enabled = selectedOptionsTrack != null) {
-        selectedOptionsTrack = null
-    }
     BackHandler(enabled = query.isNotBlank()) {
         query = ""
     }
@@ -333,7 +331,7 @@ fun SearchScreen(
                                         isPlaying = currentTrack?.id == track.id,
                                         showDragHandle = false,
                                         onClick = { onTrackClick(track, localMatches) },
-                                        onMoreClick = { selectedOptionsTrack = track }
+                                        onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.SEARCH) }
                                     )
                                 }
                             }
@@ -388,15 +386,14 @@ fun SearchScreen(
                             ) { onlineTrack ->
                                 val isResolving = resolvingTrackUrl == onlineTrack.url
                                 val trackModel = Track(
-                                    id = 0,
+                                    id = (onlineTrack.url.hashCode() and 0x7FFFFFFF),
                                     title = onlineTrack.title,
-                                    artist = onlineTrack.uploader,
-                                    album = "Streamify",
-                                    durationSec = onlineTrack.duration,
+                                    artist = onlineTrack.artist,
+                                    album = "Streamify Cloud",
                                     filepath = onlineTrack.url,
-                                    coverArtPath = onlineTrack.thumbnail.takeIf { it.isNotBlank() },
+                                    durationSec = onlineTrack.durationSec,
                                     bpm = 0f,
-                                    key = "",
+                                    coverArtPath = onlineTrack.thumbnailUrl,
                                     lyricsPath = null,
                                     source = "online"
                                 )
@@ -430,7 +427,7 @@ fun SearchScreen(
                                             context = context
                                         )
                                     },
-                                    onMoreClick = { selectedOptionsTrack = trackModel }
+                                    onMoreClick = { contextMenuController.show(trackModel, origin = MenuOrigin.SEARCH) }
                                 )
                             }
                         }
@@ -464,26 +461,5 @@ fun SearchScreen(
                 }
             }
         }
-    }
-
-    // Context Options Menu Bottom Sheet
-    selectedOptionsTrack?.let { track ->
-        ContextMenuSheet(
-            track = track,
-            onDismissRequest = { selectedOptionsTrack = null },
-            onLikeClick = {
-                playerViewModel.toggleLike(track, context)
-                selectedOptionsTrack = null
-            },
-            onPlayNextClick = {
-                playerViewModel.playNext(track)
-                selectedOptionsTrack = null
-            },
-            onAddToPlaylistClick = { selectedOptionsTrack = null },
-            onAddToQueueClick = {
-                playerViewModel.addToQueue(track)
-                selectedOptionsTrack = null
-            }
-        )
     }
 }

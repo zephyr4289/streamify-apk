@@ -45,6 +45,7 @@ fun HomeScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val user by SupabaseClient.currentUser.collectAsState()
     val listState = rememberLazyListState()
+    val contextMenuController = LocalContextMenuController.current
 
     var selectedMood by remember { mutableStateOf("All") }
 
@@ -243,7 +244,11 @@ fun HomeScreen(
                                             title = "${track.artist} Mix",
                                             subtitle = "Continuous station with ${track.title}",
                                             artworkUrl = track.coverArtPath,
-                                            onClick = { onTrackClick(track, supermixPool) }
+                                            onClick = { onTrackClick(track, supermixPool) },
+                                            onLongClick = {
+                                                com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                                                contextMenuController.show(track, origin = MenuOrigin.HOME)
+                                            }
                                         )
                                     }
                                 }

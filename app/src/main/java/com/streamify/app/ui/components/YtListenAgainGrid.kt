@@ -50,10 +50,17 @@ private fun YtMediumCard(
     track: Track,
     onClick: () -> Unit
 ) {
+    val contextMenuController = LocalContextMenuController.current
+
     Column(
         modifier = Modifier
             .width(120.dp)
-            .clickable(onClick = onClick)
+            .trackItemGestures(
+                track = track,
+                origin = MenuOrigin.HOME,
+                controller = contextMenuController,
+                onShortClick = onClick
+            )
     ) {
         YtThumbnail(
             url = track.coverArtPath,

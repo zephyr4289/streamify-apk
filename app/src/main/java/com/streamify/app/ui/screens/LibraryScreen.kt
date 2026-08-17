@@ -64,8 +64,10 @@ fun LibraryScreen(
     var playlistToDelete by remember { mutableStateOf<com.streamify.app.data.Playlist?>(null) }
     var playlistForOptions by remember { mutableStateOf<com.streamify.app.data.Playlist?>(null) }
     var renameText by remember { mutableStateOf("") }
-    var importProgress by remember { mutableStateOf<com.streamify.app.data.remote.ImportProgress?>(null) }
     var isScraping by remember { mutableStateOf(false) }
+    var importProgress by remember { mutableStateOf<com.streamify.app.data.SpotifyImportProgress?>(null) }
+    val contextMenuController = LocalContextMenuController.current
+    var isRefreshing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     // --- PILLAR 1: Deterministic Hierarchical Back Trapping ---
@@ -85,9 +87,6 @@ fun LibraryScreen(
         showSpotifyImportDialog = false
         isScraping = false
         importProgress = null
-    }
-    BackHandler(enabled = selectedOptionsTrack != null) {
-        selectedOptionsTrack = null
     }
     BackHandler(enabled = selectedPlaylistId != null) {
         selectedPlaylistId = null
@@ -609,7 +608,7 @@ fun LibraryScreen(
                                         isPlaying = currentTrack?.id == track.id,
                                         showDragHandle = false,
                                         onClick = { onTrackClick(track, allTracks) },
-                                        onMoreClick = { selectedOptionsTrack = track }
+                                        onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.PLAYLIST, playlistId = "liked_songs") }
                                     )
                                 }
                             }
@@ -902,8 +901,25 @@ fun LibraryScreen(
                     Text("Export to M3U8", style = LocalAppTypography.current.songTitle, color = TextMain)
                 }
 
-                // Delete Playlist (Destructive)
                 if (!isSystem) {
+                    // Rename
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                playlistToRename = pl
+                                renameText = pl.name
+                                playlistForOptions = null
+                            }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = null, tint = TextMain, modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text("Rename playlist", style = LocalAppTypography.current.songTitle, color = TextMain)
+                    }
+
+                    // Delete
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -923,27 +939,6 @@ fun LibraryScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
-    }
-
-    // Context Options Menu Bottom Sheet
-    selectedOptionsTrack?.let { track ->
-        ContextMenuSheet(
-            track = track,
-            onDismissRequest = { selectedOptionsTrack = null },
-            onLikeClick = {
-                playerViewModel.toggleLike(track)
-                selectedOptionsTrack = null
-            },
-            onPlayNextClick = {
-                playerViewModel.playNext(track)
-                selectedOptionsTrack = null
-            },
-            onAddToPlaylistClick = { selectedOptionsTrack = null },
-            onAddToQueueClick = {
-                playerViewModel.addToQueue(track)
-                selectedOptionsTrack = null
-            }
-        )
     }
 }
 
