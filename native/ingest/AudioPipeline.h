@@ -22,6 +22,8 @@ public:
     TrackMetadata extractMetadata(const std::string& filepath);
     float extractBPM(const std::string& filepath);
     std::string extractKey(const std::string& filepath);
+    std::string extractAcousticDNAFromPcm(const float* pcm, int length, int sampleRate, float* outResults, std::vector<float>* outEmbedding = nullptr);
+    static std::string keyToCamelot(const std::string& key);
 
 private:
     AudioPipeline();

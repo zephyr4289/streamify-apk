@@ -812,5 +812,68 @@ Java_com_streamify_app_data_NativeBridge_stepAirDropPhysics(
     env->ReleaseFloatArrayElements(inOutBuffer, buf, 0);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// PROJECT NEXUS: CLOSED-LOOP EDGE MESH COMPUTE JNI EXPORTS
+// ═══════════════════════════════════════════════════════════════
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_pinToLittleCores(JNIEnv* /* env */, jobject /* this */) {
+    TaskOrchestrator::getInstance().pinThreadToLittleCores();
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_analyzePcmAcousticDNA(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject directByteBuffer,
+    jint byteCount,
+    jint sampleRate,
+    jint channelCount,
+    jfloatArray outResults
+) {
+    if (!directByteBuffer || byteCount <= 0 || !outResults) {
+        return env->NewStringUTF("8B");
+    }
+
+    void* rawPtr = env->GetDirectBufferAddress(directByteBuffer);
+    if (!rawPtr) {
+        return env->NewStringUTF("8B");
+    }
+
+    jfloat* results = env->GetFloatArrayElements(outResults, nullptr);
+    if (!results) {
+        return env->NewStringUTF("8B");
+    }
+
+    int numFloats = byteCount / sizeof(float);
+    const float* pcm = reinterpret_cast<const float*>(rawPtr);
+
+    // If stereo or multi-channel, downmix to mono in temporary stack/heap buffer
+    std::vector<float> monoPcm;
+    if (channelCount > 1 && numFloats > 0) {
+        int monoFrames = numFloats / channelCount;
+        monoPcm.resize(monoFrames);
+        for (int i = 0; i < monoFrames; ++i) {
+            float sum = 0.0f;
+            for (int ch = 0; ch < channelCount; ++ch) {
+                sum += pcm[i * channelCount + ch];
+            }
+            monoPcm[i] = sum / static_cast<float>(channelCount);
+        }
+        pcm = monoPcm.data();
+        numFloats = monoFrames;
+    }
+
+    std::string camelotKey = AudioPipeline::getInstance().extractAcousticDNAFromPcm(
+        pcm,
+        numFloats,
+        sampleRate > 0 ? sampleRate : 44100,
+        results
+    );
+
+    env->ReleaseFloatArrayElements(outResults, results, 0);
+    return env->NewStringUTF(camelotKey.c_str());
+}
+
 
 

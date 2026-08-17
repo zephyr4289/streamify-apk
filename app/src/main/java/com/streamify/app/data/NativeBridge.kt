@@ -142,6 +142,16 @@ object NativeBridge {
         initialDist: Float,
         dt: Float
     )
+
+    // Project Nexus: In-Stream Acoustic DNA & Core Pinning
+    external fun pinToLittleCores()
+    external fun analyzePcmAcousticDNA(
+        directBuffer: java.nio.ByteBuffer,
+        byteCount: Int,
+        sampleRate: Int,
+        channelCount: Int,
+        outResults: FloatArray
+    ): String
 }
 
 

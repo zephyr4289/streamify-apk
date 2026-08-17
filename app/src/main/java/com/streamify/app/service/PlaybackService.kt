@@ -27,7 +27,7 @@ class PlaybackService : MediaSessionService() {
                 enableAudioTrackPlaybackParams: Boolean
             ): androidx.media3.exoplayer.audio.AudioSink? {
                 return DefaultAudioSink.Builder(context)
-                    .setAudioProcessors(arrayOf(CrossfadeAudioProcessor(), syncAudioProcessor))
+                    .setAudioProcessors(arrayOf(CrossfadeAudioProcessor(), syncAudioProcessor, MeshPcmAudioProcessor()))
                     .build()
             }
         }

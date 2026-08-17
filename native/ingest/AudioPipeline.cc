@@ -463,3 +463,224 @@ std::string AudioPipeline::extractKey(const std::string& filepath) {
 
     return key_names_24_[bestKeyIdx];
 }
+
+std::string AudioPipeline::keyToCamelot(const std::string& key) {
+    if (key == "C") return "8B";
+    if (key == "Am") return "8A";
+    if (key == "G") return "9B";
+    if (key == "Em") return "9A";
+    if (key == "D") return "10B";
+    if (key == "Bm") return "10A";
+    if (key == "A") return "11B";
+    if (key == "F#m" || key == "Gbm") return "11A";
+    if (key == "E") return "12B";
+    if (key == "C#m" || key == "Dbm") return "12A";
+    if (key == "B") return "1B";
+    if (key == "G#m" || key == "Abm") return "1A";
+    if (key == "F#" || key == "Gb") return "2B";
+    if (key == "D#m" || key == "Ebm") return "2A";
+    if (key == "C#" || key == "Db") return "3B";
+    if (key == "A#m" || key == "Bbm") return "3A";
+    if (key == "G#" || key == "Ab") return "4B";
+    if (key == "Fm") return "4A";
+    if (key == "D#" || key == "Eb") return "5B";
+    if (key == "Cm") return "5A";
+    if (key == "A#" || key == "Bb") return "6B";
+    if (key == "Gm") return "6A";
+    if (key == "F") return "7B";
+    if (key == "Dm") return "7A";
+    return "8B";
+}
+
+std::string AudioPipeline::extractAcousticDNAFromPcm(
+    const float* pcm,
+    int length,
+    int sampleRate,
+    float* outResults,
+    std::vector<float>* outEmbedding
+) {
+    if (!pcm || length < 1024 || !outResults) {
+        if (outResults) {
+            outResults[0] = -14.0f; // LUFS
+            outResults[1] = 6.0f;   // LRA
+            outResults[2] = -0.5f;  // True Peak
+            outResults[3] = 120.0f; // BPM
+        }
+        return "8B";
+    }
+
+    std::lock_guard<std::mutex> lock(pipeline_mutex_);
+
+    // 1. Compute Integrated LUFS & True Peak
+    float sumSq = 0.0f;
+    float maxPeak = 0.0f;
+    for (int i = 0; i < length; ++i) {
+        float sample = pcm[i];
+        sumSq += sample * sample;
+        float absSample = std::abs(sample);
+        if (absSample > maxPeak) maxPeak = absSample;
+    }
+    float rms = std::sqrt(sumSq / static_cast<float>(length));
+    float integratedLufs = (rms > 1e-7f) ? (20.0f * std::log10(rms)) : -70.0f;
+    integratedLufs = std::clamp(integratedLufs, -70.0f, 0.0f);
+
+    float truePeakDb = (maxPeak > 1e-7f) ? (20.0f * std::log10(maxPeak)) : -70.0f;
+
+    // 2. Loudness Range (LRA) across short 400ms blocks
+    int blockLen = std::max(1, sampleRate * 4 / 10);
+    int numBlocks = length / blockLen;
+    std::vector<float> blockLoudness;
+    blockLoudness.reserve(numBlocks);
+
+    for (int b = 0; b < numBlocks; ++b) {
+        float bSumSq = 0.0f;
+        int bStart = b * blockLen;
+        for (int i = 0; i < blockLen; ++i) {
+            float s = pcm[bStart + i];
+            bSumSq += s * s;
+        }
+        float bRms = std::sqrt(bSumSq / static_cast<float>(blockLen));
+        if (bRms > 1e-5f) {
+            blockLoudness.push_back(20.0f * std::log10(bRms));
+        }
+    }
+
+    float lraDb = 6.0f;
+    if (blockLoudness.size() >= 4) {
+        std::sort(blockLoudness.begin(), blockLoudness.end());
+        int p10 = blockLoudness.size() * 10 / 100;
+        int p95 = blockLoudness.size() * 95 / 100;
+        lraDb = std::clamp(blockLoudness[p95] - blockLoudness[p10], 1.0f, 25.0f);
+    }
+
+    // 3. Spectral Flux Onset & Ellis Prior Curve BPM
+    const int hop_length = 512;
+    const int nfft = 1024;
+    int frames = (length - nfft) / hop_length;
+    float bpm = 120.0f;
+
+    if (frames >= 8) {
+        std::vector<float> flux(frames, 0.0f);
+        std::vector<float> prev_mag(nfft / 2 + 1, 0.0f);
+
+        for (int i = 0; i < frames; ++i) {
+            neon_apply_window(pcm + i * hop_length, window_1024_.data(), in_1024_, nfft);
+            kiss_fftr(cfg_1024_, in_1024_, out_1024_);
+
+            float current_flux = 0.0f;
+            for (int j = 0; j < nfft / 2 + 1; ++j) {
+                float mag = std::sqrt(out_1024_[j].r * out_1024_[j].r + out_1024_[j].i * out_1024_[j].i);
+                float diff = mag - prev_mag[j];
+                if (diff > 0.0f) current_flux += diff;
+                prev_mag[j] = mag;
+            }
+            flux[i] = current_flux;
+        }
+
+        int min_lag = std::max(1, sampleRate * 60 / (hop_length * 200)); // 200 BPM
+        int max_lag = std::min(frames - 1, sampleRate * 60 / (hop_length * 60));  // 60 BPM
+
+        if (max_lag > min_lag) {
+            float best_corr = -1e9f;
+            int best_lag = min_lag;
+
+            for (int lag = min_lag; lag <= max_lag; ++lag) {
+                float corr = 0.0f;
+                for (int i = 0; i < frames - lag; ++i) {
+                    corr += flux[i] * flux[i + lag];
+                }
+                float bpm_at_lag = (60.0f * sampleRate) / (lag * hop_length);
+                float bias = std::exp(-0.5f * std::pow((bpm_at_lag - 120.0f) / 40.0f, 2.0f));
+                float biased_corr = corr * bias;
+
+                if (biased_corr > best_corr) {
+                    best_corr = biased_corr;
+                    best_lag = lag;
+                }
+            }
+
+            if (best_lag > 0) {
+                bpm = (60.0f * sampleRate) / (best_lag * hop_length);
+                if (bpm < 60.0f) bpm *= 2.0f;
+                if (bpm > 200.0f) bpm /= 2.0f;
+            }
+        }
+    }
+
+    // 4. 12-Bin HPCP Chromagram & Krumhansl Matching for Camelot Key
+    const int chroma_nfft = 2048;
+    const int chroma_hop = 1024;
+    int chroma_frames = (length - chroma_nfft) / chroma_hop;
+    std::string detectedKey = "C";
+
+    std::vector<float> medianChroma(12, 0.0f);
+    if (chroma_frames >= 4) {
+        std::vector<std::vector<float>> chromaMatrix;
+        chromaMatrix.reserve(chroma_frames);
+
+        for (int f = 0; f < chroma_frames; ++f) {
+            neon_apply_window(pcm + f * chroma_hop, window_2048_.data(), in_2048_, chroma_nfft);
+            kiss_fftr(cfg_2048_, in_2048_, out_2048_);
+
+            std::vector<float> frame_chroma(12, 0.0f);
+            for (int k = 1; k < chroma_nfft / 2; ++k) {
+                double freq = static_cast<double>(k) * sampleRate / chroma_nfft;
+                if (freq < 65.0 || freq > 2000.0) continue;
+
+                float power = (out_2048_[k].r * out_2048_[k].r + out_2048_[k].i * out_2048_[k].i);
+                double midi = 69.0 + 12.0 * std::log2(freq / 440.0);
+                int pitch_class = (static_cast<int>(std::round(midi)) % 12 + 12) % 12;
+                frame_chroma[pitch_class] += power;
+            }
+            chromaMatrix.push_back(frame_chroma);
+        }
+
+        for (int p = 0; p < 12; ++p) {
+            std::vector<float> pitchClassEnergy;
+            pitchClassEnergy.reserve(chromaMatrix.size());
+            for (const auto& frame : chromaMatrix) {
+                pitchClassEnergy.push_back(frame[p]);
+            }
+            std::sort(pitchClassEnergy.begin(), pitchClassEnergy.end());
+            medianChroma[p] = pitchClassEnergy[pitchClassEnergy.size() / 2];
+        }
+
+        float cSum = 0.0f;
+        for (int i = 0; i < 12; ++i) cSum += medianChroma[i];
+        if (cSum > 1e-9f) {
+            for (int i = 0; i < 12; ++i) medianChroma[i] /= cSum;
+        }
+
+        float bestScore = -1e9f;
+        int bestKeyIdx = 0;
+        for (size_t k = 0; k < krumhansl_profiles_24_.size(); ++k) {
+            float score = neon_cosine_similarity(medianChroma.data(), krumhansl_profiles_24_[k].data(), 12);
+            if (score > bestScore) {
+                bestScore = score;
+                bestKeyIdx = k;
+            }
+        }
+        detectedKey = key_names_24_[bestKeyIdx];
+    }
+
+    std::string camelotKey = keyToCamelot(detectedKey);
+
+    // Populate output results
+    outResults[0] = integratedLufs;
+    outResults[1] = lraDb;
+    outResults[2] = truePeakDb;
+    outResults[3] = (std::isnan(bpm) || std::isinf(bpm)) ? 120.0f : bpm;
+
+    // Optional 128-d acoustic embedding
+    if (outEmbedding) {
+        outEmbedding->assign(128, 0.0f);
+        for (int i = 0; i < 12; ++i) {
+            (*outEmbedding)[i] = medianChroma[i];
+        }
+        (*outEmbedding)[12] = (integratedLufs + 70.0f) / 70.0f;
+        (*outEmbedding)[13] = lraDb / 25.0f;
+        (*outEmbedding)[14] = (outResults[3] - 60.0f) / 140.0f;
+    }
+
+    return camelotKey;
+}
