@@ -251,53 +251,232 @@ fun JamSessionScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Synchronized Track Row
+                    // Universal Synchronized Playback Control Card
                     Surface(
                         color = BgSurfaceElevated,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(4.dp))
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                YtThumbnail(
-                                    url = playerState.currentTrack?.coverArtPath,
-                                    size = 48.dp,
-                                    cornerRadius = 4.dp
-                                )
-                                if (playerState.isPlaying) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(Color.Black.copy(alpha = 0.55f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        YtActiveEqualizer()
+                                Box(
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                ) {
+                                    YtThumbnail(
+                                        url = playerState.currentTrack?.coverArtPath,
+                                        size = 52.dp,
+                                        cornerRadius = 6.dp
+                                    )
+                                    if (playerState.isPlaying) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color.Black.copy(alpha = 0.55f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            YtActiveEqualizer()
+                                        }
                                     }
+                                }
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = playerState.currentTrack?.title ?: "No track playing",
+                                        style = LocalAppTypography.current.songTitle.copy(fontSize = 15.sp),
+                                        color = TextMain,
+                                        maxLines = 1
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = playerState.currentTrack?.artist ?: "Streamify Radio",
+                                        style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                        color = TextSecondary,
+                                        maxLines = 1
+                                    )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
 
-                            Column(modifier = Modifier.weight(1f)) {
+                            // Universal Control Buttons (Universal for all connected friends)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { playerViewModel.skipPrevious() },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.SkipPrevious,
+                                        contentDescription = "Previous",
+                                        tint = TextMain,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(20.dp))
+
+                                IconButton(
+                                    onClick = { playerViewModel.togglePlayPause() },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .background(ActiveControl, CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = if (playerState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                        contentDescription = "Play/Pause",
+                                        tint = TextOnActiveChip,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(20.dp))
+
+                                IconButton(
+                                    onClick = {
+                                        val nextInJamQ = jamQueue.firstOrNull()
+                                        if (nextInJamQ != null) {
+                                            jamViewModel.removeFromJamQueue(nextInJamQ)
+                                            playerViewModel.playTrack(nextInJamQ)
+                                        } else {
+                                            playerViewModel.skipNext()
+                                        }
+                                    },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.SkipNext,
+                                        contentDescription = "Next",
+                                        tint = TextMain,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Shared Collaborative Jam Queue
+                    val jamQueue by jamViewModel.jamQueue.collectAsState()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "SHARED JAM QUEUE (${jamQueue.size})",
+                            style = LocalAppTypography.current.songArtist.copy(
+                                fontSize = 11.sp,
+                                letterSpacing = 0.5.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = "Collaborative",
+                            style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                            color = Primary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Surface(
+                        color = BgSurfaceElevated,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (jamQueue.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(20.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Text(
-                                    text = playerState.currentTrack?.title ?: "No track playing",
-                                    style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
-                                    color = TextMain,
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = playerState.currentTrack?.artist ?: "Streamify Radio",
+                                    text = "Jam Queue is empty\nFriends can add tracks from Search or Library",
                                     style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
-                                    color = TextSecondary,
-                                    maxLines = 1
+                                    color = TextTertiary,
+                                    textAlign = TextAlign.Center
                                 )
+                            }
+                        } else {
+                            Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                                jamQueue.forEachIndexed { index, queueTrack ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "${index + 1}",
+                                            style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                            color = TextTertiary,
+                                            modifier = Modifier.width(20.dp)
+                                        )
+
+                                        YtThumbnail(
+                                            url = queueTrack.coverArtPath,
+                                            size = 38.dp,
+                                            cornerRadius = 4.dp
+                                        )
+
+                                        Spacer(modifier = Modifier.width(10.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = queueTrack.title,
+                                                style = LocalAppTypography.current.songTitle.copy(fontSize = 13.sp),
+                                                color = TextMain,
+                                                maxLines = 1
+                                            )
+                                            Text(
+                                                text = queueTrack.artist,
+                                                style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                                                color = TextSecondary,
+                                                maxLines = 1
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                jamViewModel.removeFromJamQueue(queueTrack)
+                                                playerViewModel.playTrack(queueTrack)
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.PlayArrow,
+                                                contentDescription = "Play Next",
+                                                tint = ActiveControl,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { jamViewModel.removeFromJamQueue(queueTrack) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Close,
+                                                contentDescription = "Remove",
+                                                tint = TextTertiary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -309,7 +488,8 @@ fun JamSessionScreen(
                         text = "LISTENERS IN ROOM",
                         style = LocalAppTypography.current.songArtist.copy(
                             fontSize = 11.sp,
-                            letterSpacing = 0.5.sp
+                            letterSpacing = 0.5.sp,
+                            fontWeight = FontWeight.Bold
                         ),
                         color = TextSecondary
                     )

@@ -216,6 +216,8 @@ object SupabaseClient {
     val liveProfileUpdates = MutableSharedFlow<JSONObject>(extraBufferCapacity = 64)
     val remotePlaybackState = MutableSharedFlow<DevicePlaybackSnapshot>(extraBufferCapacity = 8)
     val jamPlaybackUpdates = MutableSharedFlow<JSONObject>(extraBufferCapacity = 32)
+    val jamQueueUpdates = MutableSharedFlow<List<Track>>(extraBufferCapacity = 16)
+    val jamPresenceUpdates = MutableSharedFlow<List<UserProfile>>(extraBufferCapacity = 16)
 
     val isAdmin: Boolean
         get() = _currentUser.value?.isAdmin == true ||
@@ -811,8 +813,30 @@ object SupabaseClient {
                                 durationMs = durationMs
                             )
                             remotePlaybackState.tryEmit(snapshot)
-                        } else if (topic.startsWith("realtime:jam_") || type == "jam_tick") {
-                            jamPlaybackUpdates.tryEmit(msgPayload)
+                        } else if (topic.startsWith("realtime:jam_") || type == "jam_tick" || type == "jam_queue_updated") {
+                            if (type == "jam_queue_updated") {
+                                val queueArr = msgPayload.optJSONArray("queue")
+                                if (queueArr != null) {
+                                    val qList = mutableListOf<Track>()
+                                    for (qi in 0 until queueArr.length()) {
+                                        val qo = queueArr.getJSONObject(qi)
+                                        qList.add(
+                                            Track(
+                                                id = qo.optInt("id", 0),
+                                                title = qo.optString("title", ""),
+                                                artist = qo.optString("artist", ""),
+                                                album = qo.optString("album", "Jam Queue"),
+                                                filepath = qo.optString("filepath", ""),
+                                                coverArtPath = qo.optString("coverArtPath", "").ifBlank { null },
+                                                durationSec = qo.optInt("durationSec", 0)
+                                            )
+                                        )
+                                    }
+                                    jamQueueUpdates.tryEmit(qList)
+                                }
+                            } else {
+                                jamPlaybackUpdates.tryEmit(msgPayload)
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -1548,13 +1572,16 @@ object SupabaseClient {
         trackArtist: String,
         positionMs: Long,
         isPlaying: Boolean,
-        hostEpochMs: Long = System.currentTimeMillis()
+        hostEpochMs: Long = System.currentTimeMillis(),
+        action: String = "TICK",
+        trackJson: JSONObject? = null
     ) {
         val ws = realtimeWebSocket ?: return
         if (!_isRealtimeConnected.value) return
         try {
             val payload = JSONObject().apply {
                 put("session_code", sessionCode.uppercase())
+                put("action", action)
                 put("track_id", trackId)
                 put("track_title", trackTitle)
                 put("track_artist", trackArtist)
@@ -1562,6 +1589,9 @@ object SupabaseClient {
                 put("is_playing", isPlaying)
                 put("host_epoch_ms", hostEpochMs)
                 put("client_epoch_ms", System.currentTimeMillis())
+                if (trackJson != null) {
+                    put("track_json", trackJson)
+                }
             }
             val broadcastMsg = JSONObject().apply {
                 put("topic", "realtime:jam_${sessionCode.uppercase()}")
@@ -1571,6 +1601,41 @@ object SupabaseClient {
                     put("payload", payload)
                 })
                 put("ref", "jam_${System.currentTimeMillis()}")
+            }
+            ws.send(broadcastMsg.toString())
+        } catch (e: Exception) {
+            // Non-blocking
+        }
+    }
+
+    fun broadcastJamQueue(sessionCode: String, queue: List<Track>) {
+        val ws = realtimeWebSocket ?: return
+        if (!_isRealtimeConnected.value) return
+        try {
+            val queueArr = JSONArray()
+            queue.forEach { t ->
+                queueArr.put(JSONObject().apply {
+                    put("id", t.id)
+                    put("title", t.title)
+                    put("artist", t.artist)
+                    put("album", t.album)
+                    put("filepath", t.filepath)
+                    put("coverArtPath", t.coverArtPath ?: "")
+                    put("durationSec", t.durationSec)
+                })
+            }
+            val payload = JSONObject().apply {
+                put("session_code", sessionCode.uppercase())
+                put("queue", queueArr)
+            }
+            val broadcastMsg = JSONObject().apply {
+                put("topic", "realtime:jam_${sessionCode.uppercase()}")
+                put("event", "broadcast")
+                put("payload", JSONObject().apply {
+                    put("type", "jam_queue_updated")
+                    put("payload", payload)
+                })
+                put("ref", "jam_q_${System.currentTimeMillis()}")
             }
             ws.send(broadcastMsg.toString())
         } catch (e: Exception) {

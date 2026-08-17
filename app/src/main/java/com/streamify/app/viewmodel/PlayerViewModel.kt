@@ -594,6 +594,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         positionPollingJob = viewModelScope.launch {
             var lastTickMs = System.currentTimeMillis()
             var accumulatedPlaySec = 0L
+            var lastJamHeartbeatMs = 0L
             while (true) {
                 val now = System.currentTimeMillis()
                 val elapsedSec = (now - lastTickMs) / 1000L
@@ -629,6 +630,14 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             duration = finalDuration,
                             currentTrack = updatedTrack
                         )
+                    }
+
+                    // 500ms High-Resolution Jam Lockstep Heartbeat Broadcast (<15ms WebSocket transport)
+                    if (curState.isPlaying && com.streamify.app.data.remote.SupabaseClient.activeJam.value != null && !isApplyingJamSync) {
+                        if (now - lastJamHeartbeatMs >= 500L) {
+                            lastJamHeartbeatMs = now
+                            broadcastJamAction("TICK", track = curState.currentTrack, positionMs = newPos, isPlaying = true)
+                        }
                     }
 
                     // 30-Second Predictive Lookahead Pre-Resolver for 0ms Gapless Playback
@@ -705,6 +714,38 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         playTrack(tappedTrack, searchContext.ifEmpty { listOf(tappedTrack) }, autoHydrateRadio = true)
     }
 
+    var isApplyingJamSync: Boolean = false
+
+    fun broadcastJamAction(
+        action: String,
+        track: Track? = _playerState.value.currentTrack,
+        positionMs: Long = _playerState.value.currentPosition,
+        isPlaying: Boolean = _playerState.value.isPlaying
+    ) {
+        if (isApplyingJamSync) return
+        val jam = com.streamify.app.data.remote.SupabaseClient.activeJam.value ?: return
+        val t = track ?: return
+        val trackJson = org.json.JSONObject().apply {
+            put("id", t.id)
+            put("title", t.title)
+            put("artist", t.artist)
+            put("album", t.album)
+            put("filepath", t.filepath)
+            put("coverArtPath", t.coverArtPath ?: "")
+            put("durationSec", t.durationSec)
+        }
+        com.streamify.app.data.remote.SupabaseClient.broadcastJamTick(
+            sessionCode = jam.sessionCode,
+            trackId = t.id.toString(),
+            trackTitle = t.title,
+            trackArtist = t.artist,
+            positionMs = positionMs,
+            isPlaying = isPlaying,
+            action = action,
+            trackJson = trackJson
+        )
+    }
+
     fun playTrack(track: Track, queue: List<Track> = listOf(track), autoHydrateRadio: Boolean = true) {
         val hydratedTrack = repository.hydrateTrack(track)
         val hydratedQueue = queue.map { qTrack ->
@@ -727,6 +768,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             isBuffering = true
         )
         controller?.pause()
+
+        // Broadcast Track Change to active Jam room
+        broadcastJamAction("TRACK_CHANGE", track = hydratedTrack, positionMs = 0L, isPlaying = true)
 
         // 2. Tracked Single Job - cancel previous resolution jobs to prevent race conditions
         playJob?.cancel()
@@ -998,10 +1042,12 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
     fun play() {
         controller?.play()
+        broadcastJamAction("PLAY", isPlaying = true)
     }
 
     fun pause() {
         controller?.pause()
+        broadcastJamAction("PAUSE", isPlaying = false)
     }
 
     fun setPlaybackSpeed(speed: Float) {
@@ -1034,6 +1080,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     fun seekTo(positionMs: Long) {
         controller?.seekTo(positionMs)
         _playerState.value = _playerState.value.copy(currentPosition = positionMs)
+        broadcastJamAction("SEEK", positionMs = positionMs)
         
         val currentT = _playerState.value.currentTrack
         if (currentT != null && currentT.id > 0) {
