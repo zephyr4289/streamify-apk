@@ -55,11 +55,19 @@ object ContinuumRadioEngine {
     }
 
     /**
+     * Raw Innertube RDAMVM radio crawler used directly by UniversalCandidateBroker.
+     */
+    suspend fun fetchRawRadioTracks(canonicalVideoId: String): List<Track> = withContext(Dispatchers.IO) {
+        val (candidates, _) = executeNextRequest(canonicalVideoId, null)
+        candidates
+    }
+
+    /**
      * Step 1: Initialize radio from search tap or autoplay
      */
     suspend fun startRadio(seedTrack: Track): List<Track> = withContext(Dispatchers.IO) {
         clearRadio()
-        val vId = seedTrack.videoId
+        val vId = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(seedTrack)
         playedVideoIds.add(vId)
         val seedHash = FuzzyTitleMatcher.extractRootHash(seedTrack.title)
         if (seedHash != 0L) playedRootHashes.add(seedHash)
