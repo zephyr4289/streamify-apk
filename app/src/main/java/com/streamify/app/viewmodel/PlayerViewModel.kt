@@ -60,6 +60,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var lastPlayedTrackId: Int? = null
     private var preResolvingTrackKey: String? = null
     private var lookaheadJob: Job? = null
+    private var playJob: Job? = null
+    private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun getController(): MediaController? = controller
 
@@ -203,7 +205,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 when (playbackState) {
                     Player.STATE_ENDED -> {
                         // Failsafe: Reached end of physical timeline without pre-buffered slot ready
-                        advanceQueue(isUserSkip = false)
+                        if (!isAdvancing.get()) {
+                            advanceQueue(isUserSkip = false)
+                        }
                     }
                     Player.STATE_BUFFERING -> {
                         _playerState.value = _playerState.value.copy(isBuffering = true)
@@ -265,11 +269,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             e.printStackTrace()
                         }
                     }
-                } else if (newTrackId != null && newTrackId > 0) {
-                    viewModelScope.launch {
-                        repository.updateSessionVector(newTrackId, 0.45f)
-                        repository.recordTrackPlay(newTrackId)
-                    }
                 }
                 
                 // Project Chronos AI & Circadian Event Logging: Track change
@@ -300,34 +299,36 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             }
                         }
                     }
-
-                    NativeBridge.pushTelemetryEvent(NativeBridge.EVENT_PLAY_TRANSITION, lastPlayedTrackId!!.toLong(), newTrackId.toFloat())
-                    viewModelScope.launch {
-                        if (wasSkipped && ctrl.currentPosition < 10000) {
-                            repository.logSkipEvent(lastPlayedTrackId!!, newTrackId)
-                        } else {
-                            repository.logPlayEvent(lastPlayedTrackId!!, newTrackId)
-                        }
-                        repository.logEngagementEvent(lastPlayedTrackId!!, posSec, ratio, currentHour)
-                        repository.recordTrackCooccurrence(lastPlayedTrackId!!, newTrackId)
-                    }
-                }
-                lastPlayedTrackId = newTrackId
-                savePlayerState(context)
-                
-                // Auto-Fetch Lyrics if missing using ResilientMediaRouter (Kotlin LRCLIB/NetEase racer first, lazy Python fallback)
-                val playingTrack = _playerState.value.currentTrack
-                if (playingTrack != null && playingTrack.id > 0 && playingTrack.lyricsPath.isNullOrBlank()) {
+                    
+                    lastPlayedTrackId = newTrackId
+                    
+                    // Trigger Native Circadian Habit Weight Decay
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         try {
-                            val lyricsText = com.streamify.app.data.network.ResilientMediaRouter.fetchWithFallback<String>(
-                                timeoutMs = 2500L,
-                                primary = {
-                                    com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(
-                                        playingTrack.title,
-                                        playingTrack.artist,
-                                        playingTrack.durationSec
-                                    )
+                            repository.decayHabitWeights(currentHour)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                } else if (newTrackId != null) {
+                    lastPlayedTrackId = newTrackId
+                }
+                
+                // Automatic Dual-Engine Lyrics Scraping & Sync Cache Dispatch
+                val playingTrack = _playerState.value.currentTrack
+                if (playingTrack != null && playingTrack.lyricsPath.isNullOrBlank()) {
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            val lyricsText = com.streamify.app.data.network.LyricsResolver.resolveLyrics(
+                                track = playingTrack,
+                                onLineSynced = { timeMs, line ->
+                                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                        _currentSyllableFlow.value = SyllableState(
+                                            activeWord = line,
+                                            confidence = 0.95f,
+                                            timeOffsetMs = timeMs
+                                        )
+                                    }
                                 },
                                 fallback = {
                                     val pyRes = com.streamify.app.data.network.PythonEngine.executeFallback(
@@ -377,15 +378,12 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 // CONTINUUM INFINITE RADIO: When approaching the end of the queue (or queue size <= 2), fetch next radio batch
                 if (_playerState.value.isAutoPlayEnabled) {
                     val currentQueue = _playerState.value.queue
-                    val currentIdx = currentQueue.indexOfFirst {
-                        (it.id != 0 && it.id.toString() == mediaItem?.mediaId) || it.filepath == mediaItem?.mediaId || it.title == mediaItem?.mediaMetadata?.title
-                    }.takeIf { it >= 0 } ?: (ctrl.currentMediaItemIndex)
+                    val currentIdx = _playerState.value.currentIndex
 
                     if (currentIdx >= currentQueue.size - 2) {
                         viewModelScope.launch(Dispatchers.IO) {
                             val currentT = _playerState.value.currentTrack
                             if (currentT != null) {
-                                // Query Universal Candidate Broker (Multi-channel candidate harvesting + AntiDrift filter)
                                 val continuumRecs = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
                                     seedTrack = currentT,
                                     activeQueue = currentQueue,
@@ -393,21 +391,16 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                 )
                                 if (continuumRecs.isNotEmpty()) {
                                     val newQueue = _playerState.value.queue.toMutableList()
-                                    val newMediaItems = mutableListOf<MediaItem>()
                                     for (rec in continuumRecs) {
                                         val isDup = newQueue.any {
                                             com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rec.title, rec.artist)
                                         }
                                         if (!isDup) {
                                             newQueue.add(rec)
-                                            newMediaItems.add(buildMediaItem(rec))
                                         }
                                     }
-                                    if (newMediaItems.isNotEmpty()) {
-                                        withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                            _playerState.value = _playerState.value.copy(queue = newQueue)
-                                            ctrl.addMediaItems(newMediaItems)
-                                        }
+                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        _playerState.value = _playerState.value.copy(queue = newQueue)
                                     }
                                 }
                             }
@@ -430,34 +423,29 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 reason: Int
             ) {
                 if (_playerState.value.isAutoPlayEnabled) {
-                    val currentIndex = ctrl.currentMediaItemIndex
-                    val totalItems = ctrl.mediaItemCount
-                    if (totalItems > 0 && totalItems - currentIndex <= 2) {
+                    val currentIdx = _playerState.value.currentIndex
+                    val currentQueue = _playerState.value.queue
+                    if (currentQueue.isNotEmpty() && currentQueue.size - currentIdx <= 2) {
                         viewModelScope.launch(Dispatchers.IO) {
                             val currentT = _playerState.value.currentTrack
                             if (currentT != null) {
                                 val newTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
                                     seedTrack = currentT,
-                                    activeQueue = _playerState.value.queue,
+                                    activeQueue = currentQueue,
                                     targetCount = 15
                                 )
                                 if (newTracks.isNotEmpty()) {
+                                    val currentQ = _playerState.value.queue.toMutableList()
+                                    for (track in newTracks) {
+                                        val isDup = currentQ.any {
+                                            com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
+                                        }
+                                        if (!isDup) {
+                                            currentQ.add(track)
+                                        }
+                                    }
                                     withContext(Dispatchers.Main) {
-                                        val currentQ = _playerState.value.queue.toMutableList()
-                                        val newMediaItems = mutableListOf<MediaItem>()
-                                        for (track in newTracks) {
-                                            val isDup = currentQ.any {
-                                                com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
-                                            }
-                                            if (!isDup) {
-                                                currentQ.add(track)
-                                                newMediaItems.add(buildMediaItem(track))
-                                            }
-                                        }
-                                        if (newMediaItems.isNotEmpty()) {
-                                            _playerState.value = _playerState.value.copy(queue = currentQ)
-                                            ctrl.addMediaItems(newMediaItems)
-                                        }
+                                        _playerState.value = _playerState.value.copy(queue = currentQ)
                                     }
                                 }
                             }
@@ -483,17 +471,25 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                         currentQueue[idx] = updated
                                         _playerState.value = _playerState.value.copy(queue = currentQueue, currentTrack = updated)
                                         val mediaItem = buildMediaItem(updated)
-                                        ctrl.replaceMediaItem(idx, mediaItem)
-                                        ctrl.seekTo(idx, 0L)
+                                        ctrl.setMediaItem(mediaItem, 0L)
                                         ctrl.prepare()
                                         ctrl.play()
                                     }
                                 }
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    advanceQueue(isUserSkip = false)
+                                }
                             }
                         } catch (e: Exception) {
                             e.printStackTrace()
+                            withContext(Dispatchers.Main) {
+                                advanceQueue(isUserSkip = false)
+                            }
                         }
                     }
+                } else {
+                    advanceQueue(isUserSkip = false)
                 }
             }
         })
@@ -524,7 +520,14 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                 val updatedQ = currentQ.toMutableList()
                                 updatedQ[currentIndex + 1] = warmTrack
                                 _playerState.value = _playerState.value.copy(queue = updatedQ)
-                                controller?.replaceMediaItem(currentIndex + 1, buildMediaItem(warmTrack))
+                                controller?.let { ctrl ->
+                                    val warmItem = buildMediaItem(warmTrack)
+                                    if (ctrl.mediaItemCount > 1) {
+                                        ctrl.replaceMediaItem(1, warmItem)
+                                    } else if (ctrl.mediaItemCount == 1) {
+                                        ctrl.addMediaItem(warmItem)
+                                    }
+                                }
                             }
                         }
                     }
@@ -562,15 +565,19 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
     
     private fun updateCurrentTrackFromMediaItem(mediaItem: MediaItem?) {
-        if (mediaItem == null) {
-            _playerState.value = _playerState.value.copy(currentTrack = null)
-            return
-        }
+        if (mediaItem == null) return
         
-        // Find in queue
+        val mediaId = mediaItem.mediaId
+        val metaTitle = mediaItem.mediaMetadata.title?.toString()
+        val metaArtist = mediaItem.mediaMetadata.artist?.toString()
+
+        // Match against current logical queue using stable identifier or metadata
         val track = _playerState.value.queue.find { 
-            it.id.toString() == mediaItem.mediaId || it.filepath == mediaItem.mediaId
-        } ?: _playerState.value.queue.firstOrNull()
+            (it.id != 0 && it.id.toString() == mediaId) ||
+            "trk_${kotlin.math.abs((it.title.trim().lowercase() + "_" + it.artist.trim().lowercase()).hashCode())}" == mediaId ||
+            (metaTitle != null && metaArtist != null && it.title.equals(metaTitle, ignoreCase = true) && it.artist.equals(metaArtist, ignoreCase = true)) ||
+            (metaTitle != null && it.title.equals(metaTitle, ignoreCase = true))
+        }
 
         if (track != null) {
             _playerState.value = _playerState.value.copy(
@@ -652,14 +659,20 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             android.net.Uri.parse(t.filepath)
         } else if (t.filepath.startsWith("file://")) {
             android.net.Uri.parse(t.filepath)
-        } else if (t.filepath.isNotBlank() && !t.filepath.startsWith("online://")) {
+        } else if (t.filepath.isNotBlank() && !t.filepath.startsWith("online://") && !t.filepath.startsWith("ytsearch:")) {
             android.net.Uri.fromFile(java.io.File(t.filepath))
         } else {
             android.net.Uri.EMPTY
         }
 
+        val stableMediaId = if (t.id != 0) {
+            t.id.toString()
+        } else {
+            "trk_${kotlin.math.abs((t.title.trim().lowercase() + "_" + t.artist.trim().lowercase()).hashCode())}"
+        }
+
         return MediaItem.Builder()
-            .setMediaId(if (t.id != 0) t.id.toString() else t.filepath)
+            .setMediaId(stableMediaId)
             .setUri(uri)
             .setMediaMetadata(
                 MediaMetadata.Builder()
@@ -683,10 +696,23 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun playTrack(track: Track, queue: List<Track> = listOf(track), autoHydrateRadio: Boolean = true) {
-        viewModelScope.launch {
-            val targetIndex = queue.indexOfFirst {
-                (it.id != 0 && it.id == track.id) || (it.filepath.isNotBlank() && it.filepath == track.filepath) || it.title == track.title
-            }.takeIf { it >= 0 } ?: 0
+        val targetIndex = queue.indexOfFirst {
+            (it.id != 0 && it.id == track.id) || (it.filepath.isNotBlank() && it.filepath == track.filepath) || it.title == track.title
+        }.takeIf { it >= 0 } ?: 0
+
+        // 1. Immediately update UI state and pause old track for instantaneous tactile response
+        _playerState.value = _playerState.value.copy(
+            currentTrack = track,
+            currentIndex = targetIndex,
+            queue = queue,
+            isPlaying = true,
+            isBuffering = true
+        )
+        controller?.pause()
+
+        // 2. Tracked Single Job - cancel previous resolution jobs to prevent race conditions
+        playJob?.cancel()
+        playJob = viewModelScope.launch {
             playTrackInternal(track, targetIndex, queue)
 
             // Asynchronously hydrate upcoming continuum radio if queue is small (e.g. 1-3 songs)
@@ -708,20 +734,15 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 if (radioTracks.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
                         val currentQueue = _playerState.value.queue.toMutableList()
-                        val newMediaItems = mutableListOf<MediaItem>()
                         for (rt in radioTracks) {
                             val isDup = currentQueue.any {
                                 com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rt.title, rt.artist)
                             }
                             if (!isDup) {
                                 currentQueue.add(rt)
-                                newMediaItems.add(buildMediaItem(rt))
                             }
                         }
-                        if (newMediaItems.isNotEmpty()) {
-                            _playerState.value = _playerState.value.copy(queue = currentQueue)
-                            controller?.addMediaItems(newMediaItems)
-                        }
+                        _playerState.value = _playerState.value.copy(queue = currentQueue)
                     }
                 }
             } catch (e: Exception) {
@@ -754,65 +775,70 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun advanceQueue(isUserSkip: Boolean = false) {
+        if (!isAdvancing.compareAndSet(false, true)) return
         viewModelScope.launch {
-            lookaheadJob?.cancel()
-            val curState = _playerState.value
-            val queue = curState.queue
-            if (queue.isEmpty()) return@launch
-            val currentIndex = curState.currentIndex
-            val isAutoplayEnabled = curState.isAutoPlayEnabled
-            val isRepeatActive = curState.isRepeatActive
-            val ctrl = controller
+            try {
+                lookaheadJob?.cancel()
+                val curState = _playerState.value
+                val queue = curState.queue
+                if (queue.isEmpty()) return@launch
+                val currentIndex = curState.currentIndex
+                val isAutoplayEnabled = curState.isAutoPlayEnabled
+                val isRepeatActive = curState.isRepeatActive
+                val ctrl = controller
 
-            if (isRepeatActive && ctrl?.repeatMode == Player.REPEAT_MODE_ONE && !isUserSkip) {
-                ctrl.seekTo(0L)
-                ctrl.play()
-                return@launch
-            }
+                if (isRepeatActive && ctrl?.repeatMode == Player.REPEAT_MODE_ONE && !isUserSkip) {
+                    ctrl.seekTo(0L)
+                    ctrl.play()
+                    return@launch
+                }
 
-            val nextIndex = currentIndex + 1
-            when {
-                // Path A: Next track exists within current queue bounds
-                nextIndex < queue.size -> {
-                    playTrackInternal(queue[nextIndex], nextIndex, queue)
-                }
-                // Path B: End of queue reached with REPEAT_ALL enabled
-                nextIndex >= queue.size && isRepeatActive && queue.isNotEmpty() -> {
-                    playTrackInternal(queue.first(), 0, queue)
-                }
-                // Path C: End of queue reached with AUTOPLAY enabled (Continuum Engine)
-                nextIndex >= queue.size && isAutoplayEnabled && queue.isNotEmpty() -> {
-                    _playerState.value = _playerState.value.copy(isBuffering = true)
-                    val seedTrack = queue.last()
-                    val freshCandidates = withContext(Dispatchers.IO) {
-                        com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
-                            seedTrack = seedTrack,
-                            activeQueue = queue,
-                            targetCount = 15
-                        )
+                val nextIndex = currentIndex + 1
+                when {
+                    // Path A: Next track exists within current queue bounds
+                    nextIndex < queue.size -> {
+                        playTrackInternal(queue[nextIndex], nextIndex, queue)
                     }
-                    if (freshCandidates.isNotEmpty()) {
-                        val updatedQueue = queue.toMutableList()
-                        for (cand in freshCandidates) {
-                            val isDup = updatedQueue.any {
-                                com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, cand.title, cand.artist)
-                            }
-                            if (!isDup) {
-                                updatedQueue.add(cand)
-                            }
+                    // Path B: End of queue reached with REPEAT_ALL enabled
+                    nextIndex >= queue.size && isRepeatActive && queue.isNotEmpty() -> {
+                        playTrackInternal(queue.first(), 0, queue)
+                    }
+                    // Path C: End of queue reached with AUTOPLAY enabled (Continuum Engine)
+                    nextIndex >= queue.size && isAutoplayEnabled && queue.isNotEmpty() -> {
+                        _playerState.value = _playerState.value.copy(isBuffering = true)
+                        val seedTrack = queue.last()
+                        val freshCandidates = withContext(Dispatchers.IO) {
+                            com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                                seedTrack = seedTrack,
+                                activeQueue = queue,
+                                targetCount = 15
+                            )
                         }
-                        _playerState.value = _playerState.value.copy(queue = updatedQueue)
-                        playTrackInternal(freshCandidates.first(), nextIndex, updatedQueue)
-                    } else {
+                        if (freshCandidates.isNotEmpty()) {
+                            val updatedQueue = queue.toMutableList()
+                            for (cand in freshCandidates) {
+                                val isDup = updatedQueue.any {
+                                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, cand.title, cand.artist)
+                                }
+                                if (!isDup) {
+                                    updatedQueue.add(cand)
+                                }
+                            }
+                            _playerState.value = _playerState.value.copy(queue = updatedQueue)
+                            playTrackInternal(freshCandidates.first(), nextIndex, updatedQueue)
+                        } else {
+                            ctrl?.pause()
+                            _playerState.value = _playerState.value.copy(isPlaying = false, isBuffering = false)
+                        }
+                    }
+                    // Path D: Queue fully exhausted
+                    else -> {
                         ctrl?.pause()
                         _playerState.value = _playerState.value.copy(isPlaying = false, isBuffering = false)
                     }
                 }
-                // Path D: Queue fully exhausted
-                else -> {
-                    ctrl?.pause()
-                    _playerState.value = _playerState.value.copy(isPlaying = false, isBuffering = false)
-                }
+            } finally {
+                isAdvancing.set(false)
             }
         }
     }
@@ -854,7 +880,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
         }
 
-        val isPlayable = resolvedTrack.filepath.startsWith("http") ||
+        val isDirectStream = resolvedTrack.filepath.startsWith("http") &&
+                !resolvedTrack.filepath.contains("youtube.com/watch") &&
+                !resolvedTrack.filepath.contains("music.youtube.com") &&
+                !resolvedTrack.filepath.startsWith("ytsearch:")
+        val isPlayable = isDirectStream ||
                 resolvedTrack.filepath.startsWith("file") ||
                 java.io.File(resolvedTrack.filepath).exists()
 
@@ -875,7 +905,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             armLookaheadPreBuffer(index + 1, queue)
         } else {
             android.util.Log.e("PlayerViewModel", "Track stream unresolvable for ${track.title}, auto-skipping")
-            advanceQueue(isUserSkip = false)
+            withContext(Dispatchers.Main) {
+                advanceQueue(isUserSkip = false)
+            }
         }
     }
 
@@ -896,20 +928,15 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     if (fresh.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
                             val liveQ = _playerState.value.queue.toMutableList()
-                            val newMediaItems = mutableListOf<MediaItem>()
                             for (ft in fresh) {
                                 val isDup = liveQ.any {
                                     com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, ft.title, ft.artist)
                                 }
                                 if (!isDup) {
                                     liveQ.add(ft)
-                                    newMediaItems.add(buildMediaItem(ft))
                                 }
                             }
-                            if (newMediaItems.isNotEmpty()) {
-                                _playerState.value = _playerState.value.copy(queue = liveQ)
-                                controller?.addMediaItems(newMediaItems)
-                            }
+                            _playerState.value = _playerState.value.copy(queue = liveQ)
                         }
                     }
                 } catch (e: Exception) {
