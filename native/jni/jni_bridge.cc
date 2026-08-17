@@ -7,6 +7,7 @@
 #include "../engine/TelemetryEngine.h"
 #include "../engine/ChronosProfiler.h"
 #include "../engine/PtpEngine.h"
+#include "../engine/AirDropPhysicsEngine.h"
 #include "../dsp/LufsNormalizer.h"
 
 // Cached Global JNI References for zero lookup overhead
@@ -756,6 +757,59 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_streamify_app_data_NativeBridge_nukeLocalDatabase(JNIEnv* env, jobject /* this */) {
     bool success = StreamifyDB::getInstance().nukeDatabase();
     return success ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_stepAirDropPhysics(
+    JNIEnv* env,
+    jobject /* this */,
+    jfloatArray inOutBuffer,
+    jfloat targetX,
+    jfloat targetY,
+    jfloat initialDist,
+    jfloat dt
+) {
+    if (!inOutBuffer) return;
+    jfloat* buf = env->GetFloatArrayElements(inOutBuffer, nullptr);
+    if (!buf) return;
+
+    streamify::AirDropState state;
+    state.x = buf[0];
+    state.y = buf[1];
+    state.z = buf[2];
+    state.vx = buf[3];
+    state.vy = buf[4];
+    state.vz = buf[5];
+    state.stretch_parallel = buf[6];
+    state.stretch_perp = buf[7];
+    state.rotation_rad = buf[8];
+    state.pitch_deg = buf[9];
+    state.roll_deg = buf[10];
+    state.impact_progress = buf[11];
+    state.is_docked = (buf[12] > 0.5f);
+
+    streamify::TargetDock target;
+    target.x = targetX;
+    target.y = targetY;
+    target.initial_dist = initialDist;
+
+    streamify::AirDropPhysicsEngine::stepRK4(state, target, dt);
+
+    buf[0] = state.x;
+    buf[1] = state.y;
+    buf[2] = state.z;
+    buf[3] = state.vx;
+    buf[4] = state.vy;
+    buf[5] = state.vz;
+    buf[6] = state.stretch_parallel;
+    buf[7] = state.stretch_perp;
+    buf[8] = state.rotation_rad;
+    buf[9] = state.pitch_deg;
+    buf[10] = state.roll_deg;
+    buf[11] = state.impact_progress;
+    buf[12] = state.is_docked ? 1.0f : 0.0f;
+
+    env->ReleaseFloatArrayElements(inOutBuffer, buf, 0);
 }
 
 

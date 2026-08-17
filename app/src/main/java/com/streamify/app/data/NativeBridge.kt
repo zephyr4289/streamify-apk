@@ -133,6 +133,15 @@ object NativeBridge {
 
     // Atomic Database Purge
     external fun nukeLocalDatabase(): Boolean
+
+    // Project Fluid: C++20 RK4 AirDrop Fluid Dynamics Engine
+    external fun stepAirDropPhysics(
+        inOutBuffer: FloatArray,
+        targetX: Float,
+        targetY: Float,
+        initialDist: Float,
+        dt: Float
+    )
 }
 
 

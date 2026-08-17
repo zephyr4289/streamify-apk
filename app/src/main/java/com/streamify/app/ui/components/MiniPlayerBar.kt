@@ -55,13 +55,22 @@ fun MiniPlayerBar(
         }
     }
 
-    val pulseScale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isAbsorbing) 1.025f else 1.0f,
+    val recoilScaleX by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isAbsorbing) 1.045f else 1.0f,
         animationSpec = androidx.compose.animation.core.spring(
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
-            stiffness = 1600f
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
         ),
-        label = "MiniPlayerPulse"
+        label = "MiniPlayerRecoilX"
+    )
+
+    val recoilScaleY by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isAbsorbing) 0.935f else 1.0f,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+        ),
+        label = "MiniPlayerRecoilY"
     )
 
     Surface(
@@ -71,8 +80,8 @@ fun MiniPlayerBar(
             .height(64.dp)
             .graphicsLayer {
                 this.alpha = alpha
-                this.scaleX = pulseScale
-                this.scaleY = pulseScale
+                this.scaleX = recoilScaleX
+                this.scaleY = recoilScaleY
             }
     ) {
         Box(

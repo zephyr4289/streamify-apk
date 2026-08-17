@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.streamify.app.ui.theme.*
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 fun QuantumSonicTokenOverlay(
@@ -35,137 +35,103 @@ fun QuantumSonicTokenOverlay(
 
     val density = LocalDensity.current
 
-    // 120 FPS Frame-Clock Physics Loop
+    // Hardware VSYNC-Locked Choreographer Loop (120Hz / 90Hz Display Refresh)
     LaunchedEffect(controller.stage) {
-        var lastFrameTime = System.currentTimeMillis()
-        var totalTime = 0L
+        var lastFrameNanos = 0L
 
-        while (controller.stage != TokenStage.DONE && controller.stage != TokenStage.IDLE) {
-            val now = System.currentTimeMillis()
-            val delta = (now - lastFrameTime).coerceAtLeast(1L)
-            lastFrameTime = now
-            totalTime += delta
-
-            controller.updatePhysics(delta, totalTime)
-            delay(8L) // ~120 FPS tick rate
+        while (isActive && controller.stage != TokenStage.DONE && controller.stage != TokenStage.IDLE) {
+            withFrameNanos { frameTimeNanos ->
+                if (lastFrameNanos != 0L) {
+                    val dt = (frameTimeNanos - lastFrameNanos) / 1_000_000_000f
+                    controller.stepSimulation(dt)
+                }
+                lastFrameNanos = frameTimeNanos
+            }
         }
-        delay(80L)
         controller.reset()
     }
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .zIndex(100f) // Topmost overlay layer
+            .zIndex(100f) // Topmost overlay
     ) {
         val screenWidthPx = constraints.maxWidth.toFloat()
         val cardWidthDp = (maxWidth * 0.88f).coerceIn(280.dp, 560.dp)
         val cardWidthPx = with(density) { cardWidthDp.toPx() }
         val cardHeightPx = with(density) { 60.dp.toPx() }
 
-        // Symmetrically center on the current X coordinate, bounded by screen edges
         val xClamped = (controller.currentPosition.x - (cardWidthPx / 2f))
             .coerceIn(8f, (screenWidthPx - cardWidthPx - 8f).coerceAtLeast(8f))
         val yClamped = (controller.currentPosition.y - (cardHeightPx / 2f)).coerceAtLeast(0f)
 
-        // ─── APPLE AIRDROP LUMINESCENCE SHOCKWAVE (Impact Bloom) ───
-        if (controller.stage == TokenStage.IMPACT || controller.stage == TokenStage.DISSOLVE) {
+        // ─── 1. APPLE AIRDROP LUMINESCENCE SHOCKWAVE ON DOCK IMPACT ───
+        if (controller.stage == TokenStage.IMPACT) {
             ImpactBloomCanvas(
                 center = Offset(controller.destination.x, controller.destination.y),
                 progress = controller.impactProgress
             )
         }
 
-        // ─── FLOATING 3D QUANTUM GHOST CARD ───
+        // ─── 2. FLUID METAMORPHIC AIRDROP CAPSULE ───
         Box(
             modifier = Modifier
                 .offset { IntOffset(xClamped.toInt(), yClamped.toInt()) }
                 .width(cardWidthDp)
                 .height(60.dp)
                 .graphicsLayer {
-                    this.scaleX = controller.scaleX
-                    this.scaleY = controller.scaleY
-                    this.rotationX = controller.rotationX
-                    this.rotationY = controller.rotationY
+                    // Aerodynamic velocity-aligned stretch & volume conservation
+                    this.scaleX = controller.stretchParallel
+                    this.scaleY = controller.stretchPerp
+                    this.rotationX = controller.pitchDeg
+                    this.rotationY = controller.rollDeg
                     this.transformOrigin = TransformOrigin.Center
-                    this.cameraDistance = 16f * density.density
-                    // Smoothly fade out at the end of impact
-                    this.alpha = if (controller.stage == TokenStage.DISSOLVE) 0.3f else 1f
+                    this.cameraDistance = 18f * density.density
+
+                    // Seamless dissolution upon impact
+                    this.alpha = if (controller.stage == TokenStage.IMPACT) {
+                        (1f - (controller.impactProgress * 1.4f)).coerceIn(0f, 1f)
+                    } else {
+                        1f
+                    }
                 }
                 .shadow(
-                    elevation = if (controller.stage == TokenStage.LEVITATING) 24.dp else 12.dp,
-                    shape = RoundedCornerShape(12.dp)
+                    elevation = if (controller.stage == TokenStage.FLYING) 24.dp else 8.dp,
+                    shape = RoundedCornerShape(16.dp),
+                    spotColor = Primary.copy(alpha = 0.5f),
+                    ambientColor = ActiveControl.copy(alpha = 0.35f)
                 )
         ) {
-            QuantumGhostCard(
+            AirDropFluidCard(
                 title = controller.trackTitle,
                 artist = controller.trackArtist,
                 artUrl = controller.trackArt,
-                isLevitating = controller.stage == TokenStage.LEVITATING
+                isFlying = controller.stage == TokenStage.FLYING
             )
         }
     }
 }
 
 @Composable
-fun ImpactBloomCanvas(
-    center: Offset,
-    progress: Float,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier.fillMaxSize()) {
-        val safeCenter = if (center != Offset.Zero) center else Offset(size.width / 2f, size.height - 100f)
-
-        // Ring 1: High-velocity glow ring (Expands 0 -> 130dp, Alpha 0.85 -> 0.0)
-        val glowRadius = 130.dp.toPx() * progress
-        val glowAlpha = ((1f - progress) * 0.85f).coerceIn(0f, 1f)
-
-        drawCircle(
-            color = ActiveControl.copy(alpha = glowAlpha),
-            radius = glowRadius,
-            center = safeCenter,
-            style = Stroke(width = 6.dp.toPx())
-        )
-
-        // Ring 2: Concentrated white-hot core flash (Expands 0 -> 55dp, Alpha 0.95 -> 0.0)
-        val coreRadius = 55.dp.toPx() * (progress * 1.3f).coerceAtMost(1f)
-        val coreAlpha = ((1f - (progress * 1.5f)).coerceIn(0f, 1f) * 0.95f)
-
-        drawCircle(
-            color = Color.White.copy(alpha = coreAlpha),
-            radius = coreRadius,
-            center = safeCenter
-        )
-    }
-}
-
-@Composable
-private fun QuantumGhostCard(
+private fun AirDropFluidCard(
     title: String,
     artist: String,
     artUrl: String?,
-    isLevitating: Boolean
+    isFlying: Boolean
 ) {
-    val auraBrush = if (isLevitating) {
-        Brush.sweepGradient(
-            listOf(
-                Color.Transparent,
-                ActiveControl.copy(alpha = 0.85f),
-                Primary,
-                Color.Transparent
-            )
+    // Dynamic luminescence aura sweep
+    val auraBrush = Brush.sweepGradient(
+        listOf(
+            Color.Transparent,
+            Primary.copy(alpha = if (isFlying) 0.9f else 0.4f),
+            ActiveControl,
+            Color.White.copy(alpha = 0.8f),
+            Color.Transparent
         )
-    } else {
-        Brush.linearGradient(
-            listOf(
-                ActiveControl.copy(alpha = 0.6f),
-                Primary.copy(alpha = 0.6f)
-            )
-        )
-    }
+    )
 
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         color = BgSurfaceElevated,
         border = BorderStroke(1.5.dp, auraBrush),
         modifier = Modifier.fillMaxSize()
@@ -178,8 +144,8 @@ private fun QuantumGhostCard(
         ) {
             YtThumbnail(
                 url = artUrl,
-                size = 44.dp,
-                cornerRadius = 6.dp
+                size = 46.dp,
+                cornerRadius = 8.dp
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -187,7 +153,10 @@ private fun QuantumGhostCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
+                    style = LocalAppTypography.current.songTitle.copy(
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
                     color = TextMain,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -204,5 +173,37 @@ private fun QuantumGhostCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ImpactBloomCanvas(
+    center: Offset,
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.fillMaxSize()) {
+        val safeCenter = if (center != Offset.Zero) center else Offset(size.width / 2f, size.height - 100f)
+
+        // Ring 1: Primary Phosphor Luminescence Shockwave
+        val glowRadius = 140.dp.toPx() * progress
+        val glowAlpha = ((1f - progress) * 0.9f).coerceIn(0f, 1f)
+
+        drawCircle(
+            color = Primary.copy(alpha = glowAlpha),
+            radius = glowRadius,
+            center = safeCenter,
+            style = Stroke(width = 5.dp.toPx())
+        )
+
+        // Ring 2: Concentrated white-hot kinetic core
+        val coreRadius = 60.dp.toPx() * (progress * 1.2f).coerceAtMost(1f)
+        val coreAlpha = ((1f - (progress * 1.6f)).coerceIn(0f, 1f) * 0.95f)
+
+        drawCircle(
+            color = Color.White.copy(alpha = coreAlpha),
+            radius = coreRadius,
+            center = safeCenter
+        )
     }
 }
