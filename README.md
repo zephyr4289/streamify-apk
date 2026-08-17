@@ -1103,6 +1103,12 @@ streamify-apk/
 * **Immediate Transition Sync**: Pushes telemetry immediately on track transitions ($>10\text{s}$).
 * **Robust Admin Hydration**: Merges local device stats with cloud metrics to eliminate 0-minute display bugs.
 
+#### 📥 5. 0-Search Instant Playlist Importer & Concurrency-Safe Resolver
+* **Full Metadata Preservation**: Extracts `videoId`, high-res artwork URL, and `durationSec` directly from YouTube's initial Innertube `browse`/`next` response.
+* **0-Search Fast-Path**: Bypasses redundant search storms for YouTube/YTM playlists, writing permanent canonical watch URLs into SQLite in **$<50\text{ms}$** with 0 rate limits.
+* **Flow Invariant Safety & Strict Ordering**: Employs `channelFlow` with fixed-size indexed arrays to prevent concurrent emission crashes and guarantee 100% exact song sequence preservation.
+* **Throttled Multi-Service Fallback**: Gracefully imports Spotify and Apple Music playlists via 3-worker concurrency with 100ms request staggering.
+
 ---
 
 ## 🛠️ 9. Native NDK Toolchain, CTest Verification & Build Guide
