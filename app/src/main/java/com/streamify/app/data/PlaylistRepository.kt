@@ -16,8 +16,40 @@ data class Playlist(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val description: String = "",
-    val trackIds: List<Int> = emptyList()
+    val coverUrl: String? = null,
+    val isSystem: Boolean = false,
+    val isDeleted: Boolean = false,
+    val version: Long = 1L,
+    val updatedAt: Long = System.currentTimeMillis(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val trackIds: List<Int> = emptyList(),
+    val trackPositions: Map<Int, Double> = emptyMap()
 )
+
+object FractionalIndexEngine {
+    private const val DEFAULT_START_POSITION = 1000.0
+    private const val DEFAULT_SPACING = 1000.0
+
+    /**
+     * Computes an O(1) conflict-free fractional index between two boundary tracks.
+     */
+    fun calculateMidpoint(prevPosition: Double?, nextPosition: Double?): Double {
+        return when {
+            prevPosition == null && nextPosition == null -> DEFAULT_START_POSITION
+            prevPosition == null -> (nextPosition!! / 2.0).coerceAtLeast(0.0000001)
+            nextPosition == null -> prevPosition + DEFAULT_SPACING
+            else -> {
+                val delta = nextPosition - prevPosition
+                if (delta < 0.00001) {
+                    // Precision degradation guard: micro-offset
+                    prevPosition + (delta / 2.0)
+                } else {
+                    prevPosition + (delta / 2.0)
+                }
+            }
+        }
+    }
+}
 
 object PlaylistRepository {
     private var playlistFile: File? = null
@@ -25,7 +57,7 @@ object PlaylistRepository {
     private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
     val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
 
-    fun getPlaylists(): List<Playlist> = _playlists.value
+    fun getPlaylists(): List<Playlist> = _playlists.value.filter { !it.isDeleted }
 
     fun init(context: Context) {
         if (playlistFile != null) return
@@ -52,14 +84,44 @@ object PlaylistRepository {
                 for (j in 0 until trackIdsArray.length()) {
                     trackIds.add(trackIdsArray.getInt(j))
                 }
-                list.add(
-                    Playlist(
-                        id = obj.getString("id"),
-                        name = obj.getString("name"),
-                        description = obj.optString("description", ""),
-                        trackIds = trackIds
+                
+                val positionsMap = mutableMapOf<Int, Double>()
+                val posObj = obj.optJSONObject("trackPositions")
+                if (posObj != null) {
+                    val keys = posObj.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        val tId = k.toIntOrNull()
+                        if (tId != null) {
+                            positionsMap[tId] = posObj.optDouble(k, 1000.0)
+                        }
+                    }
+                } else {
+                    var curPos = 1000.0
+                    trackIds.forEach { tId ->
+                        positionsMap[tId] = curPos
+                        curPos += 1000.0
+                    }
+                }
+
+                val isDeleted = obj.optBoolean("isDeleted", false)
+                if (!isDeleted) {
+                    list.add(
+                        Playlist(
+                            id = obj.getString("id"),
+                            name = obj.getString("name"),
+                            description = obj.optString("description", ""),
+                            coverUrl = if (obj.has("coverUrl")) obj.optString("coverUrl") else null,
+                            isSystem = obj.optBoolean("isSystem", false),
+                            isDeleted = false,
+                            version = obj.optLong("version", 1L),
+                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                            createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                            trackIds = trackIds,
+                            trackPositions = positionsMap
+                        )
                     )
-                )
+                }
             }
             _playlists.value = list
         } catch (e: Exception) {
@@ -75,9 +137,23 @@ object PlaylistRepository {
                 obj.put("id", playlist.id)
                 obj.put("name", playlist.name)
                 obj.put("description", playlist.description)
+                obj.put("isSystem", playlist.isSystem)
+                obj.put("isDeleted", playlist.isDeleted)
+                obj.put("version", playlist.version)
+                obj.put("updatedAt", playlist.updatedAt)
+                obj.put("createdAt", playlist.createdAt)
+                if (playlist.coverUrl != null) obj.put("coverUrl", playlist.coverUrl)
+
                 val trackIdsArray = JSONArray()
                 playlist.trackIds.forEach { trackIdsArray.put(it) }
                 obj.put("trackIds", trackIdsArray)
+
+                val posObj = JSONObject()
+                playlist.trackPositions.forEach { (tId, pos) ->
+                    posObj.put(tId.toString(), pos)
+                }
+                obj.put("trackPositions", posObj)
+
                 jsonArray.put(obj)
             }
             val file = playlistFile ?: return
@@ -87,56 +163,222 @@ object PlaylistRepository {
         }
     }
 
-    fun createPlaylist(name: String, description: String = ""): Playlist {
-        val newPlaylist = Playlist(name = name, description = description)
+    fun createPlaylist(name: String, description: String = "", isSystem: Boolean = false): Playlist {
+        val now = System.currentTimeMillis()
+        val newPlaylist = Playlist(
+            id = "pl_" + UUID.randomUUID().toString(),
+            name = name.trim().ifBlank { "New Playlist" },
+            description = description.trim(),
+            isSystem = isSystem,
+            isDeleted = false,
+            version = 1L,
+            updatedAt = now,
+            createdAt = now
+        )
         _playlists.value = _playlists.value + newPlaylist
         savePlaylists()
+        
+        // Dispatch asynchronous cloud outbox sync
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            try {
+                com.streamify.app.data.remote.SupabaseClient.syncPlaylistUpsert(newPlaylist)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
         return newPlaylist
     }
 
     fun addPlaylist(playlist: Playlist) {
-        _playlists.value = _playlists.value + playlist
+        _playlists.value = _playlists.value.filter { it.id != playlist.id } + playlist
         savePlaylists()
     }
 
-    fun deletePlaylist(id: String) {
+    fun deletePlaylist(id: String): Boolean {
+        val target = _playlists.value.find { it.id == id } ?: return false
+        if (target.isSystem) {
+            // Protect system playlists like "Liked Music"
+            return false
+        }
+        
+        val now = System.currentTimeMillis()
+        val tombstone = target.copy(
+            isDeleted = true,
+            version = target.version + 1,
+            updatedAt = now
+        )
+        
         _playlists.value = _playlists.value.filter { it.id != id }
         savePlaylists()
+
+        // Dispatch asynchronous cloud outbox delete
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            try {
+                com.streamify.app.data.remote.SupabaseClient.syncPlaylistDelete(id)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        return true
     }
 
-    fun renamePlaylist(playlistId: String, newName: String): Boolean {
+    fun renamePlaylist(playlistId: String, newName: String, newDescription: String? = null): Boolean {
         val cleanName = newName.trim()
         if (cleanName.isBlank()) return false
+        val now = System.currentTimeMillis()
+        var updatedPlaylist: Playlist? = null
         _playlists.value = _playlists.value.map {
-            if (it.id == playlistId) it.copy(name = cleanName) else it
+            if (it.id == playlistId) {
+                val updated = it.copy(
+                    name = cleanName,
+                    description = newDescription?.trim() ?: it.description,
+                    version = it.version + 1,
+                    updatedAt = now
+                )
+                updatedPlaylist = updated
+                updated
+            } else it
         }
         savePlaylists()
+
+        updatedPlaylist?.let { pl ->
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    com.streamify.app.data.remote.SupabaseClient.syncPlaylistUpsert(pl)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
         return true
     }
 
     fun overwritePlaylistTracks(playlistId: String, trackIds: List<Int>) {
-        _playlists.value = _playlists.value.map {
-            if (it.id == playlistId) it.copy(trackIds = trackIds) else it
+        val now = System.currentTimeMillis()
+        var curPos = 1000.0
+        val posMap = mutableMapOf<Int, Double>()
+        trackIds.forEach { tId ->
+            posMap[tId] = curPos
+            curPos += 1000.0
         }
-        savePlaylists()
-    }
-
-    fun addTrackToPlaylist(playlistId: String, trackId: Int) {
+        var updatedPlaylist: Playlist? = null
         _playlists.value = _playlists.value.map {
-            if (it.id == playlistId && !it.trackIds.contains(trackId)) {
-                it.copy(trackIds = it.trackIds + trackId)
+            if (it.id == playlistId) {
+                val updated = it.copy(
+                    trackIds = trackIds,
+                    trackPositions = posMap,
+                    version = it.version + 1,
+                    updatedAt = now
+                )
+                updatedPlaylist = updated
+                updated
             } else it
         }
         savePlaylists()
+
+        updatedPlaylist?.let { pl ->
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    com.streamify.app.data.remote.SupabaseClient.syncPlaylistUpsert(pl)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    fun addTrackToPlaylist(playlistId: String, trackId: Int, targetPosition: Double? = null) {
+        val now = System.currentTimeMillis()
+        var finalPos = targetPosition
+        var updatedPlaylist: Playlist? = null
+
+        _playlists.value = _playlists.value.map { pl ->
+            if (pl.id == playlistId) {
+                if (!pl.trackIds.contains(trackId)) {
+                    val lastPos = pl.trackIds.maxOfOrNull { pl.trackPositions[it] ?: 1000.0 }
+                    val pos = targetPosition ?: FractionalIndexEngine.calculateMidpoint(lastPos, null)
+                    finalPos = pos
+                    val newPositions = pl.trackPositions + (trackId to pos)
+                    val newTrackIds = (pl.trackIds + trackId).sortedBy { newPositions[it] ?: 1000.0 }
+                    val updated = pl.copy(
+                        trackIds = newTrackIds,
+                        trackPositions = newPositions,
+                        version = pl.version + 1,
+                        updatedAt = now
+                    )
+                    updatedPlaylist = updated
+                    updated
+                } else pl
+            } else pl
+        }
+        savePlaylists()
+
+        if (finalPos != null) {
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    com.streamify.app.data.remote.SupabaseClient.syncPlaylistTrackAdd(playlistId, trackId, finalPos!!)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
     }
 
     fun removeTrackFromPlaylist(playlistId: String, trackId: Int) {
-        _playlists.value = _playlists.value.map {
-            if (it.id == playlistId) {
-                it.copy(trackIds = it.trackIds.filter { id -> id != trackId })
-            } else it
+        val now = System.currentTimeMillis()
+        var updatedPlaylist: Playlist? = null
+
+        _playlists.value = _playlists.value.map { pl ->
+            if (pl.id == playlistId) {
+                val newTrackIds = pl.trackIds.filter { id -> id != trackId }
+                val newPositions = pl.trackPositions.filterKeys { it != trackId }
+                val updated = pl.copy(
+                    trackIds = newTrackIds,
+                    trackPositions = newPositions,
+                    version = pl.version + 1,
+                    updatedAt = now
+                )
+                updatedPlaylist = updated
+                updated
+            } else pl
         }
         savePlaylists()
+
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            try {
+                com.streamify.app.data.remote.SupabaseClient.syncPlaylistTrackRemove(playlistId, trackId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun reorderTrack(playlistId: String, trackId: Int, prevTrackId: Int?, nextTrackId: Int?) {
+        val playlist = _playlists.value.find { it.id == playlistId } ?: return
+        val prevPos = prevTrackId?.let { playlist.trackPositions[it] }
+        val nextPos = nextTrackId?.let { playlist.trackPositions[it] }
+        val newPos = FractionalIndexEngine.calculateMidpoint(prevPos, nextPos)
+        val now = System.currentTimeMillis()
+
+        val newPositions = playlist.trackPositions + (trackId to newPos)
+        val newTrackIds = playlist.trackIds.sortedBy { newPositions[it] ?: 1000.0 }
+        val updated = playlist.copy(
+            trackIds = newTrackIds,
+            trackPositions = newPositions,
+            version = playlist.version + 1,
+            updatedAt = now
+        )
+
+        _playlists.value = _playlists.value.map { if (it.id == playlistId) updated else it }
+        savePlaylists()
+
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            try {
+                com.streamify.app.data.remote.SupabaseClient.syncPlaylistTrackAdd(playlistId, trackId, newPos)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     suspend fun getTracksForPlaylist(playlistId: String, allTracks: List<Track>): List<Track> = withContext(Dispatchers.Default) {

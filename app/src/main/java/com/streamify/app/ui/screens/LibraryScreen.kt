@@ -59,13 +59,25 @@ fun LibraryScreen(
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
 
     var showSpotifyImportDialog by remember { mutableStateOf(false) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var playlistToRename by remember { mutableStateOf<com.streamify.app.data.Playlist?>(null) }
+    var playlistToDelete by remember { mutableStateOf<com.streamify.app.data.Playlist?>(null) }
+    var playlistForOptions by remember { mutableStateOf<com.streamify.app.data.Playlist?>(null) }
     var renameText by remember { mutableStateOf("") }
     var importProgress by remember { mutableStateOf<com.streamify.app.data.remote.ImportProgress?>(null) }
     var isScraping by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     // --- PILLAR 1: Deterministic Hierarchical Back Trapping ---
+    BackHandler(enabled = showCreatePlaylistDialog) {
+        showCreatePlaylistDialog = false
+    }
+    BackHandler(enabled = playlistToDelete != null) {
+        playlistToDelete = null
+    }
+    BackHandler(enabled = playlistForOptions != null) {
+        playlistForOptions = null
+    }
     BackHandler(enabled = playlistToRename != null) {
         playlistToRename = null
     }
@@ -87,6 +99,73 @@ fun LibraryScreen(
         selectedFolder = null
     }
 
+    // Spotify-Grade Create Playlist Dialog
+    if (showCreatePlaylistDialog) {
+        var newPlaylistName by remember { mutableStateOf("") }
+        var newPlaylistDesc by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreatePlaylistDialog = false },
+            title = { Text("New Playlist", color = TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = newPlaylistName,
+                        onValueChange = { newPlaylistName = it },
+                        singleLine = true,
+                        label = { Text("Playlist Name") },
+                        placeholder = { Text("e.g. Acoustic Vibes") },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Primary,
+                            unfocusedBorderColor = BorderChip,
+                            cursorColor = Primary,
+                            focusedTextColor = TextMain,
+                            unfocusedTextColor = TextMain
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newPlaylistDesc,
+                        onValueChange = { newPlaylistDesc = it },
+                        maxLines = 2,
+                        label = { Text("Description (Optional)") },
+                        placeholder = { Text("Describe your playlist...") },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Primary,
+                            unfocusedBorderColor = BorderChip,
+                            cursorColor = Primary,
+                            focusedTextColor = TextMain,
+                            unfocusedTextColor = TextMain
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newPlaylistName.isNotBlank()) {
+                            val created = PlaylistRepository.createPlaylist(newPlaylistName, newPlaylistDesc)
+                            viewModel.loadLibrary()
+                            selectedPlaylistId = created.id
+                        }
+                        showCreatePlaylistDialog = false
+                    },
+                    enabled = newPlaylistName.isNotBlank()
+                ) {
+                    Text("Create", color = if (newPlaylistName.isNotBlank()) Primary else TextSecondary, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreatePlaylistDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = BgSurfaceElevated,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    // Rename Playlist Dialog
     if (playlistToRename != null) {
         AlertDialog(
             onDismissRequest = { playlistToRename = null },
@@ -120,6 +199,41 @@ fun LibraryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { playlistToRename = null }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = BgSurfaceElevated,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    // Delete Playlist Confirmation Dialog
+    if (playlistToDelete != null) {
+        val pl = playlistToDelete!!
+        AlertDialog(
+            onDismissRequest = { playlistToDelete = null },
+            title = { Text("Delete Playlist?", color = TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            text = {
+                Text(
+                    "Are you sure you want to delete \"${pl.name}\"? Songs will remain in your local library.",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    PlaylistRepository.deletePlaylist(pl.id)
+                    viewModel.loadLibrary()
+                    if (selectedPlaylistId == pl.id) {
+                        selectedPlaylistId = null
+                    }
+                    playlistToDelete = null
+                }) {
+                    Text("Delete", color = androidx.compose.ui.graphics.Color(0xFFFF453A), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToDelete = null }) {
                     Text("Cancel", color = TextSecondary)
                 }
             },
@@ -221,6 +335,34 @@ fun LibraryScreen(
             )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    onClick = { showCreatePlaylistDialog = true },
+                    shape = RoundedCornerShape(20.dp),
+                    color = BgSurfaceElevated,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, BorderChip),
+                    modifier = Modifier.padding(end = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "New Playlist",
+                            tint = TextMain,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "New Playlist",
+                            style = LocalAppTypography.current.chipText.copy(
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                fontSize = 12.sp
+                            ),
+                            color = TextMain
+                        )
+                    }
+                }
                 Surface(
                     onClick = { showSpotifyImportDialog = true },
                     shape = RoundedCornerShape(20.dp),
@@ -335,6 +477,47 @@ fun LibraryScreen(
                                 Spacer(modifier = Modifier.height(4.dp))
                             }
 
+                            // Create Playlist Quick Row
+                            item(key = "create_new_playlist_row") {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp)
+                                        .clickable { showCreatePlaylistDialog = true }
+                                        .padding(horizontal = 16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Primary.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Add,
+                                            contentDescription = "New Playlist",
+                                            tint = Primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "New playlist",
+                                            style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                                            color = Primary
+                                        )
+                                        Text(
+                                            text = "Create custom playlist",
+                                            style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                            color = TextSecondary
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
+
                             if (!isGridView) {
                                 items(
                                     items = playlists,
@@ -391,8 +574,7 @@ fun LibraryScreen(
                                         }
                                         IconButton(
                                             onClick = {
-                                                renameText = playlist.name
-                                                playlistToRename = playlist
+                                                playlistForOptions = playlist
                                             }
                                         ) {
                                             Icon(
@@ -626,6 +808,119 @@ fun LibraryScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Playlist Context Options Sheet (Spotify-Grade Menu)
+    playlistForOptions?.let { pl ->
+        val isSystem = pl.isSystem || pl.name.equals("Liked Music", ignoreCase = true)
+        ModalBottomSheet(
+            onDismissRequest = { playlistForOptions = null },
+            containerColor = BgSurfaceElevated,
+            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+            dragHandle = { BottomSheetDefaults.DragHandle(color = TextSecondary) }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .navigationBarsPadding()
+            ) {
+                // Header: Playlist Thumbnail + Title + Count
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(BgCard),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.QueueMusic, contentDescription = null, tint = Primary, modifier = Modifier.size(24.dp))
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = pl.name,
+                            style = LocalAppTypography.current.songTitle.copy(fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                            color = TextMain,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = "${pl.trackIds.size} songs",
+                            style = LocalAppTypography.current.songArtist.copy(fontSize = 13.sp),
+                            color = TextSecondary
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = BorderChip, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 8.dp))
+
+                // Rename Playlist
+                if (!isSystem) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                renameText = pl.name
+                                playlistToRename = pl
+                                playlistForOptions = null
+                            }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = null, tint = TextMain, modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text("Rename playlist", style = LocalAppTypography.current.songTitle, color = TextMain)
+                    }
+                }
+
+                // Export to M3U8
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val allTracks = (uiState as? LibraryUiState.Success)?.tracks ?: emptyList()
+                            coroutineScope.launch {
+                                val file = PlaylistRepository.exportPlaylistToM3U8(pl.id, allTracks, context)
+                                if (file != null) {
+                                    Toast.makeText(context, "Exported: ${file.name}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                            playlistForOptions = null
+                        }
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.FileDownload, contentDescription = null, tint = TextMain, modifier = Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Export to M3U8", style = LocalAppTypography.current.songTitle, color = TextMain)
+                }
+
+                // Delete Playlist (Destructive)
+                if (!isSystem) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                playlistToDelete = pl
+                                playlistForOptions = null
+                            }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFFFF453A), modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text("Delete playlist", style = LocalAppTypography.current.songTitle, color = androidx.compose.ui.graphics.Color(0xFFFF453A))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }

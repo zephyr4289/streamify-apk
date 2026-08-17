@@ -63,7 +63,8 @@ fun PlaylistDetailScreen(
             onTrackClick = onTrackClick,
             explicitTracks = playlistTracks,
             headerTitle = playlistName,
-            headerSubtitle = if (playlistDescription.isNotBlank()) playlistDescription else "${playlistTracks.size} songs"
+            headerSubtitle = if (playlistDescription.isNotBlank()) playlistDescription else "${playlistTracks.size} songs",
+            playlistId = playlistId
         )
     }
 }
@@ -77,7 +78,8 @@ fun AlbumScreen(
     onTrackClick: (Track, List<Track>) -> Unit,
     explicitTracks: List<Track>? = null,
     headerTitle: String? = null,
-    headerSubtitle: String? = null
+    headerSubtitle: String? = null,
+    playlistId: String? = null
 ) {
     val context = LocalContext.current
     val albumTracks = remember(albumName, allTracks, explicitTracks) {
@@ -86,9 +88,14 @@ fun AlbumScreen(
     val displayTitle = headerTitle ?: albumName
     val currentTrack by playerViewModel.currentTrack.collectAsState()
     var selectedOptionsTrack by remember { mutableStateOf<Track?>(null) }
+    var showOptionsMenu by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameText by remember { mutableStateOf(displayTitle) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     val firstTrack = albumTracks.firstOrNull()
 
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
     // 120fps GPU Parallax Calculator
     val scrollOffset by remember {
@@ -99,6 +106,75 @@ fun AlbumScreen(
                 1000f // Fully collapsed
             }
         }
+    }
+
+    if (showRenameDialog && playlistId != null) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text("Rename Playlist", color = TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    label = { Text("Playlist Name") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Primary,
+                        unfocusedBorderColor = BorderChip,
+                        cursorColor = Primary,
+                        focusedTextColor = TextMain,
+                        unfocusedTextColor = TextMain
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (renameText.isNotBlank()) {
+                        PlaylistRepository.renamePlaylist(playlistId, renameText)
+                    }
+                    showRenameDialog = false
+                }) {
+                    Text("Save", color = Primary, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = BgSurfaceElevated,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showDeleteConfirmDialog && playlistId != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Delete Playlist?", color = TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            text = {
+                Text(
+                    "Are you sure you want to delete \"$displayTitle\"? Songs will remain in your library.",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    PlaylistRepository.deletePlaylist(playlistId)
+                    showDeleteConfirmDialog = false
+                    onBack()
+                }) {
+                    Text("Delete", color = androidx.compose.ui.graphics.Color(0xFFFF453A), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = BgSurfaceElevated,
+            shape = RoundedCornerShape(16.dp)
+        )
     }
 
     Column(
@@ -112,22 +188,74 @@ fun AlbumScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = TextMain,
-                    modifier = Modifier.size(24.dp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = TextMain,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (explicitTracks != null) "Playlist" else "Album",
+                    style = LocalAppTypography.current.headlineMedium.copy(fontSize = 18.sp),
+                    color = TextMain
                 )
             }
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = if (explicitTracks != null) "Playlist" else "Album",
-                style = LocalAppTypography.current.headlineMedium.copy(fontSize = 18.sp),
-                color = TextMain
-            )
+
+            if (playlistId != null && playlistId != "liked_songs") {
+                Box {
+                    IconButton(onClick = { showOptionsMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "Playlist Options",
+                            tint = TextMain,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showOptionsMenu,
+                        onDismissRequest = { showOptionsMenu = false },
+                        modifier = Modifier.background(BgSurfaceElevated)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Rename Playlist", color = TextMain) },
+                            onClick = {
+                                showOptionsMenu = false
+                                renameText = displayTitle
+                                showRenameDialog = true
+                            },
+                            leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null, tint = TextMain) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export to M3U8", color = TextMain) },
+                            onClick = {
+                                showOptionsMenu = false
+                                coroutineScope.launch {
+                                    val file = PlaylistRepository.exportPlaylistToM3U8(playlistId, albumTracks, context)
+                                    if (file != null) {
+                                        android.widget.Toast.makeText(context, "Exported: ${file.name}", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            },
+                            leadingIcon = { Icon(Icons.Filled.FileDownload, contentDescription = null, tint = TextMain) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete Playlist", color = androidx.compose.ui.graphics.Color(0xFFFF453A)) },
+                            onClick = {
+                                showOptionsMenu = false
+                                showDeleteConfirmDialog = true
+                            },
+                            leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFFFF453A)) }
+                        )
+                    }
+                }
+            }
         }
 
         LazyColumn(
@@ -199,7 +327,13 @@ fun AlbumScreen(
             onAddToQueueClick = {
                 playerViewModel.addToQueue(track)
                 selectedOptionsTrack = null
-            }
+            },
+            onRemoveFromPlaylistClick = if (playlistId != null && playlistId != "liked_songs") {
+                {
+                    PlaylistRepository.removeTrackFromPlaylist(playlistId, track.id)
+                    selectedOptionsTrack = null
+                }
+            } else null
         )
     }
 }

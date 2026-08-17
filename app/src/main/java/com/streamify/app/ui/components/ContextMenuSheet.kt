@@ -37,11 +37,11 @@ fun ContextMenuSheet(
     onLikeClick: () -> Unit,
     onAddToPlaylistClick: () -> Unit,
     onAddToQueueClick: () -> Unit,
-    modifier: Modifier = Modifier,
     onPlayNextClick: (() -> Unit)? = null,
     onStartJamClick: (() -> Unit)? = null,
     onGoToArtist: ((String) -> Unit)? = null,
-    onGoToAlbum: ((String) -> Unit)? = null
+    onGoToAlbum: ((String) -> Unit)? = null,
+    onRemoveFromPlaylistClick: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showEditDialog by remember { mutableStateOf(false) }
@@ -153,6 +153,19 @@ fun ContextMenuSheet(
                     showPlaylistDialog = true
                 }
             )
+
+            // 5b. Remove from this playlist
+            if (onRemoveFromPlaylistClick != null) {
+                ContextActionItem(
+                    icon = Icons.Filled.DeleteOutline,
+                    text = "Remove from this playlist",
+                    iconTint = androidx.compose.ui.graphics.Color(0xFFFF453A),
+                    onClick = {
+                        onRemoveFromPlaylistClick()
+                        onDismissRequest()
+                    }
+                )
+            }
 
             // 6. Go to Artist
             if (onGoToArtist != null && track.artist.isNotBlank() && track.artist != "Unknown Artist") {

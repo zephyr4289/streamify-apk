@@ -2374,4 +2374,95 @@ object SupabaseClient {
             Result.success(fallbackStats)
         }
     }
+
+    // =========================================================================
+    // DISTRIBUTED PLAYLIST SYNCHRONIZATION ENGINE (LWW & FRACTIONAL CDC)
+    // =========================================================================
+    suspend fun syncPlaylistUpsert(playlist: com.streamify.app.data.Playlist): Result<Unit> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext Result.success(Unit)
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/playlists?on_conflict=id")
+            val body = JSONObject().apply {
+                put("id", playlist.id)
+                put("user_id", user.id)
+                put("name", playlist.name)
+                put("description", playlist.description)
+                put("is_system", playlist.isSystem)
+                put("is_deleted", playlist.isDeleted)
+                put("version", playlist.version)
+                if (playlist.coverUrl != null) put("cover_url", playlist.coverUrl)
+            }
+            val (code, text) = executeAdaptivePostgrestRequest(
+                url = url,
+                method = "POST",
+                table = "playlists",
+                initialBody = body,
+                prefer = "resolution=merge-duplicates"
+            )
+            if (code in 200..299) Result.success(Unit) else Result.failure(Exception("HTTP $code: $text"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun syncPlaylistDelete(playlistId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext Result.success(Unit)
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/playlists?id=eq.$playlistId")
+            val body = JSONObject().apply {
+                put("is_deleted", true)
+            }
+            val (code, text) = executeAdaptivePostgrestRequest(
+                url = url,
+                method = "PATCH",
+                table = "playlists",
+                initialBody = body
+            )
+            if (code in 200..299) Result.success(Unit) else Result.failure(Exception("HTTP $code: $text"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun syncPlaylistTrackAdd(playlistId: String, trackId: Int, positionIdx: Double): Result<Unit> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext Result.success(Unit)
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/playlist_tracks?on_conflict=playlist_id,track_id")
+            val body = JSONObject().apply {
+                put("playlist_id", playlistId)
+                put("track_id", trackId.toString())
+                put("position_idx", positionIdx)
+                put("is_deleted", false)
+            }
+            val (code, text) = executeAdaptivePostgrestRequest(
+                url = url,
+                method = "POST",
+                table = "playlist_tracks",
+                initialBody = body,
+                prefer = "resolution=merge-duplicates"
+            )
+            if (code in 200..299) Result.success(Unit) else Result.failure(Exception("HTTP $code: $text"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun syncPlaylistTrackRemove(playlistId: String, trackId: Int): Result<Unit> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext Result.success(Unit)
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/playlist_tracks?playlist_id=eq.$playlistId&track_id=eq.$trackId")
+            val body = JSONObject().apply {
+                put("is_deleted", true)
+            }
+            val (code, text) = executeAdaptivePostgrestRequest(
+                url = url,
+                method = "PATCH",
+                table = "playlist_tracks",
+                initialBody = body
+            )
+            if (code in 200..299) Result.success(Unit) else Result.failure(Exception("HTTP $code: $text"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }
