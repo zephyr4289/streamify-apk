@@ -325,6 +325,15 @@ object TrackRepository {
         ids.toList().mapNotNull { all[it] }
     }
 
+    suspend fun getCloudSongRadio(seedTrack: Track, limit: Int = 25): List<Track> = withContext(Dispatchers.IO) {
+        val candidates = com.streamify.app.data.network.CandidateAggregator.aggregateCandidates(seedTrack, limit = 100)
+        com.streamify.app.data.ReRanker.scoreAndRankCandidates(
+            candidates = candidates,
+            seedTrack = seedTrack,
+            limit = limit
+        )
+    }
+
     fun hardResetState() {
         _allTracks.value = emptyList()
         _likedTracks.value = emptyList()

@@ -52,13 +52,44 @@ class HomeViewModel(
     private fun computeHomeRecommendations(allTracks: List<Track>) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val effectiveTracks = if (allTracks.isEmpty()) {
+                    try {
+                        val defaultSeeds = listOf("Top Hits", "Synthwave", "Lo-Fi Beats")
+                        val fetched = mutableListOf<Track>()
+                        for (seed in defaultSeeds) {
+                            val results = iTunesSearchApi.search(seed, maxResults = 6)
+                            for (res in results) {
+                                fetched.add(
+                                    Track(
+                                        id = kotlin.math.abs(res.url.hashCode()),
+                                        title = res.title,
+                                        artist = res.uploader,
+                                        album = "Trending",
+                                        durationSec = res.duration,
+                                        filepath = res.url,
+                                        coverArtPath = res.thumbnail,
+                                        bpm = 120f,
+                                        key = "C",
+                                        lyricsPath = null,
+                                        source = "online",
+                                        isLiked = false
+                                    )
+                                )
+                            }
+                        }
+                        fetched
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                } else allTracks
+
                 // 1. Session-Aware Candidates (EMA V_session)
                 val rawSessionRecs = try { repository.getSessionRecommendations(30) } catch (e: Exception) { emptyList() }
                 val sessionRecs = ReRanker.reRank(
-                    candidates = rawSessionRecs,
+                    candidates = if (rawSessionRecs.isNotEmpty()) rawSessionRecs else effectiveTracks,
                     maxPerArtist = 2,
                     explorationRatio = 0.15f,
-                    explorationPool = allTracks,
+                    explorationPool = effectiveTracks,
                     limit = 8
                 )
 
