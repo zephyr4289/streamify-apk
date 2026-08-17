@@ -142,11 +142,12 @@ class HybridGraphFetcher(
             if (matchedLocal != null) {
                 finalTracks.add(matchedLocal)
             } else {
-                // Synthesize domain Track for online / streamable discovery
+                // Synthesize streamable domain Track with ytsearch prefix for reliable JIT resolution
+                val searchSpec = "ytsearch:${score.artist} ${score.title}".trim()
                 finalTracks.add(
                     Track(
-                        id = if (score.trackId != 0) score.trackId else score.title.hashCode(),
-                        filepath = "https://music.youtube.com/search?q=${URLEncoder.encode("${score.artist} ${score.title}", "UTF-8")}",
+                        id = if (score.trackId != 0) score.trackId else kotlin.math.abs(searchSpec.hashCode()),
+                        filepath = searchSpec,
                         title = score.title,
                         artist = score.artist,
                         album = "Streamify Radio",

@@ -64,9 +64,9 @@ object UniversalCandidateBroker {
                 }
             }
 
-            // 3. Bounded Network Await (600ms max circuit breaker)
-            val onlineCandidates = withTimeoutOrNull(600L) { innertubeDeferred.await() } ?: emptyList()
-            val cloudCandidates = withTimeoutOrNull(600L) { cloudVectorDeferred.await() } ?: emptyList()
+            // 3. Bounded Network Await (2500ms budget for robust TLS + HTTP/2 roundtrip)
+            val onlineCandidates = withTimeoutOrNull(2500L) { innertubeDeferred.await() } ?: emptyList()
+            val cloudCandidates = withTimeoutOrNull(2500L) { cloudVectorDeferred.await() } ?: emptyList()
             val localCandidates = localMarkovDeferred.await()
 
             // 4. Merge Raw Candidate Pool (~60-100 songs)
@@ -83,10 +83,33 @@ object UniversalCandidateBroker {
                 activeQueue = activeQueue
             )
 
-            // 6. Zero-Starvation Fallback: If ranked list is too small, backfill from catalog
+            // 6. Zero-Contamination Online Discovery Fallback: If ranked list is too small, fetch search mix
             val finalTracks = if (rankedTracks.size < 5) {
-                val catalog = TrackRepository.allTracks.value.filter { it.id != seedTrack.id }
-                (rankedTracks + catalog.shuffled()).distinctBy { "${it.title}:::${it.artist}" }.take(targetCount)
+                val searchFallback = try {
+                    val query = "${seedTrack.title} ${seedTrack.artist} mix".trim()
+                    com.streamify.app.data.network.YouTubeMusicSearchApi.search(query, maxResults = 15).mapNotNull { item ->
+                        val vid = YouTubeStreamResolver.extractVideoId(item.url) ?: return@mapNotNull null
+                        Track(
+                            id = -(vid.hashCode()),
+                            title = item.title,
+                            artist = item.uploader,
+                            album = "Streamify Radio",
+                            durationSec = item.duration,
+                            filepath = "https://www.youtube.com/watch?v=$vid",
+                            coverArtPath = item.thumbnail.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
+                            bpm = 120f,
+                            key = "",
+                            lyricsPath = null,
+                            source = "online_stream"
+                        )
+                    }
+                } catch (e: Exception) {
+                    emptyList()
+                }
+
+                val activeKeys = activeQueue.map { "${it.title}:::${it.artist}".lowercase() }.toSet()
+                val validSearch = searchFallback.filter { !activeKeys.contains("${it.title}:::${it.artist}".lowercase()) }
+                (rankedTracks + validSearch).distinctBy { "${it.title}:::${it.artist}".lowercase() }.take(targetCount)
             } else {
                 rankedTracks.take(targetCount)
             }
@@ -95,9 +118,12 @@ object UniversalCandidateBroker {
             finalTracks
         } catch (e: Exception) {
             e.printStackTrace()
-            val fallback = TrackRepository.allTracks.value.filter { it.id != seedTrack.id }.shuffled().take(targetCount)
-            _currentRecommendations.value = fallback
-            fallback
+            val activeKeys = activeQueue.map { "${it.title}:::${it.artist}".lowercase() }.toSet()
+            val offlineFallback = TrackRepository.allTracks.value.filter {
+                it.id != seedTrack.id && !activeKeys.contains("${it.title}:::${it.artist}".lowercase())
+            }.shuffled().take(targetCount)
+            _currentRecommendations.value = offlineFallback
+            offlineFallback
         } finally {
             _isFetching.value = false
         }

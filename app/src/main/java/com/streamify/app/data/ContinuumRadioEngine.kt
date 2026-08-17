@@ -55,11 +55,39 @@ object ContinuumRadioEngine {
     }
 
     /**
-     * Raw Innertube RDAMVM radio crawler used directly by UniversalCandidateBroker.
+     * Raw Innertube RDAMVM radio crawler with multi-tier fallback used by UniversalCandidateBroker.
      */
-    suspend fun fetchRawRadioTracks(canonicalVideoId: String): List<Track> = withContext(Dispatchers.IO) {
+    suspend fun fetchRawRadioTracks(canonicalVideoId: String, seedTrack: Track? = null): List<Track> = withContext(Dispatchers.IO) {
         val (candidates, _) = executeNextRequest(canonicalVideoId, null)
-        candidates
+        if (candidates.isNotEmpty()) return@withContext candidates
+
+        // Multi-tier fallback 3: If RDAMVM returns empty, query YouTube Music Search Mix
+        if (seedTrack != null && seedTrack.title.isNotBlank()) {
+            try {
+                val query = "${seedTrack.title} ${seedTrack.artist} radio".trim()
+                val searchResults = YouTubeMusicSearchApi.search(query, maxResults = 20)
+                return@withContext searchResults.mapNotNull { item ->
+                    val vid = YouTubeStreamResolver.extractVideoId(item.url, item.thumbnail) ?: return@mapNotNull null
+                    Track(
+                        id = -(vid.hashCode()),
+                        title = item.title,
+                        artist = item.uploader,
+                        album = "Streamify Radio",
+                        durationSec = item.duration,
+                        filepath = "https://www.youtube.com/watch?v=$vid",
+                        coverArtPath = item.thumbnail.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
+                        bpm = 120f,
+                        key = "",
+                        lyricsPath = null,
+                        source = "online_stream"
+                    )
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
     }
 
     /**
@@ -77,7 +105,7 @@ object ContinuumRadioEngine {
         currentRadioContext = RadioContext(videoId = vId, playlistId = "RDAMVM$vId")
 
         // Fetch initial radio batch (usually 15-25 tracks)
-        fetchNextRadioBatch()
+        fetchNextRadioBatch(seedTrack)
     }
 
     /**
@@ -117,7 +145,8 @@ object ContinuumRadioEngine {
 
             // Fallback: If pagination returned no unique tracks, query Innertube search mix
             if (uniqueTracks.isEmpty()) {
-                val fallbackResults = YouTubeMusicSearchApi.search("${context.videoId} mix", maxResults = 15)
+                val queryTerm = if (seedTrack != null) "${seedTrack.title} ${seedTrack.artist} radio" else "${context.videoId} mix"
+                val fallbackResults = YouTubeMusicSearchApi.search(queryTerm, maxResults = 15)
                 for (item in fallbackResults) {
                     val fVId = YouTubeStreamResolver.extractVideoId(item.url) ?: item.url
                     val fRootHash = FuzzyTitleMatcher.extractRootHash(item.title)
@@ -138,7 +167,7 @@ object ContinuumRadioEngine {
                                 artist = item.uploader,
                                 album = "Streamify Radio",
                                 durationSec = item.duration,
-                                filepath = item.url,
+                                filepath = if (fVId.length == 11) "https://www.youtube.com/watch?v=$fVId" else item.url,
                                 coverArtPath = item.thumbnail.takeIf { it.isNotBlank() },
                                 bpm = 120f,
                                 key = "",
@@ -170,18 +199,46 @@ object ContinuumRadioEngine {
         }
         if (currentQueueSize <= 3) {
             // Queue is running low, fetch the next page silently in background
-            return fetchNextRadioBatch()
+            return fetchNextRadioBatch(seedTrack)
         }
         return emptyList()
     }
 
     private fun executeNextRequest(videoId: String, continuationToken: String?): Pair<List<Track>, String?> {
+        // Tier 1: Try ANDROID_MUSIC client
+        val androidResult = executeInnertubeNextCall(
+            clientName = "ANDROID_MUSIC",
+            clientVersion = "6.42.52",
+            videoId = videoId,
+            continuationToken = continuationToken
+        )
+        if (androidResult.first.isNotEmpty()) {
+            return androidResult
+        }
+
+        // Tier 2: Fallback to WEB_REMIX client
+        return executeInnertubeNextCall(
+            clientName = "WEB_REMIX",
+            clientVersion = "1.20230515.01.00",
+            videoId = videoId,
+            continuationToken = continuationToken
+        )
+    }
+
+    private fun executeInnertubeNextCall(
+        clientName: String,
+        clientVersion: String,
+        videoId: String,
+        continuationToken: String?
+    ): Pair<List<Track>, String?> {
         try {
+            val isAndroid = clientName == "ANDROID_MUSIC"
             val requestJson = JSONObject().apply {
                 put("context", JSONObject().apply {
                     put("client", JSONObject().apply {
-                        put("clientName", "WEB_REMIX")
-                        put("clientVersion", "1.20230515.01.00")
+                        put("clientName", clientName)
+                        put("clientVersion", clientVersion)
+                        if (isAndroid) put("androidSdkVersion", 34)
                         put("hl", "en")
                         put("gl", "US")
                     })
@@ -195,16 +252,19 @@ object ContinuumRadioEngine {
                 }
             }
 
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url(INNERTUBE_NEXT_URL)
                 .header("Content-Type", "application/json; charset=UTF-8")
-                .header("User-Agent", USER_AGENT)
+                .header("User-Agent", if (isAndroid) "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14; en_US) gzip" else USER_AGENT)
                 .header("Accept", "*/*")
                 .header("Accept-Encoding", "gzip, deflate")
-                .header("Origin", "https://music.youtube.com")
-                .header("Referer", "https://music.youtube.com/")
-                .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .build()
+            
+            if (!isAndroid) {
+                requestBuilder.header("Origin", "https://music.youtube.com")
+                requestBuilder.header("Referer", "https://music.youtube.com/")
+            }
+
+            val request = requestBuilder.post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE)).build()
 
             NetworkEngine.client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return Pair(emptyList(), null)

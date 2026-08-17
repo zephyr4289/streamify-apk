@@ -679,77 +679,54 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun playFromSearch(tappedTrack: Track, searchContext: List<Track> = listOf(tappedTrack)) {
-        viewModelScope.launch {
-            // 1. Play tapped track immediately with 0ms delay
-            playTrack(tappedTrack, listOf(tappedTrack))
-
-            // 2. Asynchronously fetch candidates via UniversalCandidateBroker
-            val radioTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
-                seedTrack = tappedTrack,
-                activeQueue = listOf(tappedTrack),
-                targetCount = 20
-            )
-            if (radioTracks.isNotEmpty()) {
-                withContext(Dispatchers.Main) {
-                    val currentQ = _playerState.value.queue.toMutableList()
-                    val newMediaItems = mutableListOf<MediaItem>()
-                    for (rt in radioTracks) {
-                        val isDup = currentQ.any {
-                            com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rt.title, rt.artist)
-                        }
-                        if (!isDup) {
-                            currentQ.add(rt)
-                            newMediaItems.add(buildMediaItem(rt))
-                        }
-                    }
-                    if (newMediaItems.isNotEmpty()) {
-                        _playerState.value = _playerState.value.copy(queue = currentQ)
-                        controller?.addMediaItems(newMediaItems)
-                    }
-                }
-            }
-        }
+        playTrack(tappedTrack, searchContext.ifEmpty { listOf(tappedTrack) }, autoHydrateRadio = true)
     }
 
-    fun validateAndPrepareTrackForPlayback(
-        track: Track,
-        onReady: (Track) -> Unit,
-        onFailure: (Throwable) -> Unit = {}
-    ) {
-        val needsResolution = track.filepath.isBlank() ||
-                track.filepath.startsWith("online://") ||
-                track.filepath.startsWith("ytsearch:") ||
-                (track.filepath.startsWith("http") && !track.filepath.contains("googlevideo.com")) ||
-                (track.filepath.startsWith("http") && track.filepath.contains("googlevideo.com") && isCdnExpired(track.filepath)) ||
-                (!track.filepath.startsWith("http") && !track.filepath.startsWith("file") && !java.io.File(track.filepath).exists())
-
-        if (needsResolution) {
-            viewModelScope.launch(Dispatchers.IO) {
-                val result = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(track)
-                val resolved = result.getOrNull()
-                if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                    val playableTrack = track.copy(filepath = resolved.streamUrl)
-                    withContext(Dispatchers.Main) {
-                        onReady(playableTrack)
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        val ex = result.exceptionOrNull() ?: Exception("Unresolvable track stream")
-                        onFailure(ex)
-                    }
-                }
-            }
-        } else {
-            onReady(track)
-        }
-    }
-
-    fun playTrack(track: Track, queue: List<Track> = listOf(track)) {
+    fun playTrack(track: Track, queue: List<Track> = listOf(track), autoHydrateRadio: Boolean = true) {
         viewModelScope.launch {
             val targetIndex = queue.indexOfFirst {
                 (it.id != 0 && it.id == track.id) || (it.filepath.isNotBlank() && it.filepath == track.filepath) || it.title == track.title
             }.takeIf { it >= 0 } ?: 0
             playTrackInternal(track, targetIndex, queue)
+
+            // Asynchronously hydrate upcoming continuum radio if queue is small (e.g. 1-3 songs)
+            if (autoHydrateRadio && queue.size <= 3) {
+                hydrateContinuumRadio(track)
+            }
+        }
+    }
+
+    private fun hydrateContinuumRadio(seedTrack: Track) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val currentQ = _playerState.value.queue
+                val radioTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                    seedTrack = seedTrack,
+                    activeQueue = currentQ,
+                    targetCount = 20
+                )
+                if (radioTracks.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        val currentQueue = _playerState.value.queue.toMutableList()
+                        val newMediaItems = mutableListOf<MediaItem>()
+                        for (rt in radioTracks) {
+                            val isDup = currentQueue.any {
+                                com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rt.title, rt.artist)
+                            }
+                            if (!isDup) {
+                                currentQueue.add(rt)
+                                newMediaItems.add(buildMediaItem(rt))
+                            }
+                        }
+                        if (newMediaItems.isNotEmpty()) {
+                            _playerState.value = _playerState.value.copy(queue = currentQueue)
+                            controller?.addMediaItems(newMediaItems)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -907,6 +884,39 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         val nextTrack = queue[nextIndex]
         lookaheadJob?.cancel()
         lookaheadJob = viewModelScope.launch(Dispatchers.IO) {
+            // If upcoming queue is low (<= 2 songs remaining), proactively prefetch next radio batch
+            if (queue.size - nextIndex <= 2 && _playerState.value.isAutoPlayEnabled) {
+                try {
+                    val seed = queue.lastOrNull() ?: nextTrack
+                    val fresh = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                        seedTrack = seed,
+                        activeQueue = queue,
+                        targetCount = 15
+                    )
+                    if (fresh.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            val liveQ = _playerState.value.queue.toMutableList()
+                            val newMediaItems = mutableListOf<MediaItem>()
+                            for (ft in fresh) {
+                                val isDup = liveQ.any {
+                                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, ft.title, ft.artist)
+                                }
+                                if (!isDup) {
+                                    liveQ.add(ft)
+                                    newMediaItems.add(buildMediaItem(ft))
+                                }
+                            }
+                            if (newMediaItems.isNotEmpty()) {
+                                _playerState.value = _playerState.value.copy(queue = liveQ)
+                                controller?.addMediaItems(newMediaItems)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Non-fatal prefetch error
+                }
+            }
+
             try {
                 val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack)
                 val resolved = res.getOrNull()

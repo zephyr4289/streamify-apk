@@ -54,63 +54,68 @@ class HomeViewModel(
     private fun computeHomeRecommendations(allTracks: List<Track>) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val effectiveTracks = if (allTracks.isEmpty()) {
-                    try {
-                        val defaultSeeds = listOf("Top Hits", "Synthwave", "Lo-Fi Beats")
-                        val deferredResults = defaultSeeds.map { seed ->
-                            async(Dispatchers.IO) {
-                                try {
-                                    iTunesSearchApi.search(seed, maxResults = 6)
-                                } catch (e: Exception) {
-                                    emptyList()
+                // =========================================================================
+                // PIPELINE A: CLOUD DISCOVERY (ALWAYS ONLINE, NEVER GATED ON SQLITE)
+                // =========================================================================
+                val cloudSeeds = listOf("Top Hits", "Trending Hits", "Synthwave", "Lo-Fi Beats", "Indie Chill")
+                val deferredCloudSeeds = cloudSeeds.map { seed ->
+                    async(Dispatchers.IO) {
+                        try {
+                            val ytResults = com.streamify.app.data.network.YouTubeMusicSearchApi.search(seed, maxResults = 6)
+                            if (ytResults.isNotEmpty()) {
+                                ytResults.mapNotNull { res ->
+                                    val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(res.url, res.thumbnail) ?: return@mapNotNull null
+                                    Track(
+                                        id = -(vid.hashCode()),
+                                        title = res.title,
+                                        artist = res.uploader,
+                                        album = "Trending Global",
+                                        durationSec = res.duration,
+                                        filepath = "https://www.youtube.com/watch?v=$vid",
+                                        coverArtPath = res.thumbnail.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
+                                        bpm = 120f,
+                                        key = "C",
+                                        lyricsPath = null,
+                                        source = "online_stream",
+                                        isLiked = false
+                                    )
+                                }
+                            } else {
+                                iTunesSearchApi.search(seed, maxResults = 6).map { res ->
+                                    Track(
+                                        id = kotlin.math.abs(res.title.hashCode()),
+                                        title = res.title,
+                                        artist = res.uploader,
+                                        album = "Trending Global",
+                                        durationSec = res.duration,
+                                        filepath = "ytsearch:${res.title} ${res.uploader}",
+                                        coverArtPath = res.thumbnail,
+                                        bpm = 120f,
+                                        key = "C",
+                                        lyricsPath = null,
+                                        source = "online_stream",
+                                        isLiked = false
+                                    )
                                 }
                             }
+                        } catch (e: Exception) {
+                            emptyList()
                         }
-                        val fetched = mutableListOf<Track>()
-                        deferredResults.awaitAll().flatten().forEach { res ->
-                            fetched.add(
-                                Track(
-                                    id = kotlin.math.abs(res.url.hashCode()),
-                                    title = res.title,
-                                    artist = res.uploader,
-                                    album = "Trending",
-                                    durationSec = res.duration,
-                                    filepath = res.url,
-                                    coverArtPath = res.thumbnail,
-                                    bpm = 120f,
-                                    key = "C",
-                                    lyricsPath = null,
-                                    source = "online",
-                                    isLiked = false
-                                )
-                            )
-                        }
-                        fetched
-                    } catch (e: Exception) {
-                        emptyList()
                     }
-                } else allTracks
+                }
 
-                // 1. Session-Aware Candidates (EMA V_session)
-                val rawSessionRecs = try { repository.getSessionRecommendations(30) } catch (e: Exception) { emptyList() }
-                val sessionRecs = ReRanker.reRank(
-                    candidates = if (rawSessionRecs.isNotEmpty()) rawSessionRecs else effectiveTracks,
-                    maxPerArtist = 2,
-                    explorationRatio = 0.15f,
-                    explorationPool = effectiveTracks,
-                    limit = 8
-                )
+                val cloudDiscoveryPool = deferredCloudSeeds.awaitAll().flatten().distinctBy { "${it.title}:::${it.artist}".lowercase() }
 
-                // 2. Project Chronos Circadian Recommendation Shelf (V_slot & Time-of-day BPM)
+                // =========================================================================
+                // PIPELINE B: LOCAL PERSONALIZATION (C++ NATIVE SIMD ENGINE)
+                // =========================================================================
                 val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                val rawSessionRecs = try { repository.getSessionRecommendations(30) } catch (e: Exception) { emptyList() }
                 val rawCircadian = try { repository.getCircadianRecommendations(currentHour, 20) } catch (e: Exception) { emptyList() }
-                val circadianRecs = ReRanker.reRank(
-                    candidates = if (rawCircadian.isNotEmpty()) rawCircadian else allTracks,
-                    maxPerArtist = 2,
-                    explorationRatio = 0.20f,
-                    explorationPool = allTracks,
-                    limit = 8
-                )
+                val rawLongRecs = try { repository.getLongTermRecommendations(userId = 1, limit = 30) } catch (e: Exception) { emptyList() }
+                val topPlayed = try { repository.getTopPlayedTracks(20) } catch (e: Exception) { emptyList() }
+                val recent = allTracks.takeLast(6)
+
                 val slotName = repository.getCircadianSlot(currentHour)
                 val slotTitle = when (slotName) {
                     "MORNING" -> "Morning Energy • Wake & Move"
@@ -119,22 +124,38 @@ class HomeViewModel(
                     else -> "Late Night Drift • Deep Chill"
                 }
 
-                // 3. Multi-Modal Long-Term Profile (V_long)
-                val rawLongRecs = try { repository.getLongTermRecommendations(userId = 1, limit = 30) } catch (e: Exception) { emptyList() }
-                val madeForYou = ReRanker.reRank(
-                    candidates = if (rawLongRecs.isNotEmpty()) rawLongRecs else allTracks,
+                // 1. Session Recommendations (EMA V_session)
+                val sessionCandidates = if (rawSessionRecs.isNotEmpty()) rawSessionRecs else (allTracks + cloudDiscoveryPool).distinctBy { it.id }
+                val sessionRecs = ReRanker.reRank(
+                    candidates = sessionCandidates,
                     maxPerArtist = 2,
                     explorationRatio = 0.25f,
-                    explorationPool = allTracks,
-                    limit = 8
+                    explorationPool = cloudDiscoveryPool.ifEmpty { allTracks },
+                    limit = 12
                 )
 
-                // 4. Top Heavy Rotations
-                val topPlayed = try { repository.getTopPlayedTracks(20) } catch (e: Exception) { emptyList() }
-                val recent = allTracks.takeLast(6)
+                // 2. Project Chronos Circadian Recommendation Shelf (V_slot)
+                val circadianCandidates = if (rawCircadian.isNotEmpty()) rawCircadian else (cloudDiscoveryPool + allTracks).distinctBy { it.id }
+                val circadianRecs = ReRanker.reRank(
+                    candidates = circadianCandidates,
+                    maxPerArtist = 2,
+                    explorationRatio = 0.25f,
+                    explorationPool = cloudDiscoveryPool.ifEmpty { allTracks },
+                    limit = 12
+                )
 
-                // 5. Multi-Seed Ensemble & Hybrid Radar (Shatters single-genre Phonk loop)
-                val distinctSeeds = ReRanker.getDistinctGenreSeeds(sessionRecs.ifEmpty { allTracks }, limit = 3)
+                // 3. Multi-Modal Long-Term Profile (V_long)
+                val longCandidates = if (rawLongRecs.isNotEmpty()) rawLongRecs else (cloudDiscoveryPool + allTracks).distinctBy { it.id }
+                val madeForYou = ReRanker.reRank(
+                    candidates = longCandidates,
+                    maxPerArtist = 2,
+                    explorationRatio = 0.30f,
+                    explorationPool = cloudDiscoveryPool.ifEmpty { allTracks },
+                    limit = 12
+                )
+
+                // 4. Multi-Seed Ensemble & Hybrid Radar (Last.fm Graph x On-Device SIMD)
+                val distinctSeeds = ReRanker.getDistinctGenreSeeds(sessionRecs.ifEmpty { cloudDiscoveryPool }, limit = 3)
                 val hybridRecs = if (distinctSeeds.isNotEmpty()) {
                     try {
                         val timeOfDay = com.streamify.app.util.TimeGreeting.getCurrentTimeOfDay()
@@ -148,52 +169,77 @@ class HomeViewModel(
                             candidates = candidates.distinctBy { it.id },
                             maxPerArtist = 2,
                             maxPerTempoCluster = 3,
-                            explorationRatio = 0.25f,
-                            explorationPool = allTracks,
-                            limit = 8
+                            explorationRatio = 0.30f,
+                            explorationPool = cloudDiscoveryPool.ifEmpty { allTracks },
+                            limit = 12
                         )
                     } catch (e: Exception) {
                         emptyList()
                     }
                 } else emptyList()
 
-                // 6. Online 2-Hop Graph Discovery Across Diverse Artists
-                val topArtists = ReRanker.extractTopArtists(sessionRecs.ifEmpty { madeForYou.ifEmpty { allTracks } }, limit = 3)
+                // 5. Online 2-Hop Graph Discovery Across Diverse Artists
+                val topArtists = ReRanker.extractTopArtists(sessionRecs.ifEmpty { madeForYou.ifEmpty { cloudDiscoveryPool } }, limit = 4)
                 val onlineDiscoveries = mutableListOf<Track>()
 
                 for (artist in topArtists) {
-                    val queryResults = try { iTunesSearchApi.search(artist, maxResults = 4) } catch (e: Exception) { emptyList() }
-                    for (item in queryResults) {
-                        val pseudoId = -(item.url.hashCode())
-                        onlineDiscoveries.add(
-                            Track(
-                                id = pseudoId,
-                                title = item.title,
-                                artist = item.uploader,
-                                album = "Online Discovery",
-                                durationSec = item.duration,
-                                filepath = item.url,
-                                coverArtPath = item.thumbnail,
-                                bpm = 0f,
-                                key = "",
-                                lyricsPath = null,
-                                source = "online"
-                            )
-                        )
+                    val queryResults = try {
+                        val yt = com.streamify.app.data.network.YouTubeMusicSearchApi.search("$artist top songs", maxResults = 4)
+                        if (yt.isNotEmpty()) {
+                            yt.mapNotNull { item ->
+                                val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(item.url, item.thumbnail) ?: return@mapNotNull null
+                                Track(
+                                    id = -(vid.hashCode()),
+                                    title = item.title,
+                                    artist = item.uploader,
+                                    album = "Online Discovery",
+                                    durationSec = item.duration,
+                                    filepath = "https://www.youtube.com/watch?v=$vid",
+                                    coverArtPath = item.thumbnail.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
+                                    bpm = 120f,
+                                    key = "",
+                                    lyricsPath = null,
+                                    source = "online_stream",
+                                    isLiked = false
+                                )
+                            }
+                        } else {
+                            iTunesSearchApi.search(artist, maxResults = 4).map { item ->
+                                Track(
+                                    id = -(item.title.hashCode()),
+                                    title = item.title,
+                                    artist = item.uploader,
+                                    album = "Online Discovery",
+                                    durationSec = item.duration,
+                                    filepath = "ytsearch:${item.title} ${item.uploader}",
+                                    coverArtPath = item.thumbnail,
+                                    bpm = 0f,
+                                    key = "",
+                                    lyricsPath = null,
+                                    source = "online_stream",
+                                    isLiked = false
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        emptyList()
                     }
+                    onlineDiscoveries.addAll(queryResults)
                 }
+
+                val finalDisplayPool = if (allTracks.isNotEmpty()) allTracks else cloudDiscoveryPool
 
                 withContext(Dispatchers.Main) {
                     _uiState.value = HomeUiState.Success(
-                        hybridRecommendations = hybridRecs,
-                        sessionRecommendations = sessionRecs,
-                        circadianRecommendations = circadianRecs,
+                        hybridRecommendations = hybridRecs.ifEmpty { cloudDiscoveryPool.take(8) },
+                        sessionRecommendations = sessionRecs.ifEmpty { cloudDiscoveryPool.take(8) },
+                        circadianRecommendations = circadianRecs.ifEmpty { cloudDiscoveryPool.take(8) },
                         circadianSlotTitle = slotTitle,
-                        madeForYou = madeForYou,
-                        onlineDiscoveries = onlineDiscoveries.take(8),
-                        recent = recent,
-                        topPlayed = topPlayed,
-                        allTracks = allTracks
+                        madeForYou = madeForYou.ifEmpty { cloudDiscoveryPool.take(8) },
+                        onlineDiscoveries = (onlineDiscoveries + cloudDiscoveryPool).distinctBy { "${it.title}:::${it.artist}".lowercase() }.take(12),
+                        recent = recent.ifEmpty { cloudDiscoveryPool.take(6) },
+                        topPlayed = topPlayed.ifEmpty { cloudDiscoveryPool.take(6) },
+                        allTracks = finalDisplayPool
                     )
                 }
             } catch (e: Exception) {

@@ -858,9 +858,12 @@ streamify-apk/
   $$\text{MAD} = \text{median}(|x_i - \tilde{x}|), \quad \text{Inliers} = \{x_i \mid |x_i - \tilde{x}| \le 2.5 \cdot \text{MAD}\}$$
 
 #### Feature 31: Universal Candidate Broker & Continuum Infinite Radio
-* **Source Location**: `app/src/main/java/com/streamify/app/data/UniversalCandidateBroker.kt`
-* **1. The Problem / Systems Need**: Radio playback runs out of candidate songs when following a single recommendation source.
-* **2. Implementation Mechanics**: Multi-channel candidate broker merging related artists, acoustic cosine vectors, circadian slot history, and Markov probabilities.
+* **Source Location**: `app/src/main/java/com/streamify/app/data/UniversalCandidateBroker.kt`, `ContinuumRadioEngine.kt`, `HomeViewModel.kt`
+* **1. The Problem / Systems Need**: Radio playback and Homepage discovery suffered from isolation gating and network timeouts (600ms circuit breakers aborting live TLS handshakes and polluting queues with local catalog clones).
+* **2. Implementation Mechanics**: Re-engineered with dual decoupled pipelines:
+  * **Pipeline A (Cloud Discovery)**: Continuous, un-gated global trending charts, genre mixes, and artist radios powered by parallel Innertube + Last.fm graph fetches.
+  * **Pipeline B (Local Personalization)**: Native C++ SIMD vector & Markov models for Circadian dayparting and EMA session scoring, seamlessly enriched by Cloud Discovery.
+  * **Continuum Infinite Radio**: Robust 2.5s network budget with 3-tier client fallback (`ANDROID_MUSIC` $\rightarrow$ `WEB_REMIX` $\rightarrow$ YouTube Music Search Mix) and proactive lookahead pre-fetching ensuring infinite zero-gap continuum queues.
 
 #### Feature 32: Anti-Drift Semantic Re-Ranker
 * **Source Location**: `app/src/main/java/com/streamify/app/data/ReRanker.kt`
