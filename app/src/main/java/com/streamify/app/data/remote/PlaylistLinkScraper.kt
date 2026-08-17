@@ -16,7 +16,10 @@ import java.util.concurrent.TimeUnit
 
 data class ScrapedTrack(
     val title: String,
-    val artist: String
+    val artist: String,
+    val videoId: String = "",
+    val thumbnailUrl: String? = null,
+    val durationSec: Int = 0
 )
 
 data class ScrapedPlaylist(
@@ -325,8 +328,19 @@ object PlaylistLinkScraper {
                                 val item = pyTracks.getJSONObject(i)
                                 val title = item.optString("title", "")
                                 val artist = item.optString("artist", "Unknown Artist")
+                                val videoId = item.optString("id", "").ifBlank { item.optString("videoId", "") }
+                                val thumbnail = item.optString("thumbnail", "").takeIf { it.isNotBlank() }
+                                val duration = item.optInt("duration", 0)
                                 if (title.isNotBlank()) {
-                                    tracks.add(ScrapedTrack(title = title.trim(), artist = artist.trim()))
+                                    tracks.add(
+                                        ScrapedTrack(
+                                            title = title.trim(),
+                                            artist = artist.trim(),
+                                            videoId = videoId.trim(),
+                                            thumbnailUrl = thumbnail,
+                                            durationSec = duration
+                                        )
+                                    )
                                 }
                             }
                         }
@@ -373,6 +387,33 @@ object PlaylistLinkScraper {
     private fun parseTrackFromNode(node: JSONObject): ScrapedTrack? {
         var title = ""
         var artist = "Unknown Artist"
+        var videoId = node.optString("videoId", "")
+        var thumbnailUrl: String? = null
+        var durationSec = 0
+
+        // Extract videoId from various Innertube endpoints if not top-level
+        if (videoId.isBlank()) {
+            videoId = node.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")?.optString("videoId", "") ?: ""
+        }
+        if (videoId.isBlank()) {
+            videoId = node.optJSONObject("playlistItemData")?.optString("videoId", "") ?: ""
+        }
+        if (videoId.isBlank()) {
+            val playNav = node.optJSONObject("overlay")
+                ?.optJSONObject("musicItemThumbnailOverlayRenderer")
+                ?.optJSONObject("content")
+                ?.optJSONObject("musicPlayButtonRenderer")
+                ?.optJSONObject("playNavigationEndpoint")
+                ?.optJSONObject("watchEndpoint")
+            videoId = playNav?.optString("videoId", "") ?: ""
+        }
+
+        // Extract high-res artwork thumbnail
+        val thumbArr = node.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+            ?: node.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+        if (thumbArr != null && thumbArr.length() > 0) {
+            thumbnailUrl = thumbArr.optJSONObject(thumbArr.length() - 1)?.optString("url", null)
+        }
 
         // Format A: YouTube Music flexColumns
         val flexColumns = node.optJSONArray("flexColumns")
@@ -383,6 +424,9 @@ object PlaylistLinkScraper {
                 ?.optJSONArray("runs")
             if (col0Runs != null && col0Runs.length() > 0) {
                 title = col0Runs.getJSONObject(0).optString("text", "")
+                if (videoId.isBlank()) {
+                    videoId = col0Runs.getJSONObject(0).optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")?.optString("videoId", "") ?: ""
+                }
             }
 
             if (flexColumns.length() > 1) {
@@ -391,8 +435,35 @@ object PlaylistLinkScraper {
                     ?.optJSONObject("text")
                     ?.optJSONArray("runs")
                 if (col1Runs != null && col1Runs.length() > 0) {
-                    artist = col1Runs.getJSONObject(0).optString("text", "Unknown Artist")
+                    val artistsList = mutableListOf<String>()
+                    for (r in 0 until col1Runs.length()) {
+                        val runText = col1Runs.getJSONObject(r).optString("text", "").trim()
+                        if (runText.isNotBlank() && runText != "•" && runText != "&" && runText != ",") {
+                            if (runText.contains(":") && runText.all { it.isDigit() || it == ':' }) {
+                                durationSec = parseDurationToSeconds(runText)
+                            } else if (artistsList.isEmpty()) {
+                                artistsList.add(runText)
+                            }
+                        }
+                    }
+                    if (artistsList.isNotEmpty()) {
+                        artist = artistsList.joinToString(", ")
+                    }
                 }
+            }
+        }
+
+        // Extract duration from fixedColumns or lengthText if not yet found
+        if (durationSec <= 0) {
+            val fixedCols = node.optJSONArray("fixedColumns")
+            val durText = fixedCols?.optJSONObject(0)
+                ?.optJSONObject("musicResponsiveListItemFixedColumnRenderer")
+                ?.optJSONObject("text")
+                ?.optString("simpleText", "")
+                ?: node.optJSONObject("lengthText")?.optString("simpleText", "")
+                ?: node.optJSONObject("lengthText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text", "")
+            if (!durText.isNullOrBlank()) {
+                durationSec = parseDurationToSeconds(durText)
             }
         }
 
@@ -407,7 +478,24 @@ object PlaylistLinkScraper {
                 ?: "Unknown Artist"
         }
 
-        return if (title.isNotBlank()) ScrapedTrack(title.trim(), artist.trim()) else null
+        return if (title.isNotBlank()) {
+            ScrapedTrack(
+                title = title.trim(),
+                artist = artist.trim(),
+                videoId = videoId.trim(),
+                thumbnailUrl = thumbnailUrl,
+                durationSec = durationSec
+            )
+        } else null
+    }
+
+    private fun parseDurationToSeconds(durationStr: String): Int {
+        val parts = durationStr.trim().split(":")
+        return when (parts.size) {
+            2 -> (parts[0].toIntOrNull() ?: 0) * 60 + (parts[1].toIntOrNull() ?: 0)
+            3 -> (parts[0].toIntOrNull() ?: 0) * 3600 + (parts[1].toIntOrNull() ?: 0) * 60 + (parts[2].toIntOrNull() ?: 0)
+            else -> 0
+        }
     }
 
     private fun extractContinuationToken(root: JSONObject): String? {
