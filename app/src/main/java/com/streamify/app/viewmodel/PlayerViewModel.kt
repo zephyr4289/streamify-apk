@@ -60,43 +60,63 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
     fun getController(): MediaController? = controller
 
+    private val isVideoSwitching = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun toggleVideoMode(enabled: Boolean) {
         _playerState.value = _playerState.value.copy(isVideoMode = enabled)
         val ctrl = controller ?: return
         val currentT = _playerState.value.currentTrack ?: return
         val currentPos = ctrl.currentPosition
+        val wasPlaying = ctrl.isPlaying
+        val currentIndex = ctrl.currentMediaItemIndex
 
-        if (enabled) {
+        if (isVideoSwitching.compareAndSet(false, true)) {
             viewModelScope.launch(Dispatchers.IO) {
-                val videoStream = com.streamify.app.data.network.YouTubeStreamResolver.resolveVideoStreamUrl(currentT.filepath, currentT.coverArtPath)
-                if (videoStream != null && videoStream.streamUrl.isNotBlank()) {
-                    withContext(Dispatchers.Main) {
-                        val currentItem = ctrl.currentMediaItem ?: return@withContext
-                        val videoMediaItem = currentItem.buildUpon()
-                            .setUri(android.net.Uri.parse(videoStream.streamUrl))
-                            .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MP4)
-                            .build()
-                        ctrl.setMediaItem(videoMediaItem, currentPos)
-                        ctrl.prepare()
-                        ctrl.play()
+                try {
+                    if (enabled) {
+                        val videoStream = com.streamify.app.data.network.YouTubeStreamResolver.resolveVideoStreamUrl(currentT)
+                        if (videoStream != null && videoStream.streamUrl.isNotBlank()) {
+                            withContext(Dispatchers.Main) {
+                                val currentItem = ctrl.currentMediaItem ?: return@withContext
+                                val videoMediaItem = currentItem.buildUpon()
+                                    .setUri(android.net.Uri.parse(videoStream.streamUrl))
+                                    .setMimeType(androidx.media3.common.MimeTypes.VIDEO_MP4)
+                                    .build()
+                                
+                                if (currentIndex in 0 until ctrl.mediaItemCount) {
+                                    ctrl.replaceMediaItem(currentIndex, videoMediaItem)
+                                    ctrl.seekTo(currentIndex, currentPos)
+                                    if (wasPlaying) ctrl.play()
+                                }
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                UiEventBus.emitEvent(UiEvent.ShowSnackbar("Music video stream unavailable for this track"))
+                            }
+                        }
+                    } else {
+                        val audioStream = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(currentT)
+                        val audioUrl = audioStream?.streamUrl ?: currentT.filepath
+                        if (audioUrl.isNotBlank()) {
+                            withContext(Dispatchers.Main) {
+                                val currentItem = ctrl.currentMediaItem ?: return@withContext
+                                val audioMediaItem = currentItem.buildUpon()
+                                    .setUri(android.net.Uri.parse(audioUrl))
+                                    .setMimeType(audioStream?.mimeType ?: androidx.media3.common.MimeTypes.AUDIO_WEBM)
+                                    .build()
+                                
+                                if (currentIndex in 0 until ctrl.mediaItemCount) {
+                                    ctrl.replaceMediaItem(currentIndex, audioMediaItem)
+                                    ctrl.seekTo(currentIndex, currentPos)
+                                    if (wasPlaying) ctrl.play()
+                                }
+                            }
+                        }
                     }
-                }
-            }
-        } else {
-            viewModelScope.launch(Dispatchers.IO) {
-                val audioStream = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(currentT)
-                val audioUrl = audioStream?.streamUrl ?: currentT.filepath
-                if (audioUrl.isNotBlank()) {
-                    withContext(Dispatchers.Main) {
-                        val currentItem = ctrl.currentMediaItem ?: return@withContext
-                        val audioMediaItem = currentItem.buildUpon()
-                            .setUri(android.net.Uri.parse(audioUrl))
-                            .setMimeType(audioStream?.mimeType ?: androidx.media3.common.MimeTypes.AUDIO_WEBM)
-                            .build()
-                        ctrl.setMediaItem(audioMediaItem, currentPos)
-                        ctrl.prepare()
-                        ctrl.play()
-                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    isVideoSwitching.set(false)
                 }
             }
         }

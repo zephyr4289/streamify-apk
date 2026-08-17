@@ -426,6 +426,62 @@ object YouTubeStreamResolver {
         }
     }
 
+    private val VIDEO_CLIENT_TARGETS = listOf(
+        ClientConfig("ANDROID", "19.09.37", "3"),
+        ClientConfig("IOS", "19.09.3", "5"),
+        ClientConfig("WEB", "2.20230515.01.00", "1")
+    )
+
+    suspend fun resolveVideoStreamUrl(track: com.streamify.app.data.models.Track): ResolvedStream? = withContext(Dispatchers.IO) {
+        val videoId = CanonicalSeedResolver.resolveToCanonicalId(track)
+
+        // 1. Zero-RTT Edge Cache Check
+        val cached = StreamEdgeCache.getVideoStream(videoId)
+        if (cached != null) {
+            return@withContext cached
+        }
+
+        // 2. Parallel Standard Client Video Stream Racing (ANDROID / IOS / WEB)
+        val resolved = raceClientVideoEndpoints(videoId)
+        if (resolved != null && resolved.streamUrl.isNotBlank()) {
+            StreamEdgeCache.putVideoStream(videoId, resolved)
+            return@withContext resolved
+        }
+
+        // 3. Tier 2: Chaquopy Python yt-dlp Video Stream Fallback
+        try {
+            val pyFallbackResult = PythonEngine.executeFallback(
+                moduleName = "download_engine.search",
+                function = "get_stream_url",
+                args = arrayOf("https://www.youtube.com/watch?v=$videoId")
+            ) { pyObj ->
+                val strVal = pyObj.toString().trim()
+                if (strVal.startsWith("{")) {
+                    val jsonObj = JSONObject(strVal)
+                    jsonObj.optString("url", "")
+                } else {
+                    strVal
+                }
+            }
+
+            val pythonStreamUrl = pyFallbackResult.getOrNull()
+            if (!pythonStreamUrl.isNullOrBlank()) {
+                val pyResolved = ResolvedStream(
+                    streamUrl = pythonStreamUrl,
+                    mimeType = "video/mp4",
+                    bitrate = 1200000,
+                    durationSec = track.durationSec
+                )
+                StreamEdgeCache.putVideoStream(videoId, pyResolved)
+                return@withContext pyResolved
+            }
+        } catch (e: Throwable) {
+            // Ignore & return null
+        }
+
+        return@withContext null
+    }
+
     suspend fun resolveVideoStreamUrl(urlOrId: String, fallbackThumbnail: String? = null): ResolvedStream? = withContext(Dispatchers.IO) {
         val videoId = extractVideoId(urlOrId, fallbackThumbnail) ?: return@withContext null
 
@@ -446,7 +502,7 @@ object YouTubeStreamResolver {
     private suspend fun raceClientVideoEndpoints(videoId: String): ResolvedStream? = coroutineScope {
         val winnerDeferred = CompletableDeferred<ResolvedStream?>()
 
-        val jobs = CLIENT_TARGETS.map { config ->
+        val jobs = VIDEO_CLIENT_TARGETS.map { config ->
             async(Dispatchers.IO) {
                 try {
                     val stream = executeVideoPlayerRequest(videoId, config)

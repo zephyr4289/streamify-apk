@@ -99,6 +99,16 @@ fun FullPlayerSheet(
     val playerState by playerViewModel.playerState.collectAsState()
     val isVideoMode = playerState.isVideoMode
 
+    val targetRatio = if (isVideoMode) (16f / 9f) else 1f
+    val animatedAspectRatio by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = targetRatio,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+        ),
+        label = "HeroAspectRatioAnimation"
+    )
+
     var showCommentsSheet by remember { mutableStateOf(false) }
     val communityViewModel: CommunityViewModel = viewModel()
     var showRelatedSheet by remember { mutableStateOf(false) }
@@ -193,13 +203,13 @@ fun FullPlayerSheet(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // 1:1 Aspect Ratio Hero Surface (Artwork or Hardware Video)
+                    // Dynamic Morphing Aspect Ratio Hero Surface (Artwork or Hardware Video)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(0.92f)
-                            .aspectRatio(1f)
+                            .aspectRatio(animatedAspectRatio)
                             .clip(LocalAppShapes.current.thumbnailLarge)
-                            .background(BgCard),
+                            .background(androidx.compose.ui.graphics.Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
                         Crossfade(
@@ -212,7 +222,7 @@ fun FullPlayerSheet(
                                         PlayerView(ctx).apply {
                                             player = playerViewModel.getController()
                                             useController = false
-                                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                                             setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                                         }
                                     },
@@ -520,14 +530,14 @@ fun FullPlayerSheet(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // --- HERO 1:1 ALBUM ARTWORK / HARDWARE VIDEO SURFACE ---
+                // --- HERO DYNAMIC MORPHING ALBUM ARTWORK / HARDWARE VIDEO SURFACE ---
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
-                        .aspectRatio(1f)
+                        .aspectRatio(animatedAspectRatio)
                         .clip(LocalAppShapes.current.thumbnailLarge)
-                        .background(BgCard),
+                        .background(androidx.compose.ui.graphics.Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
                     Crossfade(
@@ -540,7 +550,7 @@ fun FullPlayerSheet(
                                     PlayerView(ctx).apply {
                                         player = playerViewModel.getController()
                                         useController = false
-                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                                         setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                                     }
                                 },
