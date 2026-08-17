@@ -3,10 +3,16 @@ package com.streamify.app.data
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.remote.SupabaseClient
 import com.streamify.app.data.remote.TelemetryPayload
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class WrappedStats(
@@ -25,6 +31,11 @@ data class WrappedStats(
 
 object YtStatsTelemetryEngine {
 
+    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private val _cachedWrappedStats = MutableStateFlow<WrappedStats?>(null)
+    val cachedWrappedStats: StateFlow<WrappedStats?> = _cachedWrappedStats.asStateFlow()
+
     fun recordListeningSeconds(seconds: Long) {
         val context = TrackRepository.appContext ?: return
         if (seconds <= 0) return
@@ -32,6 +43,8 @@ object YtStatsTelemetryEngine {
             val prefs = context.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
             val currentSec = prefs.getLong("total_listened_seconds", 0L)
             prefs.edit().putLong("total_listened_seconds", currentSec + seconds).apply()
+            // Invalidate memoized cache on new playback activity
+            _cachedWrappedStats.value = null
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -77,13 +90,18 @@ object YtStatsTelemetryEngine {
         }
     }
 
-    fun computeWrappedStats(): Flow<WrappedStats> = flow {
-        // 1. Off-Main-Thread Real Data Gathering
+    fun computeWrappedStats(forceRefresh: Boolean = false): Flow<WrappedStats> = flow {
+        // Tier 1: Instant 0ms RAM Cache Return
+        _cachedWrappedStats.value?.takeIf { !forceRefresh }?.let { cached ->
+            emit(cached)
+            return@flow
+        }
+
+        // Tier 2: Hot Local Matrix Computation (<5ms off main thread)
         val libraryTracks = TrackRepository.getAllTracks()
         val likedTracks = TrackRepository.getLikedTracks()
         val topPlayedTracks = TrackRepository.getTopPlayedTracks(10)
 
-        // 2. Real Telemetry Calculations: Read actual accumulated playback time
         val context = TrackRepository.appContext
         val prefs = context?.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
         val realListenedSeconds = prefs?.getLong("total_listened_seconds", 0L) ?: 0L
@@ -91,19 +109,17 @@ object YtStatsTelemetryEngine {
         val totalMinutes = if (realListenedSeconds > 0) {
             (realListenedSeconds / 60).toInt()
         } else {
-            // Count duration of actually played tracks
             val playedSeconds = topPlayedTracks.sumOf { it.durationSec.toLong() }
             if (playedSeconds > 0) (playedSeconds / 60).toInt() else 0
         }
 
         val topPlayedCount = topPlayedTracks.size
 
-        // 3. Mathematical BPM Persona Analysis
         val validBpms = libraryTracks.map { it.bpm }.filter { it > 40f && it < 240f }
         val weightedBpm = if (validBpms.isNotEmpty()) {
             validBpms.average().toInt()
         } else {
-            124 // Default balanced tempo
+            124
         }
 
         val (personaName, personaEmoji, personaDesc) = when {
@@ -124,7 +140,6 @@ object YtStatsTelemetryEngine {
             )
         }
 
-        // 4. Real Genre Distribution Analysis
         val genreKeywords = mapOf(
             "Electronic & Synthwave" to listOf("electronic", "synth", "dance", "club", "house", "techno", "edm"),
             "Pop & Modern Hits" to listOf("pop", "hit", "radio", "deluxe", "remix"),
@@ -165,7 +180,6 @@ object YtStatsTelemetryEngine {
                 )
             }
 
-        // 5. Top 5 Songs & Top Artists Discovery
         val top5Songs = if (topPlayedTracks.isNotEmpty()) {
             topPlayedTracks.take(5)
         } else {
@@ -193,13 +207,19 @@ object YtStatsTelemetryEngine {
             topArtists = topArtists
         )
 
-        // 6. Two-Way Supabase Cloud Telemetry Sync
-        try {
-            syncCurrentTelemetryToCloud()
-        } catch (e: Exception) {
-            // Ignore offline errors
-        }
+        // Cache in RAM for instant 0ms returns
+        _cachedWrappedStats.value = stats
 
+        // Emits immediately in <5ms without waiting for network I/O
         emit(stats)
+
+        // Tier 3: Detached Non-Blocking Background Cloud Sync
+        engineScope.launch(Dispatchers.IO) {
+            try {
+                syncCurrentTelemetryToCloud()
+            } catch (e: Exception) {
+                // Ignore offline errors
+            }
+        }
     }.flowOn(Dispatchers.Default)
 }

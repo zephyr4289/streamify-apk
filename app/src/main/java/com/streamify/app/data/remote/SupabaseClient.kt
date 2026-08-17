@@ -78,6 +78,17 @@ data class ListeningSession(
     val participantIds: List<String> = emptyList()
 )
 
+data class DevicePlaybackSnapshot(
+    val deviceId: String,
+    val trackId: String,
+    val trackTitle: String,
+    val trackArtist: String,
+    val isPlaying: Boolean,
+    val positionMs: Long,
+    val clientEpochMs: Long,
+    val durationMs: Long
+)
+
 data class FriendActivity(
     val userId: String,
     val displayName: String,
@@ -201,6 +212,7 @@ object SupabaseClient {
     val activeJam: StateFlow<ListeningSession?> = _activeJam.asStateFlow()
 
     val liveProfileUpdates = MutableSharedFlow<JSONObject>(extraBufferCapacity = 64)
+    val remotePlaybackState = MutableSharedFlow<DevicePlaybackSnapshot>(extraBufferCapacity = 8)
 
     val isAdmin: Boolean
         get() = _currentUser.value?.isAdmin == true ||
@@ -723,7 +735,16 @@ object SupabaseClient {
                 }
                 webSocket.send(joinProfilesMsg.toString())
 
-                // 4. Heartbeat loop (every 25s)
+                // 4. Join ephemeral playback_sync broadcast channel (Zero-Drift Clock Compensation)
+                val joinPlaybackMsg = JSONObject().apply {
+                    put("topic", "realtime:playback_sync")
+                    put("event", "phx_join")
+                    put("payload", JSONObject())
+                    put("ref", "playback_sub")
+                }
+                webSocket.send(joinPlaybackMsg.toString())
+
+                // 5. Heartbeat loop (every 25s)
                 heartbeatJob?.cancel()
                 heartbeatJob = syncScope.launch {
                     while (_isRealtimeConnected.value) {
@@ -738,7 +759,7 @@ object SupabaseClient {
                     }
                 }
 
-                // 5. Trigger Cursor-based Delta Reconciliation on Connect/Wake
+                // 6. Trigger Cursor-based Delta Reconciliation on Connect/Wake
                 syncScope.launch {
                     fetchDeltasSince(lastSyncWatermarkMs)
                 }
@@ -757,6 +778,37 @@ object SupabaseClient {
                         val record = data.optJSONObject("record") ?: data.optJSONObject("old_record") ?: return
 
                         handleIncomingCdcEvent(table, eventType, record)
+                    } else if (event == "broadcast") {
+                        val topic = root.optString("topic", "")
+                        val msgPayload = payload.optJSONObject("payload") ?: payload
+                        val type = payload.optString("type", "")
+                        if (topic == "realtime:playback_sync" || type == "playback_sync") {
+                            val clientEpoch = msgPayload.optLong("client_epoch_ms", 0L)
+                            val now = System.currentTimeMillis()
+                            val transitLatency = (now - clientEpoch).coerceAtLeast(0L)
+                            val basePos = msgPayload.optLong("position_ms", 0L)
+                            val isPlaying = msgPayload.optBoolean("is_playing", false)
+                            val durationMs = msgPayload.optLong("duration_ms", 0L)
+
+                            // Cristian's Algorithm Latency Compensation
+                            val compensatedPosition = if (isPlaying && transitLatency > 0) {
+                                (basePos + transitLatency).coerceAtMost(if (durationMs > 0) durationMs else Long.MAX_VALUE)
+                            } else {
+                                basePos
+                            }
+
+                            val snapshot = DevicePlaybackSnapshot(
+                                deviceId = msgPayload.optString("device_id", ""),
+                                trackId = msgPayload.optString("track_id", ""),
+                                trackTitle = msgPayload.optString("track_title", ""),
+                                trackArtist = msgPayload.optString("track_artist", ""),
+                                isPlaying = isPlaying,
+                                positionMs = compensatedPosition,
+                                clientEpochMs = clientEpoch,
+                                durationMs = durationMs
+                            )
+                            remotePlaybackState.tryEmit(snapshot)
+                        }
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("SupabaseRealtime", "CDC Parse error: ${e.message}")
@@ -842,6 +894,40 @@ object SupabaseClient {
                 }
             }
             lastSyncWatermarkMs = System.currentTimeMillis()
+        }
+    }
+
+    fun broadcastPlaybackSnapshot(
+        track: Track,
+        positionMs: Long,
+        isPlaying: Boolean,
+        deviceId: String
+    ) {
+        val ws = realtimeWebSocket ?: return
+        if (!_isRealtimeConnected.value) return
+        try {
+            val payload = JSONObject().apply {
+                put("device_id", deviceId)
+                put("track_id", track.id.toString())
+                put("track_title", track.title)
+                put("track_artist", track.artist)
+                put("is_playing", isPlaying)
+                put("position_ms", positionMs)
+                put("client_epoch_ms", System.currentTimeMillis())
+                put("duration_ms", (track.durationSec * 1000L).coerceAtLeast(1L))
+            }
+            val broadcastMsg = JSONObject().apply {
+                put("topic", "realtime:playback_sync")
+                put("event", "broadcast")
+                put("payload", JSONObject().apply {
+                    put("type", "playback_sync")
+                    put("payload", payload)
+                })
+                put("ref", "sync_${System.currentTimeMillis()}")
+            }
+            ws.send(broadcastMsg.toString())
+        } catch (e: Exception) {
+            // Non-blocking ephemeral broadcast
         }
     }
 
