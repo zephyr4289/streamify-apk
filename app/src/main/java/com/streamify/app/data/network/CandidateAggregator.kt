@@ -226,7 +226,7 @@ object CandidateAggregator {
         try {
             val ids = NativeBridge.getCooccurrenceRecommendations(trackId, limit = 20)
             val catalog = TrackRepository.allTracks.value.associateBy { it.id }
-            ids.mapNotNull { catalog[it] }
+            ids.toList().mapNotNull { catalog[it] }
         } catch (e: Exception) {
             emptyList()
         }
