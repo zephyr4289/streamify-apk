@@ -28,7 +28,9 @@ class CrossfadeAudioProcessor : AudioProcessor {
     private var inputAudioFormat = AudioFormat.NOT_SET
     private var outputAudioFormat = AudioFormat.NOT_SET
     
+    private var buffer: ByteBuffer = EMPTY_BUFFER
     private var outputBuffer: ByteBuffer = EMPTY_BUFFER
+    private var tempShortBuffer: ShortArray = ShortArray(4096)
     private var isEnding = false
     private var crossfading = false
     private var fadeFramesTotal = 0
@@ -59,15 +61,18 @@ class CrossfadeAudioProcessor : AudioProcessor {
         val size = inputBuffer.remaining()
         if (size == 0) return
 
-        if (outputBuffer.capacity() < size) {
-            outputBuffer = ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder())
+        if (buffer.capacity() < size) {
+            buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder())
         } else {
-            outputBuffer.clear()
+            buffer.clear()
         }
 
         val shortBuffer = inputBuffer.asShortBuffer()
         val sampleCount = shortBuffer.remaining()
-        val tempOutput = ShortArray(sampleCount)
+        if (tempShortBuffer.size < sampleCount) {
+            tempShortBuffer = ShortArray(sampleCount)
+        }
+        val tempOutput = tempShortBuffer
         var tempOutIdx = 0
         
         val requiredBufferSize = fadeFramesTotal * inputAudioFormat.channelCount
@@ -122,13 +127,14 @@ class CrossfadeAudioProcessor : AudioProcessor {
             // Ignore if native lib not loaded in test
         }
 
-        val outShortBuffer = outputBuffer.asShortBuffer()
+        val outShortBuffer = buffer.asShortBuffer()
         outShortBuffer.put(tempOutput, 0, sampleCount)
 
         shortBuffer.position(shortBuffer.position() + sampleCount)
         inputBuffer.position(inputBuffer.position() + size)
         
-        outputBuffer.limit(size)
+        buffer.limit(size)
+        outputBuffer = buffer
     }
 
     override fun queueEndOfStream() {
@@ -136,9 +142,9 @@ class CrossfadeAudioProcessor : AudioProcessor {
     }
 
     override fun getOutput(): ByteBuffer {
-        val buffer = outputBuffer
+        val out = outputBuffer
         outputBuffer = EMPTY_BUFFER
-        return buffer
+        return out
     }
 
     override fun isEnded(): Boolean = isEnding && outputBuffer === EMPTY_BUFFER
@@ -150,6 +156,7 @@ class CrossfadeAudioProcessor : AudioProcessor {
 
     override fun reset() {
         flush()
+        buffer = EMPTY_BUFFER
         inputAudioFormat = AudioFormat.NOT_SET
         outputAudioFormat = AudioFormat.NOT_SET
         isActive = false

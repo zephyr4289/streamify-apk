@@ -139,7 +139,7 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(playerState.currentTrack) {
                     if (playerState.currentTrack != null && quantumController.stage == com.streamify.app.ui.components.TokenStage.FLYING) {
-                        quantumController.reset()
+                        quantumController.onTrackReady()
                     }
                 }
 
@@ -153,13 +153,15 @@ class MainActivity : ComponentActivity() {
                         val result = (Coil.imageLoader(context).execute(request) as? SuccessResult)?.drawable
                         val bitmap = (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
                         if (bitmap != null) {
-                            androidx.palette.graphics.Palette.from(bitmap).generate { palette ->
-                                palette?.dominantSwatch?.rgb?.let { colorInt ->
-                                    targetColor = Color(colorInt)
-                                } ?: palette?.mutedSwatch?.rgb?.let { colorInt ->
-                                    targetColor = Color(colorInt)
+                            androidx.palette.graphics.Palette.from(bitmap)
+                                .resizeBitmapArea(112 * 112)
+                                .generate { palette ->
+                                    palette?.dominantSwatch?.rgb?.let { colorInt ->
+                                        targetColor = Color(colorInt)
+                                    } ?: palette?.mutedSwatch?.rgb?.let { colorInt ->
+                                        targetColor = Color(colorInt)
+                                    }
                                 }
-                            }
                         }
                     }
                 }

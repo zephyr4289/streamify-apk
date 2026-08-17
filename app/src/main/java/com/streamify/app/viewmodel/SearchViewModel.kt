@@ -111,6 +111,9 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         }
 
         searchJob = viewModelScope.launch {
+            // 200ms keystroke debounce to prevent SQLite and network thrashing
+            kotlinx.coroutines.delay(200)
+
             // Signal orchestrator to prioritize search over background AI ingestion
             com.streamify.app.data.NativeBridge.setHighPriorityActive(true)
 
@@ -135,8 +138,6 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             )
 
             // 3. Ultra-Fast Sub-100ms Native Innertube & Python Search Pipeline
-            kotlinx.coroutines.delay(100)
-            
             val onlineResults = withContext(Dispatchers.IO) {
                 try {
                     val searchResult: List<OnlineSearchResult> = com.streamify.app.data.network.ResilientMediaRouter.fetchWithFallback<List<OnlineSearchResult>>(
@@ -179,7 +180,6 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             pyRes.getOrNull() ?: emptyList()
                         }
                     ) ?: emptyList()
-
                     val semanticResults: List<OnlineSearchResult> = if (com.streamify.app.data.network.SemanticSearchEngine.isSemanticQuery(cleanQuery)) {
                         try {
                             com.streamify.app.data.network.SemanticSearchEngine.resolveMoodQuery(cleanQuery)
@@ -193,25 +193,21 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                     } else {
                         searchResult
                     }
-
-                    if (finalResults.isNotEmpty()) {
-                        searchCache.put(cleanQuery.lowercase(), finalResults)
-                    }
                     finalResults
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
                 } catch (e: Exception) {
-                    emptyList<OnlineSearchResult>()
+                    emptyList()
                 }
             }
 
-            if (isActive) {
-                _uiState.value = SearchUiState.Success(
-                    localResults = localResults,
-                    onlineResults = onlineResults,
-                    isOnlineLoading = false
-                )
+            if (onlineResults.isNotEmpty()) {
+                searchCache.put(cleanQuery.lowercase(), onlineResults)
             }
+
+            _uiState.value = SearchUiState.Success(
+                localResults = localResults,
+                onlineResults = onlineResults,
+                isOnlineLoading = false
+            )
         }
     }
 
@@ -220,7 +216,8 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         allOnlineResults: List<OnlineSearchResult> = emptyList(),
         playerViewModel: com.streamify.app.viewmodel.PlayerViewModel,
         ingestionViewModel: com.streamify.app.viewmodel.IngestionViewModel,
-        context: android.content.Context
+        context: android.content.Context,
+        onTrackReady: (() -> Unit)? = null
     ) {
         streamJob?.cancel()
         streamJob = viewModelScope.launch {
@@ -279,6 +276,9 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
 
                     // 2. Play tapped track immediately and kick off Continuum Radio Engine
                     playerViewModel.playFromSearch(trackToPlay, listOf(trackToPlay))
+                    withContext(Dispatchers.Main) {
+                        onTrackReady?.invoke()
+                    }
                 } else {
                     withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(context, "Could not resolve audio stream. Please try another track.", android.widget.Toast.LENGTH_SHORT).show()

@@ -770,7 +770,10 @@ Java_com_streamify_app_data_NativeBridge_stepAirDropPhysics(
     jfloat dt
 ) {
     if (!inOutBuffer) return;
-    jfloat* buf = env->GetFloatArrayElements(inOutBuffer, nullptr);
+    jsize len = env->GetArrayLength(inOutBuffer);
+    if (len < 13) return;
+
+    jfloat* buf = static_cast<jfloat*>(env->GetPrimitiveArrayCritical(inOutBuffer, nullptr));
     if (!buf) return;
 
     streamify::AirDropState state;
@@ -787,6 +790,7 @@ Java_com_streamify_app_data_NativeBridge_stepAirDropPhysics(
     state.roll_deg = buf[10];
     state.impact_progress = buf[11];
     state.is_docked = (buf[12] > 0.5f);
+    state.is_ready_to_dock = (len >= 14) ? (buf[13] > 0.5f) : true;
 
     streamify::TargetDock target;
     target.x = targetX;
@@ -808,8 +812,11 @@ Java_com_streamify_app_data_NativeBridge_stepAirDropPhysics(
     buf[10] = state.roll_deg;
     buf[11] = state.impact_progress;
     buf[12] = state.is_docked ? 1.0f : 0.0f;
+    if (len >= 14) {
+        buf[13] = state.is_ready_to_dock ? 1.0f : 0.0f;
+    }
 
-    env->ReleaseFloatArrayElements(inOutBuffer, buf, 0);
+    env->ReleasePrimitiveArrayCritical(inOutBuffer, buf, 0);
 }
 
 // ═══════════════════════════════════════════════════════════════

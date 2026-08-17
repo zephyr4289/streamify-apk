@@ -10,7 +10,7 @@ object NetworkEngine {
 
     val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
+            .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectTimeout(3000, TimeUnit.MILLISECONDS)
             .readTimeout(4000, TimeUnit.MILLISECONDS)

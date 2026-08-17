@@ -10,6 +10,7 @@ import java.nio.ByteOrder
 class MeshPcmAudioProcessor : AudioProcessor {
     private var isActive = true
     private var inputAudioFormat = AudioFormat.NOT_SET
+    private var buffer: ByteBuffer = EMPTY_BUFFER
     private var outputBuffer: ByteBuffer = EMPTY_BUFFER
     private var isEnding = false
 
@@ -38,15 +39,16 @@ class MeshPcmAudioProcessor : AudioProcessor {
             // Non-fatal tap exception
         }
 
-        // 2. Pass-through buffer to output for downstream AudioTrack playback
-        if (outputBuffer.capacity() < size) {
-            outputBuffer = ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder())
+        // 2. Pass-through buffer to output for downstream AudioTrack playback (Zero Allocation)
+        if (buffer.capacity() < size) {
+            buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder())
         } else {
-            outputBuffer.clear()
+            buffer.clear()
         }
 
-        outputBuffer.put(inputBuffer)
-        outputBuffer.flip()
+        buffer.put(inputBuffer)
+        buffer.flip()
+        outputBuffer = buffer
     }
 
     override fun queueEndOfStream() {
@@ -68,6 +70,7 @@ class MeshPcmAudioProcessor : AudioProcessor {
 
     override fun reset() {
         flush()
+        buffer = EMPTY_BUFFER
         inputAudioFormat = AudioFormat.NOT_SET
         isActive = false
     }

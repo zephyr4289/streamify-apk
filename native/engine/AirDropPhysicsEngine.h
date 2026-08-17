@@ -18,6 +18,7 @@ struct AirDropState {
     float roll_deg;
     float impact_progress;
     bool is_docked;
+    bool is_ready_to_dock;
 };
 
 struct TargetDock {

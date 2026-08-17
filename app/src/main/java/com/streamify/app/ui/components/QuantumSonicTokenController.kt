@@ -50,9 +50,9 @@ class QuantumSonicTokenController {
     var trackArt by mutableStateOf<String?>(null)
         private set
 
-    // Direct 13-Float Zero-Allocation JNI Buffer
-    // 0: x, 1: y, 2: z, 3: vx, 4: vy, 5: vz, 6: stretch_parallel, 7: stretch_perp, 8: rotation_rad, 9: pitch_deg, 10: roll_deg, 11: impact_progress, 12: is_docked
-    private val physicsBuffer = FloatArray(13)
+    // Direct 14-Float Zero-Allocation JNI Buffer
+    // 0: x, 1: y, 2: z, 3: vx, 4: vy, 5: vz, 6: stretch_parallel, 7: stretch_perp, 8: rotation_rad, 9: pitch_deg, 10: roll_deg, 11: impact_progress, 12: is_docked, 13: is_ready_to_dock
+    private val physicsBuffer = FloatArray(14)
 
     fun triggerFlight(
         tapOrigin: Offset,
@@ -77,7 +77,7 @@ class QuantumSonicTokenController {
         physicsBuffer[1] = tapOrigin.y
         physicsBuffer[2] = 0f
         physicsBuffer[3] = 0f
-        physicsBuffer[4] = -120f // Initial upward pop
+        physicsBuffer[4] = -80f // Gentle initial upward pop
         physicsBuffer[5] = 0f
         physicsBuffer[6] = 1f // stretch_parallel
         physicsBuffer[7] = 1f // stretch_perp
@@ -86,6 +86,7 @@ class QuantumSonicTokenController {
         physicsBuffer[10] = 0f // roll_deg
         physicsBuffer[11] = 0f // impact_progress
         physicsBuffer[12] = 0f // is_docked
+        physicsBuffer[13] = 0f // is_ready_to_dock (waits for stream to resolve before impact splash)
 
         stretchParallel = 1f
         stretchPerp = 1f
@@ -94,6 +95,24 @@ class QuantumSonicTokenController {
         rollDeg = 0f
         impactProgress = 0f
         stage = TokenStage.FLYING
+    }
+
+    /**
+     * Called when the audio stream resolution completes and the track begins playing.
+     * Triggers the final impact touchdown and bloom animation.
+     */
+    fun onTrackReady() {
+        physicsBuffer[13] = 1f
+        if (stage == TokenStage.FLYING) {
+            val dx = destination.x - currentPosition.x
+            val dy = destination.y - currentPosition.y
+            val dist = sqrt(dx * dx + dy * dy)
+            if (dist < 60f) {
+                stage = TokenStage.IMPACT
+                physicsBuffer[12] = 1f
+                com.streamify.app.util.StreamifyHapticEngine.tokenImpact()
+            }
+        }
     }
 
     /**
@@ -140,12 +159,12 @@ class QuantumSonicTokenController {
     private fun stepKotlinRK4(dt: Float) {
         if (physicsBuffer[12] > 0.5f) {
             if (physicsBuffer[11] < 1f) {
-                physicsBuffer[11] = min(1f, physicsBuffer[11] + (dt / 0.180f))
+                physicsBuffer[11] = min(1f, physicsBuffer[11] + (dt / 0.220f))
                 val t = physicsBuffer[11]
                 val squashY = when {
-                    t < 0.25f -> 1f - (0.12f * (t / 0.25f))
-                    t < 0.60f -> 0.88f + (0.18f * ((t - 0.25f) / 0.35f))
-                    else -> 1.06f - (0.06f * ((t - 0.60f) / 0.40f))
+                    t < 0.25f -> 1f - (0.15f * (t / 0.25f))
+                    t < 0.60f -> 0.85f + (0.22f * ((t - 0.25f) / 0.35f))
+                    else -> 1.07f - (0.07f * ((t - 0.60f) / 0.40f))
                 }
                 physicsBuffer[7] = squashY
                 physicsBuffer[6] = 1f / max(0.01f, squashY)
@@ -157,6 +176,7 @@ class QuantumSonicTokenController {
         var y = physicsBuffer[1]
         var vx = physicsBuffer[3]
         var vy = physicsBuffer[4]
+        val isReadyToDock = physicsBuffer[13] > 0.5f
 
         fun computeAccel(px: Float, py: Float, pvx: Float, pvy: Float): Pair<Float, Float> {
             val dx = destination.x - px
@@ -164,11 +184,19 @@ class QuantumSonicTokenController {
             val dist = sqrt(dx * dx + dy * dy)
             if (dist < 1f) return Pair(0f, 0f)
 
-            var fx = 180f * dx - 24f * pvx
-            var fy = 180f * dy - 24f * pvy
+            var k = 24f
+            var c = 9.5f
+
+            if (!isReadyToDock && dist < 50f) {
+                k = 6f
+                c = 14f
+            }
+
+            var fx = k * dx - c * pvx
+            var fy = k * dy - c * pvy
 
             if (initialDistance > 1f) {
-                val liftMag = 450f * sin((dist / initialDistance).coerceIn(0f, 1f) * PI.toFloat())
+                val liftMag = 180f * sin((dist / initialDistance).coerceIn(0f, 1f) * PI.toFloat())
                 fx += (-dy / dist) * liftMag
                 fy += ( dx / dist) * liftMag
             }
@@ -209,7 +237,7 @@ class QuantumSonicTokenController {
         vy += (k1_vy + 2f * k2_vy + 2f * k3_vy + k4_vy) / 6f
 
         val remDist = sqrt((destination.x - x).pow(2) + (destination.y - y).pow(2))
-        if (remDist < 16f) {
+        if (remDist < 24f && isReadyToDock) {
             physicsBuffer[12] = 1f
             physicsBuffer[0] = destination.x
             physicsBuffer[1] = destination.y
@@ -220,7 +248,7 @@ class QuantumSonicTokenController {
         }
 
         val speed = sqrt(vx * vx + vy * vy)
-        val stretchPar = 1f + 0.35f * tanh(speed / 1200f)
+        val stretchPar = 1f + 0.25f * tanh(speed / 800f)
         val stretchPrp = 1f / stretchPar
 
         physicsBuffer[0] = x
@@ -230,8 +258,8 @@ class QuantumSonicTokenController {
         physicsBuffer[6] = stretchPar
         physicsBuffer[7] = stretchPrp
         physicsBuffer[8] = atan2(vy, vx)
-        physicsBuffer[9] = (-vy * 0.035f).coerceIn(-15f, 15f)
-        physicsBuffer[10] = (vx * 0.035f).coerceIn(-12f, 12f)
+        physicsBuffer[9] = (-vy * 0.025f).coerceIn(-12f, 12f)
+        physicsBuffer[10] = (vx * 0.025f).coerceIn(-10f, 10f)
     }
 
     fun reset() {

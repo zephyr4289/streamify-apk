@@ -424,7 +424,10 @@ fun SearchScreen(
                                             allOnlineResults = onlineMatches,
                                             playerViewModel = playerViewModel,
                                             ingestionViewModel = ingestionViewModel,
-                                            context = context
+                                            context = context,
+                                            onTrackReady = {
+                                                quantumController.onTrackReady()
+                                            }
                                         )
                                     },
                                     onMoreClick = { contextMenuController.show(trackModel, origin = MenuOrigin.SEARCH) }

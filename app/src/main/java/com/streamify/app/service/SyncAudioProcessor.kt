@@ -17,6 +17,7 @@ class SyncAudioProcessor(private val context: Context? = null) : AudioProcessor 
     private var inputFormat = AudioFormat.NOT_SET
     private var outputFormat = AudioFormat.NOT_SET
     private var buffer: ByteBuffer = EMPTY_BUFFER
+    private var outputBuffer: ByteBuffer = EMPTY_BUFFER
     private var isInputEnded = false
 
     private val totalFramesProcessed = AtomicLong(0L)
@@ -46,7 +47,7 @@ class SyncAudioProcessor(private val context: Context? = null) : AudioProcessor 
         val frames = remaining / bytesPerFrame
         totalFramesProcessed.addAndGet(frames.toLong())
 
-        // Pass buffer through directly (Zero-copy latency)
+        // Pass buffer through directly (Zero-copy latency, persistent buffer allocation)
         if (buffer.capacity() < remaining) {
             buffer = ByteBuffer.allocateDirect(remaining).order(ByteOrder.nativeOrder())
         } else {
@@ -54,6 +55,7 @@ class SyncAudioProcessor(private val context: Context? = null) : AudioProcessor 
         }
         buffer.put(inputBuffer)
         buffer.flip()
+        outputBuffer = buffer
     }
 
     override fun queueEndOfStream() {
@@ -61,20 +63,21 @@ class SyncAudioProcessor(private val context: Context? = null) : AudioProcessor 
     }
 
     override fun getOutput(): ByteBuffer {
-        val out = buffer
-        buffer = EMPTY_BUFFER
+        val out = outputBuffer
+        outputBuffer = EMPTY_BUFFER
         return out
     }
 
-    override fun isEnded(): Boolean = isInputEnded && buffer === EMPTY_BUFFER
+    override fun isEnded(): Boolean = isInputEnded && outputBuffer === EMPTY_BUFFER
 
     override fun flush() {
-        buffer = EMPTY_BUFFER
+        outputBuffer = EMPTY_BUFFER
         isInputEnded = false
     }
 
     override fun reset() {
         flush()
+        buffer = EMPTY_BUFFER
         inputFormat = AudioFormat.NOT_SET
         outputFormat = AudioFormat.NOT_SET
         totalFramesProcessed.set(0L)

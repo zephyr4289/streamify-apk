@@ -61,10 +61,6 @@ fun QuantumSonicTokenOverlay(
         val cardWidthPx = with(density) { cardWidthDp.toPx() }
         val cardHeightPx = with(density) { 60.dp.toPx() }
 
-        val xClamped = (controller.currentPosition.x - (cardWidthPx / 2f))
-            .coerceIn(8f, (screenWidthPx - cardWidthPx - 8f).coerceAtLeast(8f))
-        val yClamped = (controller.currentPosition.y - (cardHeightPx / 2f)).coerceAtLeast(0f)
-
         // ─── 1. APPLE AIRDROP LUMINESCENCE SHOCKWAVE ON DOCK IMPACT ───
         if (controller.stage == TokenStage.IMPACT) {
             ImpactBloomCanvas(
@@ -76,7 +72,12 @@ fun QuantumSonicTokenOverlay(
         // ─── 2. FLUID METAMORPHIC AIRDROP CAPSULE ───
         Box(
             modifier = Modifier
-                .offset { IntOffset(xClamped.toInt(), yClamped.toInt()) }
+                .offset {
+                    val xClamped = (controller.currentPosition.x - (cardWidthPx / 2f))
+                        .coerceIn(8f, (screenWidthPx - cardWidthPx - 8f).coerceAtLeast(8f))
+                    val yClamped = (controller.currentPosition.y - (cardHeightPx / 2f)).coerceAtLeast(0f)
+                    IntOffset(xClamped.toInt(), yClamped.toInt())
+                }
                 .width(cardWidthDp)
                 .height(60.dp)
                 .graphicsLayer {

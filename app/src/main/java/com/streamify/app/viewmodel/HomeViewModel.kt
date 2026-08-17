@@ -7,6 +7,8 @@ import com.streamify.app.data.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.iTunesSearchApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,27 +57,33 @@ class HomeViewModel(
                 val effectiveTracks = if (allTracks.isEmpty()) {
                     try {
                         val defaultSeeds = listOf("Top Hits", "Synthwave", "Lo-Fi Beats")
-                        val fetched = mutableListOf<Track>()
-                        for (seed in defaultSeeds) {
-                            val results = iTunesSearchApi.search(seed, maxResults = 6)
-                            for (res in results) {
-                                fetched.add(
-                                    Track(
-                                        id = kotlin.math.abs(res.url.hashCode()),
-                                        title = res.title,
-                                        artist = res.uploader,
-                                        album = "Trending",
-                                        durationSec = res.duration,
-                                        filepath = res.url,
-                                        coverArtPath = res.thumbnail,
-                                        bpm = 120f,
-                                        key = "C",
-                                        lyricsPath = null,
-                                        source = "online",
-                                        isLiked = false
-                                    )
-                                )
+                        val deferredResults = defaultSeeds.map { seed ->
+                            async(Dispatchers.IO) {
+                                try {
+                                    iTunesSearchApi.search(seed, maxResults = 6)
+                                } catch (e: Exception) {
+                                    emptyList()
+                                }
                             }
+                        }
+                        val fetched = mutableListOf<Track>()
+                        deferredResults.awaitAll().flatten().forEach { res ->
+                            fetched.add(
+                                Track(
+                                    id = kotlin.math.abs(res.url.hashCode()),
+                                    title = res.title,
+                                    artist = res.uploader,
+                                    album = "Trending",
+                                    durationSec = res.duration,
+                                    filepath = res.url,
+                                    coverArtPath = res.thumbnail,
+                                    bpm = 120f,
+                                    key = "C",
+                                    lyricsPath = null,
+                                    source = "online",
+                                    isLiked = false
+                                )
+                            )
                         }
                         fetched
                     } catch (e: Exception) {

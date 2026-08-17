@@ -67,15 +67,19 @@ void LufsNormalizer::processFloats(float* pcm, int length, float targetLufs) {
 void LufsNormalizer::processShorts(int16_t* pcm, int length, float targetLufs) {
     if (!pcm || length <= 0) return;
 
-    std::vector<float> floatBuf(length);
-    for (int i = 0; i < length; ++i) {
-        floatBuf[i] = pcm[i] / 32768.0f;
+    thread_local static std::vector<float> tls_float_buf;
+    if (tls_float_buf.size() < static_cast<size_t>(length)) {
+        tls_float_buf.resize(length);
     }
 
-    processFloats(floatBuf.data(), length, targetLufs);
+    for (int i = 0; i < length; ++i) {
+        tls_float_buf[i] = pcm[i] / 32768.0f;
+    }
+
+    processFloats(tls_float_buf.data(), length, targetLufs);
 
     for (int i = 0; i < length; ++i) {
-        float clamped = std::clamp(floatBuf[i] * 32767.0f, -32768.0f, 32767.0f);
+        float clamped = std::clamp(tls_float_buf[i] * 32767.0f, -32768.0f, 32767.0f);
         pcm[i] = static_cast<int16_t>(clamped);
     }
 }
