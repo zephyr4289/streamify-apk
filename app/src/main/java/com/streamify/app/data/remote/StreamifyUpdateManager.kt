@@ -1,116 +1,314 @@
 package com.streamify.app.data.remote
 
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import androidx.core.content.FileProvider
 import com.streamify.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.regex.Pattern
+
+data class RemoteBuildInfo(
+    val buildNumber: Int,
+    val tagName: String,
+    val releaseTitle: String,
+    val changelog: String,
+    val apkDownloadUrl: String?,
+    val releaseHtmlUrl: String,
+    val publishedAt: String = ""
+)
 
 sealed interface UpdateState {
     object Idle : UpdateState
-    object Checking : UpdateState
-    object NotAvailable : UpdateState
+    data class Checking(val isManual: Boolean = false) : UpdateState
+    data class UpToDate(val currentBuild: Int, val isManual: Boolean = false) : UpdateState
     data class UpdateAvailable(
-        val version: String,
-        val changelog: String,
-        val apkUrl: String
+        val buildInfo: RemoteBuildInfo,
+        val isManual: Boolean = false
     ) : UpdateState
-    data class Error(val message: String) : UpdateState
+    data class Downloading(val buildInfo: RemoteBuildInfo, val downloadId: Long) : UpdateState
+    data class Error(val message: String, val isManual: Boolean = false) : UpdateState
 }
 
 object StreamifyUpdateManager {
+
+    private const val GITHUB_RELEASES_API = "https://api.github.com/repos/zephyr4289/streamify-apk/releases?per_page=5"
+    private const val PREFS_NAME = "streamify_updates"
+    private const val KEY_ETAG = "github_release_etag"
+    private const val KEY_DISMISSED_BUILD = "dismissed_build_number"
+
+    private val BUILD_REGEX = Pattern.compile("(?:build-|v|release-)?(\\d+)", Pattern.CASE_INSENSITIVE)
+
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
 
-    private const val PREFS_NAME = "streamify_updates"
-    private const val KEY_DISMISSED_VERSION = "dismissed_version"
+    private var downloadReceiverRegistered = false
 
-    suspend fun checkForUpdates(context: Context, currentVersionName: String = BuildConfig.VERSION_NAME) {
-        _updateState.value = UpdateState.Checking
+    /**
+     * Dual-Trigger Update Checker:
+     * - Silent on Cold Launch (isManual = false)
+     * - Interactive on Settings Tap (isManual = true)
+     */
+    suspend fun checkForUpdates(context: Context, isManual: Boolean = false) {
+        _updateState.value = UpdateState.Checking(isManual)
         withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
             try {
-                val url = URL("https://api.github.com/repos/zephyr4289/streamify-apk/releases/latest")
-                connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
-                connection.setRequestProperty("User-Agent", "Streamify-Android-App")
-                connection.connectTimeout = 6000
-                connection.readTimeout = 6000
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val cachedEtag = prefs.getString(KEY_ETAG, null)
+
+                val url = URL(GITHUB_RELEASES_API)
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                    setRequestProperty("Accept", "application/vnd.github.v3+json")
+                    setRequestProperty("User-Agent", "Streamify-App/${BuildConfig.VERSION_CODE}")
+                    if (!isManual && !cachedEtag.isNullOrBlank()) {
+                        setRequestProperty("If-None-Match", cachedEtag)
+                    }
+                }
 
                 val responseCode = connection.responseCode
-                if (responseCode == 200) {
-                    val response = connection.inputStream.bufferedReader().use { it.readText() }
-                    val json = JSONObject(response)
-                    val remoteTag = json.optString("tag_name", "")
-                    val remoteVersion = remoteTag.removePrefix("v")
-                    val changelog = json.optString("body", "Performance improvements and bug fixes.")
+                if (responseCode == HttpURLConnection.HTTP_NOT_MODIFIED) {
+                    // HTTP 304 Not Modified: 0 rate limit cost
+                    _updateState.value = if (isManual) {
+                        UpdateState.UpToDate(BuildConfig.VERSION_CODE, isManual = true)
+                    } else {
+                        UpdateState.Idle
+                    }
+                    return@withContext
+                }
 
-                    // Check if the user previously dismissed this exact version
-                    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    val dismissedVersion = prefs.getString(KEY_DISMISSED_VERSION, null)
-
-                    // Find the .apk asset URL
-                    val assets = json.optJSONArray("assets")
-                    var apkUrl = ""
-                    if (assets != null) {
-                        for (i in 0 until assets.length()) {
-                            val asset = assets.getJSONObject(i)
-                            val name = asset.optString("name", "")
-                            if (name.endsWith(".apk", ignoreCase = true)) {
-                                apkUrl = asset.optString("browser_download_url", "")
-                                break
-                            }
-                        }
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    val newEtag = connection.getHeaderField("ETag")
+                    if (!newEtag.isNullOrBlank()) {
+                        prefs.edit().putString(KEY_ETAG, newEtag).apply()
                     }
 
-                    if (apkUrl.isNotEmpty() && isNewerVersion(remoteVersion, currentVersionName)) {
-                        if (dismissedVersion == remoteVersion) {
-                            _updateState.value = UpdateState.NotAvailable
+                    val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+                    val releasesArray = JSONArray(responseText)
+                    val bestBuild = parseHighestRelease(releasesArray)
+
+                    if (bestBuild != null && isNewerBuild(bestBuild.buildNumber, BuildConfig.VERSION_CODE)) {
+                        val dismissedBuild = prefs.getInt(KEY_DISMISSED_BUILD, -1)
+                        if (!isManual && dismissedBuild >= bestBuild.buildNumber) {
+                            _updateState.value = UpdateState.Idle
                         } else {
                             _updateState.value = UpdateState.UpdateAvailable(
-                                version = remoteVersion,
-                                changelog = changelog,
-                                apkUrl = apkUrl
+                                buildInfo = bestBuild,
+                                isManual = isManual
                             )
                         }
                     } else {
-                        _updateState.value = UpdateState.NotAvailable
+                        _updateState.value = if (isManual) {
+                            UpdateState.UpToDate(BuildConfig.VERSION_CODE, isManual = true)
+                        } else {
+                            UpdateState.Idle
+                        }
                     }
                 } else {
-                    _updateState.value = UpdateState.Error("HTTP $responseCode from GitHub Releases")
+                    val errorMsg = if (responseCode == 403) {
+                        "GitHub rate limit reached. Try again later."
+                    } else {
+                        "Server returned HTTP $responseCode"
+                    }
+                    _updateState.value = if (isManual) {
+                        UpdateState.Error(errorMsg, isManual = true)
+                    } else {
+                        UpdateState.Idle
+                    }
                 }
             } catch (e: Exception) {
-                _updateState.value = UpdateState.Error(e.message ?: "Network error while checking updates")
+                _updateState.value = if (isManual) {
+                    UpdateState.Error(e.message ?: "Network error while checking updates", isManual = true)
+                } else {
+                    UpdateState.Idle
+                }
             } finally {
                 connection?.disconnect()
             }
         }
     }
 
-    fun dismissUpdate(context: Context, version: String) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(KEY_DISMISSED_VERSION, version).apply()
-        _updateState.value = UpdateState.NotAvailable
+    /**
+     * Traverses the releases array and extracts the release with the highest integer build run number.
+     */
+    private fun parseHighestRelease(releases: JSONArray): RemoteBuildInfo? {
+        var topBuildInfo: RemoteBuildInfo? = null
+        var maxBuildNumber = -1
+
+        for (i in 0 until releases.length()) {
+            val rel = releases.optJSONObject(i) ?: continue
+            val tagName = rel.optString("tag_name", "")
+            val title = rel.optString("name", tagName)
+            val changelog = rel.optString("body", "Bug fixes and performance improvements.")
+            val htmlUrl = rel.optString("html_url", "https://github.com/zephyr4289/streamify-apk/releases")
+            val publishedAt = rel.optString("published_at", "")
+
+            // Extract numeric build ID from tag name (e.g., "build-114" -> 114) or title
+            val buildNum = extractNumericBuild(tagName).takeIf { it > 0 } ?: extractNumericBuild(title)
+
+            // Look for attached streamify.apk asset
+            val assets = rel.optJSONArray("assets")
+            var apkUrl: String? = null
+            if (assets != null) {
+                for (j in 0 until assets.length()) {
+                    val asset = assets.optJSONObject(j) ?: continue
+                    val name = asset.optString("name", "")
+                    if (name.endsWith(".apk", ignoreCase = true)) {
+                        apkUrl = asset.optString("browser_download_url", null)
+                        break
+                    }
+                }
+            }
+
+            if (buildNum > maxBuildNumber) {
+                maxBuildNumber = buildNum
+                topBuildInfo = RemoteBuildInfo(
+                    buildNumber = buildNum,
+                    tagName = tagName,
+                    releaseTitle = title,
+                    changelog = changelog,
+                    apkDownloadUrl = apkUrl,
+                    releaseHtmlUrl = htmlUrl,
+                    publishedAt = publishedAt
+                )
+            }
+        }
+
+        return topBuildInfo
     }
 
-    // Robust Segment-by-Segment Semantic Version Comparison (e.g. "1.104.0" vs "1.4.2")
-    private fun isNewerVersion(remote: String, current: String): Boolean {
-        val remoteParts = remote.split(".").map { it.filter { c -> c.isDigit() }.toIntOrNull() ?: 0 }
-        val currentParts = current.split(".").map { it.filter { c -> c.isDigit() }.toIntOrNull() ?: 0 }
-        val maxLen = maxOf(remoteParts.size, currentParts.size)
-
-        for (i in 0 until maxLen) {
-            val r = remoteParts.getOrElse(i) { 0 }
-            val c = currentParts.getOrElse(i) { 0 }
-            if (r > c) return true
-            if (r < c) return false
+    private fun extractNumericBuild(text: String): Int {
+        val matcher = BUILD_REGEX.matcher(text.trim())
+        return if (matcher.find()) {
+            matcher.group(1)?.toIntOrNull() ?: 0
+        } else {
+            0
         }
-        return false
+    }
+
+    private fun isNewerBuild(remoteBuild: Int, currentVersionCode: Int): Boolean {
+        return remoteBuild > currentVersionCode
+    }
+
+    /**
+     * Dispatches the update action:
+     * - If direct APK asset is available, triggers DownloadManager with completion installer receiver.
+     * - Falls back to opening the GitHub release web page in browser.
+     */
+    fun dispatchUpdate(context: Context, buildInfo: RemoteBuildInfo) {
+        val directUrl = buildInfo.apkDownloadUrl
+        if (!directUrl.isNullOrBlank()) {
+            try {
+                val fileName = "Streamify-Build-${buildInfo.buildNumber}.apk"
+                val request = DownloadManager.Request(Uri.parse(directUrl)).apply {
+                    setTitle("Streamify Update (Build ${buildInfo.buildNumber})")
+                    setDescription("Downloading latest APK build...")
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                    setMimeType("application/vnd.android.package-archive")
+                }
+
+                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                val downloadId = downloadManager.enqueue(request)
+
+                _updateState.value = UpdateState.Downloading(buildInfo, downloadId)
+                registerDownloadReceiver(context.applicationContext, downloadId, fileName)
+                return
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Fallback: Open GitHub Release page in browser
+        openReleasePage(context, buildInfo.releaseHtmlUrl)
+    }
+
+    fun openReleasePage(context: Context, releaseUrl: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun dismissUpdate(context: Context, buildNumber: Int) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putInt(KEY_DISMISSED_BUILD, buildNumber).apply()
+        _updateState.value = UpdateState.Idle
+    }
+
+    fun resetState() {
+        _updateState.value = UpdateState.Idle
+    }
+
+    private fun registerDownloadReceiver(appContext: Context, targetDownloadId: Long, fileName: String) {
+        if (downloadReceiverRegistered) return
+        downloadReceiverRegistered = true
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action == DownloadManager.ACTION_DOWNLOAD_COMPLETE) {
+                    val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+                    if (id == targetDownloadId && ctx != null) {
+                        try {
+                            val downloadFile = File(
+                                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                                fileName
+                            )
+                            if (downloadFile.exists()) {
+                                installApk(ctx, downloadFile)
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            }
+        }
+
+        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            appContext.registerReceiver(receiver, filter)
+        }
+    }
+
+    fun installApk(context: Context, file: File) {
+        try {
+            val apkUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(installIntent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }

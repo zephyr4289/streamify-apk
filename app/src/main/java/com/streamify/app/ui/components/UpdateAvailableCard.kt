@@ -75,7 +75,7 @@ fun UpdateAvailableCard(
                     color = Primary.copy(alpha = 0.15f)
                 ) {
                     Text(
-                        text = "v${updateState.version}",
+                        text = "Build ${updateState.buildInfo.buildNumber}",
                         style = LocalAppTypography.current.chipText.copy(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -96,8 +96,9 @@ fun UpdateAvailableCard(
                     .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val changelogText = updateState.buildInfo.changelog.ifBlank { "New features, performance upgrades, and bug fixes." }
                 Text(
-                    text = if (isChangelogExpanded) updateState.changelog else updateState.changelog.take(90) + if (updateState.changelog.length > 90) "..." else "",
+                    text = if (isChangelogExpanded) changelogText else changelogText.take(90) + if (changelogText.length > 90) "..." else "",
                     style = LocalAppTypography.current.songArtist.copy(fontSize = 13.sp),
                     color = TextSecondary,
                     modifier = Modifier.weight(1f)

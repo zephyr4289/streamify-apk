@@ -171,10 +171,10 @@ fun HomeScreen(
                                 UpdateAvailableCard(
                                     updateState = available,
                                     onUpdateClick = {
-                                        ApkInstaller.downloadAndInstall(context, available.apkUrl)
+                                        StreamifyUpdateManager.dispatchUpdate(context, available.buildInfo)
                                     },
                                     onDismissClick = {
-                                        StreamifyUpdateManager.dismissUpdate(context, available.version)
+                                        StreamifyUpdateManager.dismissUpdate(context, available.buildInfo.buildNumber)
                                     }
                                 )
                             }

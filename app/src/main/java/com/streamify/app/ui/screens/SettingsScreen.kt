@@ -17,11 +17,13 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Download
+import com.streamify.app.BuildConfig
+import com.streamify.app.data.remote.StreamifyUpdateManager
+import com.streamify.app.data.remote.UpdateState
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
@@ -721,6 +723,205 @@ fun SettingsScreen(
             }
 
             item {
+                SectionHeader("App Updates & CI/CD Builds")
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+                
+                val updateState by StreamifyUpdateManager.updateState.collectAsState()
+                val isChecking = updateState is UpdateState.Checking
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Installed Version", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                                Text(
+                                    "Build ${BuildConfig.VERSION_CODE} • v${BuildConfig.VERSION_NAME}",
+                                    style = StreamifyType.Caption,
+                                    color = StreamifyColors.TextSub
+                                )
+                            }
+                            
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        StreamifyUpdateManager.checkForUpdates(context, isManual = true)
+                                    }
+                                },
+                                enabled = !isChecking,
+                                colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                if (isChecking) {
+                                    CircularProgressIndicator(
+                                        color = androidx.compose.ui.graphics.Color.Black,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Checking...", style = StreamifyType.TitleSmall, color = androidx.compose.ui.graphics.Color.Black)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Filled.Refresh,
+                                        contentDescription = null,
+                                        tint = androidx.compose.ui.graphics.Color.Black,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Check Updates", style = StreamifyType.TitleSmall, color = androidx.compose.ui.graphics.Color.Black)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = StreamifyColors.Border, thickness = 0.5.dp)
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    StreamifyUpdateManager.openReleasePage(context, "https://github.com/zephyr4289/streamify-apk/releases")
+                                }
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.OpenInBrowser, contentDescription = null, tint = StreamifyColors.TextSub, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("View GitHub Releases & CI Builds", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                            }
+                            Icon(Icons.Filled.ArrowForward, contentDescription = null, tint = StreamifyColors.TextSub, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+
+                // Interactive Dialogs for Manual Updates
+                when (val st = updateState) {
+                    is UpdateState.UpdateAvailable -> {
+                        val buildInfo = st.buildInfo
+                        AlertDialog(
+                            onDismissRequest = { StreamifyUpdateManager.resetState() },
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.SystemUpdate, contentDescription = null, tint = StreamifyColors.Primary)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("New Build Available!", color = StreamifyColors.TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                }
+                            },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        "Streamify Build ${buildInfo.buildNumber} is now available (Current: Build ${BuildConfig.VERSION_CODE}).",
+                                        color = StreamifyColors.TextMain,
+                                        style = StreamifyType.BodyMedium
+                                    )
+                                    if (buildInfo.changelog.isNotBlank()) {
+                                        Text(
+                                            "Changelog:\n${buildInfo.changelog}",
+                                            color = StreamifyColors.TextSub,
+                                            style = StreamifyType.Caption
+                                        )
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        StreamifyUpdateManager.dispatchUpdate(context, buildInfo)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary)
+                                ) {
+                                    Icon(Icons.Filled.Download, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Black, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Download Update", color = androidx.compose.ui.graphics.Color.Black, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                Row {
+                                    TextButton(onClick = {
+                                        StreamifyUpdateManager.openReleasePage(context, buildInfo.releaseHtmlUrl)
+                                    }) {
+                                        Text("Release Page", color = StreamifyColors.TextSub)
+                                    }
+                                    TextButton(onClick = { StreamifyUpdateManager.resetState() }) {
+                                        Text("Dismiss", color = StreamifyColors.TextSub)
+                                    }
+                                }
+                            },
+                            containerColor = StreamifyColors.BgSurfaceElevated,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                    }
+                    is UpdateState.UpToDate -> {
+                        if (st.isManual) {
+                            AlertDialog(
+                                onDismissRequest = { StreamifyUpdateManager.resetState() },
+                                title = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFF1DB954))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Up to Date", color = StreamifyColors.TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                    }
+                                },
+                                text = {
+                                    Text(
+                                        "You are on the latest build (Build ${st.currentBuild}). No new updates found! 🎉",
+                                        color = StreamifyColors.TextSub,
+                                        style = StreamifyType.BodyMedium
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = { StreamifyUpdateManager.resetState() }) {
+                                        Text("OK", color = StreamifyColors.Primary, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                    }
+                                },
+                                containerColor = StreamifyColors.BgSurfaceElevated,
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                        }
+                    }
+                    is UpdateState.Error -> {
+                        if (st.isManual) {
+                            AlertDialog(
+                                onDismissRequest = { StreamifyUpdateManager.resetState() },
+                                title = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Filled.Warning, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFFD32F2F))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Update Check Failed", color = StreamifyColors.TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                    }
+                                },
+                                text = {
+                                    Text(
+                                        st.message,
+                                        color = StreamifyColors.TextSub,
+                                        style = StreamifyType.BodyMedium
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = { StreamifyUpdateManager.resetState() }) {
+                                        Text("Dismiss", color = StreamifyColors.Primary)
+                                    }
+                                },
+                                containerColor = StreamifyColors.BgSurfaceElevated,
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                        }
+                    }
+                    else -> {}
+                }
+            }
+
+            item {
                 SectionHeader("About")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
                 
@@ -733,11 +934,17 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Version", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
-                            Text("4.2.0 (Flagship Edition)", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                            Text("Edition", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                            Text("Flagship Open Source", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Open Source High-Performance Architecture", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Build Number", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
+                            Text("Build ${BuildConfig.VERSION_CODE}", style = StreamifyType.Caption, color = StreamifyColors.Primary)
+                        }
                     }
                 }
             }
