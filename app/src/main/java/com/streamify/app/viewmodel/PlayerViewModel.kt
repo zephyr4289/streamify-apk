@@ -282,7 +282,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
                     // Real-Time Cloud Telemetry Sync
                     val currentTrackObj = _playerState.value.currentTrack
-                    if (currentTrackObj != null && posSec > 5) {
+                    if (currentTrackObj != null && posSec >= 10) {
                         viewModelScope.launch(Dispatchers.IO) {
                             try {
                                 val cleanSig = (currentTrackObj.title.trim().lowercase() + "_" + currentTrackObj.artist.trim().lowercase())
@@ -294,6 +294,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                     put("hour_of_day", currentHour)
                                 }
                                 com.streamify.app.data.remote.SupabaseClient.ingestTelemetryBatch(listOf(eventJson))
+                                // Sync user listening seconds directly to profiles table for Admin Dashboard
+                                com.streamify.app.data.YtStatsTelemetryEngine.syncCurrentTelemetryToCloud()
                             } catch (e: Exception) {
                                 // Safe fallback
                             }

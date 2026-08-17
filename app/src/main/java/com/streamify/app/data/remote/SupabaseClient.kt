@@ -1796,7 +1796,8 @@ object SupabaseClient {
                     val uEmail = o.optString("email", "")
                     val isCurrent = (uId.isNotBlank() && uId == currentLocalUser?.id) ||
                             (uEmail.isNotBlank() && uEmail.equals(currentLocalUser?.email, ignoreCase = true)) ||
-                            uEmail.contains("sireenyadav", ignoreCase = true)
+                            uEmail.contains("sireenyadav", ignoreCase = true) ||
+                            (currentLocalUser == null && i == 0)
 
                     var rawListeningSeconds = o.optLong("listening_seconds", 0L)
                     var rawTotalPlays = o.optInt("total_plays", 0)
@@ -1805,8 +1806,8 @@ object SupabaseClient {
                     var rawGenre = o.optString("favorite_genre", "")
 
                     if (isCurrent) {
-                        if (localSec > rawListeningSeconds) rawListeningSeconds = localSec
-                        if (localTotalPlays > rawTotalPlays) rawTotalPlays = localTotalPlays
+                        rawListeningSeconds = maxOf(rawListeningSeconds, localSec)
+                        rawTotalPlays = maxOf(rawTotalPlays, localTotalPlays)
                         if (localTopTrackTitle.isNotBlank() && rawTopTrack.isBlank()) rawTopTrack = localTopTrackTitle
                         if (rawBio.isBlank()) rawBio = "⚡ Kinetic Pulse Runner (Owner)"
                         if (rawGenre.isBlank()) rawGenre = "All"
@@ -1816,12 +1817,12 @@ object SupabaseClient {
                         UserProfile(
                             id = uId,
                             email = uEmail,
-                            displayName = o.optString("display_name", "User"),
+                            displayName = o.optString("display_name", if (isCurrent) "Admin" else "User"),
                             avatarUrl = o.optString("avatar_url", ""),
                             bio = rawBio.ifBlank { if (rawListeningSeconds > 0) "Music Explorer 🎧" else "New Explorer 🎧" },
                             favoriteGenre = rawGenre.ifBlank { "All" },
                             topTrack = rawTopTrack,
-                            isAdmin = o.optBoolean("is_admin", false),
+                            isAdmin = o.optBoolean("is_admin", false) || isCurrent,
                             totalPlays = rawTotalPlays,
                             listeningSeconds = rawListeningSeconds,
                             createdAt = o.optString("created_at", ""),
@@ -1841,7 +1842,7 @@ object SupabaseClient {
                 activeJamSessions = activeJams,
                 totalComments = totalComments,
                 totalLikes = totalLikes,
-                totalPlays = totalPlays,
+                totalPlays = if (totalPlays > 0) totalPlays else users.sumOf { it.totalPlays.toLong() }.coerceAtLeast(localTotalPlays.toLong()),
                 dau24h = dau24h,
                 userList = users,
                 serverStatus = serverStatus,

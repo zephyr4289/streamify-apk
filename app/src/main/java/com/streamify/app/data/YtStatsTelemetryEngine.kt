@@ -39,6 +39,8 @@ object YtStatsTelemetryEngine {
     private val _cachedWrappedStats = MutableStateFlow<WrappedStats?>(null)
     val cachedWrappedStats: StateFlow<WrappedStats?> = _cachedWrappedStats.asStateFlow()
 
+    private var secondsSinceLastCloudSync = 0L
+
     init {
         // Hydrate from persistent disk cache on engine initialization (0ms instant startup)
         try {
@@ -71,6 +73,15 @@ object YtStatsTelemetryEngine {
                 val updated = cur.copy(totalMinutes = (newTotalSec / 60).toInt())
                 _cachedWrappedStats.value = updated
                 prefs.edit().putString("wrapped_2026_cached_json", serializeWrappedStats(updated)).apply()
+            }
+
+            // Periodic 60s Cloud Telemetry Auto-Sync (Fix for Admin Dashboard 0 mins)
+            secondsSinceLastCloudSync += seconds
+            if (secondsSinceLastCloudSync >= 60L) {
+                secondsSinceLastCloudSync = 0L
+                engineScope.launch(Dispatchers.IO) {
+                    syncCurrentTelemetryToCloud()
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
