@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.remote.ListeningSession
 import com.streamify.app.data.remote.SupabaseClient
+import org.json.JSONObject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -160,7 +161,7 @@ class JamViewModel(
         // Channel B: Ephemeral Realtime WebSocket Media Plane (<15ms latency)
         if (playerViewModel != null) {
             wsSyncJob = viewModelScope.launch {
-                SupabaseClient.jamPlaybackUpdates.collect { payload ->
+                SupabaseClient.jamPlaybackUpdates.collect { payload: JSONObject ->
                     val sessionCode = payload.optString("session_code", "")
                     if (sessionCode.equals(code, ignoreCase = true)) {
                         val trackId = payload.optString("track_id", "")
@@ -171,8 +172,9 @@ class JamViewModel(
                         val currentLocalTrack = playerViewModel.playerState.value.currentTrack
                         if (trackId.isNotBlank() && currentLocalTrack?.id.toString() != trackId) {
                             val cloudTrack = SupabaseClient.fetchTrackById(trackId)
-                            val target = cloudTrack ?: com.streamify.app.data.TrackRepository.getAllTracks().find {
-                                it.id.toString() == trackId || it.filepath.contains(trackId)
+                            val allLocalTracks = com.streamify.app.data.TrackRepository.getAllTracks()
+                            val target = cloudTrack ?: allLocalTracks.find {
+                                it.id.toString() == trackId || (it.filepath.isNotBlank() && it.filepath.contains(trackId))
                             }
                             if (target != null) {
                                 playerViewModel.playTrack(target, listOf(target))
