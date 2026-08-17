@@ -149,7 +149,7 @@ fun UserProfileScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = currentUser?.displayName?.take(1)?.uppercase() ?: "G",
+                        text = currentUser?.displayName?.take(1)?.uppercase() ?: "U",
                         style = LocalAppTypography.current.headlineLarge.copy(fontSize = 32.sp),
                         color = TextMain
                     )
@@ -159,13 +159,13 @@ fun UserProfileScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = currentUser?.displayName ?: "Guest Listener",
+                text = currentUser?.displayName ?: "Streamify Listener",
                 style = LocalAppTypography.current.headlineLarge.copy(fontSize = 20.sp, fontWeight = FontWeight.Bold),
                 color = TextMain
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = currentUser?.email ?: "Offline Local Storage Mode",
+                text = currentUser?.email ?: "",
                 style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
                 color = TextSecondary
             )

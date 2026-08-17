@@ -102,7 +102,6 @@ class MainActivity : ComponentActivity() {
                     label = "dominantColor"
                 )
 
-                var isOnboardingDone by remember { mutableStateOf(AuthManager.hasSeenOnboarding()) }
                 var isSplashDone by remember { mutableStateOf(false) }
 
                 // Dynamic Full-Player Overlay & Dock State
@@ -180,10 +179,10 @@ class MainActivity : ComponentActivity() {
                             isSplashDone = true
                         }
                     )
-                } else if (!isOnboardingDone && authState !is AuthState.Authenticated) {
+                } else if (authState !is AuthState.Authenticated) {
                     YtOnboardingScreen(
                         onComplete = {
-                            isOnboardingDone = true
+                            // Automatically advances to Authenticated
                         }
                     )
                 } else {

@@ -146,7 +146,7 @@ fun YtOnboardingScreen(
                         .height(48.dp)
                 ) {
                     Text(
-                        text = "Continue with Google",
+                        text = "Sign In with Google",
                         style = LocalAppTypography.current.chipText.copy(fontSize = 14.sp),
                         color = TextOnActiveChip,
                         fontWeight = FontWeight.Bold
@@ -155,18 +155,11 @@ fun YtOnboardingScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Continue as Guest Button
                 Text(
-                    text = "Continue as Guest",
-                    style = LocalAppTypography.current.titleMedium.copy(fontSize = 14.sp),
+                    text = "🔒 Secure Multi-Device Taste Sync & Cloud Storage",
+                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
                     color = TextSecondary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable {
-                            AuthManager.continueAsGuest(context)
-                            onComplete()
-                        }
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                    textAlign = TextAlign.Center
                 )
             }
         }

@@ -17,7 +17,7 @@ import kotlinx.coroutines.withContext
 sealed interface AuthState {
     object Loading : AuthState
     data class Authenticated(val user: UserProfile) : AuthState
-    object Guest : AuthState
+    object Unauthenticated : AuthState
 }
 
 object AuthManager {
@@ -33,19 +33,12 @@ object AuthManager {
         }
         SupabaseClient.init(context)
         val user = SupabaseClient.currentUser.value
-        val hasCompletedOnboarding = prefs?.getBoolean("has_completed_onboarding", false) ?: false
 
-        if (user != null) {
+        if (user != null && user.id.isNotBlank()) {
             _authState.value = AuthState.Authenticated(user)
-        } else if (hasCompletedOnboarding) {
-            _authState.value = AuthState.Guest
         } else {
-            _authState.value = AuthState.Loading
+            _authState.value = AuthState.Unauthenticated
         }
-    }
-
-    fun hasSeenOnboarding(): Boolean {
-        return prefs?.getBoolean("has_completed_onboarding", false) ?: false
     }
 
     suspend fun signInWithGoogle(context: Context): Result<UserProfile> = withContext(Dispatchers.Main) {
@@ -89,19 +82,12 @@ object AuthManager {
         }
     }
 
-    fun continueAsGuest(context: Context) {
-        if (prefs == null) {
-            prefs = context.getSharedPreferences("streamify_auth", Context.MODE_PRIVATE)
-        }
-        prefs?.edit()?.putBoolean("has_completed_onboarding", true)?.apply()
-        _authState.value = AuthState.Guest
-    }
-
     fun signOut(context: Context) {
         if (prefs == null) {
             prefs = context.getSharedPreferences("streamify_auth", Context.MODE_PRIVATE)
         }
+        prefs?.edit()?.clear()?.apply()
         SupabaseClient.signOut()
-        _authState.value = AuthState.Guest
+        _authState.value = AuthState.Unauthenticated
     }
 }
