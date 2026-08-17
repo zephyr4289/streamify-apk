@@ -32,7 +32,8 @@ data class Track(
     val source: String = "local",
     val isLiked: Boolean = false,
     val isProcessed: Boolean = false,
-    val genre: String = ""
+    val genre: String = "",
+    val playCount: Int = 0
 ) {
     val filePath: String get() = filepath
 }

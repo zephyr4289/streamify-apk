@@ -103,18 +103,18 @@ object NuclearResetManager {
 
             for (q in seedQueries) {
                 try {
-                    val results = iTunesSearchApi.search(q, limit = 10)
+                    val results = iTunesSearchApi.search(q, maxResults = 10)
                     for (item in results) {
-                        if (item.previewUrl.isNotBlank() && seededTracks.size < 25) {
+                        if (item.url.isNotBlank() && seededTracks.size < 25) {
                             val registered = TrackRepository.registerStreamedTrack(
                                 Track(
                                     id = 0,
-                                    title = item.trackName,
-                                    artist = item.artistName,
-                                    album = item.collectionName.ifBlank { "Top Hits" },
-                                    durationSec = (item.trackTimeMillis / 1000).toInt(),
-                                    filepath = item.previewUrl,
-                                    coverArtPath = item.artworkUrl100.replace("100x100bb", "600x600bb"),
+                                    title = item.title,
+                                    artist = item.uploader,
+                                    album = "Top Hits",
+                                    durationSec = item.duration,
+                                    filepath = item.url,
+                                    coverArtPath = item.thumbnail.replace("100x100bb", "600x600bb"),
                                     bpm = 120f,
                                     key = "C",
                                     source = "online"
