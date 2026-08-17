@@ -213,6 +213,7 @@ object SupabaseClient {
 
     val liveProfileUpdates = MutableSharedFlow<JSONObject>(extraBufferCapacity = 64)
     val remotePlaybackState = MutableSharedFlow<DevicePlaybackSnapshot>(extraBufferCapacity = 8)
+    val jamPlaybackUpdates = MutableSharedFlow<JSONObject>(extraBufferCapacity = 32)
 
     val isAdmin: Boolean
         get() = _currentUser.value?.isAdmin == true ||
@@ -808,6 +809,8 @@ object SupabaseClient {
                                 durationMs = durationMs
                             )
                             remotePlaybackState.tryEmit(snapshot)
+                        } else if (topic.startsWith("realtime:jam_") || type == "jam_tick") {
+                            jamPlaybackUpdates.tryEmit(msgPayload)
                         }
                     }
                 } catch (e: Exception) {
@@ -1281,8 +1284,82 @@ object SupabaseClient {
     }
 
     // ========================================================================
-    // STREAMIFY JAM / LIVE LISTENING ROOMS
+    // STREAMIFY JAM / LIVE LISTENING ROOMS (SELF-HEALING & EPHEMERAL SYNC)
     // ========================================================================
+
+    private val schemaColumnBlacklist = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap.KeySetView<String, Boolean>>()
+    private val PGRST204_REGEX = java.util.regex.Pattern.compile("Could not find the '(\\w+)' column", java.util.regex.Pattern.CASE_INSENSITIVE)
+
+    private fun executeAdaptivePostgrestRequest(
+        url: URL,
+        method: String,
+        table: String,
+        initialBody: JSONObject?,
+        prefer: String = "return=representation"
+    ): Pair<Int, String> {
+        val sanitized = if (initialBody != null) JSONObject(initialBody.toString()) else null
+
+        // 1. Pre-strip known missing columns from cache
+        if (sanitized != null) {
+            schemaColumnBlacklist[table]?.forEach { badColumn ->
+                sanitized.remove(badColumn)
+            }
+        }
+
+        val maxRetries = (sanitized?.length() ?: 1) + 3
+        var attempts = 0
+        var currentToken = getAuthToken()
+
+        while (attempts < maxRetries) {
+            attempts++
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $currentToken")
+                if (sanitized != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
+                setRequestProperty("Prefer", prefer)
+            }
+
+            if (sanitized != null) {
+                conn.outputStream.use { it.write(sanitized.toString().toByteArray()) }
+            }
+
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val text = stream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: ""
+
+            if (code in 200..299) {
+                return Pair(code, text)
+            }
+
+            // JWT Expired / Auth error handling
+            if (text.contains("JWT expired", ignoreCase = true) || code == 401 || text.contains("PGRST503")) {
+                refreshSession()
+                currentToken = getAuthToken()
+                continue
+            }
+
+            // PGRST204 Missing Column interceptor
+            if (sanitized != null && (code in 400..404 || text.contains("PGRST204") || text.contains("Could not find the", ignoreCase = true))) {
+                val matcher = PGRST204_REGEX.matcher(text)
+                if (matcher.find()) {
+                    val missingCol = matcher.group(1)
+                    if (!missingCol.isNullOrBlank() && sanitized.has(missingCol)) {
+                        schemaColumnBlacklist.getOrPut(table) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(missingCol)
+                        sanitized.remove(missingCol)
+                        continue // Retry immediately in-flight with healed payload
+                    }
+                }
+            }
+
+            return Pair(code, text)
+        }
+        return Pair(400, "Adaptive retry limit reached")
+    }
+
     suspend fun createJamSession(track: Track, positionMs: Long): Result<ListeningSession> = withContext(Dispatchers.IO) {
         val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in with Google in Profile to start a Jam session"))
         try {
@@ -1313,39 +1390,13 @@ object SupabaseClient {
                 put("participant_ids", JSONArray().put(user.id))
             }
 
-            fun executePost(token: String, requestBody: JSONObject): Pair<Int, String> {
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    doOutput = true
-                    setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                    setRequestProperty("Authorization", "Bearer $token")
-                    setRequestProperty("Content-Type", "application/json")
-                    setRequestProperty("Prefer", "return=representation")
-                }
-                conn.outputStream.use { it.write(requestBody.toString().toByteArray()) }
-                val code = conn.responseCode
-                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val text = stream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: ""
-                return Pair(code, text)
-            }
-
-            var (code, resp) = executePost(getAuthToken(), body)
-
-            // If token expired, auto-refresh and retry
-            if (code !in 200..299 && (resp.contains("JWT expired", ignoreCase = true) || code == 401 || resp.contains("PGRST503"))) {
-                refreshSession()
-                val retryResult = executePost(getAuthToken(), body)
-                code = retryResult.first
-                resp = retryResult.second
-            }
-
-            // PGRST204 resilience: If remote table lacks current_track_json column, strip and retry
-            if (code !in 200..299 && resp.contains("current_track_json", ignoreCase = true)) {
-                body.remove("current_track_json")
-                val retryResult = executePost(getAuthToken(), body)
-                code = retryResult.first
-                resp = retryResult.second
-            }
+            val (code, resp) = executeAdaptivePostgrestRequest(
+                url = url,
+                method = "POST",
+                table = "listening_sessions",
+                initialBody = body,
+                prefer = "return=representation"
+            )
 
             if (code in 200..299) {
                 val arr = JSONArray(resp)
@@ -1363,6 +1414,7 @@ object SupabaseClient {
                     participantIds = listOf(user.id)
                 )
                 _activeJam.value = jam
+                joinJamRealtimeChannel(sessionCode)
                 Result.success(jam)
             } else {
                 Result.failure(Exception("Failed to initialize Jam: $resp"))
@@ -1382,26 +1434,12 @@ object SupabaseClient {
             val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
 
-            fun executeGet(token: String): Pair<Int, String> {
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                    setRequestProperty("Authorization", "Bearer $token")
-                }
-                val code = conn.responseCode
-                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val text = stream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: ""
-                return Pair(code, text)
-            }
-
-            var (code, resp) = executeGet(getAuthToken())
-
-            if (code !in 200..299 && (resp.contains("JWT expired", ignoreCase = true) || code == 401 || resp.contains("PGRST503"))) {
-                refreshSession()
-                val retryResult = executeGet(getAuthToken())
-                code = retryResult.first
-                resp = retryResult.second
-            }
+            val (code, resp) = executeAdaptivePostgrestRequest(
+                url = url,
+                method = "GET",
+                table = "listening_sessions",
+                initialBody = null
+            )
 
             if (code in 200..299) {
                 val arr = JSONArray(resp)
@@ -1409,8 +1447,7 @@ object SupabaseClient {
                     val o = arr.getJSONObject(0)
                     val rawTrackJson = o.optJSONObject("current_track_json")
                     val currentTrackId = o.optString("current_track_id")
-                    
-                    // Fallback to local track metadata if current_track_json column is absent in cloud schema
+
                     val effectiveTrackJson = rawTrackJson ?: run {
                         if (currentTrackId.isNotBlank()) {
                             val localTrack = com.streamify.app.data.TrackRepository.getAllTracks().find {
@@ -1441,6 +1478,7 @@ object SupabaseClient {
                         participantIds = listOf(user.id)
                     )
                     _activeJam.value = jam
+                    joinJamRealtimeChannel(sessionCode)
                     Result.success(jam)
                 } else {
                     Result.failure(Exception("Jam room code not found"))
@@ -1455,6 +1493,18 @@ object SupabaseClient {
 
     suspend fun updateJamPlayback(sessionCode: String, track: Track, positionMs: Long, isPlaying: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
+            // 1. Channel B: Instant Ephemeral WebSocket Broadcast (<15ms latency, Zero DB load)
+            broadcastJamTick(
+                sessionCode = sessionCode,
+                trackId = track.id.toString(),
+                trackTitle = track.title,
+                trackArtist = track.artist,
+                positionMs = positionMs,
+                isPlaying = isPlaying,
+                hostEpochMs = System.currentTimeMillis()
+            )
+
+            // 2. Channel A: Relational Control Plane Persistence
             val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
 
@@ -1475,41 +1525,70 @@ object SupabaseClient {
                 put("host_clock_timestamp", System.currentTimeMillis())
             }
 
-            fun executePatch(token: String, patchBody: JSONObject): Pair<Int, String> {
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "PATCH"
-                    doOutput = true
-                    setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                    setRequestProperty("Authorization", "Bearer $token")
-                    setRequestProperty("Content-Type", "application/json")
-                    setRequestProperty("Prefer", "return=minimal")
-                }
-                conn.outputStream.use { it.write(patchBody.toString().toByteArray()) }
-                val code = conn.responseCode
-                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val text = stream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: ""
-                return Pair(code, text)
-            }
-
-            var (code, resp) = executePatch(getAuthToken(), body)
-
-            if (code !in 200..299 && (resp.contains("JWT expired", ignoreCase = true) || code == 401 || resp.contains("PGRST503"))) {
-                refreshSession()
-                val retryResult = executePatch(getAuthToken(), body)
-                code = retryResult.first
-                resp = retryResult.second
-            }
-
-            if (code !in 200..299 && resp.contains("current_track_json", ignoreCase = true)) {
-                body.remove("current_track_json")
-                val retryResult = executePatch(getAuthToken(), body)
-                code = retryResult.first
-                resp = retryResult.second
-            }
+            val (code, _) = executeAdaptivePostgrestRequest(
+                url = url,
+                method = "PATCH",
+                table = "listening_sessions",
+                initialBody = body,
+                prefer = "return=minimal"
+            )
 
             Result.success(code in 200..299)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    fun broadcastJamTick(
+        sessionCode: String,
+        trackId: String,
+        trackTitle: String,
+        trackArtist: String,
+        positionMs: Long,
+        isPlaying: Boolean,
+        hostEpochMs: Long = System.currentTimeMillis()
+    ) {
+        val ws = realtimeWebSocket ?: return
+        if (!_isRealtimeConnected.value) return
+        try {
+            val payload = JSONObject().apply {
+                put("session_code", sessionCode.uppercase())
+                put("track_id", trackId)
+                put("track_title", trackTitle)
+                put("track_artist", trackArtist)
+                put("position_ms", positionMs)
+                put("is_playing", isPlaying)
+                put("host_epoch_ms", hostEpochMs)
+                put("client_epoch_ms", System.currentTimeMillis())
+            }
+            val broadcastMsg = JSONObject().apply {
+                put("topic", "realtime:jam_${sessionCode.uppercase()}")
+                put("event", "broadcast")
+                put("payload", JSONObject().apply {
+                    put("type", "jam_tick")
+                    put("payload", payload)
+                })
+                put("ref", "jam_${System.currentTimeMillis()}")
+            }
+            ws.send(broadcastMsg.toString())
+        } catch (e: Exception) {
+            // Non-blocking
+        }
+    }
+
+    fun joinJamRealtimeChannel(sessionCode: String) {
+        val ws = realtimeWebSocket ?: return
+        if (!_isRealtimeConnected.value) return
+        try {
+            val joinMsg = JSONObject().apply {
+                put("topic", "realtime:jam_${sessionCode.uppercase()}")
+                put("event", "phx_join")
+                put("payload", JSONObject())
+                put("ref", "join_jam_${sessionCode.uppercase()}")
+            }
+            ws.send(joinMsg.toString())
+        } catch (e: Exception) {
+            // Non-blocking
         }
     }
 
