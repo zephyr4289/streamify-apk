@@ -184,6 +184,7 @@ fun AppNavGraph(
             }
 
             LyricsScreen(
+                track = playerState.currentTrack,
                 lyrics = lyricsLines,
                 currentPositionMs = playerState.currentPosition,
                 dominantColor = dominantColor,

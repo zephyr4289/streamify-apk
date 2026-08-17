@@ -24,19 +24,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.LyricsLine
+import com.streamify.app.data.models.Track
 import com.streamify.app.service.LyricPlaybackController
 import com.streamify.app.ui.components.YtLyricsHeader
 import com.streamify.app.ui.components.YtSyllableLine
 import com.streamify.app.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LyricsScreen(
+    track: Track? = null,
     lyrics: List<LyricsLine>,
     currentPositionMs: Long,
     dominantColor: Color = BgBase,
     onSeek: (Long) -> Unit,
     onClose: (() -> Unit)? = null
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    var currentLyrics by remember(lyrics) { mutableStateOf(lyrics) }
     val listState = rememberLazyListState()
 
     // 1. 120 FPS Sub-Frame Continuous Frame-Clock Controller
@@ -51,22 +58,22 @@ fun LyricsScreen(
     }
 
     // 2. Detect Synchronized vs Unsynchronized Dataset
-    val isSynced = remember(lyrics) {
-        lyrics.isNotEmpty() && lyrics.any { it.timeMs > 0L }
+    val isSynced = remember(currentLyrics) {
+        currentLyrics.isNotEmpty() && currentLyrics.any { it.timeMs > 0L }
     }
 
     // 3. Active Index Calculus (Synced Mode)
-    val activeIndex = remember(lyricController.interpolatedPosMs, lyrics, isSynced) {
+    val activeIndex = remember(lyricController.interpolatedPosMs, currentLyrics, isSynced) {
         if (!isSynced) 0
         else {
-            val idx = lyrics.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
+            val idx = currentLyrics.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
             if (idx >= 0) idx else 0
         }
     }
 
     // 4. Mathematical Focal Auto-Scroll Engine (35% viewport focal anchor)
     LaunchedEffect(activeIndex, isSynced) {
-        if (isSynced && lyrics.isNotEmpty() && activeIndex in lyrics.indices && !listState.isScrollInProgress) {
+        if (isSynced && currentLyrics.isNotEmpty() && activeIndex in currentLyrics.indices && !listState.isScrollInProgress) {
             val viewportHeight = listState.layoutInfo.viewportSize.height
             if (viewportHeight > 0) {
                 val focalOffset = viewportHeight * 0.35f
@@ -119,10 +126,44 @@ fun LyricsScreen(
                 userOffsetMs = lyricController.userOffsetMs,
                 onAdjustOffset = { delta -> lyricController.adjustOffset(delta) },
                 onResetOffset = { lyricController.resetOffset() },
+                onSaveOffset = {
+                    if (track != null && currentLyrics.isNotEmpty() && lyricController.userOffsetMs != 0L) {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val offset = lyricController.userOffsetMs
+                            val adjustedLrc = com.streamify.app.data.models.LyricsData.formatLrc(currentLyrics, offset)
+                            
+                            // 1. Save locally to disk
+                            val lyricsDir = java.io.File(
+                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                                ".Streamify/lyrics"
+                            )
+                            if (!lyricsDir.exists()) lyricsDir.mkdirs()
+                            val lrcFile = java.io.File(lyricsDir, "${track.id}.lrc")
+                            lrcFile.writeText(adjustedLrc)
+
+                            // 2. Submit to Community Supabase
+                            val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
+                            val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
+                            com.streamify.app.data.remote.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
+
+                            val reParsed = com.streamify.app.data.models.LyricsData.parseLrc(adjustedLrc)
+
+                            withContext(Dispatchers.Main) {
+                                if (reParsed.lines.isNotEmpty()) {
+                                    currentLyrics = reParsed.lines
+                                }
+                                lyricController.resetOffset()
+                                com.streamify.app.util.UiEventBus.emitEvent(
+                                    com.streamify.app.util.UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
+                                )
+                            }
+                        }
+                    }
+                },
                 onClose = onClose
             )
 
-            if (lyrics.isEmpty()) {
+            if (currentLyrics.isEmpty()) {
                 // Empty / Searching State
                 Box(
                     modifier = Modifier
@@ -157,7 +198,7 @@ fun LyricsScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(top = 24.dp, bottom = 160.dp, start = 24.dp, end = 24.dp)
                 ) {
-                    items(lyrics) { line ->
+                    items(currentLyrics) { line ->
                         Text(
                             text = line.text,
                             style = LocalAppTypography.current.headlineMedium.copy(
@@ -189,7 +230,7 @@ fun LyricsScreen(
                     contentPadding = PaddingValues(top = 40.dp, bottom = 160.dp)
                 ) {
                     itemsIndexed(
-                        items = lyrics,
+                        items = currentLyrics,
                         key = { index, line -> "${index}_${line.timeMs}" }
                     ) { index, line ->
                         YtSyllableLine(

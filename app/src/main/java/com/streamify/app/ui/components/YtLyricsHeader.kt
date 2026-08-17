@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Icon
@@ -27,6 +28,7 @@ fun YtLyricsHeader(
     userOffsetMs: Long = 0L,
     onAdjustOffset: ((Long) -> Unit)? = null,
     onResetOffset: (() -> Unit)? = null,
+    onSaveOffset: (() -> Unit)? = null,
     onClose: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -115,6 +117,29 @@ fun YtLyricsHeader(
                         }
                     }
                     Spacer(modifier = Modifier.width(4.dp))
+
+                    // Small Tick Button to Save for Local & Community
+                    if (onSaveOffset != null) {
+                        Surface(
+                            onClick = { onSaveOffset.invoke() },
+                            shape = RoundedCornerShape(8.dp),
+                            color = Primary,
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = "Save & Share Offset",
+                                    tint = BgBase,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
                 }
 
                 // Nudge Forward 0.5s

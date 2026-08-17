@@ -109,5 +109,17 @@ data class LyricsData(
 
             return LyricsData(emptyList(), isSynced = false)
         }
+
+        fun formatLrc(lines: List<LyricsLine>, offsetMs: Long = 0L): String {
+            val sb = StringBuilder()
+            for (line in lines) {
+                val adjustedMs = (line.timeMs + offsetMs).coerceAtLeast(0L)
+                val min = (adjustedMs / 60000).toInt()
+                val sec = ((adjustedMs % 60000) / 1000).toInt()
+                val ms = ((adjustedMs % 1000) / 10).toInt()
+                sb.append(String.format(java.util.Locale.US, "[%02d:%02d.%02d]%s\n", min, sec, ms, line.text))
+            }
+            return sb.toString().trim()
+        }
     }
 }

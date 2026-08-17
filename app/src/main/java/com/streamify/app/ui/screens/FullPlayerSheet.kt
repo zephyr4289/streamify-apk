@@ -859,8 +859,10 @@ private fun LandscapeLyricsPane(
     currentPositionMs: Long,
     onSeek: (Long) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
     var lyricsLines by remember(track.id) { mutableStateOf<List<LyricsLine>>(emptyList()) }
     var isLoading by remember(track.id) { mutableStateOf(true) }
+    val lyricController = remember { LyricPlaybackController() }
 
     LaunchedEffect(track.id) {
         isLoading = true
@@ -899,84 +901,134 @@ private fun LandscapeLyricsPane(
         }
     }
 
-    if (isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = ActiveControl, modifier = Modifier.size(32.dp))
-        }
-    } else if (lyricsLines.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = "No synchronized lyrics found for this track.",
-                style = LocalAppTypography.current.bodyMedium,
-                color = TextSecondary,
-                textAlign = TextAlign.Center
-            )
-        }
-    } else {
-        val listState = rememberLazyListState()
-        val lyricController = remember { LyricPlaybackController() }
+    val isSynced = remember(lyricsLines) {
+        lyricsLines.isNotEmpty() && lyricsLines.any { it.timeMs > 0L }
+    }
 
-        LaunchedEffect(currentPositionMs) {
-            lyricController.targetPositionMs = currentPositionMs
-        }
+    val handleSaveOffset: () -> Unit = {
+        if (lyricsLines.isNotEmpty() && lyricController.userOffsetMs != 0L) {
+            coroutineScope.launch(Dispatchers.IO) {
+                val offset = lyricController.userOffsetMs
+                val adjustedLrc = LyricsData.formatLrc(lyricsLines, offset)
 
-        LaunchedEffect(Unit) {
-            lyricController.runFrameLoop()
-        }
+                // 1. Save locally to disk
+                val lyricsDir = File(
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                    ".Streamify/lyrics"
+                )
+                if (!lyricsDir.exists()) lyricsDir.mkdirs()
+                val lrcFile = File(lyricsDir, "${track.id}.lrc")
+                lrcFile.writeText(adjustedLrc)
 
-        val activeIndex = remember(lyricController.interpolatedPosMs, lyricsLines) {
-            val idx = lyricsLines.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
-            if (idx >= 0) idx else 0
-        }
+                // 2. Submit to Community Supabase
+                val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
+                val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
+                com.streamify.app.data.remote.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
 
-        LaunchedEffect(activeIndex) {
-            if (lyricsLines.isNotEmpty() && activeIndex in lyricsLines.indices && !listState.isScrollInProgress) {
-                val viewportHeight = listState.layoutInfo.viewportSize.height
-                if (viewportHeight > 0) {
-                    val focalOffset = viewportHeight * 0.35f
-                    val itemInfo = listState.layoutInfo.visibleItemsInfo.find { it.index == activeIndex }
-                    if (itemInfo != null) {
-                        listState.animateScrollBy(
-                            value = itemInfo.offset - focalOffset,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
-                        )
-                    } else {
-                        listState.animateScrollToItem(
-                            index = activeIndex,
-                            scrollOffset = (-focalOffset).toInt()
-                        )
+                val reParsed = LyricsData.parseLrc(adjustedLrc)
+
+                withContext(Dispatchers.Main) {
+                    if (reParsed.lines.isNotEmpty()) {
+                        lyricsLines = reParsed.lines
                     }
+                    lyricController.resetOffset()
+                    com.streamify.app.util.UiEventBus.emitEvent(
+                        com.streamify.app.util.UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
+                    )
                 }
             }
         }
+    }
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = 16.dp)
-        ) {
-            items(lyricsLines.size) { index ->
-                val line = lyricsLines[index]
-                val isActive = index == activeIndex
-                val isPast = index < activeIndex
+    Column(modifier = Modifier.fillMaxSize()) {
+        YtLyricsHeader(
+            source = "Musixmatch / LRCLIB",
+            isSynced = isSynced,
+            userOffsetMs = lyricController.userOffsetMs,
+            onAdjustOffset = { delta -> lyricController.adjustOffset(delta) },
+            onResetOffset = { lyricController.resetOffset() },
+            onSaveOffset = handleSaveOffset,
+            onClose = null
+        )
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSeek(line.timeMs) }
-                        .padding(vertical = 10.dp, horizontal = 8.dp)
-                ) {
-                    Text(
-                        text = line.text,
-                        style = LocalAppTypography.current.headlineSmall.copy(
-                            fontSize = if (isActive) 20.sp else 16.sp,
-                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
-                        ),
-                        color = if (isActive) TextMain else if (isPast) TextSecondary.copy(alpha = 0.6f) else TextSecondary.copy(alpha = 0.4f)
-                    )
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = ActiveControl, modifier = Modifier.size(32.dp))
+            }
+        } else if (lyricsLines.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "No synchronized lyrics found for this track.",
+                    style = LocalAppTypography.current.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            val listState = rememberLazyListState()
+
+            LaunchedEffect(currentPositionMs) {
+                lyricController.targetPositionMs = currentPositionMs
+            }
+
+            LaunchedEffect(Unit) {
+                lyricController.runFrameLoop()
+            }
+
+            val activeIndex = remember(lyricController.interpolatedPosMs, lyricsLines) {
+                val idx = lyricsLines.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
+                if (idx >= 0) idx else 0
+            }
+
+            LaunchedEffect(activeIndex) {
+                if (lyricsLines.isNotEmpty() && activeIndex in lyricsLines.indices && !listState.isScrollInProgress) {
+                    val viewportHeight = listState.layoutInfo.viewportSize.height
+                    if (viewportHeight > 0) {
+                        val focalOffset = viewportHeight * 0.35f
+                        val itemInfo = listState.layoutInfo.visibleItemsInfo.find { it.index == activeIndex }
+                        if (itemInfo != null) {
+                            listState.animateScrollBy(
+                                value = itemInfo.offset - focalOffset,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )
+                        } else {
+                            listState.animateScrollToItem(
+                                index = activeIndex,
+                                scrollOffset = (-focalOffset).toInt()
+                            )
+                        }
+                    }
+                }
+            }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(vertical = 16.dp)
+            ) {
+                items(lyricsLines.size) { index ->
+                    val line = lyricsLines[index]
+                    val isActive = index == activeIndex
+                    val isPast = index < activeIndex
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSeek(line.timeMs) }
+                            .padding(vertical = 10.dp, horizontal = 8.dp)
+                    ) {
+                        Text(
+                            text = line.text,
+                            style = LocalAppTypography.current.headlineSmall.copy(
+                                fontSize = if (isActive) 20.sp else 16.sp,
+                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                            ),
+                            color = if (isActive) TextMain else if (isPast) TextSecondary.copy(alpha = 0.6f) else TextSecondary.copy(alpha = 0.4f)
+                        )
+                    }
                 }
             }
         }
