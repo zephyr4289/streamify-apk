@@ -5,7 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.chaquo.python.Python
 import com.streamify.app.data.TrackRepository
 import com.streamify.app.data.models.Track
+import com.streamify.app.data.network.StreamEdgeCache
+import com.streamify.app.data.network.YouTubeStreamResolver
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,7 +48,9 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
 
     private var searchJob: kotlinx.coroutines.Job? = null
     private var suggestJob: kotlinx.coroutines.Job? = null
+    private var speculativePrefetchJob: kotlinx.coroutines.Job? = null
     private var prefs: android.content.SharedPreferences? = null
+    private var appContext: android.content.Context? = null
 
     fun updateSuggestions(query: String) {
         suggestJob?.cancel()
@@ -61,6 +67,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun init(context: android.content.Context) {
+        appContext = context.applicationContext
         if (prefs == null) {
             prefs = context.getSharedPreferences("search_history", android.content.Context.MODE_PRIVATE)
             val saved = prefs?.getString("history", "") ?: ""
@@ -68,6 +75,15 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 _searchHistory.value = saved.split(";;")
             }
         }
+    }
+
+    private fun isWifiConnected(context: android.content.Context?): Boolean {
+        if (context == null) return false
+        val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return false
+        val network = cm.activeNetwork ?: return false
+        val capabilities = cm.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ||
+               capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)
     }
 
     private fun addQueryToHistory(query: String) {
@@ -208,6 +224,61 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 onlineResults = onlineResults,
                 isOnlineLoading = false
             )
+
+            // 4. Speculative Background Parallel Pre-Resolver & 512KB Pre-Buffer (Zero Idle Waste)
+            if (onlineResults.isNotEmpty()) {
+                speculativePrefetchJob?.cancel()
+                speculativePrefetchJob = viewModelScope.launch(Dispatchers.IO) {
+                    val isWifi = isWifiConnected(appContext)
+                    val prefetchCount = if (isWifi) 6 else 3
+                    val bufferCount = if (isWifi) 2 else 1
+
+                    val candidates = onlineResults.take(prefetchCount)
+                    val deferredResolutions = candidates.map { candidate ->
+                        async(Dispatchers.IO) {
+                            try {
+                                val tempTrack = Track(
+                                    id = 0,
+                                    title = candidate.title,
+                                    artist = candidate.uploader,
+                                    filepath = candidate.url,
+                                    coverArtPath = candidate.thumbnail
+                                )
+                                YouTubeStreamResolver.resolveStreamJit(tempTrack).getOrNull()
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
+                    }
+
+                    val resolvedList = deferredResolutions.awaitAll()
+
+                    // Head-of-line 512KB HTTP Pre-Buffer into SimpleCache
+                    appContext?.let { ctx ->
+                        for (i in 0 until minOf(bufferCount, resolvedList.size)) {
+                            val res = resolvedList[i]
+                            if (res != null && res.streamUrl.isNotBlank() && res.streamUrl.startsWith("http")) {
+                                try {
+                                    val cache = com.streamify.app.service.AudioCacheManager.getCache(ctx)
+                                    val dataSpec = androidx.media3.datasource.DataSpec.Builder()
+                                        .setUri(android.net.Uri.parse(res.streamUrl))
+                                        .setLength(512 * 1024L) // 512 KB
+                                        .build()
+                                    val httpFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+                                        .setConnectTimeoutMs(3000)
+                                        .setReadTimeoutMs(4000)
+                                        .setAllowCrossProtocolRedirects(true)
+                                    val cacheDataSource = androidx.media3.datasource.cache.CacheDataSource(cache, httpFactory.createDataSource())
+                                    val writer = androidx.media3.datasource.cache.CacheWriter(cacheDataSource, dataSpec, null, null)
+                                    writer.cache()
+                                } catch (e: Exception) {
+                                    // Non-fatal background pre-buffering
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -223,45 +294,28 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         streamJob = viewModelScope.launch {
             _resolvingTrackUrl.value = onlineTrack.url
             try {
-                val candidateTrack = Track(
-                    id = 0,
-                    title = onlineTrack.title,
-                    artist = onlineTrack.uploader,
-                    album = "Online Stream",
-                    durationSec = onlineTrack.duration,
-                    filepath = onlineTrack.url,
-                    coverArtPath = onlineTrack.thumbnail
-                )
-                val resolveResult = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(candidateTrack)
-                val directUrl = resolveResult.getOrNull()?.streamUrl ?: ""
+                // 1. Check if StreamEdgeCache already pre-resolved this candidate (<1ms hit)
+                val videoId = YouTubeStreamResolver.extractVideoId(onlineTrack.url, onlineTrack.thumbnail)
+                val cached = if (videoId != null) StreamEdgeCache.getStream(videoId) else null
+                val directUrl = if (cached != null && !YouTubeStreamResolver.isCdnExpired(cached.streamUrl)) {
+                    cached.streamUrl
+                } else {
+                    val candidateTrack = Track(
+                        id = 0,
+                        title = onlineTrack.title,
+                        artist = onlineTrack.uploader,
+                        album = "Online Stream",
+                        durationSec = onlineTrack.duration,
+                        filepath = onlineTrack.url,
+                        coverArtPath = onlineTrack.thumbnail
+                    )
+                    val resolveResult = YouTubeStreamResolver.resolveStreamJit(candidateTrack)
+                    resolveResult.getOrNull()?.streamUrl ?: ""
+                }
 
                 if (directUrl.isNotBlank()) {
-                    // 1. Persist canonical watch URL to native C++ SQLite store for playback history & AI recommendations
-                    val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(onlineTrack.url, onlineTrack.thumbnail)
-                    val canonicalUrl = if (videoId != null) "https://www.youtube.com/watch?v=$videoId" else onlineTrack.url.ifBlank { "https://www.youtube.com/watch?v=${kotlin.math.abs((onlineTrack.title + onlineTrack.uploader).hashCode())}" }
-
-                    val persistedId = try {
-                        com.streamify.app.data.TrackRepository.upsertStreamedTrack(
-                            Track(
-                                id = 0,
-                                title = onlineTrack.title,
-                                artist = onlineTrack.uploader,
-                                album = "Online Stream",
-                                durationSec = onlineTrack.duration,
-                                filepath = canonicalUrl,
-                                coverArtPath = onlineTrack.thumbnail,
-                                bpm = 0f,
-                                key = "",
-                                lyricsPath = null,
-                                source = "online_stream"
-                            )
-                        )
-                    } catch (e: Exception) {
-                        0
-                    }
-
                     val trackToPlay = Track(
-                        id = if (persistedId > 0) persistedId else -(onlineTrack.url.hashCode()),
+                        id = -(onlineTrack.url.hashCode()),
                         title = onlineTrack.title,
                         artist = onlineTrack.uploader,
                         album = "Online Stream",

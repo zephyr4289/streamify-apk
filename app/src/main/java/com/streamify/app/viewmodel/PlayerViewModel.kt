@@ -860,31 +860,20 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             isBuffering = true
         )
 
-        // 1. Auto-register streamed track into SQLite & Streamify Playlist & AI Vector store
-        withContext(Dispatchers.IO) {
-            try {
-                val registered = repository.registerStreamedTrack(track, appContext)
-                if (registered.id > 0) {
-                    withContext(Dispatchers.Main) {
-                        val cur = _playerState.value.currentTrack
-                        if (cur != null && cur.title == track.title && cur.artist == track.artist) {
-                            _playerState.value = _playerState.value.copy(currentTrack = registered)
-                        }
-                    }
+        // 1. FAST-PATH GATE: If track.filepath is already a direct playable CDN stream, bypass duplicate network calls (0ms cost!)
+        val isAlreadyDirectCdn = (track.filepath.contains("googlevideo.com") || track.filepath.contains(".googlevideo.")) &&
+                !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(track.filepath)
+        val resolvedTrack = if (isAlreadyDirectCdn) {
+            track
+        } else {
+            withContext(Dispatchers.IO) {
+                val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(track)
+                val resolved = res.getOrNull()
+                if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                    track.copy(filepath = resolved.streamUrl)
+                } else {
+                    track
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        // 2. Resolve direct playable media stream (3-Tier Engine: Cache -> Innertube -> yt-dlp)
-        val resolvedTrack = withContext(Dispatchers.IO) {
-            val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(track)
-            val resolved = res.getOrNull()
-            if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                track.copy(filepath = resolved.streamUrl)
-            } else {
-                track
             }
         }
 
@@ -909,8 +898,26 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     isBuffering = false
                 )
             }
-            // 3. Arm background lookahead pre-buffer for slot 1 (track N+1)
+
+            // 2. Arm background lookahead pre-buffer for slot 1 (track N+1)
             armLookaheadPreBuffer(index + 1, queue)
+
+            // 3. Fire-and-Forget Asynchronous Database Registration (Moved OFF critical playback start path)
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val registered = repository.registerStreamedTrack(track, appContext)
+                    if (registered.id > 0) {
+                        withContext(Dispatchers.Main) {
+                            val cur = _playerState.value.currentTrack
+                            if (cur != null && cur.title == track.title && cur.artist == track.artist) {
+                                _playerState.value = _playerState.value.copy(currentTrack = registered.copy(filepath = resolvedTrack.filepath))
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         } else {
             android.util.Log.e("PlayerViewModel", "Track stream unresolvable for ${track.title}, auto-skipping")
             withContext(Dispatchers.Main) {
