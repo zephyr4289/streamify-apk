@@ -14,21 +14,31 @@
 
 ## 📑 Architectural Index
 
-1. [Executive System Topology & Data Flow](#-1-executive-system-topology--data-flow)
-2. [Explicit Memory & Garbage Collection Invariants](#-2-explicit-memory--garbage-collection-invariants)
-3. [Security Architecture & Runtime Contracts](#-3-security-architecture--runtime-contracts)
-4. [Subsystem FMEA (Failure Mode & Effects Analysis) Matrix](#-4-subsystem-fmea-failure-mode--effects-analysis-matrix)
-5. [Complete 64-Feature Engineering Specifications](#-5-complete-64-feature-engineering-specifications)
+1. [Executive System Topology](#-1-executive-system-topology)
+2. [Exhaustive Codebase & Repository File Architecture Tree](#-2-exhaustive-codebase--repository-file-architecture-tree)
+3. [Explicit Memory, Hardware & GC Invariants](#-3-explicit-memory-hardware--gc-invariants)
+4. [Security Architecture & Runtime Sandboxing](#-4-security-architecture--runtime-sandboxing)
+5. [Subsystem Failure Mode & Effects Analysis (FMEA) Matrix](#-5-subsystem-failure-mode--effects-analysis-fmea-matrix)
+6. [Deep Architectural Data Flow & Tool Interaction Diagrams](#-6-deep-architectural-data-flow--tool-interaction-diagrams)
+   * [Diagram 1: Native C++20 DSP & Acoustic DNA Vector Extraction Architecture](#diagram-1-native-c20-dsp--acoustic-dna-vector-extraction-architecture)
+   * [Diagram 2: Media3 JIT Hardware Sliding Window, Crossfade & Audio Tap Engine](#diagram-2-media3-jit-hardware-sliding-window-crossfade--audio-tap-engine)
+   * [Diagram 3: 3-Tier Multi-Network Resolver & Chaquopy Python Isolation Hierarchy](#diagram-3-3-tier-multi-network-resolver--chaquopy-python-isolation-hierarchy)
+   * [Diagram 4: Continuum Graph AI, Markov Chains & Asymmetric Re-Ranker](#diagram-4-continuum-graph-ai-markov-chains--asymmetric-re-ranker)
+   * [Diagram 5: Byzantine Fault-Tolerant Acoustic Mesh & Zero-Knowledge Consensus](#diagram-5-byzantine-fault-tolerant-acoustic-mesh--zero-knowledge-consensus)
+   * [Diagram 6: Sub-15ms Real-time Jam Room & PTP Phase-Locked Loop Synchronization](#diagram-6-sub-15ms-real-time-jam-room--ptp-phase-locked-loop-synchronization)
+   * [Diagram 7: 120 FPS RK4 Kinetic Token AirDrop, AM-OLED Canvas & Micro-Haptics](#diagram-7-120-fps-rk4-kinetic-token-airdrop-am-oled-canvas--micro-haptics)
+   * [Diagram 8: Jetpack Compose UI Shelves, Karaoke Engine, Social Platform & Admin Hub](#diagram-8-jetpack-compose-ui-shelves-karaoke-engine-social-platform--admin-hub)
+7. [Complete 64-Feature Engineering Specifications](#-7-complete-64-feature-engineering-specifications)
    * [Part A: Native C++20 Core, DSP & Vector Store (Features 1 – 15)](#part-a-native-c20-core-dsp--vector-store-engine-features-1--15)
    * [Part B: Playback Architecture & Media3 Pipeline (Features 16 – 27)](#part-b-playback-architecture--media3-pipeline-features-16--27)
    * [Part C: Data, Discovery, AI & Byzantine Mesh (Features 28 – 42)](#part-c-data-discovery-ai--byzantine-mesh-features-28--42)
    * [Part D: Jetpack Compose UI, Gestures & Visuals (Features 43 – 64)](#part-d-jetpack-compose-ui-gestures--visuals-features-43--64)
-6. [Complete 64-Feature Architectural Matrix](#-6-complete-64-feature-architectural-matrix)
-7. [Native NDK Toolchain & Build Guide](#-7-native-ndk-toolchain--build-guide)
+8. [Comprehensive 64-Feature Subsystem & Tool Mapping Matrix](#-8-comprehensive-64-feature-subsystem--tool-mapping-matrix)
+9. [Native NDK Toolchain, CTest Verification & Build Guide](#-9-native-ndk-toolchain-ctest-verification--build-guide)
 
 ---
 
-## 🏛️ 1. Executive System Topology & Data Flow
+## 🏛️ 1. Executive System Topology
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
@@ -71,7 +81,262 @@
 
 ---
 
-## 🔒 2. Explicit Memory & Garbage Collection Invariants
+## 🗂️ 2. Exhaustive Codebase & Repository File Architecture Tree
+
+Below is the complete file-level repository architecture mapping every component, source file, header, and script to its runtime subsystem, architectural layer, threading model, and execution invariants.
+
+```
+streamify-apk/
+├── .github/
+│   └── workflows/
+│       └── build.yml                        # GitHub Actions Matrix: Android NDK r26d, CMake 3.22, Chaquopy, Gradle Assemble & Artifact Release
+├── app/
+│   ├── build.gradle.kts                     # App Build Config: NDK C++20 toolchain, Chaquopy 3.11, Compose BOM, Media3, Supabase Ktor Client
+│   └── src/
+│       └── main/
+│           ├── AndroidManifest.xml          # Runtime Manifest: Foreground Service audio permissions, WakeLocks, Network State, Audio routing
+│           ├── java/
+│           │   └── com/streamify/app/
+│           │       ├── MainActivity.kt      # Root Activity: CompositionLocal hosting, back-press throttle, FullPlayerSheet modal container
+│           │       ├── StreamifyApplication.kt # Application Base: NativeBridge system library loading, AudioCacheManager init, Haptics init
+│           │       │
+│           │       ├── data/                # Data Layer & Storage Subsystem
+│           │       │   ├── AntiDriftScoringEngine.kt # Vector centroid drift scoring & acoustic coherence penalty evaluation
+│           │       │   ├── BackupManager.kt          # M3U8 & JSON playlist export/import, atomic schema restore
+│           │       │   ├── ContinuumRadioEngine.kt   # High-level infinite dynamic radio candidate broker & re-ranking pipeline
+│           │       │   ├── EdgeMeshRepository.kt     # In-stream PCM acoustic DNA accumulator, proof-of-compute, Byzantine RPC
+│           │       │   ├── ExportifyParser.kt        # CSV / JSON schema parser for legacy Spotify/Exportify playlist migration
+│           │       │   ├── FractionalIndexEngine.kt  # O(1) conflict-free fractional indexing for drag-and-drop playlist reordering
+│           │       │   ├── FuzzyTitleMatcher.kt      # Token-sort Levenshtein distance metric for deduplication & remix detection
+│           │       │   ├── LyricsCacheManager.kt     # Bounded on-disk LRU cache for synchronized syllable .lrc files
+│           │       │   ├── NativeBridge.kt           # JNI Kotlin Bindings: Maps 32 native C++ functions to Kotlin external methods
+│           │       │   ├── NativeMetadataTagger.kt   # TagLib / native ID3 metadata reader for local MP3/FLAC/AAC files
+│           │       │   ├── NuclearResetManager.kt    # 4-stage atomic rebirth: Cloud Snapshot -> Native Truncate -> Reseed -> Restore
+│           │       │   ├── PlaylistRepository.kt     # Playlist state store, fractional reordering, outbox Supabase cloud sync
+│           │       │   ├── ReRanker.kt               # Multi-factor score calculator: Cosine vector + Markov prob + Satiation decay
+│           │       │   ├── StorageManager.kt         # Storage stats, partition calculation, atomic cache purging
+│           │       │   ├── TrackRepository.kt        # Central local/cloud catalog, StateFlow reactive flows, migration dispatcher
+│           │       │   ├── UniversalCandidateBroker.kt # Multi-channel candidate broker merging local, cloud, and collaborative streams
+│           │       │   ├── YtStatsTelemetryEngine.kt # Psychometric dwell & scrub tracker, telemetry accumulator
+│           │       │   │
+│           │       │   ├── models/                   # Immutable Data Models
+│           │       │   │   └── Track.kt              # Core Track entity (id, title, artist, album, filepath, duration, bpm, camelotKey, lufs)
+│           │       │   │
+│           │       │   ├── network/                  # Network, Streaming & Extraction Engines
+│           │       │   │   ├── AntiJarringTransitionEngine.kt # Harmonic Camelot wheel transition compatibility calculator
+│           │       │   │   ├── CandidateAggregator.kt        # 3-Tier candidate fetcher (Innertube + Related + Local Markov graph)
+│           │       │   │   ├── CanonicalSeedResolver.kt      # Resolves foreign track identifiers to canonical YouTube Music IDs
+│           │       │   │   ├── HybridGraphFetcher.kt         # Fetches collaborative filtering graph nodes from cloud Supabase pgvector
+│           │       │   │   ├── LyricsResolver.kt             # Asynchronous racer between LRCLIB, NetEase, and Python fallback
+│           │       │   │   ├── MeshDiscoveryEngine.kt        # P2P mesh node discovery and peer acoustic vector validator
+│           │       │   │   ├── NetworkEngine.kt              # OkHttp connection pooling, HTTP/2 multiplexing, DNS over HTTPS
+│           │       │   │   ├── ParallelStreamDownloader.kt   # Multi-part parallel chunked audio stream downloader with byte-range resume
+│           │       │   │   ├── PersonaEngine.kt              # Zhipu GLM-4 prompt generator for user acoustic persona & Wrapped analysis
+│           │       │   │   ├── PythonEngine.kt               # Chaquopy bridge: Spawns sandboxed Python worker routines safely
+│           │       │   │   ├── ResilientMediaRouter.kt       # Multi-source routing engine with automated fallback prioritization
+│           │       │   │   ├── SemanticSearchEngine.kt       # NLP search query vectorizer matching acoustic embeddings
+│           │       │   │   ├── SmartAcousticEngine.kt        # Automatic 10-band EQ curve synthesizer based on acoustic DNA
+│           │       │   │   ├── YouTubeMusicSearchApi.kt      # Pure Kotlin Innertube API client for high-speed autocomplete & search
+│           │       │   │   ├── YouTubeStreamResolver.kt      # 3-tier resolver: Cache -> Native Innertube -> Chaquopy yt-dlp
+│           │       │   │   ├── ZhipuAiEngine.kt              # High-level client for Zhipu AI GLM-4 language model
+│           │       │   │   └── iTunesSearchApi.kt            # High-resolution 1400x1400 artwork fetcher via Apple iTunes Search API
+│           │       │   │
+│           │       │   └── remote/                   # Cloud & Backend RPC Services
+│           │       │       ├── AuthManager.kt            # Google OAuth2 + Supabase Auth token lifecycle & refresh manager
+│           │       │       ├── BatchTrackResolver.kt     # High-speed batch track resolver with concurrency throttling
+│           │       │       ├── PlaylistLinkScraper.kt    # Spotify web embed parser extracting track lists without OAuth credentials
+│           │       │       ├── StreamifyUpdateManager.kt # OTA in-app updater: GitHub Releases API + Android DownloadManager
+│           │       │       └── SupabaseClient.kt         # PostgreSQL Realtime WebSockets, pgvector RPCs, Jam presence & telemetry
+│           │       │
+│           │       ├── navigation/                   # Compose Navigation Subsystem
+│           │       │   ├── AppNavGraph.kt            # Central NavHost routing (Home, Search, Library, Jam, Community, Admin, Settings)
+│           │       │   └── Screen.kt                 # Sealed screen destination definitions with type-safe route arguments
+│           │       │
+│           │       ├── service/                      # Audio Playback & Media3 Architecture
+│           │       │   ├── AudioCacheManager.kt      # Media3 SimpleCache singleton with bounded 250MB LRU disk eviction
+│           │       │   ├── AudioDeviceManager.kt     # Bluetooth A2DP / LE Audio routing, volume flaring, and headset disconnection traps
+│           │       │   ├── CrossfadeAudioProcessor.kt # In-pipeline 256-entry trigonometric equal-power crossfade audio processor
+│           │       │   ├── DownloadService.kt        # Android Foreground Service managing offline encrypted track downloads
+│           │       │   ├── ElasticStorageAllocator.kt # Storage quota governor dynamically reallocating cache space
+│           │       │   ├── EqualizerManager.kt       # Android AudioEffect.Equalizer controller with 10-band gain sliders
+│           │       │   ├── IngestionWorker.kt        # Background WorkManager task for batch audio file feature indexing
+│           │       │   ├── LosslessRemuxer.kt        # Remuxes raw Opus/AAC streams into standard MP4/M4A containers without transcoding
+│           │       │   ├── LyricPlaybackController.kt # Sub-millisecond timeline tracker syncing lyrics to ExoPlayer playback clock
+│           │       │   ├── MeshPcmAudioProcessor.kt  # In-stream zero-copy live PCM tap plugged into ExoPlayer DefaultAudioSink
+│           │       │   ├── OnlineTrackProcessor.kt   # JIT stream processor resolving CDN links right before playback emission
+│           │       │   ├── PhaseLockedLoopController.kt # Jam session PLL drift calculator with proportional-integral clock tuning
+│           │       │   ├── PlaybackService.kt        # MediaSessionService hosting ExoPlayer, notification manager, media button receiver
+│           │       │   ├── PrecisionTimeProtocol.kt  # IEEE 1588 PTP implementation computing hardware network delay & clock offset
+│           │       │   ├── PredictivePreBufferManager.kt # T-30s lookahead audio stream pre-fetcher into Media3 cache
+│           │       │   ├── PriorityWeightedEvictor.kt # Custom Media3 cache evictor prioritizing un-favorited ephemeral streams
+│           │       │   ├── ScheduledAudioScheduler.kt # Atomic multi-device scheduled playback start trigger at epoch timestamps
+│           │       │   ├── SyncAudioProcessor.kt     # Microsecond-level PCM sample insertion/deletion audio processor for PTP sync
+│           │       │   ├── TextEmbeddingEngine.kt    # On-device text vector embedder for local semantic search indexing
+│           │       │   └── TitanComputeWorker.kt     # WorkManager background compute worker submitting Byzantine Proof-of-Compute
+│           │       │
+│           │       ├── ui/                           # Jetpack Compose UI Subsystem (120 FPS)
+│           │       │   ├── components/               # Reusable Modular UI Components
+│           │       │   │   ├── ArtistCircleCard.kt   # Circular artist avatar card with dynamic stroke and hero navigation
+│           │       │   │   ├── BottomNavBar.kt       # Minimalist navigation bar with active tab indicators
+│           │       │   │   ├── BroadcastBanner.kt    # System-wide announcement banner for admin broadcasts and OTA updates
+│           │       │   │   ├── CategoryCard.kt       # Card component for genre and category discovery
+│           │       │   │   ├── CommentsSheet.kt      # Timestamped contextual comments bottom sheet with real-time posting
+│           │       │   │   ├── ContextMenuSheet.kt   # Hoisted root context menu sheet (Like, Add to Playlist, Radio, Jam, Details)
+│           │       │   │   ├── EmptyStateView.kt     # Graphic empty state placeholder with contextual call-to-action buttons
+│           │       │   │   ├── FriendActivityCard.kt # Social listening activity card showing real-time playback of friends
+│           │       │   │   ├── HeartButton.kt        # Bouncing spring kinetic heart toggle with micro-haptic click
+│           │       │   │   ├── LyricsEditorDialog.kt # In-app manual LRC lyric timing editor and timestamp offset adjuster
+│           │       │   │   ├── MarqueeText.kt        # Hardware-accelerated smooth scrolling text marquee for long track titles
+│           │       │   │   ├── MiniPlayerBar.kt      # Persistent floating dock with squash-and-stretch physics and swipe dismissal
+│           │       │   │   ├── NowPlayingIndicator.kt # 3-bar animated equalizer graphic indicating live playback state
+│           │       │   │   ├── PlayerBackground.kt   # Animated AM-OLED fluid gradient canvas driven by track artwork palette
+│           │       │   │   ├── PlayerControls.kt     # Play/pause, skip, shuffle, repeat controls with tactile detent feedback
+│           │       │   │   ├── PlayerSeekBar.kt      # Sub-millisecond seekbar with magnetic detents at chorus and hook points
+│           │       │   │   ├── QuantumSonicTokenController.kt # RK4 6-DOF kinetic flight physics controller and JNI buffer bridge
+│           │       │   │   ├── QuantumSonicTokenOverlay.kt    # Hardware-accelerated full-screen canvas rendering flying audio token
+│           │       │   │   ├── RecentPlayCard.kt     # Compact recently played track card for dashboard carousels
+│           │       │   │   ├── RelatedDiscoverSheet.kt # Multi-shelf discovery sheet with similar tracks, artist singles, and albums
+│           │       │   │   ├── ReorderableList.kt    # 120 FPS drag-and-drop reorderable LazyColumn with magnetic snap physics
+│           │       │   │   ├── ShimmerPlaceholder.kt # High-performance shimmer placeholder skeleton for loading states
+│           │       │   │   ├── StreamifyPullToRefreshContainer.kt # GPU-accelerated overscroll pull-to-refresh with orbital arc spinner
+│           │       │   │   ├── TrackCard.kt          # Standard square track card with artwork and title for grids
+│           │       │   │   ├── TrackCoverArt.kt      # Cached Coil image loader with fallback vector placeholders and rounded corners
+│           │       │   │   ├── TrackListItem.kt      # Swipeable track list row with swipe-to-queue and swipe-to-like gestures
+│           │       │   │   ├── UpdateAvailableCard.kt # Card displaying OTA release notes, APK download progress, and install trigger
+│           │       │   │   ├── YtActiveEqualizer.kt  # Compact mini equalizer preset selector pill
+│           │       │   │   ├── YtBottomNavBar.kt     # YouTube Music style 4-tab bottom navigation bar with pill highlight
+│           │       │   │   ├── YtGenreCard.kt        # YouTube Music style large gradient genre exploration card
+│           │       │   │   ├── YtGenreDistributionBar.kt # Multi-color proportional genre breakdown bar for Wrapped statistics
+│           │       │   │   ├── YtImportPlaylistSheet.kt # Spotify / YouTube playlist link import bottom sheet with live progress
+│           │       │   │   ├── YtLibraryFilterChips.kt # Horizontal scrolling filter chips (Playlists, Songs, Albums, Artists, Folders)
+│           │       │   │   ├── YtListenAgainGrid.kt  # Responsive 2-row multi-column grid displaying listening history
+│           │       │   │   ├── YtLyricLineItem.kt    # Individual lyric line item with tap-to-seek and smooth auto-scroll
+│           │       │   │   ├── YtLyricsHeader.kt     # Header showing song credits, lyric source, and timing sync status
+│           │       │   │   ├── YtMoodFilterRail.kt   # Sticky mood filter rail (Workout, Focus, Chill, Energy) driving instant BPM filter
+│           │       │   │   ├── YtPersonaCard.kt      # AI personality summary card with humor rating and acoustic badges
+│           │       │   │   ├── YtPlayerActionPills.kt # Like, Comment, Download, Radio, Jam action pills in FullPlayerSheet
+│           │       │   │   ├── YtPlayerBottomTabs.kt # Up Next, Lyrics, Related 3-tab selector at the bottom of player
+│           │       │   │   ├── YtPlayerSeekBar.kt    # YouTube Music style player seekbar with time elapsed / remaining displays
+│           │       │   │   ├── YtPlaylistHeroHeader.kt # Hero header for playlist/album screen with play, shuffle, and options menu
+│           │       │   │   ├── YtPresetFilterChips.kt # EQ preset filter chips (Bass Boost, Vocal Pop, EDM, Rock, Flat)
+│           │       │   │   ├── YtQueueHeader.kt      # Header for queue screen showing track count, clear queue, and autoplay toggle
+│           │       │   │   ├── YtQueueTrackItem.kt   # Queue track item with drag handle, swipe-to-remove, and active equalizer icon
+│           │       │   │   ├── YtQuickPicksCarousel.kt # YouTube Music style 4x4 chunked horizontal pagination carousel
+│           │       │   │   ├── YtSearchFilterChips.kt # Search filter chips (All, Songs, Videos, Artists, Community)
+│           │       │   │   ├── YtSearchOmnibar.kt    # High-speed search input field with instant clear and microphone actions
+│           │       │   │   ├── YtSectionHeader.kt    # Standardized section header with title, kicker, and 'More' button
+│           │       │   │   ├── YtSongVideoSwitcher.kt # Song / Video mode toggle pill hot-swapping between ExoPlayer renderers
+│           │       │   │   ├── YtSortFilterBar.kt    # Library sorting dropdown bar (Recently Added, Title, Artist, Duration)
+│           │       │   │   ├── YtStudioArcDial.kt    # Rotary studio arc dial for continuous gain and crossfade duration tuning
+│           │       │   │   ├── YtSupermixCard.kt     # Large hero card for instant continuous Supermix radio launching
+│           │       │   │   ├── YtSyllableLine.kt     # Dual-layer clipRect text sweep engine for syllable-by-syllable karaoke
+│           │       │   │   ├── YtThumbnail.kt        # Adaptive aspect-ratio thumbnail with shimmer loading placeholder
+│           │       │   │   ├── YtTopAppBar.kt        # Sticky top bar with Cast, Search, and Cloud User Avatar status
+│           │       │   │   ├── YtTopResultCard.kt    # Hero search result card showing top match with quick play button
+│           │       │   │   ├── YtVerticalEqSlider.kt # Vertical EQ band slider with dB scale and tactile detent at 0dB
+│           │       │   │   └── YtWrappedHeroCard.kt  # Hero summary card for annual Wrapped statistics
+│           │       │   │
+│           │       │   ├── screens/                  # Top-Level Destination Screens
+│           │       │   │   ├── AdminDashboardScreen.kt # Admin console: Live user sessions, pgvector table stats, compute metrics
+│           │       │   │   ├── AlbumScreen.kt        # Album & custom playlist detail view with track list and options menu
+│           │       │   │   ├── ArtistScreen.kt       # Artist profile view with top tracks, albums, and similar artist station
+│           │       │   │   ├── CommunityHubScreen.kt # Social platform: Trending playlists, public room discovery, upvote charts
+│           │       │   │   ├── DownloadScreen.kt     # Offline manager: Encrypted storage status, batch download queue manager
+│           │       │   │   ├── EqualizerScreen.kt    # 10-band graphic equalizer, Bass Boost, Virtualizer, and Reverb presets
+│           │       │   │   ├── FullPlayerSheet.kt    # Full-screen player modal: Artwork, lyrics, queue, related, and action pills
+│           │       │   │   ├── HomeScreen.kt         # Main home feed: Quick Picks 4x4, Listen Again grid, Mood rail, Supermix
+│           │       │   │   ├── JamSessionScreen.kt   # Live synchronized party room with real-time member list and shared queue
+│           │       │   │   ├── LibraryScreen.kt      # Complete library: Playlists, Songs, Albums, Artists, Folders, and Import
+│           │       │   │   ├── LyricsScreen.kt       # Syllable-by-syllable karaoke screen with tap-to-seek and auto-scroll
+│           │       │   │   ├── PlayerScreen.kt       # Lightweight fallback player container
+│           │       │   │   ├── PrismaticSplashScreen.kt # High-speed startup splash screen with GPU animated prismatic logo
+│           │       │   │   ├── QueueScreen.kt        # Dedicated up-next queue management screen with 120 FPS drag reordering
+│           │       │   │   ├── SearchScreen.kt       # Universal search with instant suggestions, history, and video mode
+│           │       │   │   ├── SettingsScreen.kt     # Settings console: Audio quality, Crossfade, Equalizer, Nuclear Reset, OTA
+│           │       │   │   ├── StatsWrappedScreen.kt # Annual Wrapped: Persona analysis, top tracks, listening clock radar
+│           │       │   │   ├── UserProfileScreen.kt  # User profile editor: Avatar upload, bio editing, settings navigation
+│           │       │   │   └── YtOnboardingScreen.kt # First-run artist and genre preference picker
+│           │       │   │
+│           │       │   └── theme/                    # Design System & Styling Tokens
+│           │       │       ├── Color.kt              # Streamify color palette (BgBase, BgElevated, Primary, Accent, Text tokens)
+│           │       │       ├── Dimens.kt             # Standardized padding, corner radii, elevation, and component heights
+│           │       │       ├── Shape.kt              # Rounded corner shapes for cards, sheets, dialogs, and action pills
+│           │       │       ├── StreamifyHapticEngine.kt # Hardware LRA tactile haptic controller with 6 pre-built zero-alloc effects
+│           │       │       ├── Theme.kt              # MaterialTheme wrapper providing typography, color, and shapes
+│           │       │       └── Type.kt               # Typography definitions: Display, Headline, Title, Body, Label tokens
+│           │       │
+│           │       ├── util/                         # Shared Utilities
+│           │       │   ├── DurationFormatter.kt  # Formats seconds and milliseconds into standardized mm:ss / hh:mm:ss strings
+│           │       │   └── StreamifyHapticEngine.kt # Public singleton interface for tactile haptic vibrations
+│           │       │
+│           │       └── viewmodel/                    # Reactive Architecture ViewModels
+│           │           ├── CommunityViewModel.kt # StateFlow store for community playlists, upvotes, and public rooms
+│           │           ├── HomeViewModel.kt      # Aggregates Quick Picks, Listen Again, Supermix, and Mood rail feeds
+│           │           ├── IngestionViewModel.kt # Dispatches audio scanning and tracks background WorkManager indexing
+│           │           ├── JamViewModel.kt       # Dual-channel Jam sync: Supabase WebSockets + Phase-Locked Loop (PLL)
+│           │           ├── LibraryViewModel.kt   # Manages library sorting, filtering, and playlist creation/renaming
+│           │           ├── PlayerViewModel.kt    # Central playback brain: Sliding JIT timeline, queue management, crossfade
+│           │           ├── SearchViewModel.kt    # Manages instant autocomplete, online search, and query history caching
+│           │           └── UiEventBus.kt         # Lightweight event bus for one-shot UI toasts and snackbar alerts
+│           │
+│           └── python/                           # Embedded Python 3.11 Sandboxed Routines (Chaquopy)
+│               └── download_engine/
+│                   ├── __init__.py               # Python package initialization
+│                   ├── core.py                   # High-speed yt-dlp wrapper scoped strictly to sandbox internal storage
+│                   ├── lyrics.py                 # Multi-source lyric scraper fallback (NetEase, QQ Music, Genius)
+│                   ├── metadata.py               # Mutagen ID3/FLAC metadata embedder writing artwork and lyrics to files
+│                   ├── search.py                 # Sandboxed fallback search scraper for complex YouTube Music queries
+│                   └── spotify.py                # Public Spotify playlist scraper extracting tracks without API credentials
+│
+└── native/                                       # Native C++20 Core & ARM NEON SIMD DSP Engine
+    ├── CMakeLists.txt                            # CMake configuration: -O3, -ffast-math, -flto, ARM NEON SIMD flags
+    ├── dsp/                                      # Digital Signal Processing Subsystem
+    │   ├── LufsNormalizer.cc                     # ITU-R BS.1770-4 K-weighting dual-biquad filter with NEON SIMD vectorization
+    │   ├── LufsNormalizer.h                      # Header: Biquad coefficient tables and Loudness Normalizer class definition
+    │   ├── SoftKneeLimiter.cc                    # Project Sonic Maxx 2nd-order polynomial soft-knee peak limiter
+    │   ├── SoftKneeLimiter.h                     # Header: Soft-knee compression parameters and gain computer definition
+    │   └── kissfft/                              # Highly optimized C KissFFT Fast Fourier Transform engine
+    │       ├── _kiss_fft_guts.h                  # KissFFT internal SIMD macros and trigonometric lookups
+    │       ├── kiss_fft.c                        # Forward and inverse Fast Fourier Transform implementation
+    │       ├── kiss_fft.h                        # Core KissFFT header
+    │       ├── kiss_fftr.c                       # Real-input optimized Fast Fourier Transform implementation
+    │       └── kiss_fftr.h                       # Header for real-valued FFT operations
+    │
+    ├── engine/                                   # Core Computational Engines
+    │   ├── AirDropPhysicsEngine.cc               # 4-substep Runge-Kutta 4th Order (RK4) ODE solver with aerodynamic lift
+    │   ├── AirDropPhysicsEngine.h                # Header: 6-DOF state vector and ODE derivative computer definition
+    │   ├── ChronosProfiler.cc                    # Project Chronos: 24-hour circadian vector profiler and satiation decay
+    │   ├── ChronosProfiler.h                     # Header: Hourly acoustic profile matrix and exponential decay formulas
+    │   ├── EventTracker.cc                       # Native user interaction logging and dwell duration tracker
+    │   ├── EventTracker.h                        # Header: Interaction event struct and tracking function declarations
+    │   ├── PtpEngine.cc                          # IEEE 1588 Precision Time Protocol clock offset & network delay calculator
+    │   ├── PtpEngine.h                           # Header: 4-timestamp exchange protocol and median filter definition
+    │   ├── RecommendEngine.cc                    # Collaborative filtering, cosine vector matching, and hybrid scoring
+    │   ├── RecommendEngine.h                     # Header: Recommendation engine interface and candidate scorer definition
+    │   ├── StreamifyDB.cc                        # High-speed SQLite3 storage engine with WAL mode and memory-mapped I/O
+    │   ├── StreamifyDB.h                         # Header: SQLite schema, 2nd-order Markov graph, and atomic truncate API
+    │   ├── TaskOrchestrator.cc                   # QoS task scheduler with ARM big.LITTLE efficiency core pinning (Cores 0-3)
+    │   ├── TaskOrchestrator.h                    # Header: Thread pool definition, thermal state checker, and core affinity API
+    │   ├── TelemetryEngine.cc                    # Lock-free psychometric telemetry ring buffer & Proof-of-Compute HMAC-SHA256
+    │   ├── TelemetryEngine.h                     # Header: Atomic SPSC circular buffer and cryptographic proof generator
+    │   ├── VectorStore.cc                        # 128-dimensional 16-byte aligned ARM NEON SIMD cosine-similarity vector store
+    │   └── VectorStore.h                         # Header: Vector index structure and NEON dot-product function declarations
+    │
+    ├── ingest/                                   # Audio Ingestion & Feature Extraction
+    │   ├── AudioPipeline.cc                      # Full-track feature extractor: 2048-STFT, 12-bin HPCP, Ellis BPM, LUFS
+    │   ├── AudioPipeline.h                       # Header: Acoustic DNA struct and audio decoding pipeline interface
+    │   └── miniaudio.h                           # Single-file audio decoding library for direct MP3/WAV/FLAC decoding
+    │
+    ├── jni/                                      # Java Native Interface Bridge
+    │   └── jni_bridge.cc                         # JNI entry point: JNIEXPORT bindings, direct ByteBuffer taps, key obfuscation
+    │
+    └── third_party/                              # Third-Party Dependencies
+        └── sqlite3/                              # Amalgamated SQLite 3.45.1 source code with WAL and MMAP enabled
+```
+
+---
+
+## 🔒 3. Explicit Memory, Hardware & GC Invariants
 
 * **Direct Buffer Ownership Contracts**:
   * In-stream PCM audio frames pass through `MeshPcmAudioProcessor` directly via JVM `ByteBuffer.allocateDirect` instances allocated once during pipeline setup. Direct C++ memory access is obtained via `env->GetDirectBufferAddress()` with zero heap allocations and zero memory copies.
@@ -83,7 +348,7 @@
 
 ---
 
-## 🛡️ 3. Security Architecture & Runtime Contracts
+## 🛡️ 4. Security Architecture & Runtime Sandboxing
 
 * **NDK Secret Obfuscation**: API credentials and signing nonces are stored as XOR-rotated byte arrays embedded directly in the `.rodata` section of `libstreamify_core.so`. Tokens are decoded dynamically in CPU register memory and scrubbed immediately after request dispatch:
   $$K_i = S_i \oplus M_{(i \bmod 16)} \oplus \text{RotL}(0x5A, i \bmod 8)$$
@@ -93,7 +358,7 @@
 
 ---
 
-## ⚡ 4. Subsystem FMEA (Failure Mode & Effects Analysis) Matrix
+## ⚡ 5. Subsystem Failure Mode & Effects Analysis (FMEA) Matrix
 
 | Subsystem Component | Failure Trigger | Degradation Behavior | Recovery / Fallback Protocol |
 |---|---|---|---|
@@ -105,7 +370,298 @@
 
 ---
 
-## 🔬 5. Complete 64-Feature Engineering Specifications
+## 📊 6. Deep Architectural Data Flow & Tool Interaction Diagrams
+
+---
+
+### Diagram 1: Native C++20 DSP & Acoustic DNA Vector Extraction Architecture
+```
+                                 IN-STREAM LIVE PCM TAP
+                                (MeshPcmAudioProcessor)
+                                          │
+                        ByteBuffer.allocateDirect (Zero-Copy)
+                                          ▼
+                      ┌───────────────────────────────────────┐
+                      │    libstreamify_core.so (C++20 NDK)   │
+                      │  TaskOrchestrator: Binds Cores 0 - 3  │
+                      └───────────────────┬───────────────────┘
+                                          │
+           ┌──────────────────────────────┼──────────────────────────────┐
+           ▼                              ▼                              ▼
+ ┌───────────────────┐          ┌───────────────────┐          ┌───────────────────┐
+ │   ITU-R BS.1770   │          │   KissFFT 2048    │          │    Ellis Prior    │
+ │ Loudness Analysis │          │  12-Bin HPCP STFT │          │    BPM Engine     │
+ ├───────────────────┤          ├───────────────────┤          ├───────────────────┤
+ │ K-Weighting Filter│          │ Spectral Mag Fold │          │ Spectral Flux Onset│
+ │ True Peak dBTP    │          │ Krumhansl Cosine  │          │ Log-Normal Prior  │
+ │ Integrated LUFS   │          │ Camelot Key (e.g. │          │ Auto-Correlation  │
+ │ Loudness Range LRA│          │ 8B / C-Major)     │          │ Lag Selection     │
+ └─────────┬─────────┘          └─────────┬─────────┘          └─────────┬─────────┘
+           │                              │                              │
+           └──────────────────────────────┼──────────────────────────────┘
+                                          ▼
+                       ┌─────────────────────────────────────┐
+                       │  128-Dimensional Acoustic DNA Vector│
+                       │  16-Byte Aligned ARM NEON Registers │
+                       └──────────────────┬──────────────────┘
+                                          ▼
+                       ┌─────────────────────────────────────┐
+                       │   Native HNSW SIMD VectorStore.cc   │
+                       │  Cosine Similarity: <0.8ms Top-K    │
+                       └─────────────────────────────────────┘
+```
+
+---
+
+### Diagram 2: Media3 JIT Hardware Sliding Window, Crossfade & Audio Tap Engine
+```
+                  ┌─────────────────────────────────────────────────┐
+                  │          LOGICAL TRACK QUEUE (M Items)          │
+                  │   [Track 0]  [Track 1]  [Track 2]  [Track 3]... │
+                  └────────────────────────┬────────────────────────┘
+                                           │
+                        Sliding 2-Slot Hardware Window
+                                           ▼
+                  ┌─────────────────────────────────────────────────┐
+                  │            PHYSICAL HARDWARE TIMELINE           │
+                  │  ┌──────────────────────┬────────────────────┐  │
+                  │  │ Slot 0: Active (N)   │ Slot 1: Buffer(N+1)│  │
+                  │  └──────────┬───────────┴──────────┬─────────┘  │
+                  └─────────────┼──────────────────────┼────────────┘
+                                │                      │
+                 MediaItem Transition Reason    T-30s Lookahead Fetch
+                                │                      │
+                                ▼                      ▼
+                  ┌─────────────────────────────────────────────────┐
+                  │              EXOPLAYER AUDIO SINK               │
+                  ├─────────────────────────────────────────────────┤
+                  │ 1. In-Stream PCM Tap (MeshPcmAudioProcessor)    │
+                  │ 2. Equal-Power Crossfader (CrossfadeAudioProc)  │
+                  │    - 256-Entry Cosine/Sine Power Invariant LUT  │
+                  │ 3. PTP Sync Processor (SyncAudioProcessor)      │
+                  │ 4. 10-Band Graphic Equalizer (EqualizerManager) │
+                  └────────────────────────┬────────────────────────┘
+                                           ▼
+                                [AudioTrack PCM Output]
+```
+
+---
+
+### Diagram 3: 3-Tier Multi-Network Resolver & Chaquopy Python Isolation Hierarchy
+```
+                             STREAM RESOLUTION REQUEST
+                           (YouTubeStreamResolver.kt)
+                                       │
+                                       ▼
+                     ┌───────────────────────────────────┐
+                     │    TIER 1: In-Memory L1 Cache     │
+                     │  Validates TTL & Pre-Signed Token │
+                     └─────────────────┬─────────────────┘
+                                       │ (Miss / Expired)
+                                       ▼
+                     ┌───────────────────────────────────┐
+                     │    TIER 2: Native Innertube API   │
+                     │  High-Speed Direct Android Client │
+                     │  Concurrent Race (<800ms Budget)  │
+                     └─────────────────┬─────────────────┘
+                                       │ (HTTP 429 / Cipher Fail)
+                                       ▼
+                     ┌───────────────────────────────────┐
+                     │  TIER 3: Chaquopy Python Sandbox  │
+                     │  - Isolated to context.filesDir   │
+                     │  - Regex Sanitized URL Arguments  │
+                     │  - Sandboxed yt-dlp Flat Extract  │
+                     └─────────────────┬─────────────────┘
+                                       │
+                                       ▼
+                        [Direct Audio HTTPS CDN Stream]
+```
+
+---
+
+### Diagram 4: Continuum Graph AI, Markov Chains & Asymmetric Re-Ranker
+```
+                             CURRENT SEED TRACK (S)
+                                       │
+           ┌───────────────────────────┼───────────────────────────┐
+           ▼                           ▼                           ▼
+ ┌───────────────────┐       ┌───────────────────┐       ┌───────────────────┐
+ │ Channel 1: Cloud  │       │ Channel 2: Local  │       │ Channel 3: Markov │
+ │ Supabase pgvector │       │ 128-d VectorStore │       │ Graph Transition  │
+ ├───────────────────┤       ├───────────────────┤       ├───────────────────┤
+ │ Collaborative     │       │ SIMD NEON Cosine  │       │ 2nd-Order Chain   │
+ │ Artist Similarity │       │ Acoustic Proximity│       │ P(N | N-1, N-2)   │
+ └─────────┬─────────┘       └─────────┬─────────┘       └─────────┬─────────┘
+           │                           │                           │
+           └───────────────────────────┼───────────────────────────┘
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │    100 Raw Multi-Source Candidates  │
+                    └──────────────────┬──────────────────┘
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │       ANTI-DRIFT RE-RANKER          │
+                    │ - Vector Centroid Anchor (≥ 0.72)   │
+                    │ - Chronos Satiation Time Decay      │
+                    │ - Harmonic Camelot Key Compatibility│
+                    └──────────────────┬──────────────────┘
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │   Top-25 Curated Song Radio Queue   │
+                    └─────────────────────────────────────┘
+```
+
+---
+
+### Diagram 5: Byzantine Fault-Tolerant Acoustic Mesh & Zero-Knowledge Consensus
+```
+                            EDGE CLIENT DECODES AUDIO
+                                       │
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │    Native Feature Extraction DSP    │
+                    │  Computes LUFS, HPCP Key, BPM       │
+                    └──────────────────┬──────────────────┘
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │  Proof-of-Acoustic-Compute Engine   │
+                    │  HMAC-SHA256(Nonce, Subband Energy) │
+                    └──────────────────┬──────────────────┘
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │     Submits Payload to Supabase     │
+                    │   (Staged in pending_mesh_queue)    │
+                    └──────────────────┬──────────────────┘
+                                       │
+                     2-Peer Consensus Verification Threshold
+                                       │
+            ┌──────────────────────────┴──────────────────────────┐
+            ▼                                                     ▼
+ ┌──────────────────────┐                              ┌──────────────────────┐
+ │  Peer Node 1 Verify  │                              │  Peer Node 2 Verify  │
+ │  - |ΔLUFS| ≤ 0.3     │                              │  - |ΔLUFS| ≤ 0.3     │
+ │  - Exact Key Match   │                              │  - Exact Key Match   │
+ │  - Cosine Sim ≥ 0.94 │                              │  - Cosine Sim ≥ 0.94 │
+ └──────────┬───────────┘                              └──────────┬───────────┘
+            │                                                     │
+            └──────────────────────────┬──────────────────────────┘
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │   CONSENSUS REACHED -> AUTO PROMOTE │
+                    │   Upsert into public acoustic_mesh  │
+                    └─────────────────────────────────────┘
+```
+
+---
+
+### Diagram 6: Sub-15ms Real-time Jam Room & PTP Phase-Locked Loop Synchronization
+```
+                       JAM HOST (Broadcasting Playback State)
+                                       │
+                    Realtime WebSocket Media Plane (<15ms)
+                                       │
+                                       ▼
+                     JAM GUEST CLIENT (PhaseLockedLoopController)
+                                       │
+           ┌───────────────────────────┴───────────────────────────┐
+           ▼                                                       ▼
+ ┌───────────────────┐                                   ┌───────────────────┐
+ │ IEEE 1588 PTP     │                                   │ PLL Phase Error   │
+ │ Hardware Timestamp│                                   │ Calculation       │
+ ├───────────────────┤                                   ├───────────────────┤
+ │ 4-Timestamp RTT   │                                   │ Δt = Pos_host -   │
+ │ Delay: δ = (T3-T0)│                                   │      Pos_guest    │
+ │ Offset: θ = (T1-T0│                                   │ Median MAD Filter │
+ └─────────┬─────────┘                                   └─────────┬─────────┘
+           │                                                       │
+           └───────────────────────────┬───────────────────────────┘
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │    PROPORTIONAL-INTEGRAL (PI) LOOP  │
+                    │  Adjusts ExoPlayer Playback Speed:  │
+                    │   Speed = 1.0 + K_p*Δt + K_i*∫Δt dt │
+                    │  (Dynamic Rate Range: 0.98x - 1.02x)│
+                    └──────────────────┬──────────────────┘
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │   Microsecond SyncAudioProcessor    │
+                    │   Zero Acoustic Comb-Filtering      │
+                    └─────────────────────────────────────┘
+```
+
+---
+
+### Diagram 7: 120 FPS RK4 Kinetic Token AirDrop, AM-OLED Canvas & Micro-Haptics
+```
+                          USER TAPS TRACK ITEM IN UI
+                                       │
+                        Direct Tap Coordinates (Origin)
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │   QuantumSonicTokenController.kt    │
+                    │  Allocates 13-Float JNI Direct Array│
+                    └──────────────────┬──────────────────┘
+                                       │
+                      120 FPS VSYNC Tick (withFrameNanos)
+                                       │
+                                       ▼
+                    ┌─────────────────────────────────────┐
+                    │    AirDropPhysicsEngine.cc (C++20)  │
+                    │  4-Substep Runge-Kutta 4th Order:   │
+                    │  - Aerodynamic Lift (F_lift)        │
+                    │  - Quadratic Air Drag (F_drag)      │
+                    │  - Strain Tensor Conservation       │
+                    └──────────────────┬──────────────────┘
+                                       │
+               ┌───────────────────────┴───────────────────────┐
+               ▼                                               ▼
+ ┌───────────────────────────┐                   ┌───────────────────────────┐
+ │ QuantumSonicTokenOverlay  │                   │   StreamifyHapticEngine   │
+ │ Fullscreen Hardware Canvas│                   │   Hardware LRA Vibrations │
+ ├───────────────────────────┤                   ├───────────────────────────┤
+ │ 3D Gimbal Rotation & Roll │                   │ - Scrubber Rotary Tick    │
+ │ AMOLED Ambient Glow Sweep │                   │ - Token Impact Detent     │
+ │ Dock Squash-and-Stretch   │                   │ - Magnetic Queue Grab     │
+ └───────────────────────────┘                   └───────────────────────────┘
+```
+
+---
+
+### Diagram 8: Jetpack Compose UI Shelves, Karaoke Engine, Social Platform & Admin Hub
+```
+                          JETPACK COMPOSE ROOT COMPOSITOR
+                                  (AppNavGraph.kt)
+                                         │
+           ┌──────────────┬──────────────┼──────────────┬──────────────┐
+           ▼              ▼              ▼              ▼              ▼
+     [HomeScreen]  [SearchScreen] [LibraryScreen] [JamSession]  [CommunityHub]
+     - Quick Picks  - Omnibar      - Dynamic Chips- Shared Queue - Public Feeds
+       4x4 Grid     - Song/Video   - Drag Reorder - PTP Audio   - Upvote Ranks
+     - Listen Again - Instant Fast - Folder Scan    Sync (<15ms)- Comments
+     - Mood Rail      Suggester    - Backup/Reset - Live Chat   - User Badges
+           │              │              │              │              │
+           └──────────────┴──────────────┼──────────────┴──────────────┘
+                                         ▼
+                    ┌─────────────────────────────────────────┐
+                    │             FULL PLAYERSHEET            │
+                    │ - AM-OLED Ambient Glow Canvas           │
+                    │ - Syllable-by-Syllable LRC Karaoke      │
+                    │ - 10-Band EQ & Smart Acoustic Engine    │
+                    │ - Related Artist Discovery Bottom Sheet │
+                    │ - Hoisted Root ContextMenuSheet Gestures│
+                    └────────────────────┬────────────────────┘
+                                         ▼
+                    ┌─────────────────────────────────────────┐
+                    │         ADMIN COMMAND CENTER            │
+                    │ - Real-Time Cluster Node Telemetry      │
+                    │ - PostgreSQL pgvector Query Performance │
+                    │ - Distributed Edge Compute Status       │
+                    └─────────────────────────────────────────┘
+```
+
+---
+
+## 🔬 7. Complete 64-Feature Engineering Specifications
 
 ---
 
@@ -450,78 +1006,78 @@
 
 ---
 
-## 📊 6. Complete 64-Feature Architectural Matrix
+## 📊 8. Comprehensive 64-Feature Subsystem & Tool Mapping Matrix
 
-| # | Subsystem | Feature Name | Core Mechanism | Mathematical Model / Invariant | Heap Budget | Status |
+| # | Subsystem | Tool / Feature Name | Primary Source Files | Native JNI Symbol / Class | Interacting Subsystems | Real-Time Memory / Threading Contract |
 |---|---|---|---|---|---|---|
-| **01** | Native Core | C++20 RK4 AirDrop Fluid Dynamics | 4-substep numerical ODE solver | $\mathbf{s}_{n+1} = \mathbf{s}_n + \frac{\Delta t}{6}(\mathbf{k}_1+2\mathbf{k}_2+2\mathbf{k}_3+\mathbf{k}_4)$ | 0 B/frame | Verified |
-| **02** | Native DSP | EBU R128 Loudness Normalizer | ARM NEON K-Weighting RMS | $L_K = -0.691 + 10\log_{10}\sum G_i z_i$ | 0 B/frame | Verified |
-| **03** | Native DSP | KissFFT 12-Bin HPCP Camelot Key | 2048-STFT + Krumhansl Cosine | $\text{Score} = \frac{\mathbf{v}_{\text{chroma}}\cdot\mathbf{v}_{\text{key}}}{\|\mathbf{v}_{\text{chroma}}\|\|\mathbf{v}_{\text{key}}\|}$ | 0 B | Verified |
-| **04** | Native DSP | Ellis Prior Gaussian BPM Extractor | Spectral flux + Gaussian prior | $R_{\text{biased}} = R(\tau)e^{-\frac{1}{2}(\frac{\text{BPM}-120}{40})^2}$ | 0 B | Verified |
-| **05** | Native DSP | Sonic Maxx Soft-Knee Limiter | 2nd-order polynomial limiter | $y_{\text{dB}} = x_{\text{dB}} + \frac{(x-T+W/2)^2}{2W}(\frac{1}{R}-1)$ | 0 B | Verified |
-| **06** | Native AI | SIMD HNSW VectorStore | 128-d NEON Cosine Engine | $\text{Sim}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u}\cdot\mathbf{v}}{\|\mathbf{u}\|\|\mathbf{v}\|}$ | 0 B/query | Verified |
-| **07** | Native Core | TaskOrchestrator QoS Core Pinning | ARM LITTLE core affinity (0–3) | `pthread_setaffinity_np` | 0 B | Verified |
-| **08** | Native AI | Markov Transition Probability | 2nd-Order Interpolated Chain | $P = (1-\alpha)P_{2\text{nd}} + \alpha P_{1\text{st}}$ | 0 B | Verified |
-| **09** | Native AI | Chronos Circadian Profiler | 24h vector + Satiation decay | $S(t) = \exp(-\Delta t / \tau)$ | 0 B | Verified |
-| **10** | Native Core | IEEE 1588 PTP Acoustic Sync | 4-timestamp RTT & clock filter | $\theta = \frac{(T_1-T_0)+(T_2-T_3)}{2}$ | 0 B | Verified |
-| **11** | Native Core | Lock-Free Psychometric Telemetry | Atomic circular ring buffer | `std::atomic<size_t>` CAS | 0 B | Verified |
-| **12** | Native Sec | Proof-of-Acoustic-Compute | Energy band HMAC-SHA256 | $\text{HMAC-SHA256}(\text{Nonce}, \mathbf{E})$ | 0 B | Verified |
-| **13** | Native Core | Embedded SQLite3 Storage | WAL mode + 256MB mmap | `PRAGMA mmap_size = 268435456` | Native | Verified |
-| **14** | Native Sec | NDK Obfuscated Key Vault | `.rodata` XOR rotation schedule | $K_i = S_i \oplus M_i \oplus \text{RotL}$ | 0 B | Verified |
-| **15** | Native Core | Atomic Database Nuke & Purge | Native transactional truncate | `PRAGMA writable_schema` | 0 B | Verified |
-| **16** | Playback | Sliding 2-Track JIT Timeline | 2-slot hardware window (N, N+1) | Lookahead JIT pre-buffering | 0 B | Verified |
-| **17** | Playback | Dual-Hook Queue Advancer | MEDIA_ITEM_TRANSITION + STATE_ENDED | Deterministic queue recovery | 0 B | Verified |
-| **18** | Playback | In-Stream Live PCM Tap | ExoPlayer AudioSink tap | Zero-copy direct buffer forwarding | 0 B | Verified |
-| **19** | Playback | Trigonometric Crossfade Engine | 256-entry sin/cos equal-power LUT | $\cos^2(\theta) + \sin^2(\theta) \equiv 1.0$ | 0 B | Verified |
-| **20** | Playback | 250MB Audio LRU Cache | SimpleCache bounded disk allocator | Zero-latency local seek replay | 0 B | Verified |
-| **21** | Playback | Predictive Lookahead Pre-Buffer | $T-30\text{s}$ auto stream arming | Bounded async resolution | 0 B | Verified |
-| **22** | Playback | Smart Acoustic Adaptive EQ | Genre/BPM automatic EQ tuning | 10-band target profile mapping | 0 B | Verified |
-| **23** | Playback | Video/Audio Dynamic JIT Swapper | Lossless renderer hot-swap | Timestamp preservation | 0 B | Verified |
-| **24** | Playback | Precision Timed Synchronizer | Scheduled timestamp broadcaster | Atomic playback start trigger | 0 B | Verified |
-| **25** | Playback | Sleep Timer with Auto-Pause | 5-second exponential fade-out | End-of-track completion | 0 B | Verified |
-| **26** | Playback | Elastic Storage Allocator | Weighted cache priority eviction | Favorited track preservation | 0 B | Verified |
-| **27** | Playback | 10-Band Graphic EQ Manager | Android AudioEffect session bind | 31Hz–16kHz dB slider gains | 0 B | Verified |
-| **28** | Data/Mesh | Byzantine Acoustic Mesh | 2-peer consensus gating | $|\Delta\text{LUFS}|\le 0.3 \land \text{Sim}\ge 0.94$ | 0 B | Verified |
-| **29** | Data/Net | 3-Tier Resilient Stream Resolver | Cache $\to$ Innertube $\to$ yt-dlp | Triple-failover streaming racer | 0 B | Verified |
-| **30** | Data/Mesh | Crowdsourced MAD Lyric Sync | Median Absolute Deviation filter | $\text{Score} = \frac{\|x-\tilde{x}\|}{\text{MAD}} \le 2.5$ | 0 B | Verified |
-| **31** | Data/AI | Continuum Infinite Radio | Multi-channel candidate broker | 4-tier candidate aggregator | 0 B | Verified |
-| **32** | Data/AI | Anti-Drift Semantic Re-Ranker | Vector centroid anchor filter | $\text{CosineSim}(\mathbf{v}, \mathbf{v}_{\text{seed}}) \ge 0.72$ | 0 B | Verified |
-| **33** | Data/Net | Resilient Media Router | LRCLIB / NetEase / Python racer | Sub-200ms lyric resolution | 0 B | Verified |
-| **34** | Data/Net | Spotify Public URL Importer | Web embed scraper + Innertube match | Zero-auth playlist extraction | 0 B | Verified |
-| **35** | Data/Net | Exportify Playlist Parser | CSV/JSON playlist schema parser | Direct track bulk migration | 0 B | Verified |
-| **36** | Data/Net | Fuzzy Title Matcher | Token-sort Levenshtein metric | Suffix noise removal & deduplication | 0 B | Verified |
-| **37** | Data/DB | Project Janus Schema Migration | JSON backward-compatible parser | Lossless version upgrade | 0 B | Verified |
-| **38** | Data/DB | Nuclear Database Reset Manager | Cloud Snapshot + C++ Rebirth | Atomic 4-stage restore | 0 B | Verified |
-| **39** | Data/Net | In-App OTA CI/CD Updater | GitHub Releases API + DownloadMgr | Automatic APK update installer | 0 B | Verified |
-| **40** | Data/Cloud | Supabase Real-Time Sync | PostgreSQL WebSocket sync | Real-time presence & likes | 0 B | Verified |
-| **41** | Data/AI | On-Device Text Embedder | NLP semantic search embedder | Sub-5ms query vector generation | 0 B | Verified |
-| **42** | Data/AI | Zhipu GLM-4 Persona Analyst | LLM acoustic persona generator | Persona & wrapped descriptor | 0 B | Verified |
-| **43** | UI/Visual | Quantum Sonic Token Flight | Hardware VSYNC 3D gimbal tilt | 120 FPS flight & shockwave | 0 B/frame | Verified |
-| **44** | UI/Gesture | Universal Track Context Menu | Hoisted root `trackItemGestures` | 400ms long-press + LRA haptics | 0 B | Verified |
-| **45** | UI/Compose | YtMusic Quick Picks Carousel | 4x4 horizontal pagination | 16-candidate chunked grid | 0 B | Verified |
-| **46** | UI/Compose | YtMusic Listen Again Grid | Responsive multi-column grid | Width-adaptive history grid | 0 B | Verified |
-| **47** | UI/Compose | YtMusic Mood & Activity Rail | Sticky chips BPM rail | Workout/Chill/Focus/Energy filter | 0 B | Verified |
-| **48** | UI/Compose | Supermix Kinetic Radio Cards | Station cards + gradient shaders | Instant continuous radio | 0 B | Verified |
-| **49** | UI/Compose | YtMusic Sticky Top App Bar | Cast, Search, Avatar top bar | Sticky status bar header | 0 B | Verified |
-| **50** | UI/Compose | Syllable-by-Syllable Karaoke | Dual-layer `clipRect` sweep | Sub-millisecond lyric sweep | 0 B/frame | Verified |
-| **51** | UI/Compose | Related Discovery Bottom Sheet | Multi-shelf discovery sheet | Artist songs & similar tracks | 0 B | Verified |
-| **52** | UI/Gesture | Sub-Millisecond Progress Bar | Magnetic seekbar with detents | Chorus/verse tactile detents | 0 B | Verified |
-| **53** | UI/Hardware| Hardware LRA Tactile Haptics | Linear Resonant Actuator engine | Micro-haptic click feedback | 0 B | Verified |
-| **54** | UI/Visual | AMOLED Ambient Glow Background | Palette color extraction | Animated fluid gradient canvas | 0 B | Verified |
-| **55** | UI/Gesture | Floating Kinetic Mini-Player | Dock with squash-and-stretch | Swipe-to-dismiss gesture | 0 B | Verified |
-| **56** | UI/Social | Real-Time P2P Jam Room | Multi-user synchronized room | Shared queue & PTP playback | 0 B | Verified |
-| **57** | UI/Social | Community Hub Social Platform | Public playlist discovery | Upvoting & community feed | 0 B | Verified |
-| **58** | UI/Visual | Streamify Wrapped Experience | Acoustic DNA persona summary | Genre radar & chronotype badge | 0 B | Verified |
-| **59** | UI/Admin | Admin Command Center | Real-time cluster dashboard | Node stats & pgvector metrics | 0 B | Verified |
-| **60** | UI/Compose | Universal Search (Song/Video) | Multi-tab search omnibar | Local/Cloud/Video search | 0 B | Verified |
-| **61** | UI/Compose | Library Screen Drag-and-Drop | Reorderable list & folder filter | Instant storage media scan | 0 B | Verified |
-| **62** | UI/Compose | User Profile & Bio Editor | Avatar upload & chronotype badge | Direct settings navigation | 0 B | Verified |
-| **63** | UI/Visual | GPU Pull-to-Refresh Container | Spring overscroll physics | Neon orbital arc spinner | 0 B | Verified |
-| **64** | UI/Social | Track Share Card Canonicalizer | Clean metadata URL generator | Canonical YouTube Music links | 0 B | Verified |
+| **01** | Native Core | C++20 RK4 AirDrop Engine | `AirDropPhysicsEngine.cc`, `QuantumSonicTokenController.kt` | `stepAirDropPhysics` | Jetpack Compose UI, Canvas | 0 B/frame, VSYNC 120 FPS Main Thread |
+| **02** | Native DSP | EBU R128 Loudness Normalizer | `LufsNormalizer.cc`, `AudioPipeline.cc` | `processLufsNormalizerFloats` | ExoPlayer AudioSink, EdgeMesh | 0 B/frame, ARM NEON SIMD Little Cores |
+| **03** | Native DSP | KissFFT 12-Bin HPCP Camelot Key | `AudioPipeline.cc`, `kissfft/` | `extractAcousticDna` | ReRanker, SmartAcousticEngine | 0 B, 2048-pt STFT on Little Cores |
+| **04** | Native DSP | Ellis Prior Gaussian BPM Engine | `AudioPipeline.cc` | `extractAcousticDna` | MoodFilterRail, ContinuumRadio | 0 B, Log-Normal Gaussian Prior |
+| **05** | Native DSP | Sonic Maxx Soft-Knee Limiter | `SoftKneeLimiter.cc` | `processSoftKneeLimiter` | AudioSink Output Chain | 0 B/frame, 2nd-order polynomial curve |
+| **06** | Native AI | SIMD HNSW VectorStore | `VectorStore.cc`, `NativeBridge.kt` | `queryVectorStore` | ContinuumRadio, SemanticSearch | 0 B/query, 16-byte aligned NEON |
+| **07** | Native Core | TaskOrchestrator QoS Affinity | `TaskOrchestrator.cc` | `pinToLittleCores` | Background DSP Ingestion | 0 B, `pthread_setaffinity_np` Cores 0-3 |
+| **08** | Native AI | 1st & 2nd Order Markov Prob | `StreamifyDB.cc` | `get2ndOrderMarkovProbability`| UniversalCandidateBroker | 0 B, Lock-free SQLite index traversal |
+| **09** | Native AI | Chronos Circadian Profiler | `ChronosProfiler.cc` | `getSatiationPenalty` | ReRanker, HomeViewModel | 0 B, 24h Hourly Acoustic Vector Profile |
+| **10** | Native Core | IEEE 1588 PTP Acoustic Sync | `PtpEngine.cc`, `SyncAudioProcessor.kt` | `calculatePtpOffset` | JamViewModel, WebSocket Media Plane | 0 B, 4-timestamp RTT exchange (<15ms) |
+| **11** | Native Core | Lock-Free Telemetry Queue | `TelemetryEngine.cc` | `pushTelemetryEvent` | UI Gestures, Dwell Tracker | 0 B, Atomic SPSC Circular Ring Buffer |
+| **12** | Native Sec | Proof-of-Acoustic-Compute | `TelemetryEngine.cc` | `generateProofOfCompute` | EdgeMeshRepository, Supabase | 0 B, HMAC-SHA256 subband energy digest |
+| **13** | Native Core | Embedded SQLite3 WAL Storage | `StreamifyDB.cc` | `initNativeDatabase` | TrackRepository, PlaylistRepo | Native mmap (256MB), zero JVM GC pause |
+| **14** | Native Sec | NDK Obfuscated Key Vault | `jni_bridge.cc` | `getObfuscatedZhipuKey` | ZhipuAiEngine, NetworkEngine | 0 B, `.rodata` XOR rotation schedule |
+| **15** | Native Core | Atomic Database Nuke & Purge | `StreamifyDB.cc` | `executeNuclearPurge` | NuclearResetManager, SettingsScreen | Transactional schema rebuild, 0 orphaned locks |
+| **16** | Playback | Sliding 2-Track JIT Timeline | `PlayerViewModel.kt` | ExoPlayer Timeline Controller | Media3 Service, UI Controls | 0 B, 2-slot active lookahead window |
+| **17** | Playback | Dual-Hook Queue Advancer | `PlayerViewModel.kt` | `Player.Listener` | PlaybackService, MediaSession | 0 B, MEDIA_TRANSITION + STATE_ENDED |
+| **18** | Playback | In-Stream Live PCM Tap | `MeshPcmAudioProcessor.kt` | `AudioProcessor` | Native DSP Engine, EdgeMesh | 0 B/frame, ByteBuffer.allocateDirect |
+| **19** | Playback | Equal-Power Crossfader | `CrossfadeAudioProcessor.kt` | `AudioProcessor` | ExoPlayer AudioSink Pipeline | 0 B/frame, 256-entry cos/sin LUT |
+| **20** | Playback | 250MB Audio LRU Cache | `AudioCacheManager.kt` | Media3 `SimpleCache` | Network Engine, Local Storage | 0 B, bounded 250MB disk partition |
+| **21** | Playback | Predictive Lookahead Pre-Buffer | `PlayerViewModel.kt` | `PredictivePreBufferManager` | YouTubeStreamResolver, Media3 | Bounded async coroutine at T-30s |
+| **22** | Playback | Smart Acoustic Adaptive EQ | `SmartAcousticEngine.kt` | `EqualizerManager` | AudioPipeline, EqualizerScreen | 0 B, 10-band target profile mapping |
+| **23** | Playback | Video/Audio Dynamic Swapper | `PlayerViewModel.kt` | Surface Renderer Controller | FullPlayerSheet, SearchScreen | 0 B, preserves microsecond position |
+| **24** | Playback | Precision Timed Synchronizer | `ScheduledAudioScheduler.kt` | Scheduled Audio Dispatcher | JamSessionScreen, PtpEngine | Atomic epoch trigger at T_lead |
+| **25** | Playback | Sleep Timer with Auto-Pause | `PlayerViewModel.kt` | Coroutine Timer Dispatcher | PlayerControls, SettingsScreen | Exponential 5-second fade-out curve |
+| **26** | Playback | Elastic Storage Allocator | `StorageManager.kt` | `PriorityWeightedEvictor` | AudioCacheManager, DownloadService | Dynamic quota reallocation algorithm |
+| **27** | Playback | 10-Band Graphic EQ Manager | `EqualizerManager.kt` | Android `AudioEffect.Equalizer` | EqualizerScreen, AudioSink | Direct hardware audio session binding |
+| **28** | Data/Mesh | Byzantine Acoustic Mesh | `EdgeMeshRepository.kt` | Supabase RPC Consensus | Native DSP, pgvector Cloud DB | 2-peer consensus (|ΔLUFS| ≤ 0.3, Sim ≥ 0.94) |
+| **29** | Data/Net | 3-Tier Resilient Resolver | `YouTubeStreamResolver.kt` | Multi-Source Racer | Chaquopy Python, Innertube API | Triple failover (<800ms race budget) |
+| **30** | Data/Mesh | Crowdsourced MAD Lyric Sync | `EdgeMeshRepository.kt` | Median Absolute Deviation | LyricsScreen, Supabase DB | Robust MAD statistical filter (score ≤ 2.5) |
+| **31** | Data/AI | Continuum Infinite Radio | `UniversalCandidateBroker.kt` | `ContinuumRadioEngine` | Markov Engine, SIMD VectorStore | 4-tier candidate broker integration |
+| **32** | Data/AI | Anti-Drift Semantic Re-Ranker | `ReRanker.kt` | `AntiDriftScoringEngine` | VectorStore, CandidateBroker | Vector centroid anchor (CosSim ≥ 0.72) |
+| **33** | Data/Net | Resilient Media Router | `ResilientMediaRouter.kt` | Asynchronous Racer | LRCLIB, NetEase, Python Engine | Sub-200ms dual-engine lyric race |
+| **34** | Data/Net | Spotify Public URL Scraper | `PlaylistLinkScraper.kt` | Web Embed HTML Parser | BatchTrackResolver, LibraryScreen | Zero-auth web scrape + Innertube match |
+| **35** | Data/Net | Exportify Playlist Parser | `ExportifyParser.kt` | CSV / JSON Schema Parser | PlaylistRepository, LibraryScreen | Streaming line-by-line schema migration |
+| **36** | Data/Net | Fuzzy Title Matcher | `FuzzyTitleMatcher.kt` | Token-Sort Levenshtein | SearchViewModel, CandidateAggregator | Suffix noise removal & deduplication |
+| **37** | Data/DB | Project Janus Schema Migration | `TrackRepository.kt` | Versioned JSON Serializer | SQLite WAL Storage Engine | Lossless backward-compatible upgrade |
+| **38** | Data/DB | Nuclear Database Reset | `NuclearResetManager.kt` | 4-Stage Atomic Restorer | StreamifyDB.cc, SettingsScreen | Cloud Snapshot -> Truncate -> Restore |
+| **39** | Data/Net | In-App OTA CI/CD Updater | `StreamifyUpdateManager.kt` | GitHub Releases API Client | Android DownloadManager, Settings | Semantic versioning + auto APK installer |
+| **40** | Data/Cloud | Supabase Real-Time Sync | `SupabaseClient.kt` | PostgreSQL WebSockets Client | AdminDashboard, JamViewModel | Sub-15ms presence & live state stream |
+| **41** | Data/AI | On-Device Text Embedder | `SemanticSearchEngine.kt` | `TextEmbeddingEngine` | SearchScreen, VectorStore | Sub-5ms query embedding vectorizer |
+| **42** | Data/AI | Zhipu GLM-4 Persona Analyst | `ZhipuAiEngine.kt` | `PersonaEngine` | StatsWrappedScreen, HomeViewModel | Acoustic persona descriptor generator |
+| **43** | UI/Visual | Quantum Sonic Token Flight | `QuantumSonicTokenOverlay.kt` | RK4 Integration Renderer | AirDropPhysicsEngine.cc, Canvas | 120 FPS hardware VSYNC, 0 B/frame |
+| **44** | UI/Gesture | Universal Context Menu | `ContextMenuSheet.kt` | `trackItemGestures` Modifier | TrackListItem, FullPlayerSheet | 400ms long-press + LRA tactile haptic |
+| **45** | UI/Compose | YtMusic Quick Picks 4x4 | `YtQuickPicksCarousel.kt` | Horizontal LazyRow Pagination | HomeViewModel, QuantumController | 16-candidate chunked horizontal grid |
+| **46** | UI/Compose | YtMusic Listen Again Grid | `YtListenAgainGrid.kt` | Responsive LazyVerticalGrid | HomeViewModel, TrackRepository | Device-width adaptive history grid |
+| **47** | UI/Compose | YtMood Filter Rail | `YtMoodFilterRail.kt` | Sticky Chip Row Compositor | HomeViewModel, AcousticEngine | Workout/Focus/Chill/Energy BPM filter |
+| **48** | UI/Compose | Supermix Kinetic Radio Cards | `YtSupermixCard.kt` | Shaded Canvas Card Compositor | ContinuumRadio, PlayerViewModel | Instant infinite genre radio dispatch |
+| **49** | UI/Compose | YtMusic Sticky Top App Bar | `YtTopAppBar.kt` | Sticky TopBar Compositor | SearchOmnibar, UserProfileScreen | Cast, Search, Cloud avatar status |
+| **50** | UI/Compose | Syllable-by-Syllable Karaoke | `YtSyllableLine.kt`, `LyricsScreen.kt` | Dual-Layer `clipRect` Sweep | LyricPlaybackController, Canvas | Sub-millisecond sweep text highlight |
+| **51** | UI/Compose | Related Discovery Sheet | `RelatedDiscoverSheet.kt` | Multi-Shelf Bottom Sheet | FullPlayerSheet, CandidateBroker | Artist top singles & similar releases |
+| **52** | UI/Gesture | Sub-Millisecond Progress Bar | `PlayerSeekBar.kt`, `PlayerControls.kt` | Magnetic Detent Slider | StreamifyHapticEngine, PlayerVM | Chorus/hook tactile detent resistance |
+| **53** | UI/Hardware| Hardware LRA Tactile Haptics | `StreamifyHapticEngine.kt` | Android `VibrationEffect` API | All Gestures, Sliders, Docks | 6 cached zero-allocation LRA waveforms |
+| **54** | UI/Visual | AMOLED Ambient Glow Background| `PlayerBackground.kt`, `HomeScreen.kt` | AndroidX Palette Extractor | FullPlayerSheet, MiniPlayerBar | Fluid animated artwork gradient canvas |
+| **55** | UI/Gesture | Floating Kinetic Mini-Player | `MiniPlayerBar.kt` | Spring Kinetic Dock Compositor | QuantumController, FullPlayerSheet | Squash-and-stretch recoil physics |
+| **56** | UI/Social | Real-Time Jam Session Room | `JamSessionScreen.kt` | Supabase Realtime Channel | JamViewModel, PtpEngine | Multi-user synchronized listening room |
+| **57** | UI/Social | Community Hub Platform | `CommunityHubScreen.kt` | Community Feed Compositor | CommunityViewModel, SupabaseClient | Public playlist discovery & upvoting |
+| **58** | UI/Visual | Streamify Wrapped Experience | `StatsWrappedScreen.kt` | Radar Chart Canvas Compositor | PersonaEngine, ChronosProfiler | Persona breakdown & chronotype badge |
+| **59** | UI/Admin | Admin Command Center | `AdminDashboardScreen.kt` | Live Cluster Monitor | SupabaseClient, TelemetryEngine | Node stats & pgvector metrics console |
+| **60** | UI/Compose | Universal Search (Song/Video)| `SearchScreen.kt` | Multi-Tab Search Omnibar | SearchViewModel, YouTubeMusicSearch | Local/Cloud/Video search switcher |
+| **61** | UI/Compose | Library Drag-and-Drop Screen | `LibraryScreen.kt` | `ReorderableList` Compositor | PlaylistRepository, StorageManager | Multi-filter library + folder scanner |
+| **62** | UI/Compose | User Profile & Bio Editor | `UserProfileScreen.kt` | Profile & Avatar Compositor | AuthManager, SettingsScreen | Avatar upload & app settings navigator |
+| **63** | UI/Visual | GPU Pull-to-Refresh | `StreamifyPullToRefreshContainer.kt` | Spring Overscroll Compositor | All Scrollable LazyColumns | Neon orbital arc spinner animation |
+| **64** | UI/Social | Track Share Card Canonicalizer | `TrackShareCard.kt` | Android Intent Share Builder | ContextMenuSheet, Social Hub | Canonical YouTube Music rich links |
 
 ---
 
-## 🛠️ 7. Native NDK Toolchain & Build Guide
+## 🛠️ 9. Native NDK Toolchain, CTest Verification & Build Guide
 
 ### Prerequisites
 * **Android Studio**: Jellyfish (2023.3.1+) / Koala (2024.1.1+)
@@ -551,7 +1107,7 @@ cd streamify-apk
 ./gradlew assembleDebug
 
 # Run Native C++ Tests via CMake
-cd native && mkdir build && cd build
+cd native && mkdir -p build && cd build
 cmake -DSTREAMIFY_BUILD_TESTS=ON .. && make && ctest --output-on-failure
 ```
 
