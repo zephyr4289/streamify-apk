@@ -74,8 +74,14 @@ object YouTubeStreamResolver {
         }
         val trimmed = rawUrl.trim()
         return when {
-            trimmed.contains("mzstatic.com") -> trimmed.replace(Regex("\\d+x\\d+bb"), "600x600bb")
-            trimmed.contains("googleusercontent.com") && !trimmed.contains("=") -> "$trimmed=w544-h544-l90-rj"
+            trimmed.contains("mzstatic.com") -> trimmed.replace(Regex("\\d+x\\d+bb"), "1400x1400bb")
+            trimmed.contains("googleusercontent.com") || trimmed.contains("ggpht.com") -> {
+                if (trimmed.contains("=")) {
+                    trimmed.replace(Regex("=w\\d+-h\\d+.*"), "=w800-h800-l90-rj").replace(Regex("=s\\d+.*"), "=s800")
+                } else {
+                    "$trimmed=w800-h800-l90-rj"
+                }
+            }
             trimmed.contains("googlevideo.com") -> videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
             else -> trimmed
         }

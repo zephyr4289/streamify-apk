@@ -19,7 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import com.streamify.app.data.network.YouTubeStreamResolver
 import com.streamify.app.ui.theme.*
 
@@ -35,24 +35,15 @@ fun YtThumbnail(
     isLoading: Boolean = false
 ) {
     val shape = RoundedCornerShape(cornerRadius)
-    val descriptor = remember(url, videoId, title, artist) {
-        val vid = videoId ?: YouTubeStreamResolver.extractVideoId(url ?: "")
-        YouTubeStreamResolver.buildThumbnailPipeline(
-            rawUrl = url,
-            videoId = vid,
-            title = title,
-            artist = artist
-        )
-    }
 
-    val fallbackColors = remember(descriptor.fallbackColorSeed) {
-        val seed = descriptor.fallbackColorSeed
-        val hue1 = kotlin.math.abs(seed % 360).toFloat()
-        val hue2 = kotlin.math.abs((seed * 31) % 360).toFloat()
-        listOf(
-            Color.hsl(hue1, 0.65f, 0.35f),
-            Color.hsl(hue2, 0.70f, 0.15f)
-        )
+    val displayUrl = remember(url, videoId) {
+        if (!url.isNullOrBlank()) {
+            YouTubeStreamResolver.sanitizeCoverUrl(url, videoId)
+        } else if (!videoId.isNullOrBlank()) {
+            "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+        } else {
+            null
+        }
     }
 
     Surface(
@@ -63,55 +54,29 @@ fun YtThumbnail(
             .clip(shape)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (!descriptor.primary.isNullOrBlank()) {
-                SubcomposeAsyncImage(
-                    model = descriptor.primary,
-                    contentDescription = null,
+            if (!displayUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = displayUrl,
+                    contentDescription = title.ifBlank { null },
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
-                        .clip(shape),
-                    error = {
-                        if (!descriptor.secondary.isNullOrBlank() && descriptor.secondary != descriptor.primary) {
-                            SubcomposeAsyncImage(
-                                model = descriptor.secondary,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(shape),
-                                error = {
-                                    GenerativeThumbnailFallback(size, fallbackColors)
-                                },
-                                loading = {
-                                    GenerativeThumbnailFallback(size, fallbackColors)
-                                }
-                            )
-                        } else {
-                            GenerativeThumbnailFallback(size, fallbackColors)
-                        }
-                    },
-                    loading = {
-                        GenerativeThumbnailFallback(size, fallbackColors)
-                    }
-                )
-            } else if (!descriptor.secondary.isNullOrBlank()) {
-                SubcomposeAsyncImage(
-                    model = descriptor.secondary,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(shape),
-                    error = {
-                        GenerativeThumbnailFallback(size, fallbackColors)
-                    },
-                    loading = {
-                        GenerativeThumbnailFallback(size, fallbackColors)
-                    }
+                        .clip(shape)
                 )
             } else {
-                GenerativeThumbnailFallback(size, fallbackColors)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(BgCard),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.MusicNote,
+                        contentDescription = null,
+                        tint = TextTertiary,
+                        modifier = Modifier.size(size * 0.45f)
+                    )
+                }
             }
 
             if (isLoading) {
@@ -130,22 +95,5 @@ fun YtThumbnail(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun GenerativeThumbnailFallback(size: Dp, colors: List<Color>) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Brush.linearGradient(colors)),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = Icons.Filled.MusicNote,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = 0.85f),
-            modifier = Modifier.size(size * 0.45f)
-        )
     }
 }

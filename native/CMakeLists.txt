@@ -10,6 +10,7 @@ elseif (ANDROID_ABI STREQUAL "armeabi-v7a")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfpu=neon")
 endif()
 
+# Main Shared Library for Android JNI
 add_library(streamify_core SHARED
     jni/jni_bridge.cc
     engine/StreamifyDB.cc
@@ -47,4 +48,48 @@ if (ANDROID)
         android
         log
     )
+endif()
+
+# --- STANDALONE TEST TARGETS (Host C++20 with ASan / UBSan) ---
+option(STREAMIFY_BUILD_TESTS "Build native test suites" OFF)
+if (STREAMIFY_BUILD_TESTS)
+    add_executable(dsp_test_suite
+        tests/test_dsp.cc
+        dsp/SoftKneeLimiter.cc
+        dsp/LufsNormalizer.cc
+        dsp/kissfft/kiss_fft.c
+        dsp/kissfft/kiss_fftr.c
+    )
+    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft .)
+
+    add_executable(simd_physics_test_suite
+        tests/test_simd_physics.cc
+        engine/VectorStore.cc
+        engine/AirDropPhysicsEngine.cc
+    )
+    target_include_directories(simd_physics_test_suite PRIVATE engine .)
+
+    add_executable(storage_telemetry_test_suite
+        tests/test_storage_telemetry.cc
+        engine/StreamifyDB.cc
+        engine/TelemetryEngine.cc
+        engine/ChronosProfiler.cc
+        engine/EventTracker.cc
+        third_party/sqlite3/sqlite3.c
+    )
+    target_include_directories(storage_telemetry_test_suite PRIVATE engine third_party/sqlite3 .)
+endif()
+
+# --- LIBFUZZER TARGET (Nightly / Main PRs) ---
+option(STREAMIFY_BUILD_FUZZERS "Build LibFuzzer harnesses" OFF)
+if (STREAMIFY_BUILD_FUZZERS)
+    add_executable(dsp_fuzzer_harness
+        fuzz/dsp_fuzzer_harness.cc
+        dsp/SoftKneeLimiter.cc
+        dsp/LufsNormalizer.cc
+        dsp/kissfft/kiss_fft.c
+        dsp/kissfft/kiss_fftr.c
+    )
+    target_include_directories(dsp_fuzzer_harness PRIVATE dsp dsp/kissfft .)
+    target_link_options(dsp_fuzzer_harness PRIVATE -fsanitize=fuzzer)
 endif()

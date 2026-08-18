@@ -33,7 +33,8 @@ android {
     namespace = "com.streamify.app"
     compileSdk = 34
 
-    val buildNum = (System.getenv("GITHUB_RUN_NUMBER") ?: System.getenv("BUILD_NUMBER") ?: "1").toIntOrNull() ?: 1
+    val rawBuildNum = (System.getenv("GITHUB_RUN_NUMBER") ?: System.getenv("BUILD_NUMBER") ?: "1").toIntOrNull() ?: 1
+    val buildNum = 130 + rawBuildNum
 
     defaultConfig {
         applicationId = "com.streamify.app"

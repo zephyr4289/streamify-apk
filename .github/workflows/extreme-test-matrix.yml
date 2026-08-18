@@ -103,6 +103,11 @@ jobs:
           git commit -m "docs: add build log for run ${{ github.run_number }}" || true
           git push origin build-logs || true
 
+      - name: Compute Effective Build Number
+        run: |
+          EFFECTIVE_BUILD=$((130 + ${{ github.run_number }}))
+          echo "EFFECTIVE_BUILD=$EFFECTIVE_BUILD" >> $GITHUB_ENV
+
       - name: Locate and Move APK
         if: success()
         run: |
@@ -120,8 +125,8 @@ jobs:
         if: success() && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Streamify Build ${{ github.run_number }}
+          tag_name: build-${{ env.EFFECTIVE_BUILD }}
+          name: Streamify Build ${{ env.EFFECTIVE_BUILD }}
           prerelease: true
           files: streamify.apk
         env:
@@ -302,8 +307,8 @@ jobs:
                 -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -O2 -g" \
                 -DSTREAMIFY_BUILD_TESTS=ON \
                 -G Ninja ..
-          ninja
-          ./${{ matrix.target }} --gtest_color=no > ../../shard-${{ matrix.shard }}.log 2>&1
+          ninja ${{ matrix.target }}
+          ./${{ matrix.target }} > ../../shard-${{ matrix.shard }}.log 2>&1
         working-directory: .
 
       - name: Execute Sandboxed Python Fuzzing Shard

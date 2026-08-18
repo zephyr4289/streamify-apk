@@ -522,10 +522,11 @@ object YouTubeMusicSearchApi {
     private fun upgradeThumbnailResolution(url: String): String {
         if (url.isBlank()) return ""
         if (url.contains("googleusercontent.com") || url.contains("ggpht.com")) {
-            return url.replace(Regex("=w\\d+-h\\d+.*"), "=w544-h544-l90-rj")
-        }
-        if (url.contains("ytimg.com") && url.contains("hqdefault.jpg")) {
-            return url.replace("hqdefault.jpg", "maxresdefault.jpg")
+            return if (url.contains("=")) {
+                url.replace(Regex("=w\\d+-h\\d+.*"), "=w800-h800-l90-rj").replace(Regex("=s\\d+.*"), "=s800")
+            } else {
+                "$url=w800-h800-l90-rj"
+            }
         }
         return url
     }
