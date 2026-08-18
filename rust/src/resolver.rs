@@ -6,7 +6,8 @@ pub struct StreamResolver;
 impl StreamResolver {
     const INNERTUBE_PLAYER_URL: &'static str = "https://www.youtube.com/youtubei/v1/player";
     const INNERTUBE_SEARCH_URL: &'static str = "https://music.youtube.com/youtubei/v1/search";
-    const USER_AGENT_ANDROID: &'static str = "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14; en_US) gzip";
+    const USER_AGENT_VR: &'static str = "Mozilla/5.0 (Linux; Android 12; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/33.0.0.19.46.568453472 SamsungBrowser/4.0 Chrome/122.0.6261.139 Mobile VR Safari/537.36";
+    const USER_AGENT_IOS: &'static str = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)";
 
     /// Resolves direct playable CDN stream URLs for a given YouTube video ID.
     pub fn resolve_stream(video_id: &str) -> Result<Vec<ResolvedStreamFormat>, String> {
@@ -15,12 +16,16 @@ impl StreamResolver {
             return Err("Empty video ID".to_string());
         }
 
-        let body = serde_json::json!({
+        // 1. Try ANDROID_VR target (Direct unencrypted Opus/AAC streams)
+        let body_vr = serde_json::json!({
             "context": {
                 "client": {
-                    "clientName": "ANDROID_MUSIC",
-                    "clientVersion": "6.42.52",
-                    "androidSdkVersion": 34,
+                    "clientName": "ANDROID_VR",
+                    "clientVersion": "1.60.19",
+                    "deviceMake": "Oculus",
+                    "deviceModel": "Quest 3",
+                    "osName": "Android",
+                    "osVersion": "12",
                     "hl": "en",
                     "gl": "US"
                 }
@@ -28,28 +33,65 @@ impl StreamResolver {
             "videoId": clean_id,
             "playbackContext": {
                 "contentPlaybackContext": {
-                    "signatureTimestamp": 19800
+                    "signatureTimestamp": 19850
                 }
             }
         });
 
-        let resp = ureq::post(Self::INNERTUBE_PLAYER_URL)
-            .set("User-Agent", Self::USER_AGENT_ANDROID)
+        if let Ok(resp) = ureq::post(Self::INNERTUBE_PLAYER_URL)
+            .set("User-Agent", Self::USER_AGENT_VR)
+            .set("X-YouTube-Client-Name", "28")
+            .set("X-YouTube-Client-Version", "1.60.19")
             .set("Content-Type", "application/json")
-            .send_json(body)
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
-
-        let text = resp
-            .into_string()
-            .map_err(|e| format!("Failed to read response body: {}", e))?;
-
-        let streams = InnertubeParser::parse_player_streams(&text);
-        if streams.is_empty() {
-            // Fallback to WEB_REMIX client
-            return Self::resolve_stream_web_remix(clean_id);
+            .send_json(body_vr)
+        {
+            if let Ok(text) = resp.into_string() {
+                let streams = InnertubeParser::parse_player_streams(&text);
+                if !streams.is_empty() {
+                    return Ok(streams);
+                }
+            }
         }
 
-        Ok(streams)
+        // 2. Fallback to IOS client target
+        let body_ios = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "IOS",
+                    "clientVersion": "19.29.1",
+                    "deviceMake": "Apple",
+                    "deviceModel": "iPhone16,2",
+                    "osName": "iOS",
+                    "osVersion": "17.5.1.21F90",
+                    "hl": "en",
+                    "gl": "US"
+                }
+            },
+            "videoId": clean_id,
+            "playbackContext": {
+                "contentPlaybackContext": {
+                    "signatureTimestamp": 19850
+                }
+            }
+        });
+
+        if let Ok(resp) = ureq::post(Self::INNERTUBE_PLAYER_URL)
+            .set("User-Agent", Self::USER_AGENT_IOS)
+            .set("X-YouTube-Client-Name", "5")
+            .set("X-YouTube-Client-Version", "19.29.1")
+            .set("Content-Type", "application/json")
+            .send_json(body_ios)
+        {
+            if let Ok(text) = resp.into_string() {
+                let streams = InnertubeParser::parse_player_streams(&text);
+                if !streams.is_empty() {
+                    return Ok(streams);
+                }
+            }
+        }
+
+        // 3. Fallback to WEB_REMIX client
+        Self::resolve_stream_web_remix(clean_id)
     }
 
     fn resolve_stream_web_remix(video_id: &str) -> Result<Vec<ResolvedStreamFormat>, String> {
@@ -57,7 +99,7 @@ impl StreamResolver {
             "context": {
                 "client": {
                     "clientName": "WEB_REMIX",
-                    "clientVersion": "1.20230515.01.00",
+                    "clientVersion": "1.20240815.01.00",
                     "hl": "en",
                     "gl": "US"
                 }
@@ -66,7 +108,11 @@ impl StreamResolver {
         });
 
         let resp = ureq::post(Self::INNERTUBE_PLAYER_URL)
-            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+            .set("Origin", "https://music.youtube.com")
+            .set("Referer", "https://music.youtube.com/")
+            .set("X-YouTube-Client-Name", "67")
+            .set("X-YouTube-Client-Version", "1.20240815.01.00")
             .set("Content-Type", "application/json")
             .send_json(body)
             .map_err(|e| format!("Web remix fallback failed: {}", e))?;
@@ -76,6 +122,9 @@ impl StreamResolver {
             .map_err(|e| format!("Failed to read web remix response: {}", e))?;
 
         let streams = InnertubeParser::parse_player_streams(&text);
+        if streams.is_empty() {
+            return Err("No playable stream formats found".to_string());
+        }
         Ok(streams)
     }
 

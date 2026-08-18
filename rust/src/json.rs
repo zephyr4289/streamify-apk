@@ -207,7 +207,7 @@ impl InnertubeParser {
 
         if let Some(formats) = adaptive {
             for f in formats {
-                if let Some(url) = f.get("url").and_then(|u| u.as_str()) {
+                if let Some(url) = Self::extract_format_url(f) {
                     let mime_type = f.get("mimeType").and_then(|m| m.as_str()).unwrap_or("");
                     let bitrate = f.get("bitrate").and_then(|b| b.as_u64()).unwrap_or(0) as u32;
                     let is_audio = mime_type.starts_with("audio/");
@@ -218,12 +218,38 @@ impl InnertubeParser {
                         .unwrap_or(0);
 
                     streams.push(ResolvedStreamFormat {
-                        url: url.to_string(),
+                        url,
                         mime_type: mime_type.to_string(),
                         bitrate,
                         duration_sec: approx_duration_ms / 1000,
                         is_audio_only: is_audio,
                     });
+                }
+            }
+        }
+
+        // Standard progressive formats fallback
+        if streams.is_empty() {
+            if let Some(formats) = root.pointer("/streamingData/formats").and_then(|v| v.as_array()) {
+                for f in formats {
+                    if let Some(url) = Self::extract_format_url(f) {
+                        let mime_type = f.get("mimeType").and_then(|m| m.as_str()).unwrap_or("");
+                        let bitrate = f.get("bitrate").and_then(|b| b.as_u64()).unwrap_or(0) as u32;
+                        let is_audio = mime_type.starts_with("audio/");
+                        let approx_duration_ms = f
+                            .get("approxDurationMs")
+                            .and_then(|d| d.as_str())
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(0);
+
+                        streams.push(ResolvedStreamFormat {
+                            url,
+                            mime_type: mime_type.to_string(),
+                            bitrate,
+                            duration_sec: approx_duration_ms / 1000,
+                            is_audio_only: is_audio,
+                        });
+                    }
                 }
             }
         }
@@ -236,6 +262,44 @@ impl InnertubeParser {
         });
 
         streams
+    }
+
+    fn extract_format_url(f: &Value) -> Option<String> {
+        if let Some(url) = f.get("url").and_then(|u| u.as_str()) {
+            if !url.is_empty() {
+                return Some(url.to_string());
+            }
+        }
+
+        // Extract from signatureCipher or cipher
+        let cipher = f.get("signatureCipher").or_else(|| f.get("cipher")).and_then(|c| c.as_str())?;
+        let mut raw_url = None;
+        let mut sig = None;
+        let mut sp = "sig";
+
+        for part in cipher.split('&') {
+            let mut split = part.splitn(2, '=');
+            let k = split.next()?;
+            let v = split.next()?;
+            let decoded = urlencoding::decode(v).ok()?.into_owned();
+            match k {
+                "url" => raw_url = Some(decoded),
+                "s" => sig = Some(decoded),
+                "sp" => sp = "sig", // Default sig param
+                _ => {}
+            }
+        }
+
+        if let Some(u) = raw_url {
+            if let Some(s) = sig {
+                let sep = if u.contains('?') { '&' } else { '?' };
+                Some(format!("{}{}{}={}", u, sep, sp, s))
+            } else {
+                Some(u)
+            }
+        } else {
+            None
+        }
     }
 
     pub fn parse_duration_str(s: &str) -> u32 {

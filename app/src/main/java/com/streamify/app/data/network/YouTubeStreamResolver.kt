@@ -37,14 +37,65 @@ object YouTubeStreamResolver {
     private data class ClientConfig(
         val clientName: String,
         val clientVersion: String,
-        val clientNumber: String
+        val clientNumber: String,
+        val userAgent: String,
+        val deviceMake: String? = null,
+        val deviceModel: String? = null,
+        val osName: String? = null,
+        val osVersion: String? = null,
+        val origin: String? = null,
+        val referer: String? = null
     )
 
     private val CLIENT_TARGETS = listOf(
-        ClientConfig("ANDROID_MUSIC", "6.42.52", "21"),
-        ClientConfig("ANDROID", "19.09.37", "3"),
-        ClientConfig("IOS", "19.09.3", "5"),
-        ClientConfig("WEB_REMIX", "1.20230515.01.00", "67")
+        // 1. Meta Quest / Android VR: Verified unencrypted direct Opus & AAC CDN streams
+        ClientConfig(
+            clientName = "ANDROID_VR",
+            clientVersion = "1.60.19",
+            clientNumber = "28",
+            userAgent = "Mozilla/5.0 (Linux; Android 12; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/33.0.0.19.46.568453472 SamsungBrowser/4.0 Chrome/122.0.6261.139 Mobile VR Safari/537.36",
+            deviceMake = "Oculus",
+            deviceModel = "Quest 3",
+            osName = "Android",
+            osVersion = "12"
+        ),
+        // 2. Native iOS YouTube App: High-bitrate clean AAC & Opus
+        ClientConfig(
+            clientName = "IOS",
+            clientVersion = "19.29.1",
+            clientNumber = "5",
+            userAgent = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)",
+            deviceMake = "Apple",
+            deviceModel = "iPhone16,2",
+            osName = "iOS",
+            osVersion = "17.5.1.21F90"
+        ),
+        // 3. Embedded SmartTV HTML5 Player: Unthrottled direct audio streams
+        ClientConfig(
+            clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientVersion = "2.0",
+            clientNumber = "85",
+            userAgent = "Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.196 Safari/537.36 WebAppManager",
+            osName = "WebOS"
+        ),
+        // 4. YouTube Music Web Remix: High-fidelity Opus 160kbps (itag 251)
+        ClientConfig(
+            clientName = "WEB_REMIX",
+            clientVersion = "1.20240815.01.00",
+            clientNumber = "67",
+            userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            origin = "https://music.youtube.com",
+            referer = "https://music.youtube.com/"
+        ),
+        // 5. Android TestSuite Client: Fallback lightweight resolver
+        ClientConfig(
+            clientName = "ANDROID_TESTSUITE",
+            clientVersion = "1.9",
+            clientNumber = "3",
+            userAgent = "google-api-python-client/1.12.8 (gzip)",
+            osName = "Android",
+            osVersion = "14"
+        )
     )
 
     // ========================================================================
@@ -135,6 +186,7 @@ object YouTubeStreamResolver {
         return expireEpochSec * 1000L
     }
 
+    // 4-Hour Rule: Refreshes CDN streams before expiration with a 2-hour safety window
     fun isCdnExpired(url: String, safetyMarginMs: Long = 7_200_000L): Boolean {
         if (url.isBlank() || !url.startsWith("http")) return true
         val expireEpochMs = parseExpiry(url)
@@ -187,7 +239,7 @@ object YouTubeStreamResolver {
             return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
         }
 
-        // 2. In-Memory LRU Cache with 600s safety margin (bypassed if forceFresh requested)
+        // 2. In-Memory LRU Cache with 4-Hour / 600s safety margin (bypassed if forceFresh requested)
         if (!forceFresh) {
             val cached = StreamEdgeCache.getStream(videoId)
             if (cached != null && !isCdnExpired(cached.streamUrl, safetyMarginMs = 600_000L)) {
@@ -197,7 +249,7 @@ object YouTubeStreamResolver {
             StreamEdgeCache.evictStream(videoId)
         }
 
-        // 3. Tier 1: Native HTTP/2 Innertube Client Race (<80ms)
+        // 3. Tier 1: Native HTTP/2 Innertube Multi-Client Race (<80ms)
         val nativeResolved = raceClientEndpoints(videoId)
         if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putStream(videoId, nativeResolved)
@@ -218,7 +270,7 @@ object YouTubeStreamResolver {
                 }
             }
         } catch (e: Exception) {
-            // Failed tier 3
+            // Failed tier 2
         }
 
         return@withContext Result.failure(UnresolvableTrackException("Stream exhaustion for ${track.title} - ${track.artist}"))
@@ -257,7 +309,6 @@ object YouTubeStreamResolver {
             }
         }
 
-        // Complete with null once all children finish if no winner was found
         jobs.forEach { job ->
             job.invokeOnCompletion {
                 if (jobs.all { it.isCompleted } && !winnerDeferred.isCompleted) {
@@ -267,51 +318,65 @@ object YouTubeStreamResolver {
         }
 
         val winner = winnerDeferred.await()
-        // Cancel remaining jobs to conserve bandwidth and CPU
         jobs.forEach { if (!it.isCompleted) it.cancel() }
         return@coroutineScope winner
     }
 
     private fun executePlayerRequest(videoId: String, config: ClientConfig): ResolvedStream? {
         try {
+            val clientJson = JSONObject().apply {
+                put("clientName", config.clientName)
+                put("clientVersion", config.clientVersion)
+                put("hl", "en")
+                put("gl", "US")
+                config.deviceMake?.let { put("deviceMake", it) }
+                config.deviceModel?.let { put("deviceModel", it) }
+                config.osName?.let { put("osName", it) }
+                config.osVersion?.let { put("osVersion", it) }
+                if (config.clientName.contains("ANDROID", ignoreCase = true)) {
+                    put("androidSdkVersion", 34)
+                }
+            }
+
             val requestJson = JSONObject().apply {
                 put("context", JSONObject().apply {
-                    put("client", JSONObject().apply {
-                        put("clientName", config.clientName)
-                        put("clientVersion", config.clientVersion)
-                        put("androidSdkVersion", 34)
-                        put("hl", "en")
-                        put("gl", "US")
-                    })
+                    put("client", clientJson)
                 })
                 put("videoId", videoId)
                 put("contentCheckOk", true)
                 put("racyCheckOk", true)
+                put("playbackContext", JSONObject().apply {
+                    put("contentPlaybackContext", JSONObject().apply {
+                        put("signatureTimestamp", 19850)
+                    })
+                })
             }
 
-            val request = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url(INNERTUBE_PLAYER_URL)
                 .header("Content-Type", "application/json; charset=UTF-8")
-                .header("User-Agent", USER_AGENT_ANDROID)
+                .header("User-Agent", config.userAgent)
                 .header("Accept", "*/*")
-                .header("Accept-Encoding", "gzip, deflate")
                 .header("X-YouTube-Client-Name", config.clientNumber)
                 .header("X-YouTube-Client-Version", config.clientVersion)
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .build()
+
+            if (!config.origin.isNullOrBlank()) {
+                reqBuilder.header("Origin", config.origin)
+            }
+            if (!config.referer.isNullOrBlank()) {
+                reqBuilder.header("Referer", config.referer)
+            }
+
+            val request = reqBuilder.build()
 
             NetworkEngine.client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
 
                 val body = response.body ?: return null
-                val encoding = response.header("Content-Encoding", "")
+                val responseBody = body.string()
 
-                val responseBody = if ("gzip".equals(encoding, ignoreCase = true)) {
-                    GZIPInputStream(body.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                } else {
-                    body.string()
-                }
-
+                if (responseBody.isBlank()) return null
                 val root = JSONObject(responseBody)
                 return parsePlayerResponse(root)
             }
@@ -339,8 +404,9 @@ object YouTubeStreamResolver {
                 for (i in 0 until adaptiveFormats.length()) {
                     val f = adaptiveFormats.getJSONObject(i)
                     val mime = f.optString("mimeType", "")
-                    val streamUrl = f.optString("url", "")
+                    val streamUrl = extractUrlFromFormat(f)
                     if (mime.startsWith("audio/") && streamUrl.isNotBlank()) {
+                        f.put("extractedUrl", streamUrl)
                         candidateFormats.add(f)
                     }
                 }
@@ -352,8 +418,9 @@ object YouTubeStreamResolver {
                 if (formats != null) {
                     for (i in 0 until formats.length()) {
                         val f = formats.getJSONObject(i)
-                        val streamUrl = f.optString("url", "")
+                        val streamUrl = extractUrlFromFormat(f)
                         if (streamUrl.isNotBlank()) {
+                            f.put("extractedUrl", streamUrl)
                             candidateFormats.add(f)
                         }
                     }
@@ -382,7 +449,7 @@ object YouTubeStreamResolver {
                 }
             } ?: candidateFormats.first()
 
-            val streamUrl = bestFormat.optString("url", "")
+            val streamUrl = bestFormat.optString("extractedUrl", bestFormat.optString("url", ""))
             val mimeType = bestFormat.optString("mimeType", "audio/webm")
             val bitrate = bestFormat.optInt("bitrate", bestFormat.optInt("averageBitrate", 160000))
 
@@ -400,10 +467,70 @@ object YouTubeStreamResolver {
         }
     }
 
+    private fun extractUrlFromFormat(format: JSONObject): String {
+        val directUrl = format.optString("url", "")
+        if (directUrl.isNotBlank()) {
+            return directUrl
+        }
+
+        // Check for signatureCipher or cipher
+        val cipher = format.optString("signatureCipher", format.optString("cipher", ""))
+        if (cipher.isNotBlank()) {
+            try {
+                val params = cipher.split("&").associate { param ->
+                    val pair = param.split("=", limit = 2)
+                    if (pair.size == 2) {
+                        pair[0] to java.net.URLDecoder.decode(pair[1], "UTF-8")
+                    } else {
+                        "" to ""
+                    }
+                }
+                val rawUrl = params["url"]
+                if (!rawUrl.isNullOrBlank()) {
+                    val sig = params["s"]
+                    val sp = params["sp"] ?: "sig"
+                    return if (!sig.isNullOrBlank()) {
+                        if (rawUrl.contains("?")) "$rawUrl&$sp=$sig" else "$rawUrl?$sp=$sig"
+                    } else {
+                        rawUrl
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore cipher parsing error
+            }
+        }
+        return ""
+    }
+
+
     private val VIDEO_CLIENT_TARGETS = listOf(
-        ClientConfig("ANDROID", "19.09.37", "3"),
-        ClientConfig("IOS", "19.09.3", "5"),
-        ClientConfig("WEB", "2.20230515.01.00", "1")
+        ClientConfig(
+            clientName = "ANDROID_VR",
+            clientVersion = "1.60.19",
+            clientNumber = "28",
+            userAgent = "Mozilla/5.0 (Linux; Android 12; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/33.0.0.19.46.568453472 SamsungBrowser/4.0 Chrome/122.0.6261.139 Mobile VR Safari/537.36",
+            deviceMake = "Oculus",
+            deviceModel = "Quest 3",
+            osName = "Android",
+            osVersion = "12"
+        ),
+        ClientConfig(
+            clientName = "IOS",
+            clientVersion = "19.29.1",
+            clientNumber = "5",
+            userAgent = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)",
+            deviceMake = "Apple",
+            deviceModel = "iPhone16,2",
+            osName = "iOS",
+            osVersion = "17.5.1.21F90"
+        ),
+        ClientConfig(
+            clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+            clientVersion = "2.0",
+            clientNumber = "85",
+            userAgent = "Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.196 Safari/537.36 WebAppManager",
+            osName = "WebOS"
+        )
     )
 
     suspend fun resolveVideoStreamUrl(track: com.streamify.app.data.models.Track): ResolvedStream? = withContext(Dispatchers.IO) {
@@ -415,7 +542,7 @@ object YouTubeStreamResolver {
             return@withContext cached
         }
 
-        // 2. Parallel Standard Client Video Stream Racing (ANDROID / IOS / WEB)
+        // 2. Parallel Standard Client Video Stream Racing (ANDROID_VR / IOS / TV)
         val resolved = raceClientVideoEndpoints(videoId)
         if (resolved != null && resolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putVideoStream(videoId, resolved)
@@ -473,43 +600,58 @@ object YouTubeStreamResolver {
 
     private fun executeVideoPlayerRequest(videoId: String, config: ClientConfig): ResolvedStream? {
         try {
+            val clientJson = JSONObject().apply {
+                put("clientName", config.clientName)
+                put("clientVersion", config.clientVersion)
+                put("hl", "en")
+                put("gl", "US")
+                config.deviceMake?.let { put("deviceMake", it) }
+                config.deviceModel?.let { put("deviceModel", it) }
+                config.osName?.let { put("osName", it) }
+                config.osVersion?.let { put("osVersion", it) }
+                if (config.clientName.contains("ANDROID", ignoreCase = true)) {
+                    put("androidSdkVersion", 34)
+                }
+            }
+
             val requestJson = JSONObject().apply {
                 put("context", JSONObject().apply {
-                    put("client", JSONObject().apply {
-                        put("clientName", config.clientName)
-                        put("clientVersion", config.clientVersion)
-                        put("androidSdkVersion", 34)
-                        put("hl", "en")
-                        put("gl", "US")
-                    })
+                    put("client", clientJson)
                 })
                 put("videoId", videoId)
                 put("contentCheckOk", true)
                 put("racyCheckOk", true)
+                put("playbackContext", JSONObject().apply {
+                    put("contentPlaybackContext", JSONObject().apply {
+                        put("signatureTimestamp", 19850)
+                    })
+                })
             }
 
-            val request = Request.Builder()
+            val reqBuilder = Request.Builder()
                 .url(INNERTUBE_PLAYER_URL)
                 .header("Content-Type", "application/json; charset=UTF-8")
-                .header("User-Agent", USER_AGENT_ANDROID)
+                .header("User-Agent", config.userAgent)
                 .header("Accept", "*/*")
-                .header("Accept-Encoding", "gzip, deflate")
                 .header("X-YouTube-Client-Name", config.clientNumber)
                 .header("X-YouTube-Client-Version", config.clientVersion)
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .build()
+
+            if (!config.origin.isNullOrBlank()) {
+                reqBuilder.header("Origin", config.origin)
+            }
+            if (!config.referer.isNullOrBlank()) {
+                reqBuilder.header("Referer", config.referer)
+            }
+
+            val request = reqBuilder.build()
 
             NetworkEngine.client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
                 val body = response.body ?: return null
-                val encoding = response.header("Content-Encoding", "")
+                val responseBody = body.string()
 
-                val responseBody = if ("gzip".equals(encoding, ignoreCase = true)) {
-                    GZIPInputStream(body.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                } else {
-                    body.string()
-                }
-
+                if (responseBody.isBlank()) return null
                 val root = JSONObject(responseBody)
                 return parseVideoPlayerResponse(root)
             }
@@ -534,8 +676,9 @@ object YouTubeStreamResolver {
             if (formats != null) {
                 for (i in 0 until formats.length()) {
                     val f = formats.getJSONObject(i)
-                    val url = f.optString("url", "")
+                    val url = extractUrlFromFormat(f)
                     if (url.isNotBlank()) {
+                        f.put("extractedUrl", url)
                         progressiveList.add(f)
                     }
                 }
@@ -547,7 +690,7 @@ object YouTubeStreamResolver {
                 ?: progressiveList.firstOrNull()
 
             if (bestFormat != null) {
-                val streamUrl = bestFormat.optString("url", "")
+                val streamUrl = bestFormat.optString("extractedUrl", bestFormat.optString("url", ""))
                 val mimeType = bestFormat.optString("mimeType", "video/mp4")
                 val bitrate = bestFormat.optInt("bitrate", 1200000)
                 if (streamUrl.isNotBlank()) {
@@ -566,7 +709,7 @@ object YouTubeStreamResolver {
                 for (i in 0 until adaptiveFormats.length()) {
                     val f = adaptiveFormats.getJSONObject(i)
                     val mime = f.optString("mimeType", "")
-                    val streamUrl = f.optString("url", "")
+                    val streamUrl = extractUrlFromFormat(f)
                     if (mime.startsWith("video/") && streamUrl.isNotBlank()) {
                         return ResolvedStream(
                             streamUrl = streamUrl,
