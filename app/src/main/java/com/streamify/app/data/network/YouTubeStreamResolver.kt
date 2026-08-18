@@ -48,7 +48,16 @@ object YouTubeStreamResolver {
     )
 
     private val CLIENT_TARGETS = listOf(
-        // 1. Meta Quest / Android VR: Verified unencrypted direct Opus & AAC CDN streams
+        // 1. Android App: 100% verified direct playback on official/topic music videos
+        ClientConfig(
+            clientName = "ANDROID",
+            clientVersion = "21.26.364",
+            clientNumber = "3",
+            userAgent = "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
+            osName = "Android",
+            osVersion = "11"
+        ),
+        // 2. Meta Quest / Android VR: Verified unencrypted direct Opus & AAC CDN streams
         ClientConfig(
             clientName = "ANDROID_VR",
             clientVersion = "1.60.19",
@@ -59,42 +68,16 @@ object YouTubeStreamResolver {
             osName = "Android",
             osVersion = "12"
         ),
-        // 2. Native iOS YouTube App: High-bitrate clean AAC & Opus
+        // 3. Native iOS YouTube App
         ClientConfig(
             clientName = "IOS",
-            clientVersion = "19.29.1",
+            clientVersion = "21.26.4",
             clientNumber = "5",
-            userAgent = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)",
+            userAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
             deviceMake = "Apple",
             deviceModel = "iPhone16,2",
-            osName = "iOS",
-            osVersion = "17.5.1.21F90"
-        ),
-        // 3. Embedded SmartTV HTML5 Player: Unthrottled direct audio streams
-        ClientConfig(
-            clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientVersion = "2.0",
-            clientNumber = "85",
-            userAgent = "Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.196 Safari/537.36 WebAppManager",
-            osName = "WebOS"
-        ),
-        // 4. YouTube Music Web Remix: High-fidelity Opus 160kbps (itag 251)
-        ClientConfig(
-            clientName = "WEB_REMIX",
-            clientVersion = "1.20240815.01.00",
-            clientNumber = "67",
-            userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-            origin = "https://music.youtube.com",
-            referer = "https://music.youtube.com/"
-        ),
-        // 5. Android TestSuite Client: Fallback lightweight resolver
-        ClientConfig(
-            clientName = "ANDROID_TESTSUITE",
-            clientVersion = "1.9",
-            clientNumber = "3",
-            userAgent = "google-api-python-client/1.12.8 (gzip)",
-            osName = "Android",
-            osVersion = "14"
+            osName = "iPhone",
+            osVersion = "18.3.2.22D82"
         )
     )
 
@@ -348,6 +331,7 @@ object YouTubeStreamResolver {
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
                         put("signatureTimestamp", 19850)
+                        put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
             }
@@ -624,6 +608,7 @@ object YouTubeStreamResolver {
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
                         put("signatureTimestamp", 19850)
+                        put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
             }
