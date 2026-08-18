@@ -61,6 +61,7 @@ if (STREAMIFY_BUILD_TESTS)
         dsp/kissfft/kiss_fftr.c
     )
     target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft .)
+    target_link_libraries(dsp_test_suite PRIVATE m pthread)
 
     add_executable(simd_physics_test_suite
         tests/test_simd_physics.cc
@@ -68,6 +69,7 @@ if (STREAMIFY_BUILD_TESTS)
         engine/AirDropPhysicsEngine.cc
     )
     target_include_directories(simd_physics_test_suite PRIVATE engine .)
+    target_link_libraries(simd_physics_test_suite PRIVATE m pthread)
 
     add_executable(storage_telemetry_test_suite
         tests/test_storage_telemetry.cc
@@ -78,6 +80,7 @@ if (STREAMIFY_BUILD_TESTS)
         third_party/sqlite3/sqlite3.c
     )
     target_include_directories(storage_telemetry_test_suite PRIVATE engine third_party/sqlite3 .)
+    target_link_libraries(storage_telemetry_test_suite PRIVATE pthread dl)
 endif()
 
 # --- LIBFUZZER TARGET (Nightly / Main PRs) ---

@@ -1,8 +1,15 @@
 #include <iostream>
 #include <vector>
 #include <cassert>
+#include <cstdarg>
 #include "../engine/StreamifyDB.h"
 #include "../engine/TelemetryEngine.h"
+
+#ifndef __ANDROID__
+extern "C" int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
+    return 0;
+}
+#endif
 
 int main() {
     std::cout << "[TEST] Starting Storage & Telemetry Test Suite..." << std::endl;
@@ -15,14 +22,15 @@ int main() {
     assert(queue.push(ev1));
     assert(queue.push(ev2));
 
-    TelemetryEvent outEv{};
-    assert(queue.pop(outEv));
-    assert(outEv.type == TelemetryEventType::SCRUB_SEEK);
-    assert(outEv.trackId == 101);
+    auto outEv1 = queue.pop();
+    assert(outEv1.has_value());
+    assert(outEv1->type == TelemetryEventType::SCRUB_SEEK);
+    assert(outEv1->trackId == 101);
 
-    assert(queue.pop(outEv));
-    assert(outEv.type == TelemetryEventType::VOLUME_CHANGE);
-    assert(outEv.value == 0.85f);
+    auto outEv2 = queue.pop();
+    assert(outEv2.has_value());
+    assert(outEv2->type == TelemetryEventType::VOLUME_CHANGE);
+    assert(outEv2->value == 0.85f);
     std::cout << "  - Lock-Free MPMC Ring Buffer: PASSED" << std::endl;
 
     // 2. Test StreamifyDB SQLite WAL In-Memory
