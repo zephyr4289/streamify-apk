@@ -273,22 +273,11 @@ class JamViewModel(
                     _jamQueue.value = updatedQueue
                 }
             }
-        }
 
-        // Channel A: Relational Control Plane Presence Heartbeat (Every 5s)
-        syncJob = viewModelScope.launch {
-            while (isActive) {
-                delay(5000)
-                val stateRes = SupabaseClient.joinJamSession(code)
-                stateRes.onSuccess { session ->
-                    val isHost = session.hostUserId == SupabaseClient.currentUser.value?.id
-                    _uiState.value = JamUiState.Active(session, isHost)
-
-                    // Align PTP clock with discovered LAN peers
-                    meshEngine?.discoveredPeers?.value?.values?.firstOrNull()?.let { peer ->
-                        precisionProtocol?.startClockAlignment(peer.ipAddress, isHost)
-                    }
-                }
+            // Align PTP clock with discovered LAN peers once without polling
+            meshEngine?.discoveredPeers?.value?.values?.firstOrNull()?.let { peer ->
+                val isHost = (uiState.value as? JamUiState.Active)?.isHost ?: false
+                precisionProtocol?.startClockAlignment(peer.ipAddress, isHost)
             }
         }
     }
@@ -342,6 +331,11 @@ class JamViewModel(
         SupabaseClient.leaveJamSession()
         _uiState.value = JamUiState.Idle
         _jamQueue.value = emptyList()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        leaveJam()
     }
 }
 

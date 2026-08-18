@@ -9,11 +9,19 @@ import com.streamify.app.data.network.iTunesSearchApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed class HomeUiState {
     object Loading : HomeUiState()
@@ -46,9 +54,13 @@ class HomeViewModel(
 
     init {
         viewModelScope.launch {
-            repository.allTracks.collect { allTracks ->
-                computeHomeRecommendations(allTracks)
-            }
+            repository.allTracks
+                .debounce(500)
+                .map { tracks -> tracks.map { it.id }.sorted().hashCode() }
+                .distinctUntilChanged()
+                .collectLatest { _ ->
+                    computeHomeRecommendations(repository.allTracks.value)
+                }
         }
         loadData()
     }
@@ -160,77 +172,95 @@ class HomeViewModel(
 
                 // 4. Multi-Seed Ensemble & Hybrid Radar (Last.fm Graph x On-Device SIMD)
                 val distinctSeeds = ReRanker.getDistinctGenreSeeds(sessionRecs.ifEmpty { cloudDiscoveryPool }, limit = 3)
+                val semaphore = Semaphore(6)
                 val hybridRecs = if (distinctSeeds.isNotEmpty()) {
                     try {
                         val timeOfDay = com.streamify.app.util.TimeGreeting.getCurrentTimeOfDay()
                         val audioDevice = com.streamify.app.service.AudioDeviceManager.getCurrentDeviceType()
-                        val candidates = mutableListOf<Track>()
-                        for (seed in distinctSeeds) {
-                            val recs = hybridFetcher.getHybridRecommendations(seed, timeOfDay, audioDevice, limit = 5)
-                            candidates.addAll(recs)
+                        coroutineScope {
+                            val deferredList = distinctSeeds.map { seed ->
+                                async(Dispatchers.IO) {
+                                    semaphore.withPermit {
+                                        withTimeoutOrNull(2500L) {
+                                            try {
+                                                hybridFetcher.getHybridRecommendations(seed, timeOfDay, audioDevice, limit = 5)
+                                            } catch (e: Exception) {
+                                                emptyList()
+                                            }
+                                        } ?: emptyList()
+                                    }
+                                }
+                            }
+                            val candidates = deferredList.awaitAll().flatten()
+                            ReRanker.reRank(
+                                candidates = candidates.distinctBy { it.id },
+                                maxPerArtist = 2,
+                                maxPerTempoCluster = 3,
+                                explorationRatio = 0.30f,
+                                explorationPool = cloudDiscoveryPool.ifEmpty { allTracks },
+                                limit = 12
+                            )
                         }
-                        ReRanker.reRank(
-                            candidates = candidates.distinctBy { it.id },
-                            maxPerArtist = 2,
-                            maxPerTempoCluster = 3,
-                            explorationRatio = 0.30f,
-                            explorationPool = cloudDiscoveryPool.ifEmpty { allTracks },
-                            limit = 12
-                        )
                     } catch (e: Exception) {
                         emptyList()
                     }
                 } else emptyList()
 
-                // 5. Online 2-Hop Graph Discovery Across Diverse Artists
+                // 5. Online 2-Hop Graph Discovery Across Diverse Artists (Bounded Parallel Racing)
                 val topArtists = ReRanker.extractTopArtists(sessionRecs.ifEmpty { madeForYou.ifEmpty { cloudDiscoveryPool } }, limit = 4)
-                val onlineDiscoveries = mutableListOf<Track>()
-
-                for (artist in topArtists) {
-                    val queryResults = try {
-                        val yt = com.streamify.app.data.network.YouTubeMusicSearchApi.search("$artist top songs", maxResults = 4)
-                        if (yt.isNotEmpty()) {
-                            yt.mapNotNull { item ->
-                                val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(item.url, item.thumbnail) ?: return@mapNotNull null
-                                val trackObj = Track(
-                                    id = -(vid.hashCode()),
-                                    title = item.title,
-                                    artist = item.uploader,
-                                    album = "Online Discovery",
-                                    durationSec = item.duration,
-                                    filepath = "https://www.youtube.com/watch?v=$vid",
-                                    coverArtPath = item.thumbnail.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
-                                    bpm = 120f,
-                                    key = "",
-                                    lyricsPath = null,
-                                    source = "online_stream",
-                                    isLiked = repository.isTrackLiked(Track(title = item.title, artist = item.uploader))
-                                )
-                                repository.hydrateTrack(trackObj)
-                            }
-                        } else {
-                            iTunesSearchApi.search(artist, maxResults = 4).map { item ->
-                                val trackObj = Track(
-                                    id = -(item.title.hashCode()),
-                                    title = item.title,
-                                    artist = item.uploader,
-                                    album = "Online Discovery",
-                                    durationSec = item.duration,
-                                    filepath = "ytsearch:${item.title} ${item.uploader}",
-                                    coverArtPath = item.thumbnail,
-                                    bpm = 0f,
-                                    key = "",
-                                    lyricsPath = null,
-                                    source = "online_stream",
-                                    isLiked = repository.isTrackLiked(Track(title = item.title, artist = item.uploader))
-                                )
-                                repository.hydrateTrack(trackObj)
+                val onlineDiscoveries = coroutineScope {
+                    val deferredArtists = topArtists.map { artist ->
+                        async(Dispatchers.IO) {
+                            semaphore.withPermit {
+                                withTimeoutOrNull(2500L) {
+                                    try {
+                                        val yt = com.streamify.app.data.network.YouTubeMusicSearchApi.search("$artist top songs", maxResults = 4)
+                                        if (yt.isNotEmpty()) {
+                                            yt.mapNotNull { item ->
+                                                val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(item.url, item.thumbnail) ?: return@mapNotNull null
+                                                val trackObj = Track(
+                                                    id = -(vid.hashCode()),
+                                                    title = item.title,
+                                                    artist = item.uploader,
+                                                    album = "Online Discovery",
+                                                    durationSec = item.duration,
+                                                    filepath = "https://www.youtube.com/watch?v=$vid",
+                                                    coverArtPath = item.thumbnail.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
+                                                    bpm = 120f,
+                                                    key = "",
+                                                    lyricsPath = null,
+                                                    source = "online_stream",
+                                                    isLiked = repository.isTrackLiked(Track(title = item.title, artist = item.uploader))
+                                                )
+                                                repository.hydrateTrack(trackObj)
+                                            }
+                                        } else {
+                                            iTunesSearchApi.search(artist, maxResults = 4).map { item ->
+                                                val trackObj = Track(
+                                                    id = -(item.title.hashCode()),
+                                                    title = item.title,
+                                                    artist = item.uploader,
+                                                    album = "Online Discovery",
+                                                    durationSec = item.duration,
+                                                    filepath = "ytsearch:${item.title} ${item.uploader}",
+                                                    coverArtPath = item.thumbnail,
+                                                    bpm = 0f,
+                                                    key = "",
+                                                    lyricsPath = null,
+                                                    source = "online_stream",
+                                                    isLiked = repository.isTrackLiked(Track(title = item.title, artist = item.uploader))
+                                                )
+                                                repository.hydrateTrack(trackObj)
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        emptyList()
+                                    }
+                                } ?: emptyList()
                             }
                         }
-                    } catch (e: Exception) {
-                        emptyList()
                     }
-                    onlineDiscoveries.addAll(queryResults)
+                    deferredArtists.awaitAll().flatten()
                 }
 
                 val finalDisplayPool = if (allTracks.isNotEmpty()) allTracks else cloudDiscoveryPool
