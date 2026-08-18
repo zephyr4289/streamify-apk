@@ -128,8 +128,9 @@ object BatchTrackResolver {
                             }
                         }
 
-                        if (resolvedId != null && resolvedId > 0) {
-                            resolvedTracks[index] = resolvedId
+                        val id = resolvedId
+                        if (id != null && id > 0) {
+                            resolvedTracks[index] = id
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()

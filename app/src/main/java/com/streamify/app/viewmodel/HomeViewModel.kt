@@ -26,7 +26,9 @@ sealed class HomeUiState {
         val onlineDiscoveries: List<Track>,
         val recent: List<Track>,
         val topPlayed: List<Track>,
-        val allTracks: List<Track>
+        val allTracks: List<Track>,
+        val trending: List<Track> = emptyList(),
+        val heavyRotation: List<Track> = emptyList()
     ) : HomeUiState()
     data class Error(val message: String) : HomeUiState()
 }

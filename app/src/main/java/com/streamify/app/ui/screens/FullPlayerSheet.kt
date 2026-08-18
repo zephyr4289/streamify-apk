@@ -57,7 +57,10 @@ import com.streamify.app.service.LyricPlaybackController
 import com.streamify.app.ui.components.*
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.CommunityViewModel
+import com.streamify.app.viewmodel.UiEvent
+import com.streamify.app.viewmodel.UiEventBus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -932,8 +935,8 @@ private fun LandscapeLyricsPane(
                         lyricsLines = reParsed.lines
                     }
                     lyricController.resetOffset()
-                    com.streamify.app.util.UiEventBus.emitEvent(
-                        com.streamify.app.util.UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
+                    UiEventBus.emitEvent(
+                        UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
                     )
                 }
             }

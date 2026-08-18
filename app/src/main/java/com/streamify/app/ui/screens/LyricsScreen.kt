@@ -153,8 +153,8 @@ fun LyricsScreen(
                                     currentLyrics = reParsed.lines
                                 }
                                 lyricController.resetOffset()
-                                com.streamify.app.util.UiEventBus.emitEvent(
-                                    com.streamify.app.util.UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
+                                com.streamify.app.viewmodel.UiEventBus.emitEvent(
+                                    com.streamify.app.viewmodel.UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
                                 )
                             }
                         }

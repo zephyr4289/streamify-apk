@@ -197,6 +197,7 @@ fun JamSessionScreen(
 
             is JamUiState.Active -> {
                 val session = state.session
+                val jamQueue by jamViewModel.jamQueue.collectAsState()
 
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     // Active Room Banner Card
@@ -367,7 +368,6 @@ fun JamSessionScreen(
                     Spacer(modifier = Modifier.height(20.dp))
 
                     // Shared Collaborative Jam Queue
-                    val jamQueue by jamViewModel.jamQueue.collectAsState()
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,

@@ -307,7 +307,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     // Trigger Native Circadian Habit Weight Decay
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         try {
-                            repository.decayHabitWeights(currentHour)
+                            com.streamify.app.data.NativeBridge.pushTelemetryEvent(
+                                com.streamify.app.data.NativeBridge.EVENT_PLAYBACK_START,
+                                currentHour.toLong(),
+                                1.0f
+                            )
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
@@ -321,27 +325,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 if (playingTrack != null && playingTrack.lyricsPath.isNullOrBlank()) {
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         try {
-                            val lyricsText = com.streamify.app.data.network.LyricsResolver.resolveLyrics(
-                                track = playingTrack,
-                                onLineSynced = { timeMs, line ->
-                                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                                        _currentSyllableFlow.value = SyllableState(
-                                            activeWord = line,
-                                            confidence = 0.95f,
-                                            timeOffsetMs = timeMs
-                                        )
-                                    }
-                                },
-                                fallback = {
-                                    val pyRes = com.streamify.app.data.network.PythonEngine.executeFallback(
-                                        "download_engine.lyrics",
-                                        "fetch_lyrics",
-                                        playingTrack.title,
-                                        playingTrack.artist,
-                                        playingTrack.durationSec
-                                    ) { pyObj -> pyObj.toString() }
-                                    pyRes.getOrNull()
-                                }
+                            val lyricsText = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(
+                                title = playingTrack.title,
+                                artist = playingTrack.artist,
+                                durationSec = playingTrack.durationSec
                             ) ?: ""
 
                             if (lyricsText.isNotBlank() && (lyricsText.contains("[") || lyricsText.length > 20)) {
