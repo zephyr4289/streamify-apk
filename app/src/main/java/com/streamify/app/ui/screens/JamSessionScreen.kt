@@ -43,6 +43,7 @@ fun JamSessionScreen(
     val jamState by jamViewModel.uiState.collectAsState()
     val playerState by playerViewModel.playerState.collectAsState()
     var inputRoomCode by remember { mutableStateOf("") }
+    var showAddSongSheet by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
 
     Column(
@@ -382,11 +383,26 @@ fun JamSessionScreen(
                             ),
                             color = TextSecondary
                         )
-                        Text(
-                            text = "Collaborative",
-                            style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
-                            color = Primary
-                        )
+                        Button(
+                            onClick = { showAddSongSheet = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = ActiveControl),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = "Add Songs",
+                                tint = TextOnActiveChip,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Add Songs",
+                                style = LocalAppTypography.current.chipText.copy(fontSize = 12.sp),
+                                color = TextOnActiveChip
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -570,6 +586,178 @@ fun JamSessionScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = BgSurfaceElevated)
                         ) {
                             Text("Try Again", color = TextMain)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showAddSongSheet) {
+            JamAddSongModalBottomSheet(
+                onDismiss = { showAddSongSheet = false },
+                onAddTrack = { track -> jamViewModel.addToJamQueue(track) }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun JamAddSongModalBottomSheet(
+    onDismiss: () -> Unit,
+    onAddTrack: (com.streamify.app.data.models.Track) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val allLocalTracks by com.streamify.app.data.TrackRepository.allTracks.collectAsState()
+    var onlineResults by remember { mutableStateOf<List<com.streamify.app.data.models.Track>>(emptyList()) }
+    var isSearching by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    LaunchedEffect(searchQuery) {
+        val q = searchQuery.trim()
+        if (q.length >= 2) {
+            isSearching = true
+            try {
+                val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.streamify.app.data.network.YouTubeMusicSearchApi.search(q, maxResults = 12)
+                }
+                onlineResults = res.map { r ->
+                    com.streamify.app.data.models.Track(
+                        id = -(r.title + r.uploader).hashCode(),
+                        title = r.title,
+                        artist = r.uploader,
+                        album = "Jam Queue",
+                        durationSec = r.duration,
+                        filepath = r.url,
+                        coverArtPath = r.thumbnail,
+                        bpm = 120f,
+                        key = "C",
+                        lyricsPath = null,
+                        source = "online_stream"
+                    )
+                }
+            } catch (e: Exception) {
+                onlineResults = emptyList()
+            } finally {
+                isSearching = false
+            }
+        } else {
+            onlineResults = emptyList()
+            isSearching = false
+        }
+    }
+
+    val displayTracks = remember(searchQuery, onlineResults, allLocalTracks) {
+        if (searchQuery.isNotBlank()) {
+            if (onlineResults.isNotEmpty()) onlineResults else allLocalTracks.filter {
+                it.title.contains(searchQuery, ignoreCase = true) || it.artist.contains(searchQuery, ignoreCase = true)
+            }
+        } else {
+            allLocalTracks.take(20)
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = BgSurfaceElevated,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = TextTertiary) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+                .padding(horizontal = 16.dp)
+        ) {
+            Text(
+                text = "Add Songs to Jam",
+                style = LocalAppTypography.current.headlineLarge.copy(fontSize = 18.sp),
+                color = TextMain
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Search Box
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search songs or artists...", color = TextTertiary, fontSize = 14.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear", tint = TextSecondary)
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Primary,
+                    unfocusedBorderColor = Divider,
+                    focusedTextColor = TextMain,
+                    unfocusedTextColor = TextMain,
+                    focusedContainerColor = BgCard,
+                    unfocusedContainerColor = BgCard
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (isSearching) {
+                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Primary, strokeWidth = 2.5.dp, modifier = Modifier.size(24.dp))
+                }
+            } else {
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    items(displayTracks) { track ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(BgCard)
+                                .clickable {
+                                    onAddTrack(track)
+                                    Toast.makeText(context, "Added ${track.title} to Jam", Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            YtThumbnail(
+                                url = track.coverArtPath,
+                                size = 42.dp,
+                                cornerRadius = 6.dp,
+                                title = track.title,
+                                artist = track.artist
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = track.title,
+                                    style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
+                                    color = TextMain,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = track.artist,
+                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                    color = TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    onAddTrack(track)
+                                    Toast.makeText(context, "Added ${track.title} to Jam", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Icon(Icons.Filled.AddCircle, contentDescription = "Add", tint = ActiveControl)
+                            }
                         }
                     }
                 }

@@ -195,6 +195,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _playerState.value = _playerState.value.copy(isPlaying = isPlaying)
                 if (isPlaying) startPollingPosition() else stopPollingPosition()
+                if (!isApplyingJamSync && com.streamify.app.data.remote.SupabaseClient.activeJam.value != null) {
+                    broadcastJamAction(if (isPlaying) "PLAY" else "PAUSE", isPlaying = isPlaying)
+                }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1039,7 +1042,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
     fun togglePlayPause() {
         val ctrl = controller ?: return
-        if (ctrl.isPlaying) ctrl.pause() else ctrl.play()
+        if (ctrl.isPlaying) {
+            ctrl.pause()
+            broadcastJamAction("PAUSE", isPlaying = false)
+        } else {
+            ctrl.play()
+            broadcastJamAction("PLAY", isPlaying = true)
+        }
     }
 
     fun play() {

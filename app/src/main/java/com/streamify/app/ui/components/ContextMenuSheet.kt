@@ -215,17 +215,39 @@ fun ContextMenuSheet(
                 }
             )
 
-            // 3. Start a Jam Session / Broadcast
-            ContextActionItem(
-                icon = Icons.Filled.Radio,
-                text = "Start a Jam Session",
-                onClick = {
-                    onStartJamClick?.invoke() ?: run {
-                        android.widget.Toast.makeText(context, "Broadcasting ${track.title} to Jam Session", android.widget.Toast.LENGTH_SHORT).show()
+            // 3. Jam Session Action
+            val activeJam by com.streamify.app.data.remote.SupabaseClient.activeJam.collectAsState()
+            if (activeJam != null) {
+                ContextActionItem(
+                    icon = Icons.Filled.QueueMusic,
+                    text = "Add to Jam Queue",
+                    iconTint = ActiveControl,
+                    onClick = {
+                        val session = activeJam
+                        if (session != null) {
+                            val currentList = com.streamify.app.data.remote.SupabaseClient.jamQueueUpdates.replayCache.firstOrNull()?.toMutableList() ?: mutableListOf()
+                            val isDup = currentList.any { com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist) }
+                            if (!isDup) {
+                                currentList.add(track)
+                                com.streamify.app.data.remote.SupabaseClient.broadcastJamQueue(session.sessionCode, currentList)
+                            }
+                            android.widget.Toast.makeText(context, "Added ${track.title} to Jam Queue", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        onDismissRequest()
                     }
-                    onDismissRequest()
-                }
-            )
+                )
+            } else {
+                ContextActionItem(
+                    icon = Icons.Filled.Radio,
+                    text = "Start a Jam Session",
+                    onClick = {
+                        onStartJamClick?.invoke() ?: run {
+                            android.widget.Toast.makeText(context, "Broadcasting ${track.title} to Jam Session", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        onDismissRequest()
+                    }
+                )
+            }
 
             // 4. Like / Favoriting
             ContextActionItem(
