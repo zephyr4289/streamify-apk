@@ -182,9 +182,13 @@ def get_stream_url(url):
         'ignoreerrors': True,
         'nocheckcertificate': True,
         'noplaylist': True,
+        'cachedir': False,
+        'socket_timeout': 5,
+        'retries': 1,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'web'],
+                'player_client': ['android'],
+                'skip': ['translated_subs', 'dash', 'hls', 'comments', 'description']
             }
         }
     }

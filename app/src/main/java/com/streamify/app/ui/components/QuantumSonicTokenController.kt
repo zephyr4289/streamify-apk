@@ -184,21 +184,18 @@ class QuantumSonicTokenController {
             val dist = sqrt(dx * dx + dy * dy)
             if (dist < 1f) return Pair(0f, 0f)
 
-            var k = 24f
-            var c = 9.5f
-
-            if (!isReadyToDock && dist < 50f) {
-                k = 6f
-                c = 14f
-            }
+            // Balanced critically-damped spring physics for continuous, organic fluid flight
+            val k = 13.5f
+            val c = 8.2f
 
             var fx = k * dx - c * pvx
             var fy = k * dy - c * pvy
 
             if (initialDistance > 1f) {
-                val liftMag = 180f * sin((dist / initialDistance).coerceIn(0f, 1f) * PI.toFloat())
-                fx += (-dy / dist) * liftMag
-                fy += ( dx / dist) * liftMag
+                val progress = (1f - (dist / initialDistance)).coerceIn(0f, 1f)
+                val liftMag = 45f * sin(progress * PI.toFloat())
+                fx += (-dy / dist) * liftMag * 0.35f
+                fy += ( dx / dist) * liftMag * 0.35f
             }
             return Pair(fx, fy)
         }
@@ -237,14 +234,16 @@ class QuantumSonicTokenController {
         vy += (k1_vy + 2f * k2_vy + 2f * k3_vy + k4_vy) / 6f
 
         val remDist = sqrt((destination.x - x).pow(2) + (destination.y - y).pow(2))
-        if (remDist < 24f && isReadyToDock) {
-            physicsBuffer[12] = 1f
+        if (remDist < 20f) {
             physicsBuffer[0] = destination.x
             physicsBuffer[1] = destination.y
             physicsBuffer[3] = 0f
             physicsBuffer[4] = 0f
-            physicsBuffer[11] = 0f
-            return
+            if (isReadyToDock) {
+                physicsBuffer[12] = 1f
+                physicsBuffer[11] = 0f
+                return
+            }
         }
 
         val speed = sqrt(vx * vx + vy * vy)
