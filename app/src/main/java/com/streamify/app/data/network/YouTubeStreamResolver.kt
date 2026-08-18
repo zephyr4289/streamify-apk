@@ -148,7 +148,7 @@ object YouTubeStreamResolver {
     // ========================================================================
     // INVARIANT 2: UNIFIED JIT 3-TIER STREAM RESOLUTION CASCADE
     // ========================================================================
-    suspend fun resolveStreamJit(track: com.streamify.app.data.models.Track): Result<ResolvedStream> = withContext(Dispatchers.IO) {
+    suspend fun resolveStreamJit(track: com.streamify.app.data.models.Track, forceFresh: Boolean = false): Result<ResolvedStream> = withContext(Dispatchers.IO) {
         // Tier 0: Offline Local File Exists
         if (track.filepath.startsWith("/") || track.filepath.startsWith("file://")) {
             val localFile = java.io.File(track.filepath.removePrefix("file://"))
@@ -186,10 +186,14 @@ object YouTubeStreamResolver {
             return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
         }
 
-        // 2. In-Memory LRU Cache with 600s safety margin
-        val cached = StreamEdgeCache.getStream(videoId)
-        if (cached != null && !isCdnExpired(cached.streamUrl, safetyMarginMs = 600_000L)) {
-            return@withContext Result.success(cached)
+        // 2. In-Memory LRU Cache with 600s safety margin (bypassed if forceFresh requested)
+        if (!forceFresh) {
+            val cached = StreamEdgeCache.getStream(videoId)
+            if (cached != null && !isCdnExpired(cached.streamUrl, safetyMarginMs = 600_000L)) {
+                return@withContext Result.success(cached)
+            }
+        } else {
+            StreamEdgeCache.evictStream(videoId)
         }
 
         // 3. Tier 1: Native HTTP/2 Innertube Client Race (<80ms)
@@ -250,7 +254,7 @@ object YouTubeStreamResolver {
         return@withContext Result.failure(UnresolvableTrackException("Stream exhaustion for ${track.title} - ${track.artist}"))
     }
 
-    suspend fun resolveStreamUrl(urlOrId: String, fallbackThumbnail: String? = null): ResolvedStream? = withContext(Dispatchers.IO) {
+    suspend fun resolveStreamUrl(urlOrId: String, fallbackThumbnail: String? = null, forceFresh: Boolean = false): ResolvedStream? = withContext(Dispatchers.IO) {
         val dummyTrack = com.streamify.app.data.models.Track(
             id = 0,
             title = "",
@@ -260,11 +264,11 @@ object YouTubeStreamResolver {
             filepath = urlOrId,
             coverArtPath = fallbackThumbnail
         )
-        resolveStreamJit(dummyTrack).getOrNull()
+        resolveStreamJit(dummyTrack, forceFresh = forceFresh).getOrNull()
     }
 
-    suspend fun resolveTrackStream(track: com.streamify.app.data.models.Track): ResolvedStream? = withContext(Dispatchers.IO) {
-        resolveStreamJit(track).getOrNull()
+    suspend fun resolveTrackStream(track: com.streamify.app.data.models.Track, forceFresh: Boolean = false): ResolvedStream? = withContext(Dispatchers.IO) {
+        resolveStreamJit(track, forceFresh = forceFresh).getOrNull()
     }
 
     private suspend fun raceClientEndpoints(videoId: String): ResolvedStream? = coroutineScope {

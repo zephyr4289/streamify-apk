@@ -138,6 +138,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             controller = controllerFuture?.get()
             setupController(context)
             restorePlayerState(context)
+            com.streamify.app.data.SmartOfflineVaultEngine.initialize(context)
         }, MoreExecutors.directExecutor())
     }
 
@@ -909,19 +910,25 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             isBuffering = true
         )
 
-        // 1. FAST-PATH GATE: If track.filepath is already a direct playable CDN stream, bypass duplicate network calls (0ms cost!)
-        val isAlreadyDirectCdn = (track.filepath.contains("googlevideo.com") || track.filepath.contains(".googlevideo.")) &&
-                !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(track.filepath)
-        val resolvedTrack = if (isAlreadyDirectCdn) {
-            track
+        // 0. SMART OFFLINE VAULT GATE (0ms instant local playback if pre-cached)
+        val vaulted = com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
+        val trackToPlay = vaulted ?: track
+
+        // 1. FAST-PATH GATE: If trackToPlay.filepath is already a direct playable local file or unexpired CDN stream
+        val isAlreadyDirectCdn = (trackToPlay.filepath.contains("googlevideo.com") || trackToPlay.filepath.contains(".googlevideo.")) &&
+                !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(trackToPlay.filepath)
+        val isLocalFile = trackToPlay.filepath.startsWith("/") || trackToPlay.filepath.startsWith("file://") || java.io.File(trackToPlay.filepath).exists()
+
+        val resolvedTrack = if (isLocalFile || isAlreadyDirectCdn) {
+            trackToPlay
         } else {
             withContext(Dispatchers.IO) {
-                val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(track)
+                val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(trackToPlay)
                 val resolved = res.getOrNull()
                 if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                    track.copy(filepath = resolved.streamUrl)
+                    trackToPlay.copy(filepath = resolved.streamUrl)
                 } else {
-                    track
+                    trackToPlay
                 }
             }
         }

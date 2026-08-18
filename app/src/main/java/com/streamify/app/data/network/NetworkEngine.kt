@@ -60,6 +60,11 @@ object StreamEdgeCache {
         return entry.stream
     }
 
+    fun evictStream(videoId: String) {
+        audioCache.remove(videoId)
+        videoCache.remove(videoId)
+    }
+
     fun putVideoStream(videoId: String, stream: ResolvedStream) {
         videoCache.put(videoId, CachedStream(stream))
     }

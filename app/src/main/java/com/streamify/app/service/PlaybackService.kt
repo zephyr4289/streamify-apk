@@ -9,6 +9,9 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.streamify.app.data.network.YouTubeStreamResolver
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class PlaybackService : MediaSessionService() {
     companion object {
@@ -82,6 +85,40 @@ class PlaybackService : MediaSessionService() {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 super.onPlayerError(error)
                 error.printStackTrace()
+
+                // Engine 3: JIT CDN Token Auto-Renewer (403/410 Forbidden Shield)
+                val isExpiredOrBadHttp = error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                        error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                        error.message?.contains("403") == true || error.message?.contains("410") == true
+
+                if (isExpiredOrBadHttp) {
+                    val currentItem = exoPlayer.currentMediaItem
+                    val currentPos = exoPlayer.currentPosition
+                    val mediaUri = currentItem?.localConfiguration?.uri?.toString() ?: ""
+                    val mediaId = currentItem?.mediaId ?: mediaUri
+
+                    if (mediaId.isNotBlank()) {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                val fresh = YouTubeStreamResolver.resolveStreamUrl(mediaId, forceFresh = true)
+                                if (fresh != null && fresh.streamUrl.isNotBlank()) {
+                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        val updatedItem = currentItem!!.buildUpon()
+                                            .setUri(android.net.Uri.parse(fresh.streamUrl))
+                                            .build()
+                                        val curIdx = exoPlayer.currentMediaItemIndex
+                                        exoPlayer.replaceMediaItem(curIdx, updatedItem)
+                                        exoPlayer.seekTo(curIdx, currentPos)
+                                        exoPlayer.prepare()
+                                        exoPlayer.play()
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                }
             }
         })
 

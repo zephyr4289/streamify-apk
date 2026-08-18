@@ -68,58 +68,79 @@ class PredictivePreBufferManager(
 
         val remainingMs = duration - position
 
-        // Trigger pre-buffering at T-minus 35 seconds
-        if (remainingMs in 1..35000) {
+        // Trigger pre-buffering at T-minus 45 seconds or if track is short
+        if (remainingMs in 1..45000 || duration < 30000) {
             val nextIndex = player.nextMediaItemIndex
             if (nextIndex == -1 || nextIndex >= player.mediaItemCount) return
 
+            // Lookahead pre-buffer next track (Slot N+1)
             val nextMediaItem = player.getMediaItemAt(nextIndex)
             val nextMediaId = nextMediaItem.mediaId.ifBlank { nextMediaItem.localConfiguration?.uri?.toString() ?: "" }
 
-            if (nextMediaId.isBlank() || nextMediaId == lastPreBufferedMediaId) return
+            if (nextMediaId.isNotBlank() && nextMediaId != lastPreBufferedMediaId) {
+                lastPreBufferedMediaId = nextMediaId
+                preBufferNextTrack(nextMediaId)
+            }
 
-            lastPreBufferedMediaId = nextMediaId
-            preBufferNextTrack(nextMediaId)
+            // Also warm Slot N+2 if available
+            val overNextIndex = nextIndex + 1
+            if (overNextIndex < player.mediaItemCount) {
+                val overNextItem = player.getMediaItemAt(overNextIndex)
+                val overNextId = overNextItem.mediaId.ifBlank { overNextItem.localConfiguration?.uri?.toString() ?: "" }
+                if (overNextId.isNotBlank()) {
+                    preBufferNextTrack(overNextId, isSecondary = true)
+                }
+            }
         }
     }
 
-    private fun preBufferNextTrack(mediaIdOrUrl: String) {
-        preBufferJob?.cancel()
-        preBufferJob = scope.launch {
-            try {
-                // 1. Resolve stream URL via Engine 4
-                val resolved = YouTubeStreamResolver.resolveStreamUrl(mediaIdOrUrl) ?: return@launch
-                val streamUrl = resolved.streamUrl
-                if (streamUrl.isBlank()) return@launch
-
-                // 2. Pre-cache first 2MB (approx 35s of high-quality audio) into Media3 SimpleCache
-                val httpFactory = DefaultHttpDataSource.Factory()
-                    .setConnectTimeoutMs(4000)
-                    .setReadTimeoutMs(6000)
-                    .setAllowCrossProtocolRedirects(true)
-
-                val cacheFactory = CacheDataSource.Factory()
-                    .setCache(simpleCache)
-                    .setUpstreamDataSourceFactory(httpFactory)
-                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-
-                val dataSpec = DataSpec.Builder()
-                    .setUri(Uri.parse(streamUrl))
-                    .setPosition(0)
-                    .setLength(2 * 1024 * 1024L) // 2MB pre-buffer chunk
-                    .build()
-
-                val cacheWriter = CacheWriter(
-                    cacheFactory.createDataSource(),
-                    dataSpec,
-                    ByteArray(32 * 1024),
-                    null
-                )
-
-                cacheWriter.cache()
-            } catch (e: Exception) {
-                // Silently ignore pre-buffer failures (ExoPlayer will stream natively on fallback)
+    private fun preBufferNextTrack(mediaIdOrUrl: String, isSecondary: Boolean = false) {
+        if (isSecondary) {
+            scope.launch {
+                doPreBuffer(mediaIdOrUrl, 1024 * 1024L) // 1MB for secondary
             }
+        } else {
+            preBufferJob?.cancel()
+            preBufferJob = scope.launch {
+                doPreBuffer(mediaIdOrUrl, 2 * 1024 * 1024L) // 2MB for primary
+            }
+        }
+    }
+
+    private suspend fun doPreBuffer(mediaIdOrUrl: String, cacheBytes: Long) {
+        try {
+            // 1. Resolve stream URL
+            val resolved = YouTubeStreamResolver.resolveStreamUrl(mediaIdOrUrl) ?: return
+            val streamUrl = resolved.streamUrl
+            if (streamUrl.isBlank() || streamUrl.startsWith("/") || streamUrl.startsWith("file://")) return
+
+            // 2. Pre-cache into Media3 SimpleCache
+            val httpFactory = DefaultHttpDataSource.Factory()
+                .setConnectTimeoutMs(4000)
+                .setReadTimeoutMs(6000)
+                .setAllowCrossProtocolRedirects(true)
+
+            val cacheFactory = CacheDataSource.Factory()
+                .setCache(simpleCache)
+                .setUpstreamDataSourceFactory(httpFactory)
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+            val dataSpec = DataSpec.Builder()
+                .setUri(Uri.parse(streamUrl))
+                .setPosition(0)
+                .setLength(cacheBytes)
+                .build()
+
+            val cacheWriter = CacheWriter(
+                cacheFactory.createDataSource(),
+                dataSpec,
+                ByteArray(32 * 1024),
+                null
+            )
+
+            cacheWriter.cache()
+        } catch (e: Exception) {
+            // Silently ignore pre-buffer failures (ExoPlayer will stream natively on fallback)
         }
     }
 
