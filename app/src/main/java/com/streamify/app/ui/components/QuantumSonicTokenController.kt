@@ -2,6 +2,7 @@ package com.streamify.app.ui.components
 
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -19,30 +20,28 @@ class QuantumSonicTokenController {
         private set
 
     // Origin & Destination coordinates
-    var origin by mutableStateOf(Offset.Zero)
+    var origin = Offset.Zero
         private set
-    var destination by mutableStateOf(Offset.Zero)
+    var destination = Offset.Zero
         private set
-    var initialDistance by mutableStateOf(1f)
-        private set
-
-    // Real-time Kinetic Physics Properties
-    var currentPosition by mutableStateOf(Offset.Zero)
-        private set
-    var stretchParallel by mutableStateOf(1f)
-        private set
-    var stretchPerp by mutableStateOf(1f)
-        private set
-    var rotationRad by mutableStateOf(0f)
-        private set
-    var pitchDeg by mutableStateOf(0f)
-        private set
-    var rollDeg by mutableStateOf(0f)
-        private set
-    var impactProgress by mutableStateOf(0f)
+    var initialDistance: Float = 1f
         private set
 
-    // Track metadata
+    // Raw High-Performance Primitive Registers (Zero Recomposition Overhead)
+    var posX: Float = 0f
+    var posY: Float = 0f
+    var stretchParallel: Float = 1f
+    var stretchPerp: Float = 1f
+    var rotationRad: Float = 0f
+    var pitchDeg: Float = 0f
+    var rollDeg: Float = 0f
+    var impactProgress: Float = 0f
+
+    // Frame-tick signal for lambda draw phase (Skipping recomposition)
+    var frameTick by mutableLongStateOf(0L)
+        private set
+
+    // Track metadata (updated once per flight)
     var trackTitle by mutableStateOf("")
         private set
     var trackArtist by mutableStateOf("")
@@ -58,6 +57,11 @@ class QuantumSonicTokenController {
     // 0: x, 1: y, 2: z, 3: vx, 4: vy, 5: vz, 6: stretch_parallel, 7: stretch_perp, 8: rotation_rad, 9: pitch_deg, 10: roll_deg, 11: impact_progress, 12: is_docked, 13: is_ready_to_dock
     private val physicsBuffer = FloatArray(14)
 
+    // Pre-allocated Fluid Splashing Particles: 48 particles * 6 floats [x, y, vx, vy, radius, alpha]
+    val particleCount = 48
+    val particleBuffer = FloatArray(particleCount * 6)
+    private var particlesSpawned = false
+
     fun triggerFlight(
         tapOrigin: Offset,
         dockDestination: Offset,
@@ -67,12 +71,14 @@ class QuantumSonicTokenController {
     ) {
         origin = tapOrigin
         destination = dockDestination
-        currentPosition = tapOrigin
+        posX = tapOrigin.x
+        posY = tapOrigin.y
         trackTitle = title
         trackArtist = artist
         trackArt = art
         flightTime = 0f
         telemetryStatus = "Connecting to Streamify..."
+        particlesSpawned = false
 
         val dx = dockDestination.x - tapOrigin.x
         val dy = dockDestination.y - tapOrigin.y
@@ -92,7 +98,7 @@ class QuantumSonicTokenController {
         physicsBuffer[10] = 0f // roll_deg
         physicsBuffer[11] = 0f // impact_progress
         physicsBuffer[12] = 0f // is_docked
-        physicsBuffer[13] = 0f // is_ready_to_dock (waits for stream to resolve before impact splash)
+        physicsBuffer[13] = 0f // is_ready_to_dock
 
         stretchParallel = 1f
         stretchPerp = 1f
@@ -100,6 +106,7 @@ class QuantumSonicTokenController {
         pitchDeg = 0f
         rollDeg = 0f
         impactProgress = 0f
+        frameTick++
         stage = TokenStage.FLYING
     }
 
@@ -111,8 +118,8 @@ class QuantumSonicTokenController {
         physicsBuffer[13] = 1f
         telemetryStatus = "Coupling audio pipeline..."
         if (stage == TokenStage.FLYING) {
-            val dx = destination.x - currentPosition.x
-            val dy = destination.y - currentPosition.y
+            val dx = destination.x - posX
+            val dy = destination.y - posY
             val dist = sqrt(dx * dx + dy * dy)
             if (dist < 60f) {
                 physicsBuffer[12] = 1f
@@ -132,12 +139,15 @@ class QuantumSonicTokenController {
         val safeDt = dt.coerceIn(0.001f, 0.05f)
         flightTime += safeDt
 
-        telemetryStatus = when {
+        val newStatus = when {
             stage == TokenStage.IMPACT || stage == TokenStage.DONE -> "Coupled • Ready"
             physicsBuffer[13] > 0.5f -> "Coupling audio pipeline..."
             flightTime > 1.0f -> "Resolving audio stream..."
             flightTime > 0.35f -> "Loading audio pipeline..."
             else -> "Connecting to Streamify..."
+        }
+        if (telemetryStatus != newStatus) {
+            telemetryStatus = newStatus
         }
 
         try {
@@ -153,7 +163,8 @@ class QuantumSonicTokenController {
             stepKotlinRK4(safeDt)
         }
 
-        currentPosition = Offset(physicsBuffer[0], physicsBuffer[1])
+        posX = physicsBuffer[0]
+        posY = physicsBuffer[1]
         stretchParallel = physicsBuffer[6]
         stretchPerp = physicsBuffer[7]
         rotationRad = physicsBuffer[8]
@@ -165,11 +176,45 @@ class QuantumSonicTokenController {
         if (isDocked && stage == TokenStage.FLYING) {
             stage = TokenStage.IMPACT
             telemetryStatus = "Coupled • Ready"
+            spawnFluidParticles()
             com.streamify.app.util.StreamifyHapticEngine.tokenImpact()
         }
 
-        if (stage == TokenStage.IMPACT && impactProgress >= 1f) {
-            stage = TokenStage.DONE
+        if (stage == TokenStage.IMPACT) {
+            updateFluidParticles(safeDt)
+            if (impactProgress >= 1f) {
+                stage = TokenStage.DONE
+            }
+        }
+
+        frameTick++
+    }
+
+    private fun spawnFluidParticles() {
+        if (particlesSpawned) return
+        particlesSpawned = true
+        val rand = java.util.Random(System.currentTimeMillis())
+        for (i in 0 until particleCount) {
+            val base = i * 6
+            val angle = (rand.nextFloat() * 2f * PI.toFloat())
+            val speed = 120f + rand.nextFloat() * 380f
+            particleBuffer[base + 0] = destination.x + (rand.nextFloat() - 0.5f) * 40f // x
+            particleBuffer[base + 1] = destination.y + (rand.nextFloat() - 0.5f) * 15f // y
+            particleBuffer[base + 2] = cos(angle) * speed // vx
+            particleBuffer[base + 3] = sin(angle) * speed * 0.5f - 80f // vy (slight upward boost)
+            particleBuffer[base + 4] = 2.5f + rand.nextFloat() * 4.5f // radius
+            particleBuffer[base + 5] = 0.95f // alpha
+        }
+    }
+
+    private fun updateFluidParticles(dt: Float) {
+        val gravity = 320f
+        for (i in 0 until particleCount) {
+            val base = i * 6
+            particleBuffer[base + 0] += particleBuffer[base + 2] * dt
+            particleBuffer[base + 1] += particleBuffer[base + 3] * dt + 0.5f * gravity * dt * dt
+            particleBuffer[base + 3] += gravity * dt
+            particleBuffer[base + 5] = (particleBuffer[base + 5] - dt * 2.8f).coerceAtLeast(0f)
         }
     }
 
@@ -282,3 +327,4 @@ class QuantumSonicTokenController {
         stage = TokenStage.IDLE
     }
 }
+

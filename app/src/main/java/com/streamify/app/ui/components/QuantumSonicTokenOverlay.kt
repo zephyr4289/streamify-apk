@@ -61,11 +61,10 @@ fun QuantumSonicTokenOverlay(
         val cardWidthPx = with(density) { cardWidthDp.toPx() }
         val cardHeightPx = with(density) { 60.dp.toPx() }
 
-        // ─── 1. APPLE AIRDROP LUMINESCENCE SHOCKWAVE ON DOCK IMPACT ───
+        // ─── 1. APPLE AIRDROP 3D LUMINESCENCE SHOCKWAVE & FLUID PARTICLES ON DOCK IMPACT ───
         if (controller.stage == TokenStage.IMPACT) {
             ImpactBloomCanvas(
-                center = Offset(controller.destination.x, controller.destination.y),
-                progress = controller.impactProgress
+                controller = controller
             )
         }
 
@@ -73,15 +72,18 @@ fun QuantumSonicTokenOverlay(
         Box(
             modifier = Modifier
                 .offset {
-                    val xClamped = (controller.currentPosition.x - (cardWidthPx / 2f))
+                    // Frame-tick read inside layout phase skips Tree recomposition
+                    val tick = controller.frameTick
+                    val xClamped = (controller.posX - (cardWidthPx / 2f))
                         .coerceIn(8f, (screenWidthPx - cardWidthPx - 8f).coerceAtLeast(8f))
-                    val yClamped = (controller.currentPosition.y - (cardHeightPx / 2f)).coerceAtLeast(0f)
+                    val yClamped = (controller.posY - (cardHeightPx / 2f)).coerceAtLeast(0f)
                     IntOffset(xClamped.toInt(), yClamped.toInt())
                 }
                 .width(cardWidthDp)
                 .height(60.dp)
                 .graphicsLayer {
-                    // Aerodynamic velocity-aligned stretch & volume conservation
+                    // 120 FPS GPU RenderNode Phase (Zero Tree Recomposition)
+                    val tick = controller.frameTick
                     this.scaleX = controller.stretchParallel
                     this.scaleY = controller.stretchPerp
                     this.rotationX = controller.pitchDeg
@@ -122,16 +124,18 @@ private fun AirDropFluidCard(
     artUrl: String?,
     isFlying: Boolean
 ) {
-    // Dynamic luminescence aura sweep
-    val auraBrush = Brush.sweepGradient(
-        listOf(
-            Color.Transparent,
-            Primary.copy(alpha = if (isFlying) 0.9f else 0.4f),
-            ActiveControl,
-            Color.White.copy(alpha = 0.8f),
-            Color.Transparent
+    // Pre-calculated luminescence aura sweep
+    val auraBrush = remember(isFlying) {
+        Brush.sweepGradient(
+            listOf(
+                Color.Transparent,
+                Primary.copy(alpha = if (isFlying) 0.9f else 0.4f),
+                ActiveControl,
+                Color.White.copy(alpha = 0.8f),
+                Color.Transparent
+            )
         )
-    )
+    }
 
     Surface(
         shape = RoundedCornerShape(16.dp),
@@ -200,32 +204,51 @@ private fun AirDropFluidCard(
 
 @Composable
 fun ImpactBloomCanvas(
-    center: Offset,
-    progress: Float,
+    controller: QuantumSonicTokenController,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier.fillMaxSize()) {
-        val safeCenter = if (center != Offset.Zero) center else Offset(size.width / 2f, size.height - 100f)
+        val tick = controller.frameTick
+        val p = controller.impactProgress
+        if (p <= 0f || p >= 1f) return@Canvas
 
-        // Ring 1: Primary Phosphor Luminescence Shockwave
-        val glowRadius = 140.dp.toPx() * progress
-        val glowAlpha = ((1f - progress) * 0.9f).coerceIn(0f, 1f)
+        val safeCenter = if (controller.destination != Offset.Zero) controller.destination else Offset(size.width / 2f, size.height - 100f)
 
+        // 1. Primary Phosphor Luminescence Shockwave
+        val glowRadius = 140.dp.toPx() * p
+        val glowAlpha = ((1f - p) * 0.85f).coerceIn(0f, 1f)
         drawCircle(
             color = Primary.copy(alpha = glowAlpha),
             radius = glowRadius,
             center = safeCenter,
-            style = Stroke(width = 5.dp.toPx())
+            style = Stroke(width = 4.dp.toPx())
         )
 
-        // Ring 2: Concentrated white-hot kinetic core
-        val coreRadius = 60.dp.toPx() * (progress * 1.2f).coerceAtMost(1f)
-        val coreAlpha = ((1f - (progress * 1.6f)).coerceIn(0f, 1f) * 0.95f)
-
+        // 2. Concentrated White-Hot Kinetic Core
+        val coreRadius = 50.dp.toPx() * (p * 1.2f).coerceAtMost(1f)
+        val coreAlpha = ((1f - (p * 1.5f)).coerceIn(0f, 1f) * 0.9f)
         drawCircle(
             color = Color.White.copy(alpha = coreAlpha),
             radius = coreRadius,
             center = safeCenter
         )
+
+        // 3. Batched 3D Fluid Splash Particles
+        val buf = controller.particleBuffer
+        for (i in 0 until controller.particleCount) {
+            val base = i * 6
+            val alpha = buf[base + 5]
+            if (alpha > 0.01f) {
+                val px = buf[base + 0]
+                val py = buf[base + 1]
+                val r = buf[base + 4] * (1f - (p * 0.4f))
+                val col = if (i % 2 == 0) Primary.copy(alpha = alpha) else ActiveControl.copy(alpha = alpha)
+                drawCircle(
+                    color = col,
+                    radius = r,
+                    center = Offset(px, py)
+                )
+            }
+        }
     }
 }
