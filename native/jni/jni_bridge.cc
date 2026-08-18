@@ -1071,3 +1071,136 @@ Java_com_streamify_app_data_NativeBridge_rustDownloadStreamDirect(
     rust_free_string(res);
     return outStr;
 }
+
+extern "C" {
+    char* rust_score_and_rank_radio_candidates(
+        const char* candidates_json,
+        float seed_bpm,
+        const char* seed_key,
+        int32_t seed_dur_sec,
+        const char* seed_sig,
+        const char* queue_json
+    );
+    int32_t rust_process_crossfade_pcm(const float* out_ptr, const float* in_ptr, float* mixed_ptr, size_t len, float progress);
+    int32_t rust_encrypt_vault_file(const char* src, const char* dest, const uint8_t* key, size_t key_len);
+    int32_t rust_decrypt_vault_file(const char* src, const char* dest, const uint8_t* key, size_t key_len);
+    char* rust_parse_backup_csv(const char* csv);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_rustScoreAndRankRadioCandidates(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring candidatesJson,
+    jfloat seedBpm,
+    jstring seedKey,
+    jint seedDurSec,
+    jstring seedSig,
+    jstring queueJson
+) {
+    if (!candidatesJson) return nullptr;
+    const char* cJson = env->GetStringUTFChars(candidatesJson, nullptr);
+    const char* sKey = seedKey ? env->GetStringUTFChars(seedKey, nullptr) : "";
+    const char* sSig = seedSig ? env->GetStringUTFChars(seedSig, nullptr) : "";
+    const char* qJson = queueJson ? env->GetStringUTFChars(queueJson, nullptr) : "[]";
+
+    char* res = rust_score_and_rank_radio_candidates(cJson, seedBpm, sKey, seedDurSec, sSig, qJson);
+
+    env->ReleaseStringUTFChars(candidatesJson, cJson);
+    if (seedKey) env->ReleaseStringUTFChars(seedKey, sKey);
+    if (seedSig) env->ReleaseStringUTFChars(seedSig, sSig);
+    if (queueJson) env->ReleaseStringUTFChars(queueJson, qJson);
+
+    if (!res) return nullptr;
+    jstring outStr = env->NewStringUTF(res);
+    rust_free_string(res);
+    return outStr;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_streamify_app_data_NativeBridge_rustProcessCrossfadePcm(
+    JNIEnv* env,
+    jobject /* this */,
+    jfloatArray outgoingBuf,
+    jfloatArray incomingBuf,
+    jfloatArray mixedBuf,
+    jfloat progress
+) {
+    if (!outgoingBuf || !incomingBuf || !mixedBuf) return -1;
+    jsize len = env->GetArrayLength(mixedBuf);
+    if (len <= 0) return -1;
+
+    jfloat* out = env->GetFloatArrayElements(outgoingBuf, nullptr);
+    jfloat* in = env->GetFloatArrayElements(incomingBuf, nullptr);
+    jfloat* mixed = env->GetFloatArrayElements(mixedBuf, nullptr);
+
+    int32_t code = rust_process_crossfade_pcm(out, in, mixed, static_cast<size_t>(len), progress);
+
+    env->ReleaseFloatArrayElements(outgoingBuf, out, JNI_ABORT);
+    env->ReleaseFloatArrayElements(incomingBuf, in, JNI_ABORT);
+    env->ReleaseFloatArrayElements(mixedBuf, mixed, 0);
+    return code;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_streamify_app_data_NativeBridge_rustEncryptVaultFile(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring srcPath,
+    jstring destPath,
+    jbyteArray masterKey
+) {
+    if (!srcPath || !destPath || !masterKey) return -1;
+    const char* src = env->GetStringUTFChars(srcPath, nullptr);
+    const char* dest = env->GetStringUTFChars(destPath, nullptr);
+    jsize keyLen = env->GetArrayLength(masterKey);
+    jbyte* key = env->GetByteArrayElements(masterKey, nullptr);
+
+    int32_t code = rust_encrypt_vault_file(src, dest, reinterpret_cast<const uint8_t*>(key), static_cast<size_t>(keyLen));
+
+    env->ReleaseStringUTFChars(srcPath, src);
+    env->ReleaseStringUTFChars(destPath, dest);
+    env->ReleaseByteArrayElements(masterKey, key, JNI_ABORT);
+    return code;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_streamify_app_data_NativeBridge_rustDecryptVaultFile(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring srcPath,
+    jstring destPath,
+    jbyteArray masterKey
+) {
+    if (!srcPath || !destPath || !masterKey) return -1;
+    const char* src = env->GetStringUTFChars(srcPath, nullptr);
+    const char* dest = env->GetStringUTFChars(destPath, nullptr);
+    jsize keyLen = env->GetArrayLength(masterKey);
+    jbyte* key = env->GetByteArrayElements(masterKey, nullptr);
+
+    int32_t code = rust_decrypt_vault_file(src, dest, reinterpret_cast<const uint8_t*>(key), static_cast<size_t>(keyLen));
+
+    env->ReleaseStringUTFChars(srcPath, src);
+    env->ReleaseStringUTFChars(destPath, dest);
+    env->ReleaseByteArrayElements(masterKey, key, JNI_ABORT);
+    return code;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_rustParseBackupCsv(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring csvContent
+) {
+    if (!csvContent) return nullptr;
+    const char* csv = env->GetStringUTFChars(csvContent, nullptr);
+
+    char* res = rust_parse_backup_csv(csv);
+
+    env->ReleaseStringUTFChars(csvContent, csv);
+
+    if (!res) return nullptr;
+    jstring outStr = env->NewStringUTF(res);
+    rust_free_string(res);
+    return outStr;
+}

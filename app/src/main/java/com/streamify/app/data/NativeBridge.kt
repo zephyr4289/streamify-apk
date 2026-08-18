@@ -172,7 +172,25 @@ object NativeBridge {
     external fun rustComputeFftSpectrum(pcmFloats: FloatArray, barCount: Int, outBars: FloatArray): Int
     external fun rustProcessEqualizerFrame(pcmFloats: FloatArray, channels: Int, gains: FloatArray?): Int
     external fun rustDownloadStreamDirect(streamUrl: String, destPath: String): String?
+    external fun rustScoreAndRankRadioCandidates(
+        candidatesJson: String,
+        seedBpm: Float,
+        seedKey: String,
+        seedDurSec: Int,
+        seedSig: String,
+        queueJson: String
+    ): String?
+    external fun rustProcessCrossfadePcm(
+        outgoingBuf: FloatArray,
+        incomingBuf: FloatArray,
+        mixedBuf: FloatArray,
+        progress: Float
+    ): Int
+    external fun rustEncryptVaultFile(srcPath: String, destPath: String, masterKey: ByteArray): Int
+    external fun rustDecryptVaultFile(srcPath: String, destPath: String, masterKey: ByteArray): Int
+    external fun rustParseBackupCsv(csvContent: String): String?
 }
+
 
 
 

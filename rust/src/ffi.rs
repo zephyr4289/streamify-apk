@@ -447,3 +447,183 @@ pub unsafe extern "C" fn rust_download_stream_direct(
 
     result.unwrap_or(std::ptr::null_mut())
 }
+
+use crate::backup::BackupArchiveEngine;
+use crate::crossfade::CrossfadeDspEngine;
+use crate::crypto::VaultCryptoEngine;
+use crate::radio_scorer::{RadioAntiDriftEngine, ScoredCandidate};
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_score_and_rank_radio_candidates(
+    candidates_json_ptr: *const c_char,
+    seed_bpm: f32,
+    seed_key_ptr: *const c_char,
+    seed_dur_sec: i32,
+    seed_sig_ptr: *const c_char,
+    queue_json_ptr: *const c_char,
+) -> *mut c_char {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if candidates_json_ptr.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let candidates_str = match CStr::from_ptr(candidates_json_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        let seed_key = if !seed_key_ptr.is_null() {
+            CStr::from_ptr(seed_key_ptr).to_str().unwrap_or("")
+        } else {
+            ""
+        };
+
+        let seed_sig = if !seed_sig_ptr.is_null() {
+            CStr::from_ptr(seed_sig_ptr).to_str().unwrap_or("")
+        } else {
+            ""
+        };
+
+        let queue_str = if !queue_json_ptr.is_null() {
+            CStr::from_ptr(queue_json_ptr).to_str().unwrap_or("[]")
+        } else {
+            "[]"
+        };
+
+        let candidates: Vec<ScoredCandidate> = match serde_json::from_str(candidates_str) {
+            Ok(c) => c,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        let queue: Vec<ScoredCandidate> = serde_json::from_str(queue_str).unwrap_or_default();
+
+        let ranked = RadioAntiDriftEngine::filter_and_rank_candidates(
+            &candidates,
+            seed_bpm,
+            seed_key,
+            seed_dur_sec,
+            seed_sig,
+            &queue,
+        );
+
+        let out_json = match serde_json::to_string(&ranked) {
+            Ok(j) => j,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        CString::new(out_json).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_process_crossfade_pcm(
+    out_ptr: *const f32,
+    in_ptr: *const f32,
+    mixed_ptr: *mut f32,
+    len: usize,
+    progress: f32,
+) -> i32 {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if out_ptr.is_null() || in_ptr.is_null() || mixed_ptr.is_null() || len == 0 {
+            return -1;
+        }
+
+        let out_slice = std::slice::from_raw_parts(out_ptr, len);
+        let in_slice = std::slice::from_raw_parts(in_ptr, len);
+        let mixed_slice = std::slice::from_raw_parts_mut(mixed_ptr, len);
+
+        CrossfadeDspEngine::process_equal_power_crossfade(out_slice, in_slice, mixed_slice, progress);
+        0
+    }));
+
+    result.unwrap_or(-999)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_encrypt_vault_file(
+    src_ptr: *const c_char,
+    dest_ptr: *const c_char,
+    key_ptr: *const u8,
+    key_len: usize,
+) -> i32 {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if src_ptr.is_null() || dest_ptr.is_null() || key_ptr.is_null() || key_len == 0 {
+            return -1;
+        }
+
+        let src = match CStr::from_ptr(src_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return -2,
+        };
+
+        let dest = match CStr::from_ptr(dest_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return -3,
+        };
+
+        let key = std::slice::from_raw_parts(key_ptr, key_len);
+
+        match VaultCryptoEngine::encrypt_file_in_place(src, dest, key) {
+            Ok(_) => 0,
+            Err(_) => -4,
+        }
+    }));
+
+    result.unwrap_or(-999)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_decrypt_vault_file(
+    src_ptr: *const c_char,
+    dest_ptr: *const c_char,
+    key_ptr: *const u8,
+    key_len: usize,
+) -> i32 {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if src_ptr.is_null() || dest_ptr.is_null() || key_ptr.is_null() || key_len == 0 {
+            return -1;
+        }
+
+        let src = match CStr::from_ptr(src_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return -2,
+        };
+
+        let dest = match CStr::from_ptr(dest_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return -3,
+        };
+
+        let key = std::slice::from_raw_parts(key_ptr, key_len);
+
+        match VaultCryptoEngine::decrypt_file_to_file(src, dest, key) {
+            Ok(_) => 0,
+            Err(_) => -4,
+        }
+    }));
+
+    result.unwrap_or(-999)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_parse_backup_csv(csv_ptr: *const c_char) -> *mut c_char {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if csv_ptr.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let csv = match CStr::from_ptr(csv_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        let records = BackupArchiveEngine::parse_csv_dump(csv);
+        let out_json = serde_json::to_string(&records).unwrap_or_default();
+
+        CString::new(out_json).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}

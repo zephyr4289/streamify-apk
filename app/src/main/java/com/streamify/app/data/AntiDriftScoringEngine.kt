@@ -19,12 +19,84 @@ object AntiDriftScoringEngine {
     /**
      * Filters out non-music compilations, eliminates duplicate song variations,
      * caps artist saturation, and ranks candidates by acoustic & harmonic affinity.
+     * Accelerated via High-Performance Rust Vector Engine with pure Kotlin fallback.
      */
     fun filterAndRankCandidates(
         candidates: List<Track>,
         seedTrack: Track,
         activeQueue: List<Track>
     ): List<Track> {
+        if (candidates.isEmpty()) return emptyList()
+
+        // Tier 1: Zero-Allocation Rust Native Scoring Engine
+        try {
+            val candidateArray = org.json.JSONArray()
+            for (c in candidates) {
+                candidateArray.put(org.json.JSONObject().apply {
+                    put("id", c.id)
+                    put("title", c.title)
+                    put("artist", c.artist)
+                    put("album", c.album)
+                    put("duration_sec", c.durationSec)
+                    put("filepath", c.filepath)
+                    put("cover_art_path", c.coverArtPath)
+                    put("bpm", c.bpm.toDouble())
+                    put("key", c.key)
+                })
+            }
+
+            val queueArray = org.json.JSONArray()
+            for (q in activeQueue.takeLast(WINDOW_SIZE)) {
+                queueArray.put(org.json.JSONObject().apply {
+                    put("id", q.id)
+                    put("title", q.title)
+                    put("artist", q.artist)
+                    put("album", q.album)
+                    put("duration_sec", q.durationSec)
+                    put("filepath", q.filepath)
+                    put("cover_art_path", q.coverArtPath)
+                    put("bpm", q.bpm.toDouble())
+                    put("key", q.key)
+                })
+            }
+
+            val seedBpm = if (seedTrack.bpm > 0f) seedTrack.bpm else 120f
+            val nativeResultJson = NativeBridge.rustScoreAndRankRadioCandidates(
+                candidatesJson = candidateArray.toString(),
+                seedBpm = seedBpm,
+                seedKey = seedTrack.key.trim().uppercase(),
+                seedDurSec = seedTrack.durationSec,
+                seedSig = seedTrack.signature(),
+                queueJson = queueArray.toString()
+            )
+
+            if (!nativeResultJson.isNullOrBlank()) {
+                val parsedArray = org.json.JSONArray(nativeResultJson)
+                if (parsedArray.length() > 0) {
+                    val resultList = mutableListOf<Track>()
+                    for (i in 0 until parsedArray.length()) {
+                        val obj = parsedArray.getJSONObject(i)
+                        resultList.add(
+                            Track(
+                                id = obj.optInt("id", 0),
+                                title = obj.optString("title", ""),
+                                artist = obj.optString("artist", ""),
+                                album = obj.optString("album", ""),
+                                durationSec = obj.optInt("duration_sec", 0),
+                                filepath = obj.optString("filepath", ""),
+                                coverArtPath = obj.optString("cover_art_path", ""),
+                                bpm = obj.optDouble("bpm", 120.0).toFloat(),
+                                key = obj.optString("key", "")
+                            )
+                        )
+                    }
+                    return resultList
+                }
+            }
+        } catch (_: Throwable) {
+            // Fallback to pure Kotlin implementation below
+        }
+
         val seenSignatures = HashSet<String>()
         val artistCounts = mutableMapOf<String, Int>()
         val rankedList = mutableListOf<Pair<Track, Float>>()

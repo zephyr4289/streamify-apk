@@ -120,6 +120,27 @@ object ExportifyParser {
 
     private fun parseCSV(text: String): List<ParsedTrackItem> {
         val tracks = mutableListOf<ParsedTrackItem>()
+        if (text.isBlank()) return tracks
+
+        // Tier 1: High-Speed Rust CSV Engine
+        try {
+            val rustJson = com.streamify.app.data.NativeBridge.rustParseBackupCsv(text)
+            if (!rustJson.isNullOrBlank()) {
+                val array = JSONArray(rustJson)
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val title = obj.optString("title", "")
+                    val artist = obj.optString("artist", "")
+                    val album = obj.optString("album", "Streamify")
+                    val dur = obj.optInt("duration_sec", 0)
+                    if (title.isNotBlank() && artist.isNotBlank()) {
+                        tracks.add(ParsedTrackItem(title = title, artist = artist, album = album, durationSec = dur))
+                    }
+                }
+                if (tracks.isNotEmpty()) return tracks
+            }
+        } catch (_: Throwable) {}
+
         val lines = text.lines().filter { it.isNotBlank() }
         if (lines.isEmpty()) return tracks
 
