@@ -1,3 +1,4 @@
+pub mod aligner;
 pub mod backup;
 pub mod consensus;
 pub mod crossfade;
@@ -15,6 +16,7 @@ pub mod resolver;
 pub mod search;
 pub mod tagger;
 
+pub use aligner::{AlignedLine, AlignedSyllable, LyricAlignerEngine};
 pub use backup::{BackupArchiveEngine, BackupRecord};
 pub use consensus::ConsensusEngine;
 pub use crossfade::CrossfadeDspEngine;
@@ -30,3 +32,4 @@ pub use radio_scorer::{RadioAntiDriftEngine, ScoredCandidate};
 pub use resolver::StreamResolver;
 pub use search::{FuzzySearchEngine, SearchCandidate};
 pub use tagger::{AudioMetadataEngine, TrackMetadata};
+

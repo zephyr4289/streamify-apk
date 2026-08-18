@@ -31,13 +31,48 @@ object LyricsResolver {
 
         // 1. High-Precision Tier: Exact duration-locked LRCLIB lookup
         val exactMatch = fetchLrclibExact(cleanTitle, cleanArtist, durationSec)
-        if (!exactMatch.isNullOrBlank() && exactMatch.contains("[")) {
-            return@withContext exactMatch
+        if (!exactMatch.isNullOrBlank()) {
+            if (exactMatch.contains("[")) return@withContext exactMatch
+            return@withContext synthesizeSyncedLyricsFromPlain(exactMatch, durationSec)
         }
 
         // 2. Fallback Tier: Race fuzzy providers
-        return@withContext raceLyricsProviders(cleanTitle, cleanArtist)
+        val winner = raceLyricsProviders(cleanTitle, cleanArtist)
+        if (!winner.isNullOrBlank()) {
+            if (winner.contains("[")) return@withContext winner
+            return@withContext synthesizeSyncedLyricsFromPlain(winner, durationSec)
+        }
+        return@withContext null
     }
+
+    /**
+     * Converts plain unsynchronized text into word-level / line-level synchronized LRC via Rust Forced Aligner
+     */
+    fun synthesizeSyncedLyricsFromPlain(plainText: String, durationSec: Int): String {
+        try {
+            val durationMs = if (durationSec > 0) durationSec * 1000 else 180000
+            val nativeJson = com.streamify.app.data.NativeBridge.rustAlignAndCompileLyrics(plainText, durationMs, null)
+            if (!nativeJson.isNullOrBlank()) {
+                val array = JSONArray(nativeJson)
+                val sb = StringBuilder()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val startMs = obj.optInt("start_ms", 0)
+                    val lineText = obj.optString("line_text", "")
+                    val mm = startMs / 60000
+                    val ss = (startMs % 60000) / 1000
+                    val xx = (startMs % 1000) / 10
+                    sb.append(String.format(java.util.Locale.US, "[%02d:%02d.%02d]%s\n", mm, ss, xx, lineText))
+                }
+                val result = sb.toString().trim()
+                if (result.isNotBlank()) return result
+            }
+        } catch (_: Throwable) {
+            // Fallback
+        }
+        return plainText
+    }
+
 
     private suspend fun raceLyricsProviders(title: String, artist: String): String? = coroutineScope {
         val winnerDeferred = CompletableDeferred<String?>()

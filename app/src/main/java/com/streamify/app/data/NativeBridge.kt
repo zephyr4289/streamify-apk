@@ -189,7 +189,9 @@ object NativeBridge {
     external fun rustEncryptVaultFile(srcPath: String, destPath: String, masterKey: ByteArray): Int
     external fun rustDecryptVaultFile(srcPath: String, destPath: String, masterKey: ByteArray): Int
     external fun rustParseBackupCsv(csvContent: String): String?
+    external fun rustAlignAndCompileLyrics(rawLyrics: String, durationMs: Int, energyFloats: FloatArray?): String?
 }
+
 
 
 

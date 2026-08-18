@@ -627,3 +627,40 @@ pub unsafe extern "C" fn rust_parse_backup_csv(csv_ptr: *const c_char) -> *mut c
 
     result.unwrap_or(std::ptr::null_mut())
 }
+
+use crate::aligner::LyricAlignerEngine;
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_align_and_compile_lyrics(
+    raw_lyrics_ptr: *const c_char,
+    duration_ms: u32,
+    energy_ptr: *const f32,
+    energy_len: usize,
+) -> *mut c_char {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if raw_lyrics_ptr.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let raw_lyrics = match CStr::from_ptr(raw_lyrics_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        let energy_slice = if !energy_ptr.is_null() && energy_len > 0 {
+            Some(std::slice::from_raw_parts(energy_ptr, energy_len))
+        } else {
+            None
+        };
+
+        let aligned_lines = LyricAlignerEngine::align_unsynchronized_lyrics(raw_lyrics, duration_ms, energy_slice);
+        let out_json = match serde_json::to_string(&aligned_lines) {
+            Ok(j) => j,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        CString::new(out_json).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}

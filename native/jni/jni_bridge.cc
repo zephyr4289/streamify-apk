@@ -1251,3 +1251,34 @@ Java_com_streamify_app_data_NativeBridge_rustParseBackupCsv(
     return outStr;
 }
 
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_rustAlignAndCompileLyrics(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring rawLyrics,
+    jint durationMs,
+    jfloatArray energyFloats
+) {
+    if (!rawLyrics) return nullptr;
+    typedef char* (*RustFn)(const char*, uint32_t, const float*, size_t);
+    auto fn = get_rust_symbol<RustFn>("rust_align_and_compile_lyrics");
+    if (!fn) return nullptr;
+
+    const char* text = env->GetStringUTFChars(rawLyrics, nullptr);
+    jfloat* energy = energyFloats ? env->GetFloatArrayElements(energyFloats, nullptr) : nullptr;
+    jsize energyLen = energyFloats ? env->GetArrayLength(energyFloats) : 0;
+
+    char* res = fn(text, static_cast<uint32_t>(durationMs), energy, static_cast<size_t>(energyLen));
+
+    env->ReleaseStringUTFChars(rawLyrics, text);
+    if (energyFloats && energy) {
+        env->ReleaseFloatArrayElements(energyFloats, energy, JNI_ABORT);
+    }
+
+    if (!res) return nullptr;
+    jstring outStr = env->NewStringUTF(res);
+    auto free_fn = get_rust_symbol<RustFreeStringFn>("rust_free_string");
+    if (free_fn) free_fn(res);
+    return outStr;
+}
