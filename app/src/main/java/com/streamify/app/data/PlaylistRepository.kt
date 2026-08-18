@@ -54,13 +54,39 @@ object FractionalIndexEngine {
     }
 }
 
+sealed class PlaylistSyncAction {
+    data class Upsert(val playlist: Playlist) : PlaylistSyncAction()
+    data class Delete(val playlistId: String) : PlaylistSyncAction()
+    data class AddTrack(val playlistId: String, val trackId: Int, val position: Double) : PlaylistSyncAction()
+    data class RemoveTrack(val playlistId: String, val trackId: Int) : PlaylistSyncAction()
+}
+
 object PlaylistRepository {
     private var playlistFile: File? = null
     private val ioDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val repoScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val syncChannel = kotlinx.coroutines.channels.Channel<PlaylistSyncAction>(kotlinx.coroutines.channels.Channel.UNLIMITED)
 
     private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
     val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
+
+    init {
+        // Structured Concurrency Actor: Sequential cloud sync with zero orphaned coroutines
+        repoScope.launch {
+            for (action in syncChannel) {
+                try {
+                    when (action) {
+                        is PlaylistSyncAction.Upsert -> com.streamify.app.data.remote.SupabaseClient.syncPlaylistUpsert(action.playlist)
+                        is PlaylistSyncAction.Delete -> com.streamify.app.data.remote.SupabaseClient.syncPlaylistDelete(action.playlistId)
+                        is PlaylistSyncAction.AddTrack -> com.streamify.app.data.remote.SupabaseClient.syncPlaylistTrackAdd(action.playlistId, action.trackId, action.position)
+                        is PlaylistSyncAction.RemoveTrack -> com.streamify.app.data.remote.SupabaseClient.syncPlaylistTrackRemove(action.playlistId, action.trackId)
+                    }
+                } catch (e: Exception) {
+                    // Non-fatal background sync
+                }
+            }
+        }
+    }
 
     fun getPlaylists(): List<Playlist> = _playlists.value.filter { !it.isDeleted }
 
@@ -191,20 +217,15 @@ object PlaylistRepository {
         _playlists.value = _playlists.value + newPlaylist
         savePlaylists()
         
-        // Dispatch asynchronous cloud outbox sync
-        repoScope.launch {
-            try {
-                com.streamify.app.data.remote.SupabaseClient.syncPlaylistUpsert(newPlaylist)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        // Enqueue cloud sync to sequential channel actor
+        syncChannel.trySend(PlaylistSyncAction.Upsert(newPlaylist))
         return newPlaylist
     }
 
     fun addPlaylist(playlist: Playlist) {
         _playlists.value = _playlists.value.filter { it.id != playlist.id } + playlist
         savePlaylists()
+        syncChannel.trySend(PlaylistSyncAction.Upsert(playlist))
     }
 
     fun deletePlaylist(id: String): Boolean {
@@ -224,14 +245,8 @@ object PlaylistRepository {
         _playlists.value = _playlists.value.filter { it.id != id }
         savePlaylists()
 
-        // Dispatch asynchronous cloud outbox delete
-        repoScope.launch {
-            try {
-                com.streamify.app.data.remote.SupabaseClient.syncPlaylistDelete(id)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        // Enqueue cloud sync to sequential channel actor
+        syncChannel.trySend(PlaylistSyncAction.Delete(id))
         return true
     }
 
@@ -255,13 +270,7 @@ object PlaylistRepository {
         savePlaylists()
 
         updatedPlaylist?.let { pl ->
-            repoScope.launch {
-                try {
-                    com.streamify.app.data.remote.SupabaseClient.syncPlaylistUpsert(pl)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
+            syncChannel.trySend(PlaylistSyncAction.Upsert(pl))
         }
         return true
     }
@@ -290,13 +299,7 @@ object PlaylistRepository {
         savePlaylists()
 
         updatedPlaylist?.let { pl ->
-            repoScope.launch {
-                try {
-                    com.streamify.app.data.remote.SupabaseClient.syncPlaylistUpsert(pl)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
+            syncChannel.trySend(PlaylistSyncAction.Upsert(pl))
         }
     }
 
@@ -327,13 +330,7 @@ object PlaylistRepository {
         savePlaylists()
 
         if (finalPos != null) {
-            repoScope.launch {
-                try {
-                    com.streamify.app.data.remote.SupabaseClient.syncPlaylistTrackAdd(playlistId, trackId, finalPos!!)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
+            syncChannel.trySend(PlaylistSyncAction.AddTrack(playlistId, trackId, finalPos!!))
         }
     }
 
@@ -357,13 +354,7 @@ object PlaylistRepository {
         }
         savePlaylists()
 
-        repoScope.launch {
-            try {
-                com.streamify.app.data.remote.SupabaseClient.syncPlaylistTrackRemove(playlistId, trackId)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        syncChannel.trySend(PlaylistSyncAction.RemoveTrack(playlistId, trackId))
     }
 
     fun reorderTrack(playlistId: String, trackId: Int, prevTrackId: Int?, nextTrackId: Int?) {
@@ -385,13 +376,7 @@ object PlaylistRepository {
         _playlists.value = _playlists.value.map { if (it.id == playlistId) updated else it }
         savePlaylists()
 
-        repoScope.launch {
-            try {
-                com.streamify.app.data.remote.SupabaseClient.syncPlaylistTrackAdd(playlistId, trackId, newPos)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        syncChannel.trySend(PlaylistSyncAction.AddTrack(playlistId, trackId, newPos))
     }
 
     suspend fun getTracksForPlaylist(playlistId: String, allTracks: List<Track>): List<Track> = withContext(Dispatchers.Default) {

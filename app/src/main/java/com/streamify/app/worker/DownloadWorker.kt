@@ -30,6 +30,11 @@ class DownloadWorker(
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
 
+    companion object {
+        // Hard-cap background DSP across all DownloadWorkers to 1 thread to protect audio decoding
+        private val dspDispatcher = Dispatchers.IO.limitedParallelism(1)
+    }
+
     private val notificationId = 12345
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
@@ -122,10 +127,15 @@ class DownloadWorker(
                                 NativeBridge.updateTrackCoverArt(trackId, taggedAssets.coverArtPath)
                             }
                             
-                            // Background AI Feature extraction
-                            try {
-                                NativeBridge.processAudioFile(trackId, targetFile.absolutePath)
-                            } catch (e: Exception) {}
+                            // Background AI Feature extraction (Throttled single-core execution with buffer gate)
+                            withContext(dspDispatcher) {
+                                try {
+                                    while (com.streamify.app.service.PlaybackService.isBuffering.value) {
+                                        kotlinx.coroutines.delay(200)
+                                    }
+                                    NativeBridge.processAudioFile(trackId, targetFile.absolutePath)
+                                } catch (e: Exception) {}
+                            }
 
                             // Add to Streamify playlist
                             try {
@@ -237,9 +247,15 @@ class DownloadWorker(
                         if (coverArtPath.isNotBlank()) {
                             NativeBridge.updateTrackCoverArt(trackId, coverArtPath)
                         }
-                        try {
-                            NativeBridge.processAudioFile(trackId, targetPath)
-                        } catch (e: Exception) {}
+                        // Background AI Feature extraction (Throttled single-core execution with buffer gate)
+                        withContext(dspDispatcher) {
+                            try {
+                                while (com.streamify.app.service.PlaybackService.isBuffering.value) {
+                                    kotlinx.coroutines.delay(200)
+                                }
+                                NativeBridge.processAudioFile(trackId, targetPath)
+                            } catch (e: Exception) {}
+                        }
 
                         try {
                             val lyrics = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(title, artist)
