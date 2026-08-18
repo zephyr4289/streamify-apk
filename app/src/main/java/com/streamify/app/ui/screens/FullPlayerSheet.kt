@@ -239,24 +239,17 @@ fun FullPlayerSheet(
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {
-                                if (!track.coverArtPath.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = track.coverArtPath,
-                                        contentDescription = track.title,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Filled.MusicNote,
-                                        contentDescription = null,
-                                        tint = TextSecondary,
-                                        modifier = Modifier.size(54.dp)
-                                    )
-                                }
+                                TrackCoverArt(
+                                    coverArtPath = track.coverArtPath,
+                                    title = track.title,
+                                    artist = track.artist,
+                                    modifier = Modifier.fillMaxSize(),
+                                    shape = RoundedCornerShape(16.dp)
+                                )
                             }
                         }
                     }
+
 
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -567,24 +560,17 @@ fun FullPlayerSheet(
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
-                            if (!track.coverArtPath.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = track.coverArtPath,
-                                    contentDescription = track.title,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Filled.MusicNote,
-                                    contentDescription = null,
-                                    tint = TextSecondary,
-                                    modifier = Modifier.size(64.dp)
-                                )
-                            }
+                            TrackCoverArt(
+                                coverArtPath = track.coverArtPath,
+                                title = track.title,
+                                artist = track.artist,
+                                modifier = Modifier.fillMaxSize(),
+                                shape = RoundedCornerShape(16.dp)
+                            )
                         }
                     }
                 }
+
 
                 Spacer(modifier = Modifier.height(20.dp))
 

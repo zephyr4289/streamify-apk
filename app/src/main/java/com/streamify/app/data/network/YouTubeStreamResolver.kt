@@ -104,22 +104,22 @@ object YouTubeStreamResolver {
 
     fun sanitizeCoverUrl(rawUrl: String?, videoId: String?): String? {
         if (rawUrl.isNullOrBlank()) {
-            return videoId?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" }
+            return videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
         }
         val trimmed = rawUrl.trim()
         return when {
             trimmed.contains("mzstatic.com") -> trimmed.replace(Regex("\\d+x\\d+bb"), "1400x1400bb")
             trimmed.contains("googleusercontent.com") || trimmed.contains("ggpht.com") -> {
                 if (trimmed.contains("=")) {
-                    trimmed.replace(Regex("=w\\d+-h\\d+.*"), "=w1200-h1200-l90-rj").replace(Regex("=s\\d+.*"), "=s1200")
+                    trimmed.replace(Regex("=w\\d+-h\\d+.*"), "=w600-h600-l90-rj").replace(Regex("=s\\d+.*"), "=s600")
                 } else {
-                    "$trimmed=w1200-h1200-l90-rj"
+                    "$trimmed=w600-h600-l90-rj"
                 }
             }
-            trimmed.contains("googlevideo.com") -> videoId?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" }
+            trimmed.contains("googlevideo.com") -> videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
             trimmed.contains("ytimg.com") -> {
-                if (trimmed.contains("default.jpg") && !trimmed.contains("maxresdefault.jpg")) {
-                    trimmed.replace(Regex("(mq|sd|default)\\.jpg"), "maxresdefault.jpg")
+                if (trimmed.endsWith("/default.jpg")) {
+                    trimmed.replace("/default.jpg", "/hqdefault.jpg")
                 } else {
                     trimmed
                 }
@@ -127,6 +127,7 @@ object YouTubeStreamResolver {
             else -> trimmed
         }
     }
+
 
     // ========================================================================
     // INVARIANT 4: 3-TIER IMAGE DEGRADATION DESCRIPTOR

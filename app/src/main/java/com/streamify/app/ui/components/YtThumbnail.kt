@@ -19,7 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.streamify.app.data.network.YouTubeStreamResolver
 import com.streamify.app.ui.theme.*
 
@@ -36,11 +36,15 @@ fun YtThumbnail(
 ) {
     val shape = RoundedCornerShape(cornerRadius)
 
-    val displayUrl = remember(url, videoId) {
+    val resolvedVideoId = remember(url, videoId) {
+        videoId ?: YouTubeStreamResolver.extractVideoId(url ?: "")
+    }
+
+    val displayUrl = remember(url, resolvedVideoId) {
         if (!url.isNullOrBlank()) {
-            YouTubeStreamResolver.sanitizeCoverUrl(url, videoId)
-        } else if (!videoId.isNullOrBlank()) {
-            "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+            YouTubeStreamResolver.sanitizeCoverUrl(url, resolvedVideoId)
+        } else if (!resolvedVideoId.isNullOrBlank()) {
+            "https://i.ytimg.com/vi/$resolvedVideoId/hqdefault.jpg"
         } else {
             null
         }
@@ -55,13 +59,53 @@ fun YtThumbnail(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (!displayUrl.isNullOrBlank()) {
-                AsyncImage(
+                SubcomposeAsyncImage(
                     model = displayUrl,
                     contentDescription = title.ifBlank { null },
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
-                        .clip(shape)
+                        .clip(shape),
+                    error = {
+                        val fallback = resolvedVideoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+                        if (!fallback.isNullOrBlank() && fallback != displayUrl) {
+                            SubcomposeAsyncImage(
+                                model = fallback,
+                                contentDescription = title.ifBlank { null },
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                                error = {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(BgCard),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.MusicNote,
+                                            contentDescription = null,
+                                            tint = TextTertiary,
+                                            modifier = Modifier.size(size * 0.45f)
+                                        )
+                                    }
+                                }
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(BgCard),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.MusicNote,
+                                    contentDescription = null,
+                                    tint = TextTertiary,
+                                    modifier = Modifier.size(size * 0.45f)
+                                )
+                            }
+                        }
+                    }
                 )
             } else {
                 Box(
@@ -78,6 +122,7 @@ fun YtThumbnail(
                     )
                 }
             }
+
 
             if (isLoading) {
                 Box(
