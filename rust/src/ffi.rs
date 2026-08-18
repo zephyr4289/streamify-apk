@@ -261,3 +261,189 @@ pub unsafe extern "C" fn rust_find_active_slyr_positions(
 
     result.unwrap_or(-999)
 }
+
+use crate::downloader::StreamDownloader;
+use crate::dsp::{SpectrumVisualizer, StudioEqualizer};
+use crate::playlist_parser::PlaylistParser;
+use crate::search::{FuzzySearchEngine, SearchCandidate};
+
+static GLOBAL_STUDIO_EQ: Mutex<Option<StudioEqualizer>> = Mutex::new(None);
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_fuzzy_rank_candidates(
+    query_ptr: *const c_char,
+    candidates_json_ptr: *const c_char,
+) -> *mut c_char {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if query_ptr.is_null() || candidates_json_ptr.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let query = match CStr::from_ptr(query_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        let candidates_json = match CStr::from_ptr(candidates_json_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        let mut candidates: Vec<SearchCandidate> = match serde_json::from_str(candidates_json) {
+            Ok(c) => c,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        FuzzySearchEngine::rank_candidates(query, &mut candidates);
+
+        let out_json = match serde_json::to_string(&candidates) {
+            Ok(j) => j,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        CString::new(out_json).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_calculate_string_similarity(
+    s1_ptr: *const c_char,
+    s2_ptr: *const c_char,
+) -> f32 {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if s1_ptr.is_null() || s2_ptr.is_null() {
+            return 0.0;
+        }
+
+        let s1 = match CStr::from_ptr(s1_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return 0.0,
+        };
+
+        let s2 = match CStr::from_ptr(s2_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return 0.0,
+        };
+
+        FuzzySearchEngine::calculate_similarity(s1, s2)
+    }));
+
+    result.unwrap_or(0.0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_parse_youtube_playlist(
+    json_ptr: *const u8,
+    json_len: usize,
+) -> *mut c_char {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if json_ptr.is_null() || json_len == 0 {
+            return std::ptr::null_mut();
+        }
+
+        let slice = std::slice::from_raw_parts(json_ptr, json_len);
+        let raw_json = match std::str::from_utf8(slice) {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        match PlaylistParser::parse_youtube_playlist(raw_json) {
+            Ok(res) => {
+                let out_json = serde_json::to_string(&res).unwrap_or_default();
+                CString::new(out_json).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+            }
+            Err(_) => std::ptr::null_mut(),
+        }
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_compute_fft_spectrum(
+    pcm_ptr: *const f32,
+    pcm_len: usize,
+    bar_count: usize,
+    out_bars_ptr: *mut f32,
+) -> i32 {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if pcm_ptr.is_null() || pcm_len == 0 || out_bars_ptr.is_null() || bar_count == 0 {
+            return -1;
+        }
+
+        let pcm_slice = std::slice::from_raw_parts(pcm_ptr, pcm_len);
+        let bars = SpectrumVisualizer::compute_spectrum_bars(pcm_slice, bar_count);
+
+        let out_slice = std::slice::from_raw_parts_mut(out_bars_ptr, bar_count);
+        out_slice.copy_from_slice(&bars);
+        0
+    }));
+
+    result.unwrap_or(-999)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_process_equalizer_frame(
+    pcm_ptr: *mut f32,
+    pcm_len: usize,
+    channels: usize,
+    gains_ptr: *const f32,
+) -> i32 {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if pcm_ptr.is_null() || pcm_len == 0 || channels == 0 {
+            return -1;
+        }
+
+        let mut guard = match GLOBAL_STUDIO_EQ.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        let eq = guard.get_or_insert_with(|| StudioEqualizer::new(44100.0));
+
+        if !gains_ptr.is_null() {
+            let gains = std::slice::from_raw_parts(gains_ptr, 10);
+            for (idx, &gain) in gains.iter().enumerate() {
+                eq.set_band_gain(idx, gain as f64);
+            }
+        }
+
+        let pcm_slice = std::slice::from_raw_parts_mut(pcm_ptr, pcm_len);
+        eq.process_buffer_interleaved(pcm_slice, channels);
+        0
+    }));
+
+    result.unwrap_or(-999)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rust_download_stream_direct(
+    stream_url_ptr: *const c_char,
+    dest_path_ptr: *const c_char,
+) -> *mut c_char {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if stream_url_ptr.is_null() || dest_path_ptr.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let stream_url = match CStr::from_ptr(stream_url_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        let dest_path = match CStr::from_ptr(dest_path_ptr).to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        match StreamDownloader::download_stream_to_file(stream_url, dest_path, 65536, |_| {}) {
+            Ok(sha256_hex) => {
+                CString::new(sha256_hex).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+            }
+            Err(_) => std::ptr::null_mut(),
+        }
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}

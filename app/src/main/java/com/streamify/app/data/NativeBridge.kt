@@ -162,6 +162,17 @@ object NativeBridge {
         sampleRate: Int,
         channelCount: Int
     ): Int
+
+    // ═══════════════════════════════════════════════════════════════
+    // PROJECT TITAN: HIGH-PERFORMANCE RUST CORE ENGINE (JNI / FFI)
+    // ═══════════════════════════════════════════════════════════════
+    external fun rustFuzzyRankCandidates(query: String, candidatesJson: String): String?
+    external fun rustCalculateSimilarity(s1: String, s2: String): Float
+    external fun rustParseYouTubePlaylist(jsonBytes: ByteArray): String?
+    external fun rustComputeFftSpectrum(pcmFloats: FloatArray, barCount: Int, outBars: FloatArray): Int
+    external fun rustProcessEqualizerFrame(pcmFloats: FloatArray, channels: Int, gains: FloatArray?): Int
+    external fun rustDownloadStreamDirect(streamUrl: String, destPath: String): String?
 }
+
 
 

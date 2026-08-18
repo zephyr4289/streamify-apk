@@ -1,14 +1,22 @@
 pub mod consensus;
+pub mod downloader;
+pub mod dsp;
 pub mod ffi;
 pub mod json;
 pub mod lyrics;
+pub mod playlist_parser;
 pub mod ptp;
 pub mod resolver;
+pub mod search;
 pub mod tagger;
 
 pub use consensus::ConsensusEngine;
+pub use downloader::{DownloadProgress, StreamDownloader};
+pub use dsp::{BiquadFilter, FilterType, SpectrumVisualizer, StudioEqualizer};
 pub use json::{InnertubeParser, ParsedCandidate, ResolvedStreamFormat};
 pub use lyrics::{CompiledLyricEntry, CompiledLyrics, LyricCompiler};
+pub use playlist_parser::{ParsedPlaylistResult, ParsedPlaylistTrack, PlaylistParser};
 pub use ptp::PtpFilter;
 pub use resolver::StreamResolver;
+pub use search::{FuzzySearchEngine, SearchCandidate};
 pub use tagger::{AudioMetadataEngine, TrackMetadata};

@@ -199,34 +199,67 @@ object PlaylistLinkScraper {
                 if (response.isSuccessful) {
                     val responseBody = response.body?.string() ?: ""
                     if (responseBody.isNotBlank()) {
+                        // High-Speed Rust Parser Acceleration (Tier 1: 0ms native pass)
+                        var parsedViaRust = false
+                        try {
+                            val rustParsedJson = com.streamify.app.data.NativeBridge.rustParseYouTubePlaylist(responseBody.toByteArray())
+                            if (!rustParsedJson.isNullOrBlank()) {
+                                val rObj = JSONObject(rustParsedJson)
+                                val rTitle = rObj.optString("title")
+                                if (rTitle.isNotBlank() && rTitle != "Imported Playlist") {
+                                    playlistName = rTitle
+                                }
+                                val rTracks = rObj.optJSONArray("tracks")
+                                if (rTracks != null && rTracks.length() > 0) {
+                                    for (i in 0 until rTracks.length()) {
+                                        val t = rTracks.getJSONObject(i)
+                                        tracks.add(
+                                            ScrapedTrack(
+                                                title = t.optString("title"),
+                                                artist = t.optString("artist"),
+                                                videoId = t.optString("video_id"),
+                                                thumbnailUrl = t.optString("thumbnail_url").takeIf { it.isNotBlank() },
+                                                durationSec = t.optInt("duration_sec", 0)
+                                            )
+                                        )
+                                    }
+                                    parsedViaRust = true
+                                }
+                            }
+                        } catch (_: Throwable) {}
+
                         val root = JSONObject(responseBody)
 
-                        // 1. Extract Playlist Title from Header
-                        val headerNodes = mutableListOf<JSONObject>()
-                        findJsonObjects(root, "musicDetailHeaderRenderer", headerNodes)
-                        findJsonObjects(root, "playlistHeaderRenderer", headerNodes)
-                        findJsonObjects(root, "musicResponsiveHeaderRenderer", headerNodes)
-                        findJsonObjects(root, "musicEditablePlaylistDetailHeaderRenderer", headerNodes)
-                        for (hNode in headerNodes) {
-                            val titleRuns = hNode.optJSONObject("title")?.optJSONArray("runs")
-                            val headerTitle = titleRuns?.optJSONObject(0)?.optString("text")
-                                ?: hNode.optJSONObject("title")?.optString("simpleText", "")
-                            if (!headerTitle.isNullOrBlank()) {
-                                playlistName = headerTitle
-                                break
+                        // 1. Extract Playlist Title from Header (if not set by Rust)
+                        if (playlistName == "Imported Playlist") {
+                            val headerNodes = mutableListOf<JSONObject>()
+                            findJsonObjects(root, "musicDetailHeaderRenderer", headerNodes)
+                            findJsonObjects(root, "playlistHeaderRenderer", headerNodes)
+                            findJsonObjects(root, "musicResponsiveHeaderRenderer", headerNodes)
+                            findJsonObjects(root, "musicEditablePlaylistDetailHeaderRenderer", headerNodes)
+                            for (hNode in headerNodes) {
+                                val titleRuns = hNode.optJSONObject("title")?.optJSONArray("runs")
+                                val headerTitle = titleRuns?.optJSONObject(0)?.optString("text")
+                                    ?: hNode.optJSONObject("title")?.optString("simpleText", "")
+                                if (!headerTitle.isNullOrBlank()) {
+                                    playlistName = headerTitle
+                                    break
+                                }
                             }
                         }
 
-                        // 2. Extract Tracks (musicResponsiveListItemRenderer, playlistVideoRenderer, playlistPanelVideoRenderer)
-                        val candidateNodes = mutableListOf<JSONObject>()
-                        findJsonObjects(root, "musicResponsiveListItemRenderer", candidateNodes)
-                        findJsonObjects(root, "playlistVideoRenderer", candidateNodes)
-                        findJsonObjects(root, "playlistPanelVideoRenderer", candidateNodes)
+                        // 2. Extract Tracks via Kotlin AST (Fallback if Rust parser didn't extract items)
+                        if (!parsedViaRust) {
+                            val candidateNodes = mutableListOf<JSONObject>()
+                            findJsonObjects(root, "musicResponsiveListItemRenderer", candidateNodes)
+                            findJsonObjects(root, "playlistVideoRenderer", candidateNodes)
+                            findJsonObjects(root, "playlistPanelVideoRenderer", candidateNodes)
 
-                        for (node in candidateNodes) {
-                            val extracted = parseTrackFromNode(node)
-                            if (extracted != null && extracted.title.isNotBlank()) {
-                                tracks.add(extracted)
+                            for (node in candidateNodes) {
+                                val extracted = parseTrackFromNode(node)
+                                if (extracted != null && extracted.title.isNotBlank()) {
+                                    tracks.add(extracted)
+                                }
                             }
                         }
 

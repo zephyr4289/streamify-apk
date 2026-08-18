@@ -928,3 +928,146 @@ Java_com_streamify_app_data_NativeBridge_calculateLyricDrift(
 
     return drift;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// PROJECT TITAN: HIGH-PERFORMANCE RUST CORE ENGINE JNI EXPORTS
+// ═══════════════════════════════════════════════════════════════
+
+extern "C" {
+    void rust_free_string(char* s);
+    char* rust_fuzzy_rank_candidates(const char* query, const char* candidates_json);
+    float rust_calculate_string_similarity(const char* s1, const char* s2);
+    char* rust_parse_youtube_playlist(const uint8_t* json_ptr, size_t json_len);
+    int32_t rust_compute_fft_spectrum(const float* pcm_ptr, size_t pcm_len, size_t bar_count, float* out_bars_ptr);
+    int32_t rust_process_equalizer_frame(float* pcm_ptr, size_t pcm_len, size_t channels, const float* gains_ptr);
+    char* rust_download_stream_direct(const char* stream_url, const char* dest_path);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_rustFuzzyRankCandidates(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring query,
+    jstring candidatesJson
+) {
+    if (!query || !candidatesJson) return nullptr;
+    const char* q = env->GetStringUTFChars(query, nullptr);
+    const char* c = env->GetStringUTFChars(candidatesJson, nullptr);
+
+    char* res = rust_fuzzy_rank_candidates(q, c);
+
+    env->ReleaseStringUTFChars(query, q);
+    env->ReleaseStringUTFChars(candidatesJson, c);
+
+    if (!res) return nullptr;
+    jstring outStr = env->NewStringUTF(res);
+    rust_free_string(res);
+    return outStr;
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_streamify_app_data_NativeBridge_rustCalculateSimilarity(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring s1,
+    jstring s2
+) {
+    if (!s1 || !s2) return 0.0f;
+    const char* c1 = env->GetStringUTFChars(s1, nullptr);
+    const char* c2 = env->GetStringUTFChars(s2, nullptr);
+
+    float sim = rust_calculate_string_similarity(c1, c2);
+
+    env->ReleaseStringUTFChars(s1, c1);
+    env->ReleaseStringUTFChars(s2, c2);
+    return sim;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_rustParseYouTubePlaylist(
+    JNIEnv* env,
+    jobject /* this */,
+    jbyteArray jsonBytes
+) {
+    if (!jsonBytes) return nullptr;
+    jsize len = env->GetArrayLength(jsonBytes);
+    if (len <= 0) return nullptr;
+
+    jbyte* bytes = env->GetByteArrayElements(jsonBytes, nullptr);
+    char* res = rust_parse_youtube_playlist(reinterpret_cast<const uint8_t*>(bytes), static_cast<size_t>(len));
+    env->ReleaseByteArrayElements(jsonBytes, bytes, JNI_ABORT);
+
+    if (!res) return nullptr;
+    jstring outStr = env->NewStringUTF(res);
+    rust_free_string(res);
+    return outStr;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_streamify_app_data_NativeBridge_rustComputeFftSpectrum(
+    JNIEnv* env,
+    jobject /* this */,
+    jfloatArray pcmFloats,
+    jint barCount,
+    jfloatArray outBars
+) {
+    if (!pcmFloats || !outBars || barCount <= 0) return -1;
+    jsize pcmLen = env->GetArrayLength(pcmFloats);
+    jsize outLen = env->GetArrayLength(outBars);
+    if (pcmLen <= 0 || outLen < barCount) return -1;
+
+    jfloat* pcm = env->GetFloatArrayElements(pcmFloats, nullptr);
+    jfloat* bars = env->GetFloatArrayElements(outBars, nullptr);
+
+    int32_t code = rust_compute_fft_spectrum(pcm, pcmLen, barCount, bars);
+
+    env->ReleaseFloatArrayElements(pcmFloats, pcm, JNI_ABORT);
+    env->ReleaseFloatArrayElements(outBars, bars, 0);
+    return code;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_streamify_app_data_NativeBridge_rustProcessEqualizerFrame(
+    JNIEnv* env,
+    jobject /* this */,
+    jfloatArray pcmFloats,
+    jint channels,
+    jfloatArray gains
+) {
+    if (!pcmFloats || channels <= 0) return -1;
+    jsize pcmLen = env->GetArrayLength(pcmFloats);
+    if (pcmLen <= 0) return -1;
+
+    jfloat* pcm = env->GetFloatArrayElements(pcmFloats, nullptr);
+    jfloat* g = gains ? env->GetFloatArrayElements(gains, nullptr) : nullptr;
+
+    int32_t code = rust_process_equalizer_frame(pcm, pcmLen, channels, g);
+
+    env->ReleaseFloatArrayElements(pcmFloats, pcm, 0);
+    if (gains && g) {
+        env->ReleaseFloatArrayElements(gains, g, JNI_ABORT);
+    }
+    return code;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_rustDownloadStreamDirect(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring streamUrl,
+    jstring destPath
+) {
+    if (!streamUrl || !destPath) return nullptr;
+    const char* url = env->GetStringUTFChars(streamUrl, nullptr);
+    const char* path = env->GetStringUTFChars(destPath, nullptr);
+
+    char* res = rust_download_stream_direct(url, path);
+
+    env->ReleaseStringUTFChars(streamUrl, url);
+    env->ReleaseStringUTFChars(destPath, path);
+
+    if (!res) return nullptr;
+    jstring outStr = env->NewStringUTF(res);
+    rust_free_string(res);
+    return outStr;
+}

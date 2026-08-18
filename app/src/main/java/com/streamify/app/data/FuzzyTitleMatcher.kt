@@ -87,12 +87,22 @@ object FuzzyTitleMatcher {
 
     /**
      * Calculates token and string edit distance similarity between two strings (0.0 to 1.0).
+     * Dispatches to High-Performance Rust SIMD engine if available, with pure Kotlin fallback.
      */
     fun calculateSimilarity(s1: String, s2: String): Double {
         val str1 = s1.trim().lowercase()
         val str2 = s2.trim().lowercase()
         if (str1 == str2) return 1.0
         if (str1.isEmpty() || str2.isEmpty()) return 0.0
+
+        try {
+            val rustScore = NativeBridge.rustCalculateSimilarity(str1, str2)
+            if (rustScore > 0f) {
+                return rustScore.toDouble()
+            }
+        } catch (_: Throwable) {
+            // Fallback to pure Kotlin evaluator
+        }
 
         // Direct Substring check
         if (str2.contains(str1) || str1.contains(str2)) {
