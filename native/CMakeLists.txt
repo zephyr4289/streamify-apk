@@ -42,7 +42,9 @@ target_include_directories(streamify_core PRIVATE
     dsp/kissfft
 )
 
-target_link_libraries(streamify_core
-    android
-    log
-)
+if (ANDROID)
+    target_link_libraries(streamify_core
+        android
+        log
+    )
+endif()
