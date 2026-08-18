@@ -167,11 +167,19 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         val currentId = prefs.getInt("saved_current_id", -1)
                         val currentTrack = tracks.find { it.id == currentId } ?: tracks.first()
                         val position = prefs.getLong("saved_position", 0L)
+                        val targetIndex = tracks.indexOfFirst { it.id == currentTrack.id }.coerceAtLeast(0)
                         
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            playTrack(currentTrack, tracks)
-                            controller?.seekTo(position)
-                            controller?.pause()
+                            // Restore UI state only in PAUSED mode (do not auto-play on app launch)
+                            _playerState.value = _playerState.value.copy(
+                                currentTrack = currentTrack,
+                                currentIndex = targetIndex,
+                                queue = tracks,
+                                isPlaying = false,
+                                isBuffering = false,
+                                currentPosition = position,
+                                duration = (currentTrack.durationSec * 1000L).coerceAtLeast(0L)
+                            )
                         }
                     }
                 }
@@ -308,7 +316,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         try {
                             com.streamify.app.data.NativeBridge.pushTelemetryEvent(
-                                com.streamify.app.data.NativeBridge.EVENT_PLAYBACK_START,
+                                com.streamify.app.data.NativeBridge.EVENT_PLAY_TRANSITION,
                                 currentHour.toLong(),
                                 1.0f
                             )
