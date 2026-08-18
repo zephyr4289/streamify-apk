@@ -25,6 +25,7 @@ add_library(streamify_core SHARED
     ingest/AudioPipeline.cc
     dsp/SoftKneeLimiter.cc
     dsp/LufsNormalizer.cc
+    dsp/LyricAligner.cc
     dsp/kissfft/kiss_fft.c
     dsp/kissfft/kiss_fftr.c
     third_party/sqlite3/sqlite3.c
@@ -57,6 +58,7 @@ if (STREAMIFY_BUILD_TESTS)
         tests/test_dsp.cc
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
+        dsp/LyricAligner.cc
         dsp/kissfft/kiss_fft.c
         dsp/kissfft/kiss_fftr.c
     )
@@ -90,6 +92,7 @@ if (STREAMIFY_BUILD_FUZZERS)
         fuzz/dsp_fuzzer_harness.cc
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
+        dsp/LyricAligner.cc
         dsp/kissfft/kiss_fft.c
         dsp/kissfft/kiss_fftr.c
     )

@@ -5,7 +5,6 @@ import java.io.FileInputStream
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.chaquo.python")
 }
 
 val localProperties = Properties().apply {
@@ -96,16 +95,6 @@ android {
         cmake {
             path = file("../native/CMakeLists.txt")
             version = "3.22.1"
-        }
-    }
-    chaquopy {
-        defaultConfig {
-            version = "3.11"
-            pip {
-                install("yt-dlp")
-                install("mutagen")
-                install("requests")
-            }
         }
     }
 }

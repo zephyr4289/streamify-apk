@@ -240,12 +240,18 @@ fun LyricsScreen(
                         items = currentLyrics,
                         key = { index, line -> "${index}_${line.timeMs}" }
                     ) { index, line ->
-                        YtSyllableLine(
-                            line = line,
-                            isActive = index == activeIndex,
-                            currentTimeMs = { lyricController.interpolatedPosMs },
-                            dominantColor = dominantColor,
-                            onTap = { onSeek(line.timeMs) }
+                        val nextLineTime = if (index + 1 < currentLyrics.size) currentLyrics[index + 1].timeMs else line.timeMs + 3500L
+                        val isPast = index < activeIndex
+                        val isActive = index == activeIndex
+
+                        com.streamify.app.ui.components.FluidSyllableText(
+                            text = line.text,
+                            lineStartMs = line.timeMs,
+                            lineEndMs = nextLineTime,
+                            currentPlaybackMs = lyricController.interpolatedPosMs,
+                            isActive = isActive,
+                            isPast = isPast,
+                            onClick = { onSeek(line.timeMs) }
                         )
                     }
 

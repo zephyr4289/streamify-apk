@@ -152,6 +152,16 @@ object NativeBridge {
         channelCount: Int,
         outResults: FloatArray
     ): String
+
+    // Project SLYR: Real-Time Syllable Karaoke & Wiener–Khinchin Cross-Correlation
+    external fun calculateLyricDrift(
+        directPcmBuffer: java.nio.ByteBuffer,
+        pcmByteCount: Int,
+        textOnsetsMs: LongArray,
+        onsetCount: Int,
+        sampleRate: Int,
+        channelCount: Int
+    ): Int
 }
 
 

@@ -28,10 +28,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Set up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Android NDK & CMake
         id: ndk-cache
@@ -213,11 +211,6 @@ jobs:
             type: "native"
             target: "storage_telemetry_test_suite"
 
-          - shard: "chaquopy-python-sandbox"
-            description: "Python 3.11 Runtime, yt-dlp & Mutagen Tag Extraction"
-            type: "python"
-            target: "test_python_sandbox.py"
-
           - shard: "playback-media3-timeline"
             description: "Sliding 2-Track JIT Timeline, Gapless & Equal-Power Crossfade"
             type: "android-jvm"
@@ -232,6 +225,11 @@ jobs:
             description: "Fractional Indexing, LWW CRDTs & PGRST204 Auto-Healer"
             type: "android-jvm"
             target: "com.streamify.app.data.*"
+
+          - shard: "rust-core-engine"
+            description: "Zero-Copy SIMD JSON, Lofty Metadata, Lyric Precompiler & PTP"
+            type: "rust"
+            target: "rust"
 
           - shard: "byzantine-jam-ptp"
             description: "2-Peer Byzantine Consensus, MAD Lyric Drift & PTP PLL Clock"
@@ -248,10 +246,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Set up Rust Toolchain
+        if: matrix.type == 'rust'
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Set up Clang & Sanitizer Matrix
         if: matrix.type == 'native'
@@ -311,21 +308,18 @@ jobs:
           ./${{ matrix.target }} > ../../shard-${{ matrix.shard }}.log 2>&1
         working-directory: .
 
-      - name: Execute Sandboxed Python Fuzzing Shard
-        id: python_test
-        if: matrix.type == 'python'
-        env:
-          PYTHONPATH: app/src/main/python
-        run: |
-          pip install pytest mutagen yt-dlp
-          pytest app/src/main/python/download_engine/${{ matrix.target }} -v > shard-${{ matrix.shard }}.log 2>&1
-
       - name: Execute Android JVM State Machine & Chaos Shard
         id: jvm_test
         if: matrix.type == 'android-jvm'
         run: |
           chmod +x gradlew
           ./gradlew testDebugUnitTest --tests "${{ matrix.target }}" --stacktrace > shard-${{ matrix.shard }}.log 2>&1
+
+      - name: Execute Rust Core Shard
+        id: rust_test
+        if: matrix.type == 'rust'
+        run: |
+          cargo test --manifest-path rust/Cargo.toml --verbose > shard-${{ matrix.shard }}.log 2>&1
 
       - name: Format Shard Log Header
         if: always()
@@ -334,9 +328,9 @@ jobs:
           STATUS="FAILED ❌"
           if [ "${{ matrix.type }}" == "native" ] && [ "${{ steps.native_test.outcome }}" == "success" ]; then
             STATUS="PASSED ✅"
-          elif [ "${{ matrix.type }}" == "python" ] && [ "${{ steps.python_test.outcome }}" == "success" ]; then
-            STATUS="PASSED ✅"
           elif [ "${{ matrix.type }}" == "android-jvm" ] && [ "${{ steps.jvm_test.outcome }}" == "success" ]; then
+            STATUS="PASSED ✅"
+          elif [ "${{ matrix.type }}" == "rust" ] && [ "${{ steps.rust_test.outcome }}" == "success" ]; then
             STATUS="PASSED ✅"
           fi
           sed -i "1s/^/==================================================\nSHARD: ${{ matrix.shard }}\nDESCRIPTION: ${{ matrix.description }}\nSTATUS: $STATUS\n==================================================\n\n/" shard-${{ matrix.shard }}.log

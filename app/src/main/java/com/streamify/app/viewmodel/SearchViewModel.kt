@@ -2,7 +2,6 @@ package com.streamify.app.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.chaquo.python.Python
 import com.streamify.app.data.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.StreamEdgeCache
@@ -178,38 +177,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             else com.streamify.app.data.network.iTunesSearchApi.search(cleanQuery, maxResults = 25)
                         },
                         fallback = {
-                            val pyRes = com.streamify.app.data.network.PythonEngine.executeFallback(
-                                "download_engine.search",
-                                "search_youtube",
-                                cleanQuery,
-                                25
-                            ) { pyObj ->
-                                val str = pyObj.toString()
-                                if (str.isNotBlank() && str.startsWith("[")) {
-                                    val jsonArr = org.json.JSONArray(str)
-                                    val results = mutableListOf<OnlineSearchResult>()
-                                    for (i in 0 until jsonArr.length()) {
-                                        val item = jsonArr.getJSONObject(i)
-                                        val rawTitle = item.optString("title", "Unknown")
-                                        if (!com.streamify.app.data.network.SearchResultCleaner.isJunkModifier(rawTitle)) {
-                                            results.add(
-                                                OnlineSearchResult(
-                                                    title = com.streamify.app.data.network.SearchResultCleaner.cleanTitle(rawTitle),
-                                                    uploader = com.streamify.app.data.network.SearchResultCleaner.cleanUploader(item.optString("uploader", "Unknown")),
-                                                    url = item.optString("url", ""),
-                                                    duration = item.optInt("duration", 0),
-                                                    thumbnail = item.optString("thumbnail", ""),
-                                                    type = SearchResultType.SONG
-                                                )
-                                            )
-                                        }
-                                    }
-                                    results
-                                } else {
-                                    emptyList()
-                                }
-                            }
-                            pyRes.getOrNull() ?: emptyList()
+                            com.streamify.app.data.network.iTunesSearchApi.search(cleanQuery, maxResults = 25)
                         }
                     ) ?: emptyList()
 
@@ -382,24 +350,19 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                     android.widget.Toast.makeText(context, "Resolving Spotify link...", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 
-                val py = Python.getInstance()
-                val spotifyModule = py.getModule("download_engine.spotify")
-                val resultJson = spotifyModule.callAttr("fetch_spotify_metadata_from_url", url).toString()
-                
-                val jsonArray = org.json.JSONArray(resultJson)
+                val scraped = com.streamify.app.data.remote.PlaylistLinkScraper.scrapePlaylist(url)
                 val newPlaylistId = java.util.UUID.randomUUID().toString()
-                val playlistName = "Imported Spotify Playlist"
+                val playlistName = scraped.name.ifBlank { "Imported Spotify Playlist" }
                 val trackIds = mutableListOf<Int>()
                 
                 val savedQuality = context.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
                     .getString("download_quality", "320") ?: "320"
                     
-                for (i in 0 until jsonArray.length()) {
-                    val obj = jsonArray.getJSONObject(i)
-                    val title = obj.optString("title", "Unknown")
-                    val artist = obj.optString("artist", "Unknown")
-                    val album = obj.optString("album", "Spotify")
-                    val coverUrl = obj.optString("cover_url", "")
+                for (item in scraped.tracks) {
+                    val title = item.title
+                    val artist = item.artist
+                    val album = "Spotify"
+                    val coverUrl = item.thumbnailUrl ?: ""
                     
                     // Generate a pseudo ID
                     val pseudoId = -((title + artist).hashCode())

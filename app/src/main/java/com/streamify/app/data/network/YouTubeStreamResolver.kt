@@ -204,38 +204,7 @@ object YouTubeStreamResolver {
             return@withContext Result.success(nativeResolved)
         }
 
-        // 4. Tier 2: Chaquopy Python yt-dlp Subprocess Fallback
-        try {
-            val pyFallbackResult = PythonEngine.executeFallback(
-                moduleName = "download_engine.search",
-                function = "get_stream_url",
-                args = arrayOf("https://www.youtube.com/watch?v=$videoId")
-            ) { pyObj ->
-                val strVal = pyObj.toString().trim()
-                if (strVal.startsWith("{")) {
-                    val jsonObj = JSONObject(strVal)
-                    jsonObj.optString("url", "")
-                } else {
-                    strVal
-                }
-            }
-
-            val pythonStreamUrl = pyFallbackResult.getOrNull()
-            if (!pythonStreamUrl.isNullOrBlank()) {
-                val pyResolved = ResolvedStream(
-                    streamUrl = pythonStreamUrl,
-                    mimeType = "audio/webm",
-                    bitrate = 160000,
-                    durationSec = track.durationSec
-                )
-                StreamEdgeCache.putStream(videoId, pyResolved)
-                return@withContext Result.success(pyResolved)
-            }
-        } catch (e: Throwable) {
-            // Log & proceed to Tier 3
-        }
-
-        // 5. Tier 3: Query YouTube Music Search Query Match and retry
+        // 4. Tier 2: Query YouTube Music Search Match and retry
         try {
             val fallbackSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 3)
             for (candidate in fallbackSearch) {
@@ -451,37 +420,6 @@ object YouTubeStreamResolver {
         if (resolved != null && resolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putVideoStream(videoId, resolved)
             return@withContext resolved
-        }
-
-        // 3. Tier 2: Chaquopy Python yt-dlp Video Stream Fallback
-        try {
-            val pyFallbackResult = PythonEngine.executeFallback(
-                moduleName = "download_engine.search",
-                function = "get_stream_url",
-                args = arrayOf("https://www.youtube.com/watch?v=$videoId")
-            ) { pyObj ->
-                val strVal = pyObj.toString().trim()
-                if (strVal.startsWith("{")) {
-                    val jsonObj = JSONObject(strVal)
-                    jsonObj.optString("url", "")
-                } else {
-                    strVal
-                }
-            }
-
-            val pythonStreamUrl = pyFallbackResult.getOrNull()
-            if (!pythonStreamUrl.isNullOrBlank()) {
-                val pyResolved = ResolvedStream(
-                    streamUrl = pythonStreamUrl,
-                    mimeType = "video/mp4",
-                    bitrate = 1200000,
-                    durationSec = track.durationSec
-                )
-                StreamEdgeCache.putVideoStream(videoId, pyResolved)
-                return@withContext pyResolved
-            }
-        } catch (e: Throwable) {
-            // Ignore & return null
         }
 
         return@withContext null

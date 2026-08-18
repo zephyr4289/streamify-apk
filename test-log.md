@@ -1,6 +1,6 @@
 # CI/CD Testing & Chaos Suite Workflow
 
-This document outlines how the GitHub Actions Extreme Test Matrix & Chaos Suite executes automated tests across native C++, Python, and Kotlin subsystems, and where to locate the aggregated test logs. **Read this before attempting to reproduce a test failure locally.**
+This document outlines how the GitHub Actions Extreme Test Matrix & Chaos Suite executes automated tests across native C++, Rust, and Kotlin subsystems, and where to locate the aggregated test logs. **Read this before attempting to reproduce a test failure locally.**
 
 ## Where are the Test Logs?
 
@@ -18,7 +18,7 @@ When the GitHub Actions workflow (`.github/workflows/extreme-test-matrix.yml`) f
     *   `native-dsp`: KissFFT 2048 STFT, Krumhansl Key, Ellis BPM, and EBU R128 LUFS under AddressSanitizer (ASan) and UndefinedBehaviorSanitizer (UBSan).
     *   `native-simd-physics`: 128-D ARM NEON VectorStore and RK4 AirDrop ODE Solver.
     *   `native-telemetry-storage`: Lock-Free SPSC Ring Buffer, SHA-256 Proof-of-Compute, and SQLite WAL.
-    *   `chaquopy-python-sandbox`: Python 3.11 environment, yt-dlp core, and Mutagen metadata parser via Pytest.
+    *   `rust-core-engine`: Zero-Copy SIMD JSON, Lofty Metadata, Lyric Precompiler, and PTP Sync via Cargo.
     *   `playback-media3-timeline`: Sliding 2-Track JIT Timeline, Gapless playback, and Equal-Power Crossfade.
     *   `network-resolver-chaos`: 3-Tier Stream Resolver Race, HTTP 429 adaptive backoff, and CDN failover.
     *   `database-outbox-sync`: Conflict-free Fractional Indexing, LWW CRDTs, and PGRST204 Auto-Healer.

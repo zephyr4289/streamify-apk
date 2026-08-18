@@ -32,6 +32,12 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Rust
+/rust/target/
+target/
+*.rs.bk
+Cargo.lock
+
 # Keystore
 *.jks
 *.keystore

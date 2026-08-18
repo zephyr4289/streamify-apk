@@ -7,9 +7,6 @@ import android.content.Context
 import android.os.Build
 import com.streamify.app.data.NativeBridge
 
-import com.chaquo.python.Python
-import com.chaquo.python.android.AndroidPlatform
-
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache

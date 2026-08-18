@@ -9,6 +9,7 @@
 #include "../engine/PtpEngine.h"
 #include "../engine/AirDropPhysicsEngine.h"
 #include "../dsp/LufsNormalizer.h"
+#include "../dsp/LyricAligner.h"
 
 // Cached Global JNI References for zero lookup overhead
 static jclass g_trackClass = nullptr;
@@ -882,5 +883,48 @@ Java_com_streamify_app_data_NativeBridge_analyzePcmAcousticDNA(
     return env->NewStringUTF(camelotKey.c_str());
 }
 
+extern "C" JNIEXPORT jint JNICALL
+Java_com_streamify_app_data_NativeBridge_calculateLyricDrift(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject directPcmBuffer,
+    jint pcmByteCount,
+    jlongArray textOnsetsMs,
+    jint onsetCount,
+    jint sampleRate,
+    jint channelCount
+) {
+    if (!directPcmBuffer || pcmByteCount <= 0 || !textOnsetsMs || onsetCount <= 0) {
+        return 0;
+    }
 
+    void* rawPcm = env->GetDirectBufferAddress(directPcmBuffer);
+    if (!rawPcm) {
+        return 0;
+    }
 
+    jlong* onsets = env->GetLongArrayElements(textOnsetsMs, nullptr);
+    if (!onsets) {
+        return 0;
+    }
+
+    std::vector<uint32_t> onsetsU32(onsetCount);
+    for (int i = 0; i < onsetCount; ++i) {
+        onsetsU32[i] = static_cast<uint32_t>(std::max<jlong>(0, onsets[i]));
+    }
+    env->ReleaseLongArrayElements(textOnsetsMs, onsets, JNI_ABORT);
+
+    int numFloats = pcmByteCount / sizeof(float);
+    const float* pcm = reinterpret_cast<const float*>(rawPcm);
+
+    int32_t drift = LyricAligner::getInstance().calculateDriftMs(
+        pcm,
+        numFloats,
+        sampleRate > 0 ? sampleRate : 44100,
+        channelCount > 0 ? channelCount : 2,
+        onsetsU32.data(),
+        onsetCount
+    );
+
+    return drift;
+}

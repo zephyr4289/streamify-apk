@@ -1,6 +1,5 @@
 package com.streamify.app.data.remote
 
-import com.chaquo.python.Python
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -118,28 +117,6 @@ object PlaylistLinkScraper {
             }
         } catch (e: Exception) {
             e.printStackTrace()
-        }
-
-        // Tier 2: Chaquopy Python Extraction Fallback
-        if (tracks.isEmpty()) {
-            try {
-                if (Python.isStarted()) {
-                    val py = Python.getInstance()
-                    val spotifyModule = py.getModule("download_engine.spotify")
-                    val resultJson = spotifyModule.callAttr("fetch_spotify_metadata_from_url", url).toString()
-                    val jsonArray = org.json.JSONArray(resultJson)
-                    for (i in 0 until jsonArray.length()) {
-                        val item = jsonArray.getJSONObject(i)
-                        val title = item.optString("title", "")
-                        val artist = item.optString("artist", "")
-                        if (title.isNotBlank()) {
-                            tracks.add(ScrapedTrack(title = title, artist = artist))
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
         }
 
         return ScrapedPlaylist(name = playlistName, tracks = tracks)
@@ -307,51 +284,7 @@ object PlaylistLinkScraper {
         }
 
         // --------------------------------------------------------------------
-        // TIER 2: Chaquopy Python yt-dlp Flat Playlist Extractor (O(1) Batched)
-        // --------------------------------------------------------------------
-        if (tracks.isEmpty()) {
-            try {
-                if (Python.isStarted()) {
-                    val py = Python.getInstance()
-                    val searchModule = py.getModule("download_engine.search")
-                    val resultJsonStr = searchModule.callAttr("fetch_youtube_playlist", url, 500).toString()
-                    if (resultJsonStr.isNotBlank() && resultJsonStr.startsWith("{")) {
-                        val pyRoot = JSONObject(resultJsonStr)
-                        val pyTitle = pyRoot.optString("title", "")
-                        if (pyTitle.isNotBlank() && playlistName == "Imported YouTube Playlist") {
-                            playlistName = pyTitle
-                        }
-                        val pyTracks = pyRoot.optJSONArray("tracks")
-                        if (pyTracks != null) {
-                            for (i in 0 until pyTracks.length()) {
-                                val item = pyTracks.getJSONObject(i)
-                                val title = item.optString("title", "")
-                                val artist = item.optString("artist", "Unknown Artist")
-                                val videoId = item.optString("id", "").ifBlank { item.optString("videoId", "") }
-                                val thumbnail = item.optString("thumbnail", "").takeIf { it.isNotBlank() }
-                                val duration = item.optInt("duration", 0)
-                                if (title.isNotBlank()) {
-                                    tracks.add(
-                                        ScrapedTrack(
-                                            title = title.trim(),
-                                            artist = artist.trim(),
-                                            videoId = videoId.trim(),
-                                            thumbnailUrl = thumbnail,
-                                            durationSec = duration
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        // --------------------------------------------------------------------
-        // TIER 3: Raw HTML ytInitialData RegEx DOM Scraper
+        // TIER 2: Raw HTML ytInitialData RegEx DOM Scraper
         // --------------------------------------------------------------------
         if (tracks.isEmpty()) {
             try {

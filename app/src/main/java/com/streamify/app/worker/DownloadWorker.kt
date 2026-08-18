@@ -11,7 +11,6 @@ import androidx.work.ForegroundInfo
 import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.chaquo.python.Python
 import com.streamify.app.data.NativeBridge
 import com.streamify.app.data.NativeMetadataTagger
 import com.streamify.app.data.PlaylistRepository
@@ -173,126 +172,6 @@ class DownloadWorker(
 
         if (fastPathSuccess) {
             return@withContext Result.success()
-        }
-
-        // -------------------------------------------------------------
-        // FALLBACK: Python yt-dlp Core
-        // -------------------------------------------------------------
-        try {
-            if (Python.isStarted()) {
-                val py = Python.getInstance()
-                val coreModule = py.getModule("download_engine.core")
-                val metadataModule = py.getModule("download_engine.metadata")
-                
-                var completedFilePath: String? = null
-
-                val callback = object : DownloadCallback {
-                    override fun onProgress(percent: String, speed: String, eta: String) {
-                        setProgressAsync(workDataOf(
-                            "progress" to percent,
-                            "speed" to speed,
-                            "eta" to eta
-                        ))
-                    }
-
-                    override fun onFinished(filepath: String) {
-                        completedFilePath = filepath
-                    }
-
-                    override fun onError(error: String) {}
-                }
-
-                val success = coreModule.callAttr("download_audio", url, outputDir.absolutePath, callback, quality).toBoolean()
-                
-                var targetPath = completedFilePath
-                if (targetPath == null || !File(targetPath).exists()) {
-                    targetPath = outputDir.listFiles()?.filter { 
-                        it.name.endsWith(".mp3") || it.name.endsWith(".m4a") || it.name.endsWith(".webm") || it.name.endsWith(".opus")
-                    }?.maxByOrNull { it.lastModified() }?.absolutePath
-                }
-
-                if (targetPath != null && File(targetPath).exists()) {
-                    val metadataResult = try {
-                        metadataModule.callAttr("inject_metadata", targetPath, title, artist, album, null)
-                    } catch (e: Exception) {
-                        null
-                    }
-                    
-                    var durationSec = 0
-                    var bpm = 120.0f
-                    var coverArtPath = ""
-                    if (metadataResult != null) {
-                        try {
-                            val list = metadataResult.asList()
-                            if (list.size >= 2) {
-                                durationSec = list[0].toInt()
-                                bpm = list[1].toFloat()
-                            }
-                            if (list.size >= 3) {
-                                coverArtPath = list[2].toString()
-                            }
-                        } catch (e: Exception) {}
-                    }
-                    
-                    val trackId = NativeBridge.insertTrack(
-                        filepath = targetPath,
-                        title = title,
-                        artist = artist,
-                        album = album,
-                        durationSec = durationSec,
-                        bpm = bpm
-                    ).toInt()
-
-                    if (trackId > 0) {
-                        if (coverArtPath.isNotBlank()) {
-                            NativeBridge.updateTrackCoverArt(trackId, coverArtPath)
-                        }
-                        // Background AI Feature extraction (Throttled single-core execution with buffer gate)
-                        withContext(dspDispatcher) {
-                            try {
-                                while (com.streamify.app.service.PlaybackService.isBuffering.value) {
-                                    kotlinx.coroutines.delay(200)
-                                }
-                                NativeBridge.processAudioFile(trackId, targetPath)
-                            } catch (e: Exception) {}
-                        }
-
-                        try {
-                            val lyrics = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(title, artist)
-                            if (!lyrics.isNullOrBlank()) {
-                                com.streamify.app.data.LyricsCacheManager.saveCompanionLyrics(targetPath, lyrics)
-                            }
-                        } catch (e: Exception) {}
-
-                        try {
-                            PlaylistRepository.init(applicationContext)
-                            var playlist = PlaylistRepository.playlists.value.find { it.name.equals("Streamify", ignoreCase = true) }
-                            if (playlist == null) {
-                                PlaylistRepository.createPlaylist("Streamify", "Downloaded songs on Streamify")
-                                playlist = PlaylistRepository.playlists.value.find { it.name.equals("Streamify", ignoreCase = true) }
-                            }
-                            if (playlist != null) {
-                                PlaylistRepository.addTrackToPlaylist(playlist.id, trackId)
-                            }
-                        } catch (e: Exception) {}
-
-                        try {
-                            android.media.MediaScannerConnection.scanFile(
-                                applicationContext,
-                                arrayOf(targetPath),
-                                null,
-                                null
-                            )
-                        } catch (e: Exception) {}
-
-                        TrackRepository.refresh()
-                        UiEventBus.emitEvent(UiEvent.ShowSnackbar("Saved to Streamify Library ($title)"))
-                    }
-                    return@withContext Result.success()
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
 
         Result.failure()
