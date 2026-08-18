@@ -105,7 +105,11 @@ object TrackRepository {
         }
     }
 
-    suspend fun registerStreamedTrack(track: Track, context: android.content.Context? = null): Track = withContext(Dispatchers.IO) {
+    suspend fun registerStreamedTrack(
+        track: Track,
+        context: android.content.Context? = null,
+        addToDefaultPlaylist: Boolean = false
+    ): Track = withContext(Dispatchers.IO) {
         val albumName = if (track.album.isNotBlank() && !track.album.equals("Single", ignoreCase = true)) track.album else "Streamify"
         val canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist)
         val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
@@ -145,15 +149,17 @@ object TrackRepository {
         )
 
         if (savedId > 0) {
-            // 1. Auto-add to "Streamify" playlist
-            try {
-                var streamifyPl = PlaylistRepository.getPlaylists().find { it.name.equals("Streamify", ignoreCase = true) }
-                if (streamifyPl == null) {
-                    streamifyPl = PlaylistRepository.createPlaylist("Streamify", "Auto-saved Streamify songs")
+            // 1. Auto-add to "Streamify" playlist only if explicitly requested
+            if (addToDefaultPlaylist) {
+                try {
+                    var streamifyPl = PlaylistRepository.getPlaylists().find { it.name.equals("Streamify", ignoreCase = true) }
+                    if (streamifyPl == null) {
+                        streamifyPl = PlaylistRepository.createPlaylist("Streamify", "Auto-saved Streamify songs")
+                    }
+                    PlaylistRepository.addTrackToPlaylist(streamifyPl.id, savedId)
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-                PlaylistRepository.addTrackToPlaylist(streamifyPl.id, savedId)
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
 
             // 2. High-speed zero-audio text embedding for instant AI indexing

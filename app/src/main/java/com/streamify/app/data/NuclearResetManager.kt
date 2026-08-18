@@ -95,43 +95,12 @@ object NuclearResetManager {
         }
 
         // ====================================================================
-        // PHASE 3: ZERO-BLINDNESS INSTANT CLOUD RE-SEEDING
+        // PHASE 3: STATE REHYDRATION & CLOUD DISCOVERY REFRESH
         // ====================================================================
         _nukeState.value = NukeState.Seeding
         try {
-            // Fetch global trending seeds from online API (<250ms)
-            val seedQueries = listOf("Top Hits 2026", "Trending Global", "Viral Pop Hits")
-            val seededTracks = mutableListOf<Track>()
-
-            for (q in seedQueries) {
-                try {
-                    val results = iTunesSearchApi.search(q, maxResults = 10)
-                    for (item in results) {
-                        if (item.url.isNotBlank() && seededTracks.size < 25) {
-                            val registered = TrackRepository.registerStreamedTrack(
-                                Track(
-                                    id = 0,
-                                    title = item.title,
-                                    artist = item.uploader,
-                                    album = "Top Hits",
-                                    durationSec = item.duration,
-                                    filepath = item.url,
-                                    coverArtPath = item.thumbnail.replace("100x100bb", "600x600bb"),
-                                    bpm = 120f,
-                                    key = "C",
-                                    source = "online"
-                                ),
-                                context
-                            )
-                            seededTracks.add(registered)
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Continue with next seed query
-                }
-            }
-
-            // Trigger full in-memory state rehydration
+            // Trigger full in-memory state rehydration (Leaves local DB completely clean at 0 tracks,
+            // while HomeViewModel automatically pulls fresh live cloud discovery streams dynamically)
             TrackRepository.refresh()
 
             // Tactile feedback

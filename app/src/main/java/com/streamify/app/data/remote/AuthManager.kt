@@ -72,6 +72,16 @@ object AuthManager {
                 val profile = authResult.getOrThrow()
                 prefs?.edit()?.putBoolean("has_completed_onboarding", true)?.apply()
                 _authState.value = AuthState.Authenticated(profile)
+
+                // Hydrate new user's cloud library into clean local database
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        SupabaseClient.syncCloudLikes(emptyList())
+                        com.streamify.app.data.TrackRepository.refresh()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             }
             authResult
         } catch (e: GetCredentialCancellationException) {
@@ -89,5 +99,18 @@ object AuthManager {
         prefs?.edit()?.clear()?.apply()
         SupabaseClient.signOut()
         _authState.value = AuthState.Unauthenticated
+
+        // Clear local database and taste profile to prevent account contamination
+        try {
+            com.streamify.app.data.NativeBridge.nukeLocalDatabase()
+            com.streamify.app.data.StorageManager.clearAllCache(context)
+            com.streamify.app.data.TrackRepository.hardResetState()
+            com.streamify.app.data.PlaylistRepository.hardResetState()
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                com.streamify.app.data.TrackRepository.refresh()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }
