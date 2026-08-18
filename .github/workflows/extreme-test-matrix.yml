@@ -1,0 +1,584 @@
+name: Extreme Test Matrix & Chaos Suite
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *' # Nightly Deep Annihilation Matrix
+
+permissions:
+  contents: write
+  pull-requests: write
+  security-events: write # Required for CodeQL
+
+jobs:
+  # 1. CODEQL STATIC ANALYSIS
+  codeql-analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK & CMake
+        run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: cpp, kotlin, python
+          queries: security-and-quality
+
+      - name: Manual Build for CodeQL Tracing
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # 2. GATEKEEPER JOB: Compile everything first to save CI minutes
+  build-and-compile:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Native Build Tools & Clang-17
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-17 cmake ninja-build libstdc++-13-dev ccache
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100
+
+      - name: Cache Android NDK & CMake
+        id: ndk-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
+            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+          key: ${{ runner.os }}-ndk-26.1.10909125-cmake-3.22.1
+
+      - name: Setup Android SDK
+        if: steps.ndk-cache.outputs.cache-hit != 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK & CMake
+        if: steps.ndk-cache.outputs.cache-hit != 'true'
+        run: |
+          sdkmanager "ndk;26.1.10909125" "cmake;3.22.1" "build-tools;34.0.0"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+
+      - name: Setup CCache for C++ Compilation
+        uses: hendrikmuhs/ccache-action@v1.2.14
+        with:
+          key: ${{ runner.os }}-ccache-${{ github.ref_slug }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-main
+            ${{ runner.os }}-ccache-
+          max-size: 500M
+
+      - name: Compile Native C++20 Library (Host Validation)
+        run: |
+          mkdir -p native/build && cd native/build
+          cmake -DCMAKE_CXX_COMPILER=clang++ \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_FLAGS="-O3 -ffast-math -flto -fvisibility=hidden" \
+                -G Ninja ..
+          ninja
+
+      - name: Build Debug APK
+        id: gradle_build
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew assembleDebug -Pandroid.injected.build.model.only.versioned=3 \
+            -Dorg.gradle.caching=true \
+            -DANDROID_CCACHE=ccache \
+            --stacktrace 2>&1 | tee build.log
+
+      - name: Handle Build Failure & Push to build-logs
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ERROR_LOG=$(grep -A 2 -B 2 "e: " build.log | tail -n 50 || echo "Could not extract errors. See artifacts.")
+          gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments \
+            -f body="### ❌ Build Failed
+\`\`\`text
+$ERROR_LOG
+\`\`\`" || true
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin build-logs || true
+          git checkout build-logs || git checkout -b build-logs
+          cp build.log build-${{ github.run_number }}.log
+          git add build-${{ github.run_number }}.log
+          git commit -m "docs: add build log for run ${{ github.run_number }}" || true
+          git push origin build-logs || true
+
+      - name: Locate and Move APK
+        if: success()
+        run: |
+          APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+          cp "$APK_PATH" streamify.apk
+
+      - name: Upload APK Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Streamify-Debug-APK
+          path: streamify.apk
+
+      - name: Create Build Release
+        if: success() && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Streamify Build ${{ github.run_number }}
+          prerelease: true
+          files: streamify.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Latest Release
+        if: success() && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: Streamify v1.0.0 (Latest Build)
+          prerelease: false
+          files: streamify.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 3. TEST MATRIX: Fast Verification (Every Push/PR)
+  test-matrix:
+    name: "Shard: ${{ matrix.shard }}"
+    needs: build-and-compile
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: "native-dsp"
+            description: "KissFFT 2048 STFT, Krumhansl Key, Ellis BPM & EBU R128 LUFS"
+            type: "native"
+            target: "dsp_test_suite"
+
+          - shard: "native-simd-physics"
+            description: "128-D ARM NEON VectorStore & RK4 AirDrop ODE Solver"
+            type: "native"
+            target: "simd_physics_test_suite"
+
+          - shard: "native-telemetry-storage"
+            description: "Lock-Free SPSC Buffer, SHA-256 Proof-of-Compute & SQLite WAL"
+            type: "native"
+            target: "storage_telemetry_test_suite"
+
+          - shard: "chaquopy-python-sandbox"
+            description: "Python 3.11 Runtime, yt-dlp & Mutagen Tag Extraction"
+            type: "python"
+            target: "test_python_sandbox.py"
+
+          - shard: "playback-media3-timeline"
+            description: "Sliding 2-Track JIT Timeline, Gapless & Equal-Power Crossfade"
+            type: "android-jvm"
+            target: "com.streamify.app.playback.*"
+
+          - shard: "network-resolver-chaos"
+            description: "3-Tier Stream Resolver Race, HTTP 429 & Expired CDN Failover"
+            type: "android-jvm"
+            target: "com.streamify.app.network.*"
+
+          - shard: "database-outbox-sync"
+            description: "Fractional Indexing, LWW CRDTs & PGRST204 Auto-Healer"
+            type: "android-jvm"
+            target: "com.streamify.app.data.*"
+
+          - shard: "byzantine-jam-ptp"
+            description: "2-Peer Byzantine Consensus, MAD Lyric Drift & PTP PLL Clock"
+            type: "android-jvm"
+            target: "com.streamify.app.jam.*"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        if: matrix.type == 'android-jvm'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Clang & Sanitizer Matrix
+        if: matrix.type == 'native'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-17 cmake ninja-build libstdc++-13-dev ccache
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100
+
+      - name: Setup CCache for Native Shards
+        if: matrix.type == 'native'
+        uses: hendrikmuhs/ccache-action@v1.2.14
+        with:
+          key: ${{ runner.os }}-ccache-${{ github.ref_slug }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-main
+            ${{ runner.os }}-ccache-
+          max-size: 500M
+
+      - name: Cache Android NDK & CMake
+        id: ndk-cache
+        if: matrix.type == 'android-jvm'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
+            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+          key: ${{ runner.os }}-ndk-26.1.10909125-cmake-3.22.1
+
+      - name: Setup Android SDK
+        if: matrix.type == 'android-jvm' && steps.ndk-cache.outputs.cache-hit != 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK for AGP Sync
+        if: matrix.type == 'android-jvm' && steps.ndk-cache.outputs.cache-hit != 'true'
+        run: |
+          sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Setup Gradle
+        if: matrix.type == 'android-jvm'
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: true
+
+      - name: Execute Native C++20 ASan / UBSan Shard
+        id: native_test
+        if: matrix.type == 'native'
+        run: |
+          mkdir -p native/build && cd native/build
+          cmake -DCMAKE_CXX_COMPILER=clang++ \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -O2 -g" \
+                -DSTREAMIFY_BUILD_TESTS=ON \
+                -G Ninja ..
+          ninja
+          ./${{ matrix.target }} --gtest_color=no > ../../shard-${{ matrix.shard }}.log 2>&1
+        working-directory: .
+
+      - name: Execute Sandboxed Python Fuzzing Shard
+        id: python_test
+        if: matrix.type == 'python'
+        env:
+          PYTHONPATH: app/src/main/python
+        run: |
+          pip install pytest mutagen yt-dlp
+          pytest app/src/main/python/download_engine/${{ matrix.target }} -v > shard-${{ matrix.shard }}.log 2>&1
+
+      - name: Execute Android JVM State Machine & Chaos Shard
+        id: jvm_test
+        if: matrix.type == 'android-jvm'
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest --tests "${{ matrix.target }}" --stacktrace > shard-${{ matrix.shard }}.log 2>&1
+
+      - name: Format Shard Log Header
+        if: always()
+        run: |
+          touch shard-${{ matrix.shard }}.log
+          STATUS="FAILED ❌"
+          if [ "${{ matrix.type }}" == "native" ] && [ "${{ steps.native_test.outcome }}" == "success" ]; then
+            STATUS="PASSED ✅"
+          elif [ "${{ matrix.type }}" == "python" ] && [ "${{ steps.python_test.outcome }}" == "success" ]; then
+            STATUS="PASSED ✅"
+          elif [ "${{ matrix.type }}" == "android-jvm" ] && [ "${{ steps.jvm_test.outcome }}" == "success" ]; then
+            STATUS="PASSED ✅"
+          fi
+          sed -i "1s/^/==================================================\nSHARD: ${{ matrix.shard }}\nDESCRIPTION: ${{ matrix.description }}\nSTATUS: $STATUS\n==================================================\n\n/" shard-${{ matrix.shard }}.log
+
+      - name: Upload Shard Log Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: log-${{ matrix.shard }}
+          path: shard-${{ matrix.shard }}.log
+          retention-days: 7
+
+  # 4. NATIVE C++ DEEP FUZZING (Nightly & Main PRs)
+  native-deep-fuzz:
+    name: "Native C++20 LibFuzzer (Cached Corpus)"
+    needs: build-and-compile
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.base_ref == 'main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Clang-17 & LibFuzzer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-17 cmake ninja-build libstdc++-13-dev ccache
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100
+
+      - name: Setup CCache for Fuzzer Compilation
+        uses: hendrikmuhs/ccache-action@v1.2.14
+        with:
+          key: ${{ runner.os }}-ccache-${{ github.ref_slug }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-main
+            ${{ runner.os }}-ccache-
+          max-size: 500M
+
+      - name: Restore Fuzzer Seed Corpus
+        uses: actions/cache@v4
+        with:
+          path: native/fuzz/corpus
+          key: libfuzzer-corpus-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            libfuzzer-corpus-
+
+      - name: Compile & Run LibFuzzer
+        id: fuzz_test
+        run: |
+          mkdir -p native/build native/fuzz/corpus native/fuzz/artifacts
+          cd native/build
+          cmake -DCMAKE_CXX_COMPILER=clang++ \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_FLAGS="-fsanitize=fuzzer-no-link,address,undefined -O2 -g" \
+                -DSTREAMIFY_BUILD_FUZZERS=ON \
+                -G Ninja ..
+          ninja dsp_fuzzer_harness
+          FUZZ_TIME=300
+          if [ "${{ github.event_name }}" == "schedule" ]; then FUZZ_TIME=900; fi
+          ./dsp_fuzzer_harness ../fuzz/corpus -max_len=4096 -max_total_time=$FUZZ_TIME -artifact_prefix=../fuzz/artifacts/ > ../../shard-native-libfuzzer.log 2>&1 || true
+          if ls ../fuzz/artifacts/crash-* 1> /dev/null 2>&1; then
+            echo "FUZZER_FOUND_CRASH=true" >> $GITHUB_ENV
+          fi
+
+      - name: Upload Crash Artifacts on Fault
+        if: env.FUZZER_FOUND_CRASH == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: libfuzzer-crash-dumps
+          path: native/fuzz/artifacts/
+
+      - name: Format Fuzzer Log Header
+        if: always()
+        run: |
+          touch shard-native-libfuzzer.log
+          STATUS="FAILED ❌"
+          if [ "${{ env.FUZZER_FOUND_CRASH }}" != "true" ]; then
+            STATUS="PASSED ✅"
+          fi
+          sed -i "1s/^/==================================================\nSHARD: native-libfuzzer\nDESCRIPTION: Deep LibFuzzer Crash Hunt\nSTATUS: $STATUS\n==================================================\n\n/" shard-native-libfuzzer.log
+
+      - name: Upload Fuzzer Log Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: log-native-libfuzzer
+          path: shard-native-libfuzzer.log
+
+  # 5. MULTI-API ARM64 EMULATOR MATRIX (Nightly & Main PRs)
+  emulator-matrix:
+    name: "Emulator API ${{ matrix.api }} (ARM64)"
+    needs: build-and-compile
+    runs-on: macos-latest
+    if: github.event_name == 'schedule' || github.base_ref == 'main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 26
+            target: google_apis
+          - api: 30
+            target: google_apis
+          - api: 34
+            target: google_apis
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache Android NDK & CMake
+        id: ndk-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
+            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+          key: ${{ runner.os }}-ndk-26.1.10909125-cmake-3.22.1
+
+      - name: Setup Android SDK
+        if: steps.ndk-cache.outputs.cache-hit != 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK for AGP Sync
+        if: steps.ndk-cache.outputs.cache-hit != 'true'
+        run: |
+          sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: true
+
+      - name: Run Hardware-Accelerated ARM64 Emulator
+        id: emulator_test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: arm64-v8a
+          target: ${{ matrix.target }}
+          script: |
+            touch raw_emulator.log
+            chmod +x gradlew
+            ./gradlew connectedDebugAndroidTest --stacktrace > raw_emulator.log 2>&1
+
+      - name: Format Emulator Log Header
+        if: always()
+        run: |
+          touch raw_emulator.log
+          STATUS="FAILED ❌"
+          if [ "${{ steps.emulator_test.outcome }}" == "success" ]; then
+            STATUS="PASSED ✅"
+          fi
+          echo "==================================================" > shard-emulator-api-${{ matrix.api }}.log
+          echo "SHARD: emulator-api-${{ matrix.api }}" >> shard-emulator-api-${{ matrix.api }}.log
+          echo "DESCRIPTION: Headless Media3 & Compose UI Emulator Tests (API ${{ matrix.api }} ARM64)" >> shard-emulator-api-${{ matrix.api }}.log
+          echo "STATUS: $STATUS" >> shard-emulator-api-${{ matrix.api }}.log
+          echo "==================================================" >> shard-emulator-api-${{ matrix.api }}.log
+          cat raw_emulator.log >> shard-emulator-api-${{ matrix.api }}.log
+
+      - name: Upload Shard Log Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-emulator-api-${{ matrix.api }}
+          path: shard-emulator-api-${{ matrix.api }}.log
+
+  # 6. AGGREGATION & DEPLOYMENT
+  aggregate-and-publish-logs:
+    name: Aggregate & Commit to testing-log
+    runs-on: ubuntu-latest
+    needs: [build-and-compile, test-matrix, native-deep-fuzz, emulator-matrix, codeql-analysis]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download All Shard Logs
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: log-*
+          path: downloaded-logs
+          merge-multiple: true
+
+      - name: Aggregate Logs & Compute Status
+        run: |
+          echo "========================================================================" > combined-test.log
+          echo "STREAMIFY EXTREME TESTING MATRIX AGGREGATE RUN #${{ github.run_number }}" >> combined-test.log
+          echo "COMMIT: ${{ github.sha }}" >> combined-test.log
+          echo "========================================================================" >> combined-test.log
+          echo "" >> combined-test.log
+          cat downloaded-logs/*.log >> combined-test.log 2>/dev/null || echo "WARN: No shard logs found." >> combined-test.log
+
+          # Catch both explicit failures AND cancelled jobs
+          if [ "${{ needs.build-and-compile.result }}" == "failure" ] || [ "${{ needs.build-and-compile.result }}" == "cancelled" ] || \
+             [ "${{ needs.test-matrix.result }}" == "failure" ] || [ "${{ needs.test-matrix.result }}" == "cancelled" ] || \
+             [ "${{ needs.native-deep-fuzz.result }}" == "failure" ] || [ "${{ needs.native-deep-fuzz.result }}" == "cancelled" ] || \
+             [ "${{ needs.emulator-matrix.result }}" == "failure" ] || [ "${{ needs.emulator-matrix.result }}" == "cancelled" ] || \
+             [ "${{ needs.codeql-analysis.result }}" == "failure" ] || [ "${{ needs.codeql-analysis.result }}" == "cancelled" ] || \
+             grep -q "STATUS: FAILED ❌" combined-test.log; then
+            echo "OVERALL_TEST_RESULT=FAILED" >> $GITHUB_ENV
+          else
+            echo "OVERALL_TEST_RESULT=PASSED" >> $GITHUB_ENV
+          fi
+
+      - name: Push Combined Log to testing-log Branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin testing-log || true
+          if git show-ref --verify --quiet refs/remotes/origin/testing-log; then
+            git checkout testing-log
+            git pull --rebase origin testing-log || true
+          else
+            git checkout --orphan testing-log
+            git rm -rf . || true
+          fi
+          mkdir -p runs
+          cp combined-test.log runs/test-run-${{ github.run_number }}.log
+          cp combined-test.log latest.log
+          git add runs/test-run-${{ github.run_number }}.log latest.log
+          git commit -m "test(ci): run #${{ github.run_number }} [${{ env.OVERALL_TEST_RESULT }}] [skip ci]" || true
+          git push origin testing-log || true
+
+      - name: Post Failure Comment on Triggering Commit
+        if: env.OVERALL_TEST_RESULT == 'FAILED'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ERRORS=$(grep -A 3 -B 1 "FAILED" combined-test.log | head -n 40 || echo "Errors encountered in test shards.")
+          gh api repos/${{ github.repository }}/commits/${{ github.sha }}/comments \
+            -f body="### ❌ Extreme Test Suite Failure (Run #${{ github.run_number }})
+Detailed traces committed to \`testing-log\` branch.
+\`\`\`text
+$ERRORS
+\`\`\`" || true
+          exit 1
