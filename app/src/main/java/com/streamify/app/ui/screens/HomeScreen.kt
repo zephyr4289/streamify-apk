@@ -44,7 +44,14 @@ fun HomeScreen(
     val communityState by communityViewModel.uiState.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val user by SupabaseClient.currentUser.collectAsState()
-    val playerState by playerViewModel.playerState.collectAsState()
+    
+    // Decoupled Player State Observation: Isolates 200ms position ticks from root HomeScreen recomposition
+    val currentTrack by remember {
+        derivedStateOf { playerViewModel.playerState.value.currentTrack }
+    }
+    val isBuffering by remember {
+        derivedStateOf { playerViewModel.playerState.value.isBuffering }
+    }
     val listState = rememberLazyListState()
     val contextMenuController = LocalContextMenuController.current
 
@@ -90,12 +97,16 @@ fun HomeScreen(
                 }
                 is HomeUiState.Success -> {
                     val allTracks = state.allTracks
-                    val displayTracks = when (selectedMood.lowercase()) {
-                        "workout" -> allTracks.filter { it.bpm >= 120f || it.bpm == 0f }.ifEmpty { allTracks }
-                        "relax", "chill" -> allTracks.filter { (it.bpm in 60f..110f) || it.bpm == 0f }.ifEmpty { allTracks }
-                        "focus" -> allTracks.filter { it.bpm in 70f..115f }.ifEmpty { allTracks }
-                        "energize" -> allTracks.filter { it.bpm >= 125f }.ifEmpty { allTracks }
-                        else -> allTracks
+
+                    // Derived State Isolation: Only re-filters when allTracks or selectedMood changes
+                    val displayTracks = remember(allTracks, selectedMood) {
+                        when (selectedMood.lowercase()) {
+                            "workout" -> allTracks.filter { it.bpm >= 120f || it.bpm == 0f }.ifEmpty { allTracks }
+                            "relax", "chill" -> allTracks.filter { (it.bpm in 60f..110f) || it.bpm == 0f }.ifEmpty { allTracks }
+                            "focus" -> allTracks.filter { it.bpm in 70f..115f }.ifEmpty { allTracks }
+                            "energize" -> allTracks.filter { it.bpm >= 125f }.ifEmpty { allTracks }
+                            else -> allTracks
+                        }
                     }
 
                     val screenConfig = LocalScreenConfiguration.current
@@ -103,7 +114,9 @@ fun HomeScreen(
                         ((screenConfig.widthDp.value / 158f).toInt()).coerceAtLeast(2)
                     }
 
-                    val quickPickCandidates = if (displayTracks.isNotEmpty()) displayTracks else state.sessionRecommendations.ifEmpty { allTracks }
+                    val quickPickCandidates = remember(displayTracks, state.sessionRecommendations, allTracks) {
+                        if (displayTracks.isNotEmpty()) displayTracks else state.sessionRecommendations.ifEmpty { allTracks }
+                    }
                     val quickPickColumns = remember(quickPickCandidates) {
                         val pool = if (quickPickCandidates.isNotEmpty()) quickPickCandidates else allTracks
                         pool.take(16).chunked(4)
@@ -173,8 +186,8 @@ fun HomeScreen(
                             item(key = "grid_listen_again") {
                                 YtListenAgainGrid(
                                     columns = listenAgainColumns,
-                                    currentPlayingTrack = playerState.currentTrack,
-                                    isBuffering = playerState.isBuffering,
+                                    currentPlayingTrack = currentTrack,
+                                    isBuffering = isBuffering,
                                     onTrackClick = onTrackClick
                                 )
                             }
@@ -191,8 +204,8 @@ fun HomeScreen(
                             item(key = "carousel_quick_picks") {
                                 YtQuickPicksCarousel(
                                     columns = quickPickColumns,
-                                    currentPlayingTrack = playerState.currentTrack,
-                                    isBuffering = playerState.isBuffering,
+                                    currentPlayingTrack = currentTrack,
+                                    isBuffering = isBuffering,
                                     onTrackClick = onTrackClick
                                 )
                             }
@@ -216,9 +229,9 @@ fun HomeScreen(
                                         items = supermixPool.take(8),
                                         key = { "supermix_${it.id}" }
                                     ) { track ->
-                                        val isCardBuffering = playerState.isBuffering && playerState.currentTrack != null && (
-                                            (playerState.currentTrack?.id ?: 0) > 0 && playerState.currentTrack?.id == track.id ||
-                                            (playerState.currentTrack?.title.equals(track.title, ignoreCase = true) && playerState.currentTrack?.artist.equals(track.artist, ignoreCase = true))
+                                        val isCardBuffering = isBuffering && currentTrack != null && (
+                                            (currentTrack?.id ?: 0) > 0 && currentTrack?.id == track.id ||
+                                            (currentTrack?.title.equals(track.title, ignoreCase = true) && currentTrack?.artist.equals(track.artist, ignoreCase = true))
                                         )
                                         YtSupermixCard(
                                             title = "${track.artist} Mix",
@@ -247,8 +260,8 @@ fun HomeScreen(
                             item(key = "grid_circadian") {
                                 YtListenAgainGrid(
                                     columns = circadianColumns,
-                                    currentPlayingTrack = playerState.currentTrack,
-                                    isBuffering = playerState.isBuffering,
+                                    currentPlayingTrack = currentTrack,
+                                    isBuffering = isBuffering,
                                     onTrackClick = onTrackClick
                                 )
                             }
@@ -258,15 +271,15 @@ fun HomeScreen(
                         if (state.hybridRecommendations.isNotEmpty()) {
                             item(key = "header_hybrid") {
                                 YtSectionHeader(
-                                    title = "Hybrid Radar ⚡",
+                                    title = "Hybrid Radar",
                                     kicker = "Last.fm Graph × On-Device SIMD"
                                 )
                             }
                             item(key = "grid_hybrid") {
                                 YtListenAgainGrid(
                                     columns = hybridColumns,
-                                    currentPlayingTrack = playerState.currentTrack,
-                                    isBuffering = playerState.isBuffering,
+                                    currentPlayingTrack = currentTrack,
+                                    isBuffering = isBuffering,
                                     onTrackClick = onTrackClick
                                 )
                             }

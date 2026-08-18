@@ -70,6 +70,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var preResolvingTrackKey: String? = null
     private var lookaheadJob: Job? = null
     private var playJob: Job? = null
+    private var hydrateJob: Job? = null
+    private val processedTitleHashes = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun getController(): MediaController? = controller
@@ -800,7 +802,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     private fun hydrateContinuumRadio(seedTrack: Track) {
-        viewModelScope.launch(Dispatchers.IO) {
+        hydrateJob?.cancel()
+        hydrateJob = viewModelScope.launch(Dispatchers.Default) {
             try {
                 val currentQ = _playerState.value.queue
                 val radioTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
@@ -809,17 +812,30 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     targetCount = 20
                 )
                 if (radioTracks.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        val currentQueue = _playerState.value.queue.toMutableList()
-                        for (rt in radioTracks) {
-                            val isDup = currentQueue.any {
-                                com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rt.title, rt.artist)
-                            }
-                            if (!isDup) {
-                                currentQueue.add(rt)
-                            }
+                    // O(1) Root Hash Deduplication: Skip heavy comparison for already processed songs
+                    val uniqueCandidates = radioTracks.filter { candidate ->
+                        val hash = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(candidate.title)
+                        if (hash == 0L || processedTitleHashes.contains(hash)) {
+                            false
+                        } else {
+                            processedTitleHashes.add(hash)
+                            true
                         }
-                        _playerState.value = _playerState.value.copy(queue = currentQueue)
+                    }
+
+                    if (uniqueCandidates.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            val currentQueue = _playerState.value.queue.toMutableList()
+                            for (rt in uniqueCandidates) {
+                                val isDup = currentQueue.any {
+                                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rt.title, rt.artist)
+                                }
+                                if (!isDup) {
+                                    currentQueue.add(rt)
+                                }
+                            }
+                            _playerState.value = _playerState.value.copy(queue = currentQueue)
+                        }
                     }
                 }
             } catch (e: Exception) {
