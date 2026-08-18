@@ -205,7 +205,19 @@ object TrackRepository {
             }
         }
 
-        refresh()
+        // Targeted in-memory state patch: Zero full SQLite rescan
+        val currentAll = _allTracks.value
+        val existingIndex = currentAll.indexOfFirst { it.id == updatedTrack.id || (it.filepath.isNotBlank() && it.filepath == updatedTrack.filepath) }
+        val newAll = if (existingIndex >= 0) {
+            currentAll.toMutableList().apply { set(existingIndex, updatedTrack) }
+        } else {
+            currentAll + updatedTrack
+        }
+        _allTracks.value = newAll
+        if (updatedTrack.isLiked) {
+            _likedTracks.value = (_likedTracks.value.filter { it.id != updatedTrack.id } + updatedTrack)
+        }
+
         updatedTrack
     }
 
@@ -222,17 +234,26 @@ object TrackRepository {
         }
 
         if (targetId > 0) {
-            val result = NativeBridge.toggleLike(userId, targetId)
+            val isNowLiked = NativeBridge.toggleLike(userId, targetId)
             val updated = trackObj ?: _allTracks.value.find { it.id == targetId }
             if (updated != null) {
+                val patchedTrack = updated.copy(isLiked = isNowLiked)
                 val cleanSig = (updated.title.trim().lowercase() + "_" + updated.artist.trim().lowercase())
                 val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
                 
+                // Targeted in-memory state patch: Zero JNI DB thrashing
+                _allTracks.value = _allTracks.value.map { if (it.id == targetId) patchedTrack else it }
+                _likedTracks.value = if (isNowLiked) {
+                    (_likedTracks.value.filter { it.id != targetId } + patchedTrack)
+                } else {
+                    _likedTracks.value.filter { it.id != targetId }
+                }
+
                 // Instant asynchronous push to Supabase Cloud
                 kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        if (result) {
-                            com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(updated)
+                        if (isNowLiked) {
+                            com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(patchedTrack)
                             com.streamify.app.data.remote.SupabaseClient.addCloudLike(cloudId)
                         } else {
                             com.streamify.app.data.remote.SupabaseClient.removeCloudLike(cloudId)
@@ -242,8 +263,7 @@ object TrackRepository {
                     }
                 }
             }
-            refresh()
-            result
+            isNowLiked
         } else {
             false
         }

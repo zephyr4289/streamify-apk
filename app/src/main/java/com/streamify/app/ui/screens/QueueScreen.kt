@@ -31,6 +31,7 @@ fun QueueScreen(
     val contextMenuController = LocalContextMenuController.current
     val nowPlaying = playerState.currentTrack
     val queue = playerState.queue
+    val currentIndex = playerState.currentIndex
     val listState = rememberLazyListState()
 
     // 120fps Mathematical Drag Reorder State
@@ -38,8 +39,13 @@ fun QueueScreen(
     var draggedItemOffset by remember { mutableStateOf(0f) }
     val itemHeightPx = with(LocalDensity.current) { 56.dp.toPx() }
 
-    val upNext = remember(queue, nowPlaying) {
-        if (nowPlaying != null) queue.filter { it.id != nowPlaying.id } else queue
+    // Index-Aware Queue Filtering: Preserves duplicate songs elsewhere in the playlist
+    val upNext = remember(queue, currentIndex) {
+        if (queue.isNotEmpty() && currentIndex in queue.indices) {
+            queue.filterIndexed { index, _ -> index != currentIndex }
+        } else {
+            queue
+        }
     }
 
     Column(
@@ -78,7 +84,7 @@ fun QueueScreen(
                     )
                 }
 
-                item(key = "active_${nowPlaying.id}", contentType = "trackRow") {
+                item(key = "active_${nowPlaying.id}_${nowPlaying.filepath.hashCode()}", contentType = "trackRow") {
                     YtQueueTrackItem(
                         track = nowPlaying,
                         isPlaying = playerState.isPlaying,
@@ -106,7 +112,7 @@ fun QueueScreen(
 
                 itemsIndexed(
                     items = upNext,
-                    key = { _, track -> track.id },
+                    key = { index, track -> "queue_${track.id}_${track.filepath.hashCode()}_${index}" },
                     contentType = { _, _ -> "trackRow" }
                 ) { index, track ->
                     val isBeingDragged = draggedItemIndex == index
