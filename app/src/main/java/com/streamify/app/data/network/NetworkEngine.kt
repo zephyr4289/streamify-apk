@@ -2,6 +2,7 @@ package com.streamify.app.data.network
 
 import android.util.LruCache
 import okhttp3.ConnectionPool
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import java.util.concurrent.TimeUnit
@@ -15,6 +16,29 @@ object NetworkEngine {
             .connectTimeout(3000, TimeUnit.MILLISECONDS)
             .readTimeout(4000, TimeUnit.MILLISECONDS)
             .writeTimeout(3000, TimeUnit.MILLISECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    val prioritizedInterceptor = Interceptor { chain ->
+        val request = chain.request()
+        val newRequest = if (request.url.host.contains("googlevideo.com")) {
+            request.newBuilder()
+                .header("X-Streamify-Priority", "CRITICAL")
+                .build()
+        } else {
+            request
+        }
+        chain.proceed(newRequest)
+    }
+
+    val exoPlayerClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .addInterceptor(prioritizedInterceptor)
+            .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
+            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .connectTimeout(10000, TimeUnit.MILLISECONDS)
+            .readTimeout(10000, TimeUnit.MILLISECONDS)
             .retryOnConnectionFailure(true)
             .build()
     }

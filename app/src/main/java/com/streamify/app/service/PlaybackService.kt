@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 class PlaybackService : MediaSessionService() {
     companion object {
         val syncAudioProcessor: SyncAudioProcessor = SyncAudioProcessor()
+        val isBuffering = kotlinx.coroutines.flow.MutableStateFlow(false)
     }
 
     private var player: ExoPlayer? = null
@@ -35,16 +36,9 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(15000)
-            .setDefaultRequestProperties(mapOf(
-                "Accept" to "*/*",
-                "Accept-Encoding" to "gzip, deflate, br",
-                "Connection" to "keep-alive"
-            ))
+        val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
+            com.streamify.app.data.network.NetworkEngine.exoPlayerClient
+        ).setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
         // Progressive 250MB Audio LRU Cache (Zero-latency seeking & offline replaying)
         val audioCache = AudioCacheManager.getCache(this)
@@ -77,6 +71,10 @@ class PlaybackService : MediaSessionService() {
         exoPlayer.addListener(preBufferManager!!)
 
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering.value = (playbackState == androidx.media3.common.Player.STATE_BUFFERING)
+            }
+
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 super.onAudioSessionIdChanged(audioSessionId)
                 EqualizerManager.init(this@PlaybackService, audioSessionId)

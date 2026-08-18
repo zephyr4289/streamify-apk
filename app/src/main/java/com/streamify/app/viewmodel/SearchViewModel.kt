@@ -57,6 +57,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
     private var searchJob: kotlinx.coroutines.Job? = null
     private var suggestJob: kotlinx.coroutines.Job? = null
     private var speculativePrefetchJob: kotlinx.coroutines.Job? = null
+    private val prefetchScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     private var prefs: android.content.SharedPreferences? = null
     private var appContext: android.content.Context? = null
 
@@ -241,17 +242,14 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 isOnlineLoading = false
             )
 
-            // 4. Speculative Background Parallel Pre-Resolver & 512KB Pre-Buffer (Zero Idle Waste)
+            // 4. Zero-Disk Speculative In-Memory URL Pre-Resolver (Zero Disk I/O, Zero Contention)
             if (onlineResults.isNotEmpty()) {
                 speculativePrefetchJob?.cancel()
-                speculativePrefetchJob = viewModelScope.launch(Dispatchers.IO) {
-                    val isWifi = isWifiConnected(appContext)
-                    val prefetchCount = if (isWifi) 6 else 3
-                    val bufferCount = if (isWifi) 2 else 1
-
-                    val candidates = onlineResults.take(prefetchCount)
-                    val deferredResolutions = candidates.map { candidate ->
-                        async(Dispatchers.IO) {
+                prefetchScope.coroutineContext.cancelChildren()
+                speculativePrefetchJob = prefetchScope.launch {
+                    val candidates = onlineResults.take(3)
+                    candidates.forEach { candidate ->
+                        launch {
                             try {
                                 val tempTrack = Track(
                                     id = 0,
@@ -260,36 +258,16 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                                     filepath = candidate.url,
                                     coverArtPath = candidate.thumbnail
                                 )
-                                YouTubeStreamResolver.resolveStreamJit(tempTrack).getOrNull()
-                            } catch (e: Exception) {
-                                null
-                            }
-                        }
-                    }
-
-                    val resolvedList = deferredResolutions.awaitAll()
-
-                    // Head-of-line 512KB HTTP Pre-Buffer into SimpleCache
-                    appContext?.let { ctx ->
-                        for (i in 0 until minOf(bufferCount, resolvedList.size)) {
-                            val res = resolvedList[i]
-                            if (res != null && res.streamUrl.isNotBlank() && res.streamUrl.startsWith("http")) {
-                                try {
-                                    val cache = com.streamify.app.service.AudioCacheManager.getCache(ctx)
-                                    val dataSpec = androidx.media3.datasource.DataSpec.Builder()
-                                        .setUri(android.net.Uri.parse(res.streamUrl))
-                                        .setLength(512 * 1024L) // 512 KB
-                                        .build()
-                                    val httpFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-                                        .setConnectTimeoutMs(3000)
-                                        .setReadTimeoutMs(4000)
-                                        .setAllowCrossProtocolRedirects(true)
-                                    val cacheDataSource = androidx.media3.datasource.cache.CacheDataSource(cache, httpFactory.createDataSource())
-                                    val writer = androidx.media3.datasource.cache.CacheWriter(cacheDataSource, dataSpec, null, null)
-                                    writer.cache()
-                                } catch (e: Exception) {
-                                    // Non-fatal background pre-buffering
+                                val resolved = YouTubeStreamResolver.resolveStreamJit(tempTrack).getOrNull()
+                                if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                                    val vidId = YouTubeStreamResolver.extractVideoId(candidate.url, candidate.thumbnail)
+                                    if (vidId != null) {
+                                        StreamEdgeCache.putStream(vidId, resolved)
+                                    }
+                                    streamUrlCache.put(candidate.url, Pair(resolved.streamUrl, System.currentTimeMillis()))
                                 }
+                            } catch (e: Exception) {
+                                // Silent fail
                             }
                         }
                     }
@@ -331,6 +309,9 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         context: android.content.Context,
         onTrackReady: (() -> Unit)? = null
     ) {
+        // Immediately cancel all speculative background prefetches to free network sockets & CPU for active playback
+        speculativePrefetchJob?.cancel()
+        prefetchScope.coroutineContext.cancelChildren()
         streamJob?.cancel()
         streamJob = viewModelScope.launch {
             _resolvingTrackUrl.value = onlineTrack.url

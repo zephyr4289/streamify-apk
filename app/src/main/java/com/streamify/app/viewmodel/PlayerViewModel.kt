@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -47,9 +49,16 @@ data class PlayerState(
 class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
+
     val currentTrack: StateFlow<Track?> = _playerState
         .map { it.currentTrack }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val progressFraction: StateFlow<Float> = _playerState
+        .map { state ->
+            if (state.duration > 0L) (state.currentPosition.toFloat() / state.duration.toFloat()).coerceIn(0f, 1f) else 0f
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -185,6 +194,23 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     }
                 }
             }
+        }
+
+        // Reactive One-Shot Lookahead Trigger (Fires strictly once at >=75% progress or <=30s remaining)
+        viewModelScope.launch {
+            _playerState
+                .map { state ->
+                    val dur = state.duration
+                    val pos = state.currentPosition
+                    state.isPlaying && dur > 0L && (pos.toFloat() / dur.toFloat() >= 0.75f || (dur - pos) <= 30000L)
+                }
+                .distinctUntilChanged()
+                .filter { it }
+                .collect {
+                    val curState = _playerState.value
+                    val currentIdx = controller?.currentMediaItemIndex ?: curState.currentIndex
+                    preResolveLookaheadTrack(currentIdx, curState.queue)
+                }
         }
     }
 
@@ -636,16 +662,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         if (now - lastJamHeartbeatMs >= 500L) {
                             lastJamHeartbeatMs = now
                             broadcastJamAction("TICK", track = curState.currentTrack, positionMs = newPos, isPlaying = true)
-                        }
-                    }
-
-                    // 30-Second Predictive Lookahead Pre-Resolver for 0ms Gapless Playback
-                    if (curState.isPlaying && finalDuration > 0L) {
-                        val remainingMs = finalDuration - newPos
-                        val progressFraction = newPos.toFloat() / finalDuration.toFloat()
-                        if (remainingMs <= 30000L || progressFraction >= 0.75f) {
-                            val currentIdx = ctrl.currentMediaItemIndex
-                            preResolveLookaheadTrack(currentIdx, curState.queue)
                         }
                     }
                 }

@@ -21,6 +21,8 @@ import kotlin.math.abs
 
 object OnlineTrackProcessor {
 
+    private val dspDispatcher = Dispatchers.IO.limitedParallelism(1) // Hard cap to 1 core
+    private val activeDspJobs = Collections.synchronizedMap(mutableMapOf<String, Job>())
     private val processingChannel = Channel<Track>(Channel.UNLIMITED)
     private val queuedTrackIds = Collections.synchronizedSet(HashSet<Int>())
     private val queuedSignatures = Collections.synchronizedSet(HashSet<String>())
@@ -34,7 +36,7 @@ object OnlineTrackProcessor {
     fun init(context: Context) {
         appContext = context.applicationContext
         if (workerJob == null || workerJob?.isActive == false) {
-            workerJob = CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            workerJob = CoroutineScope(dspDispatcher + SupervisorJob()).launch {
                 for (track in processingChannel) {
                     processTrackInternal(track)
                 }
@@ -64,10 +66,16 @@ object OnlineTrackProcessor {
 
     private suspend fun processTrackInternal(track: Track) {
         _isProcessing.value = true
+        val sig = "${track.title.trim().lowercase()}::${track.artist.trim().lowercase()}"
+        val trackKey = if (track.id > 0) track.id.toString() else abs(track.title.hashCode()).toString()
         var tempChunk: File? = null
         val ctx = appContext
 
         try {
+            // Defer heavy compute until ExoPlayer buffer is healthy
+            while (PlaybackService.isBuffering.value) {
+                delay(200)
+            }
             var finalBpm = track.bpm
             var finalKey = track.key
 
@@ -169,6 +177,8 @@ object OnlineTrackProcessor {
             tempChunk?.let {
                 try { if (it.exists()) it.delete() } catch (e: Exception) { /* ignore */ }
             }
+            activeDspJobs.remove(sig)
+            activeDspJobs.remove(trackKey)
             _isProcessing.value = false
         }
     }

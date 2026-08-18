@@ -59,6 +59,14 @@ fun SearchScreen(
     val quantumController = LocalQuantumController.current
     val dockPositionState = LocalDockPosition.current
 
+    // Lifecycle-Aware Native Priority Manager: Drops to power-saving mode when navigating away
+    DisposableEffect(Unit) {
+        com.streamify.app.data.NativeBridge.setHighPriorityActive(true)
+        onDispose {
+            com.streamify.app.data.NativeBridge.setHighPriorityActive(false)
+        }
+    }
+
     LaunchedEffect(context) {
         viewModel.init(context)
     }
