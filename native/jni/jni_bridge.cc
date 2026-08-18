@@ -933,15 +933,29 @@ Java_com_streamify_app_data_NativeBridge_calculateLyricDrift(
 // PROJECT TITAN: HIGH-PERFORMANCE RUST CORE ENGINE JNI EXPORTS
 // ═══════════════════════════════════════════════════════════════
 
-extern "C" {
-    void rust_free_string(char* s);
-    char* rust_fuzzy_rank_candidates(const char* query, const char* candidates_json);
-    float rust_calculate_string_similarity(const char* s1, const char* s2);
-    char* rust_parse_youtube_playlist(const uint8_t* json_ptr, size_t json_len);
-    int32_t rust_compute_fft_spectrum(const float* pcm_ptr, size_t pcm_len, size_t bar_count, float* out_bars_ptr);
-    int32_t rust_process_equalizer_frame(float* pcm_ptr, size_t pcm_len, size_t channels, const float* gains_ptr);
-    char* rust_download_stream_direct(const char* stream_url, const char* dest_path);
+#include <dlfcn.h>
+
+static void* get_rust_core_handle() {
+    static void* handle = nullptr;
+    static bool initialized = false;
+    if (!initialized) {
+        handle = dlopen("libstreamify_core_rs.so", RTLD_NOW | RTLD_GLOBAL);
+        if (!handle) {
+            handle = dlopen("libstreamify_core.so", RTLD_NOW | RTLD_GLOBAL);
+        }
+        initialized = true;
+    }
+    return handle;
 }
+
+template <typename Func>
+static Func get_rust_symbol(const char* name) {
+    void* h = get_rust_core_handle();
+    if (!h) return nullptr;
+    return reinterpret_cast<Func>(dlsym(h, name));
+}
+
+typedef void (*RustFreeStringFn)(char*);
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_streamify_app_data_NativeBridge_rustFuzzyRankCandidates(
@@ -951,17 +965,22 @@ Java_com_streamify_app_data_NativeBridge_rustFuzzyRankCandidates(
     jstring candidatesJson
 ) {
     if (!query || !candidatesJson) return nullptr;
+    typedef char* (*RustFn)(const char*, const char*);
+    auto fn = get_rust_symbol<RustFn>("rust_fuzzy_rank_candidates");
+    if (!fn) return nullptr;
+
     const char* q = env->GetStringUTFChars(query, nullptr);
     const char* c = env->GetStringUTFChars(candidatesJson, nullptr);
 
-    char* res = rust_fuzzy_rank_candidates(q, c);
+    char* res = fn(q, c);
 
     env->ReleaseStringUTFChars(query, q);
     env->ReleaseStringUTFChars(candidatesJson, c);
 
     if (!res) return nullptr;
     jstring outStr = env->NewStringUTF(res);
-    rust_free_string(res);
+    auto free_fn = get_rust_symbol<RustFreeStringFn>("rust_free_string");
+    if (free_fn) free_fn(res);
     return outStr;
 }
 
@@ -973,10 +992,14 @@ Java_com_streamify_app_data_NativeBridge_rustCalculateSimilarity(
     jstring s2
 ) {
     if (!s1 || !s2) return 0.0f;
+    typedef float (*RustFn)(const char*, const char*);
+    auto fn = get_rust_symbol<RustFn>("rust_calculate_string_similarity");
+    if (!fn) return 0.0f;
+
     const char* c1 = env->GetStringUTFChars(s1, nullptr);
     const char* c2 = env->GetStringUTFChars(s2, nullptr);
 
-    float sim = rust_calculate_string_similarity(c1, c2);
+    float sim = fn(c1, c2);
 
     env->ReleaseStringUTFChars(s1, c1);
     env->ReleaseStringUTFChars(s2, c2);
@@ -993,13 +1016,18 @@ Java_com_streamify_app_data_NativeBridge_rustParseYouTubePlaylist(
     jsize len = env->GetArrayLength(jsonBytes);
     if (len <= 0) return nullptr;
 
+    typedef char* (*RustFn)(const uint8_t*, size_t);
+    auto fn = get_rust_symbol<RustFn>("rust_parse_youtube_playlist");
+    if (!fn) return nullptr;
+
     jbyte* bytes = env->GetByteArrayElements(jsonBytes, nullptr);
-    char* res = rust_parse_youtube_playlist(reinterpret_cast<const uint8_t*>(bytes), static_cast<size_t>(len));
+    char* res = fn(reinterpret_cast<const uint8_t*>(bytes), static_cast<size_t>(len));
     env->ReleaseByteArrayElements(jsonBytes, bytes, JNI_ABORT);
 
     if (!res) return nullptr;
     jstring outStr = env->NewStringUTF(res);
-    rust_free_string(res);
+    auto free_fn = get_rust_symbol<RustFreeStringFn>("rust_free_string");
+    if (free_fn) free_fn(res);
     return outStr;
 }
 
@@ -1016,10 +1044,14 @@ Java_com_streamify_app_data_NativeBridge_rustComputeFftSpectrum(
     jsize outLen = env->GetArrayLength(outBars);
     if (pcmLen <= 0 || outLen < barCount) return -1;
 
+    typedef int32_t (*RustFn)(const float*, size_t, size_t, float*);
+    auto fn = get_rust_symbol<RustFn>("rust_compute_fft_spectrum");
+    if (!fn) return -1;
+
     jfloat* pcm = env->GetFloatArrayElements(pcmFloats, nullptr);
     jfloat* bars = env->GetFloatArrayElements(outBars, nullptr);
 
-    int32_t code = rust_compute_fft_spectrum(pcm, pcmLen, barCount, bars);
+    int32_t code = fn(pcm, pcmLen, barCount, bars);
 
     env->ReleaseFloatArrayElements(pcmFloats, pcm, JNI_ABORT);
     env->ReleaseFloatArrayElements(outBars, bars, 0);
@@ -1038,10 +1070,14 @@ Java_com_streamify_app_data_NativeBridge_rustProcessEqualizerFrame(
     jsize pcmLen = env->GetArrayLength(pcmFloats);
     if (pcmLen <= 0) return -1;
 
+    typedef int32_t (*RustFn)(float*, size_t, size_t, const float*);
+    auto fn = get_rust_symbol<RustFn>("rust_process_equalizer_frame");
+    if (!fn) return -1;
+
     jfloat* pcm = env->GetFloatArrayElements(pcmFloats, nullptr);
     jfloat* g = gains ? env->GetFloatArrayElements(gains, nullptr) : nullptr;
 
-    int32_t code = rust_process_equalizer_frame(pcm, pcmLen, channels, g);
+    int32_t code = fn(pcm, pcmLen, channels, g);
 
     env->ReleaseFloatArrayElements(pcmFloats, pcm, 0);
     if (gains && g) {
@@ -1058,33 +1094,23 @@ Java_com_streamify_app_data_NativeBridge_rustDownloadStreamDirect(
     jstring destPath
 ) {
     if (!streamUrl || !destPath) return nullptr;
+    typedef char* (*RustFn)(const char*, const char*);
+    auto fn = get_rust_symbol<RustFn>("rust_download_stream_direct");
+    if (!fn) return nullptr;
+
     const char* url = env->GetStringUTFChars(streamUrl, nullptr);
     const char* path = env->GetStringUTFChars(destPath, nullptr);
 
-    char* res = rust_download_stream_direct(url, path);
+    char* res = fn(url, path);
 
     env->ReleaseStringUTFChars(streamUrl, url);
     env->ReleaseStringUTFChars(destPath, path);
 
     if (!res) return nullptr;
     jstring outStr = env->NewStringUTF(res);
-    rust_free_string(res);
+    auto free_fn = get_rust_symbol<RustFreeStringFn>("rust_free_string");
+    if (free_fn) free_fn(res);
     return outStr;
-}
-
-extern "C" {
-    char* rust_score_and_rank_radio_candidates(
-        const char* candidates_json,
-        float seed_bpm,
-        const char* seed_key,
-        int32_t seed_dur_sec,
-        const char* seed_sig,
-        const char* queue_json
-    );
-    int32_t rust_process_crossfade_pcm(const float* out_ptr, const float* in_ptr, float* mixed_ptr, size_t len, float progress);
-    int32_t rust_encrypt_vault_file(const char* src, const char* dest, const uint8_t* key, size_t key_len);
-    int32_t rust_decrypt_vault_file(const char* src, const char* dest, const uint8_t* key, size_t key_len);
-    char* rust_parse_backup_csv(const char* csv);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -1099,12 +1125,16 @@ Java_com_streamify_app_data_NativeBridge_rustScoreAndRankRadioCandidates(
     jstring queueJson
 ) {
     if (!candidatesJson) return nullptr;
+    typedef char* (*RustFn)(const char*, float, const char*, int32_t, const char*, const char*);
+    auto fn = get_rust_symbol<RustFn>("rust_score_and_rank_radio_candidates");
+    if (!fn) return nullptr;
+
     const char* cJson = env->GetStringUTFChars(candidatesJson, nullptr);
     const char* sKey = seedKey ? env->GetStringUTFChars(seedKey, nullptr) : "";
     const char* sSig = seedSig ? env->GetStringUTFChars(seedSig, nullptr) : "";
     const char* qJson = queueJson ? env->GetStringUTFChars(queueJson, nullptr) : "[]";
 
-    char* res = rust_score_and_rank_radio_candidates(cJson, seedBpm, sKey, seedDurSec, sSig, qJson);
+    char* res = fn(cJson, seedBpm, sKey, seedDurSec, sSig, qJson);
 
     env->ReleaseStringUTFChars(candidatesJson, cJson);
     if (seedKey) env->ReleaseStringUTFChars(seedKey, sKey);
@@ -1113,7 +1143,8 @@ Java_com_streamify_app_data_NativeBridge_rustScoreAndRankRadioCandidates(
 
     if (!res) return nullptr;
     jstring outStr = env->NewStringUTF(res);
-    rust_free_string(res);
+    auto free_fn = get_rust_symbol<RustFreeStringFn>("rust_free_string");
+    if (free_fn) free_fn(res);
     return outStr;
 }
 
@@ -1130,11 +1161,15 @@ Java_com_streamify_app_data_NativeBridge_rustProcessCrossfadePcm(
     jsize len = env->GetArrayLength(mixedBuf);
     if (len <= 0) return -1;
 
+    typedef int32_t (*RustFn)(const float*, const float*, float*, size_t, float);
+    auto fn = get_rust_symbol<RustFn>("rust_process_crossfade_pcm");
+    if (!fn) return -1;
+
     jfloat* out = env->GetFloatArrayElements(outgoingBuf, nullptr);
     jfloat* in = env->GetFloatArrayElements(incomingBuf, nullptr);
     jfloat* mixed = env->GetFloatArrayElements(mixedBuf, nullptr);
 
-    int32_t code = rust_process_crossfade_pcm(out, in, mixed, static_cast<size_t>(len), progress);
+    int32_t code = fn(out, in, mixed, static_cast<size_t>(len), progress);
 
     env->ReleaseFloatArrayElements(outgoingBuf, out, JNI_ABORT);
     env->ReleaseFloatArrayElements(incomingBuf, in, JNI_ABORT);
@@ -1151,12 +1186,16 @@ Java_com_streamify_app_data_NativeBridge_rustEncryptVaultFile(
     jbyteArray masterKey
 ) {
     if (!srcPath || !destPath || !masterKey) return -1;
+    typedef int32_t (*RustFn)(const char*, const char*, const uint8_t*, size_t);
+    auto fn = get_rust_symbol<RustFn>("rust_encrypt_vault_file");
+    if (!fn) return -1;
+
     const char* src = env->GetStringUTFChars(srcPath, nullptr);
     const char* dest = env->GetStringUTFChars(destPath, nullptr);
     jsize keyLen = env->GetArrayLength(masterKey);
     jbyte* key = env->GetByteArrayElements(masterKey, nullptr);
 
-    int32_t code = rust_encrypt_vault_file(src, dest, reinterpret_cast<const uint8_t*>(key), static_cast<size_t>(keyLen));
+    int32_t code = fn(src, dest, reinterpret_cast<const uint8_t*>(key), static_cast<size_t>(keyLen));
 
     env->ReleaseStringUTFChars(srcPath, src);
     env->ReleaseStringUTFChars(destPath, dest);
@@ -1173,12 +1212,16 @@ Java_com_streamify_app_data_NativeBridge_rustDecryptVaultFile(
     jbyteArray masterKey
 ) {
     if (!srcPath || !destPath || !masterKey) return -1;
+    typedef int32_t (*RustFn)(const char*, const char*, const uint8_t*, size_t);
+    auto fn = get_rust_symbol<RustFn>("rust_decrypt_vault_file");
+    if (!fn) return -1;
+
     const char* src = env->GetStringUTFChars(srcPath, nullptr);
     const char* dest = env->GetStringUTFChars(destPath, nullptr);
     jsize keyLen = env->GetArrayLength(masterKey);
     jbyte* key = env->GetByteArrayElements(masterKey, nullptr);
 
-    int32_t code = rust_decrypt_vault_file(src, dest, reinterpret_cast<const uint8_t*>(key), static_cast<size_t>(keyLen));
+    int32_t code = fn(src, dest, reinterpret_cast<const uint8_t*>(key), static_cast<size_t>(keyLen));
 
     env->ReleaseStringUTFChars(srcPath, src);
     env->ReleaseStringUTFChars(destPath, dest);
@@ -1193,14 +1236,18 @@ Java_com_streamify_app_data_NativeBridge_rustParseBackupCsv(
     jstring csvContent
 ) {
     if (!csvContent) return nullptr;
+    typedef char* (*RustFn)(const char*);
+    auto fn = get_rust_symbol<RustFn>("rust_parse_backup_csv");
+    if (!fn) return nullptr;
+
     const char* csv = env->GetStringUTFChars(csvContent, nullptr);
-
-    char* res = rust_parse_backup_csv(csv);
-
+    char* res = fn(csv);
     env->ReleaseStringUTFChars(csvContent, csv);
 
     if (!res) return nullptr;
     jstring outStr = env->NewStringUTF(res);
-    rust_free_string(res);
+    auto free_fn = get_rust_symbol<RustFreeStringFn>("rust_free_string");
+    if (free_fn) free_fn(res);
     return outStr;
 }
+
