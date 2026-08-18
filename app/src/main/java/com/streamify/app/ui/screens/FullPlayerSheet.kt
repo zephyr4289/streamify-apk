@@ -915,33 +915,37 @@ private fun LandscapeLyricsPane(
     val handleSaveOffset: () -> Unit = {
         if (lyricsLines.isNotEmpty() && lyricController.userOffsetMs != 0L) {
             coroutineScope.launch(Dispatchers.IO) {
-                val offset = lyricController.userOffsetMs
-                val adjustedLrc = LyricsData.formatLrc(lyricsLines, offset)
+                try {
+                    val offset = lyricController.userOffsetMs
+                    val adjustedLrc = LyricsData.formatLrc(lyricsLines, offset)
 
-                // 1. Save locally to disk
-                val lyricsDir = File(
-                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
-                    ".Streamify/lyrics"
-                )
-                if (!lyricsDir.exists()) lyricsDir.mkdirs()
-                val lrcFile = File(lyricsDir, "${track.id}.lrc")
-                lrcFile.writeText(adjustedLrc)
-
-                // 2. Submit to Community Supabase
-                val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
-                val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
-                com.streamify.app.data.remote.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
-
-                val reParsed = LyricsData.parseLrc(adjustedLrc)
-
-                withContext(Dispatchers.Main) {
-                    if (reParsed.lines.isNotEmpty()) {
-                        lyricsLines = reParsed.lines
+                    // 1. Save safely to companion lyrics if local track
+                    if (track.filepath.isNotBlank() && !track.filepath.startsWith("http")) {
+                        com.streamify.app.data.LyricsCacheManager.saveCompanionLyrics(track.filepath, adjustedLrc)
                     }
-                    lyricController.resetOffset()
-                    UiEventBus.emitEvent(
-                        UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
-                    )
+
+                    // 2. Submit to Community Supabase
+                    try {
+                        val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
+                        val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
+                        com.streamify.app.data.remote.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
+                    } catch (e: Exception) {
+                        // Non-fatal
+                    }
+
+                    val reParsed = LyricsData.parseLrc(adjustedLrc)
+
+                    withContext(Dispatchers.Main) {
+                        if (reParsed.lines.isNotEmpty()) {
+                            lyricsLines = reParsed.lines
+                        }
+                        lyricController.resetOffset()
+                        UiEventBus.emitEvent(
+                            UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
+                        )
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             }
         }
@@ -982,13 +986,16 @@ private fun LandscapeLyricsPane(
                 lyricController.runFrameLoop()
             }
 
-            val activeIndex = remember(lyricController.interpolatedPosMs, lyricsLines) {
-                val idx = lyricsLines.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
-                if (idx >= 0) idx else 0
+            val activeIndex = remember(lyricController.interpolatedPosMs, lyricsLines, isSynced) {
+                if (!isSynced) -1
+                else {
+                    val idx = lyricsLines.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
+                    if (idx >= 0) idx else 0
+                }
             }
 
-            LaunchedEffect(activeIndex) {
-                if (lyricsLines.isNotEmpty() && activeIndex in lyricsLines.indices && !listState.isScrollInProgress) {
+            LaunchedEffect(activeIndex, isSynced) {
+                if (isSynced && lyricsLines.isNotEmpty() && activeIndex in lyricsLines.indices && !listState.isScrollInProgress) {
                     val viewportHeight = listState.layoutInfo.viewportSize.height
                     if (viewportHeight > 0) {
                         val focalOffset = viewportHeight * 0.35f
@@ -1018,13 +1025,13 @@ private fun LandscapeLyricsPane(
             ) {
                 items(lyricsLines.size) { index ->
                     val line = lyricsLines[index]
-                    val isActive = index == activeIndex
-                    val isPast = index < activeIndex
+                    val isActive = isSynced && index == activeIndex
+                    val isPast = isSynced && index < activeIndex
 
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSeek(line.timeMs) }
+                            .clickable(enabled = isSynced) { onSeek(line.timeMs) }
                             .padding(vertical = 10.dp, horizontal = 8.dp)
                     ) {
                         Text(
@@ -1033,7 +1040,7 @@ private fun LandscapeLyricsPane(
                                 fontSize = if (isActive) 20.sp else 16.sp,
                                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
                             ),
-                            color = if (isActive) TextMain else if (isPast) TextSecondary.copy(alpha = 0.6f) else TextSecondary.copy(alpha = 0.4f)
+                            color = if (!isSynced) TextMain else if (isActive) TextMain else if (isPast) TextSecondary.copy(alpha = 0.6f) else TextSecondary.copy(alpha = 0.4f)
                         )
                     }
                 }

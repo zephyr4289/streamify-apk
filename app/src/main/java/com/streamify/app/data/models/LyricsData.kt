@@ -44,7 +44,7 @@ data class LyricsData(
                 if (lineMatch != null) {
                     val (min, sec, msStr) = lineMatch.destructured
                     val ms = if (msStr.length == 2) msStr.toLong() * 10 else msStr.toLong()
-                    val lineStartMs = (min.toLong() * 60 * 1000) + (sec.toLong() * 1000) + ms - offsetMs
+                    val lineStartMs = (min.toLong() * 60 * 1000) + (sec.toLong() * 1000) + ms + offsetMs
 
                     val content = lineMatch.groupValues[4].trim()
                     if (content.isEmpty()) continue
@@ -58,7 +58,7 @@ data class LyricsData(
                             val wm = wordMatches[i]
                             val (wMin, wSec, wMsStr) = wm.destructured
                             val wMs = if (wMsStr.length == 2) wMsStr.toLong() * 10 else wMsStr.toLong()
-                            val wStartMs = (wMin.toLong() * 60 * 1000) + (wSec.toLong() * 1000) + wMs - offsetMs
+                            val wStartMs = (wMin.toLong() * 60 * 1000) + (wSec.toLong() * 1000) + wMs + offsetMs
                             val wordText = wm.groupValues[4]
                             plainText += wordText
 
@@ -66,7 +66,7 @@ data class LyricsData(
                                 val nextWm = wordMatches[i + 1]
                                 val (nMin, nSec, nMsStr) = nextWm.destructured
                                 val nMs = if (nMsStr.length == 2) nMsStr.toLong() * 10 else nMsStr.toLong()
-                                (nMin.toLong() * 60 * 1000) + (nSec.toLong() * 1000) + nMs - offsetMs
+                                (nMin.toLong() * 60 * 1000) + (nSec.toLong() * 1000) + nMs + offsetMs
                             } else {
                                 wStartMs + 3500L
                             }

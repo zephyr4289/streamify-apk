@@ -10,10 +10,12 @@ class LyricPlaybackController {
 
     var targetPositionMs by mutableStateOf(0L)
     var userOffsetMs by mutableStateOf(0L)
+    var isPlaying by mutableStateOf(true)
     var interpolatedPosMs by mutableStateOf(0L)
         private set
 
-    private var velocityMs = 0.0
+    private var lastObservedTargetMs = -1L
+    private var lastTargetTimeNanos = 0L
     private var lastFrameTimeNanos = 0L
 
     fun adjustOffset(deltaMs: Long) {
@@ -29,30 +31,38 @@ class LyricPlaybackController {
             withFrameNanos { frameTimeNanos ->
                 if (lastFrameTimeNanos == 0L) {
                     lastFrameTimeNanos = frameTimeNanos
+                    lastTargetTimeNanos = frameTimeNanos
+                    lastObservedTargetMs = targetPositionMs
+                    interpolatedPosMs = targetPositionMs + userOffsetMs
                     return@withFrameNanos
                 }
 
-                val dt = ((frameTimeNanos - lastFrameTimeNanos) / 1_000_000.0).coerceIn(1.0, 50.0)
                 lastFrameTimeNanos = frameTimeNanos
 
-                val effectiveTarget = targetPositionMs + userOffsetMs
-                val diff = (effectiveTarget - interpolatedPosMs).toDouble()
+                // When ExoPlayer reports a new position tick
+                if (targetPositionMs != lastObservedTargetMs) {
+                    lastObservedTargetMs = targetPositionMs
+                    lastTargetTimeNanos = frameTimeNanos
+                }
 
-                // Large Seek Discontinuity (>1200ms) -> Snap playhead instantly without spring drag
-                if (abs(diff) > 1200.0) {
-                    interpolatedPosMs = effectiveTarget
-                    velocityMs = 0.0
+                // Extrapolate real-time clock advancement between 200ms ExoPlayer updates
+                val elapsedSinceTargetMs = if (isPlaying && lastTargetTimeNanos > 0L) {
+                    ((frameTimeNanos - lastTargetTimeNanos) / 1_000_000.0).coerceIn(0.0, 500.0)
+                } else 0.0
+
+                val exactTarget = (lastObservedTargetMs.toDouble() + elapsedSinceTargetMs + userOffsetMs.toDouble()).toLong()
+                val diff = exactTarget - interpolatedPosMs
+
+                if (abs(diff) > 800L || interpolatedPosMs <= 0L) {
+                    // Instant snap on seek or initial load
+                    interpolatedPosMs = exactTarget
                 } else {
-                    // Critically Damped Spring Physics (120 FPS sub-pixel smoothing)
-                    val springStiffness = 0.14
-                    val dampingFactor = 0.82
-                    val springForce = diff * springStiffness
-                    velocityMs += springForce
-                    velocityMs *= dampingFactor
-                    val delta = velocityMs * (dt / 16.67)
-                    interpolatedPosMs += delta.toLong()
+                    // Smooth 120 FPS tracking
+                    val step = (diff * 0.25).toLong()
+                    interpolatedPosMs += if (step != 0L) step else (if (diff > 0) 1L else if (diff < 0) -1L else 0L)
                 }
             }
         }
     }
 }
+

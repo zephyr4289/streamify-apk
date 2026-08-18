@@ -104,19 +104,26 @@ object YouTubeStreamResolver {
 
     fun sanitizeCoverUrl(rawUrl: String?, videoId: String?): String? {
         if (rawUrl.isNullOrBlank()) {
-            return videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+            return videoId?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" }
         }
         val trimmed = rawUrl.trim()
         return when {
             trimmed.contains("mzstatic.com") -> trimmed.replace(Regex("\\d+x\\d+bb"), "1400x1400bb")
             trimmed.contains("googleusercontent.com") || trimmed.contains("ggpht.com") -> {
                 if (trimmed.contains("=")) {
-                    trimmed.replace(Regex("=w\\d+-h\\d+.*"), "=w800-h800-l90-rj").replace(Regex("=s\\d+.*"), "=s800")
+                    trimmed.replace(Regex("=w\\d+-h\\d+.*"), "=w1200-h1200-l90-rj").replace(Regex("=s\\d+.*"), "=s1200")
                 } else {
-                    "$trimmed=w800-h800-l90-rj"
+                    "$trimmed=w1200-h1200-l90-rj"
                 }
             }
-            trimmed.contains("googlevideo.com") -> videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+            trimmed.contains("googlevideo.com") -> videoId?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" }
+            trimmed.contains("ytimg.com") -> {
+                if (trimmed.contains("default.jpg") && !trimmed.contains("maxresdefault.jpg")) {
+                    trimmed.replace(Regex("(mq|sd|default)\\.jpg"), "maxresdefault.jpg")
+                } else {
+                    trimmed
+                }
+            }
             else -> trimmed
         }
     }
@@ -489,6 +496,14 @@ object YouTubeStreamResolver {
 
     private val VIDEO_CLIENT_TARGETS = listOf(
         ClientConfig(
+            clientName = "ANDROID",
+            clientVersion = "21.26.364",
+            clientNumber = "3",
+            userAgent = "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
+            osName = "Android",
+            osVersion = "11"
+        ),
+        ClientConfig(
             clientName = "ANDROID_VR",
             clientVersion = "1.60.19",
             clientNumber = "28",
@@ -500,20 +515,13 @@ object YouTubeStreamResolver {
         ),
         ClientConfig(
             clientName = "IOS",
-            clientVersion = "19.29.1",
+            clientVersion = "21.26.4",
             clientNumber = "5",
-            userAgent = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)",
+            userAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
             deviceMake = "Apple",
             deviceModel = "iPhone16,2",
-            osName = "iOS",
-            osVersion = "17.5.1.21F90"
-        ),
-        ClientConfig(
-            clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-            clientVersion = "2.0",
-            clientNumber = "85",
-            userAgent = "Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.196 Safari/537.36 WebAppManager",
-            osName = "WebOS"
+            osName = "iPhone",
+            osVersion = "18.3.2.22D82"
         )
     )
 
@@ -669,15 +677,15 @@ object YouTubeStreamResolver {
                 }
             }
 
-            // Prefer itag 22 (720p HD MP4) > itag 18 (360p MP4) > highest quality progressive MP4
-            val bestFormat = progressiveList.firstOrNull { it.optInt("itag") == 22 }
+            // 1. Check progressive formats (itag 22 = 720p HD MP4 with AAC, itag 18 = 360p)
+            val bestProgressive = progressiveList.firstOrNull { it.optInt("itag") == 22 }
                 ?: progressiveList.firstOrNull { it.optInt("itag") == 18 }
                 ?: progressiveList.firstOrNull()
 
-            if (bestFormat != null) {
-                val streamUrl = bestFormat.optString("extractedUrl", bestFormat.optString("url", ""))
-                val mimeType = bestFormat.optString("mimeType", "video/mp4")
-                val bitrate = bestFormat.optInt("bitrate", 1200000)
+            if (bestProgressive != null && bestProgressive.optInt("itag") == 22) {
+                val streamUrl = bestProgressive.optString("extractedUrl", bestProgressive.optString("url", ""))
+                val mimeType = bestProgressive.optString("mimeType", "video/mp4")
+                val bitrate = bestProgressive.optInt("bitrate", 2500000)
                 if (streamUrl.isNotBlank()) {
                     return ResolvedStream(
                         streamUrl = streamUrl,
@@ -688,21 +696,55 @@ object YouTubeStreamResolver {
                 }
             }
 
-            // Fallback to adaptive video format if no progressive available
+            // 2. Check adaptive video streams for 1080p Full HD (itag 137/248) or 720p HD (itag 136/247)
             val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats")
+            val adaptiveVideoList = mutableListOf<JSONObject>()
             if (adaptiveFormats != null) {
                 for (i in 0 until adaptiveFormats.length()) {
                     val f = adaptiveFormats.getJSONObject(i)
                     val mime = f.optString("mimeType", "")
-                    val streamUrl = extractUrlFromFormat(f)
-                    if (mime.startsWith("video/") && streamUrl.isNotBlank()) {
-                        return ResolvedStream(
-                            streamUrl = streamUrl,
-                            mimeType = mime,
-                            bitrate = f.optInt("bitrate", 800000),
-                            durationSec = durationSec
-                        )
+                    if (mime.startsWith("video/")) {
+                        val url = extractUrlFromFormat(f)
+                        if (url.isNotBlank()) {
+                            f.put("extractedUrl", url)
+                            adaptiveVideoList.add(f)
+                        }
                     }
+                }
+            }
+
+            val bestAdaptiveVideo = adaptiveVideoList.firstOrNull { it.optInt("itag") == 137 } // 1080p MP4
+                ?: adaptiveVideoList.firstOrNull { it.optInt("itag") == 248 } // 1080p WebM
+                ?: adaptiveVideoList.firstOrNull { it.optInt("itag") == 136 } // 720p MP4
+                ?: adaptiveVideoList.firstOrNull { it.optInt("itag") == 247 } // 720p WebM
+                ?: adaptiveVideoList.maxByOrNull { it.optInt("bitrate", 0) }
+
+            if (bestAdaptiveVideo != null) {
+                val streamUrl = bestAdaptiveVideo.optString("extractedUrl", bestAdaptiveVideo.optString("url", ""))
+                val mime = bestAdaptiveVideo.optString("mimeType", "video/mp4")
+                val bitrate = bestAdaptiveVideo.optInt("bitrate", 4500000)
+                if (streamUrl.isNotBlank()) {
+                    return ResolvedStream(
+                        streamUrl = streamUrl,
+                        mimeType = mime,
+                        bitrate = bitrate,
+                        durationSec = durationSec
+                    )
+                }
+            }
+
+            // 3. Fallback to progressive MP4
+            if (bestProgressive != null) {
+                val streamUrl = bestProgressive.optString("extractedUrl", bestProgressive.optString("url", ""))
+                val mimeType = bestProgressive.optString("mimeType", "video/mp4")
+                val bitrate = bestProgressive.optInt("bitrate", 1200000)
+                if (streamUrl.isNotBlank()) {
+                    return ResolvedStream(
+                        streamUrl = streamUrl,
+                        mimeType = mimeType,
+                        bitrate = bitrate,
+                        durationSec = durationSec
+                    )
                 }
             }
 

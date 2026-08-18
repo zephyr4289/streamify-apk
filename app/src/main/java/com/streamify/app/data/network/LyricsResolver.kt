@@ -29,14 +29,20 @@ object LyricsResolver {
 
         if (cleanTitle.isBlank()) return@withContext null
 
-        return@withContext raceLyricsProviders(cleanTitle, cleanArtist, durationSec)
+        // 1. High-Precision Tier: Exact duration-locked LRCLIB lookup
+        val exactMatch = fetchLrclibExact(cleanTitle, cleanArtist, durationSec)
+        if (!exactMatch.isNullOrBlank() && exactMatch.contains("[")) {
+            return@withContext exactMatch
+        }
+
+        // 2. Fallback Tier: Race fuzzy providers
+        return@withContext raceLyricsProviders(cleanTitle, cleanArtist)
     }
 
-    private suspend fun raceLyricsProviders(title: String, artist: String, durationSec: Int): String? = coroutineScope {
+    private suspend fun raceLyricsProviders(title: String, artist: String): String? = coroutineScope {
         val winnerDeferred = CompletableDeferred<String?>()
 
         val tasks = listOf(
-            async { fetchLrclibExact(title, artist, durationSec) },
             async { fetchLrclibFuzzy(title, artist) },
             async { fetchNetEase(title, artist) },
             async { fetchLyricsOvh(title, artist) }

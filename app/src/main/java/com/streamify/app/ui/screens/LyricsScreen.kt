@@ -136,33 +136,37 @@ fun LyricsScreen(
                 onSaveOffset = {
                     if (track != null && currentLyrics.isNotEmpty() && lyricController.userOffsetMs != 0L) {
                         coroutineScope.launch(Dispatchers.IO) {
-                            val offset = lyricController.userOffsetMs
-                            val adjustedLrc = com.streamify.app.data.models.LyricsData.formatLrc(currentLyrics, offset)
-                            
-                            // 1. Save locally to disk
-                            val lyricsDir = java.io.File(
-                                android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
-                                ".Streamify/lyrics"
-                            )
-                            if (!lyricsDir.exists()) lyricsDir.mkdirs()
-                            val lrcFile = java.io.File(lyricsDir, "${track.id}.lrc")
-                            lrcFile.writeText(adjustedLrc)
+                            try {
+                                val offset = lyricController.userOffsetMs
+                                val adjustedLrc = com.streamify.app.data.models.LyricsData.formatLrc(currentLyrics, offset)
 
-                            // 2. Submit to Community Supabase
-                            val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
-                            val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
-                            com.streamify.app.data.remote.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
-
-                            val reParsed = com.streamify.app.data.models.LyricsData.parseLrc(adjustedLrc)
-
-                            withContext(Dispatchers.Main) {
-                                if (reParsed.lines.isNotEmpty()) {
-                                    currentLyrics = reParsed.lines
+                                // 1. Save safely to companion lyrics if local track
+                                if (track.filepath.isNotBlank() && !track.filepath.startsWith("http")) {
+                                    com.streamify.app.data.LyricsCacheManager.saveCompanionLyrics(track.filepath, adjustedLrc)
                                 }
-                                lyricController.resetOffset()
-                                com.streamify.app.viewmodel.UiEventBus.emitEvent(
-                                    com.streamify.app.viewmodel.UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
-                                )
+
+                                // 2. Submit to Community Supabase
+                                try {
+                                    val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
+                                    val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
+                                    com.streamify.app.data.remote.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
+                                } catch (e: Exception) {
+                                    // Non-fatal
+                                }
+
+                                val reParsed = com.streamify.app.data.models.LyricsData.parseLrc(adjustedLrc)
+
+                                withContext(Dispatchers.Main) {
+                                    if (reParsed.lines.isNotEmpty()) {
+                                        currentLyrics = reParsed.lines
+                                    }
+                                    lyricController.resetOffset()
+                                    com.streamify.app.viewmodel.UiEventBus.emitEvent(
+                                        com.streamify.app.viewmodel.UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
                             }
                         }
                     }
