@@ -178,7 +178,6 @@ object PlaylistLinkScraper {
         try {
             val isMix = playlistId.startsWith("RD") || playlistId.startsWith("RDAMVM") || playlistId.startsWith("RDCLAK")
             val isAlbum = playlistId.startsWith("OLAK5uy_")
-            val isMusicHost = url.contains("music.youtube.com")
 
             val endpoint = if (isMix) {
                 "https://music.youtube.com/youtubei/v1/next"
@@ -186,18 +185,13 @@ object PlaylistLinkScraper {
                 "https://music.youtube.com/youtubei/v1/browse"
             }
 
-            val clientType = if (isMix || isMusicHost) "ANDROID_MUSIC" else "WEB_REMIX"
-            val clientVersion = if (clientType == "ANDROID_MUSIC") "6.42.52" else "1.20260101.01.00"
+            val clientType = "WEB_REMIX"
+            val clientVersion = "1.20240101.01.00"
 
             val contextJson = JSONObject().apply {
                 put("client", JSONObject().apply {
                     put("clientName", clientType)
                     put("clientVersion", clientVersion)
-                    if (clientType == "ANDROID_MUSIC") {
-                        put("androidSdkVersion", 34)
-                        put("osName", "Android")
-                        put("osVersion", "14")
-                    }
                     put("hl", "en")
                     put("gl", "US")
                 })
@@ -218,7 +212,7 @@ object PlaylistLinkScraper {
             val request = Request.Builder()
                 .url(endpoint)
                 .header("Content-Type", "application/json; charset=UTF-8")
-                .header("User-Agent", if (clientType == "ANDROID_MUSIC") "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14; en_US)" else USER_AGENT)
+                .header("User-Agent", USER_AGENT)
                 .header("Origin", "https://music.youtube.com")
                 .header("Referer", "https://music.youtube.com/")
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -234,6 +228,8 @@ object PlaylistLinkScraper {
                         val headerNodes = mutableListOf<JSONObject>()
                         findJsonObjects(root, "musicDetailHeaderRenderer", headerNodes)
                         findJsonObjects(root, "playlistHeaderRenderer", headerNodes)
+                        findJsonObjects(root, "musicResponsiveHeaderRenderer", headerNodes)
+                        findJsonObjects(root, "musicEditablePlaylistDetailHeaderRenderer", headerNodes)
                         for (hNode in headerNodes) {
                             val titleRuns = hNode.optJSONObject("title")?.optJSONArray("runs")
                             val headerTitle = titleRuns?.optJSONObject(0)?.optString("text")
@@ -262,12 +258,15 @@ object PlaylistLinkScraper {
                         while (!continuationToken.isNullOrBlank() && tracks.size < 500) {
                             val contPayload = JSONObject().apply {
                                 put("context", contextJson)
+                                put("continuation", continuationToken)
                             }
                             val contUrl = "$endpoint?continuation=$continuationToken&ctoken=$continuationToken"
                             val contRequest = Request.Builder()
                                 .url(contUrl)
                                 .header("Content-Type", "application/json; charset=UTF-8")
                                 .header("User-Agent", USER_AGENT)
+                                .header("Origin", "https://music.youtube.com")
+                                .header("Referer", "https://music.youtube.com/")
                                 .post(contPayload.toString().toRequestBody(JSON_MEDIA_TYPE))
                                 .build()
 
@@ -499,6 +498,13 @@ object PlaylistLinkScraper {
     }
 
     private fun extractContinuationToken(root: JSONObject): String? {
+        val contCmds = mutableListOf<JSONObject>()
+        findJsonObjects(root, "continuationCommand", contCmds)
+        for (cmd in contCmds) {
+            val token = cmd.optString("token", "")
+            if (token.isNotBlank()) return token
+        }
+
         val contNodes = mutableListOf<JSONObject>()
         findJsonObjects(root, "nextContinuationData", contNodes)
         findJsonObjects(root, "nextRadioContinuationData", contNodes)

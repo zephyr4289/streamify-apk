@@ -270,6 +270,11 @@ def get_stream_url(url):
         return ""
 
 def fetch_youtube_playlist(url, max_entries=500):
+    target_url = url.strip()
+    if "list=" in target_url:
+        pl_id = target_url.split("list=")[1].split("&")[0].split("#")[0]
+        target_url = f"https://www.youtube.com/playlist?list={pl_id}"
+
     ydl_opts = {
         'extract_flat': 'in_playlist',
         'skip_download': True,
@@ -281,7 +286,7 @@ def fetch_youtube_playlist(url, max_entries=500):
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(target_url, download=False)
             if not info:
                 return json.dumps({'title': 'Imported Playlist', 'tracks': []})
             
