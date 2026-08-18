@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 sealed interface AuthState {
     object Loading : AuthState
@@ -103,10 +104,10 @@ object AuthManager {
         // Clear local database and taste profile to prevent account contamination
         try {
             com.streamify.app.data.NativeBridge.nukeLocalDatabase()
-            com.streamify.app.data.StorageManager.clearAllCache(context)
             com.streamify.app.data.TrackRepository.hardResetState()
             com.streamify.app.data.PlaylistRepository.hardResetState()
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                com.streamify.app.data.StorageManager.clearAllCache(context)
                 com.streamify.app.data.TrackRepository.refresh()
             }
         } catch (e: Exception) {

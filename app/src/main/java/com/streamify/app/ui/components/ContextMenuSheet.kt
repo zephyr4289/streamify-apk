@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streamify.app.data.PlaylistRepository
 import com.streamify.app.data.models.Track
+import com.streamify.app.ui.theme.ActiveControl
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyShapes

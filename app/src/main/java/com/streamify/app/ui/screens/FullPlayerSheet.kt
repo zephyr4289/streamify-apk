@@ -123,6 +123,7 @@ fun FullPlayerSheet(
     }
     BackHandler(enabled = showRelatedSheet) {
         showRelatedSheet = false
+    }
     // Pre-Allocated GPU Assets: Zero heap allocation inside Canvas draw phase
     val ambientGlowColors = remember(dominantColor) {
         listOf(
@@ -1094,5 +1095,39 @@ private fun LandscapeRelatedPane(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun LandscapeQueuePane(
+    queue: List<com.streamify.app.data.models.Track>,
+    currentTrack: com.streamify.app.data.models.Track?,
+    isPlaying: Boolean,
+    onTrackClick: (com.streamify.app.data.models.Track) -> Unit
+) {
+    androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+        androidx.compose.material3.Text("Queue (Landscape)", color = androidx.compose.ui.graphics.Color.White)
+    }
+}
+
+@Composable
+fun LandscapeLyricsPane(
+    track: com.streamify.app.data.models.Track,
+    currentPositionMs: Long,
+    onSeek: (Long) -> Unit
+) {
+    androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+        androidx.compose.material3.Text("Lyrics (Landscape)", color = androidx.compose.ui.graphics.Color.White)
+    }
+}
+
+@Composable
+fun LandscapeRelatedPane(
+    track: com.streamify.app.data.models.Track,
+    playerViewModel: com.streamify.app.viewmodel.PlayerViewModel,
+    onTrackClick: (com.streamify.app.data.models.Track) -> Unit
+) {
+    androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+        androidx.compose.material3.Text("Related (Landscape)", color = androidx.compose.ui.graphics.Color.White)
     }
 }

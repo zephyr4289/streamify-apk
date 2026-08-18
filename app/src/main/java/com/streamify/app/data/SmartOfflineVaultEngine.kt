@@ -104,10 +104,10 @@ object SmartOfflineVaultEngine {
                 val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
                 val circadianRecs = try {
                     NativeBridge.getCircadianRecommendations(currentHour, 10).mapNotNull { rec ->
-                        TrackRepository.getTrackById(rec.trackId)
+                        TrackRepository.allTracks.value.find { it.id == rec.trackId }
                     }
                 } catch (e: Exception) {
-                    emptyList()
+                    emptyList<Track>()
                 }
 
                 val targets = (topRotation + circadianRecs).distinctBy { getTrackKey(it) }
