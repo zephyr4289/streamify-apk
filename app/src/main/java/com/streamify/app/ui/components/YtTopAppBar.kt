@@ -74,6 +74,10 @@ fun YtTopAppBar(
                     ),
                     color = TextMain
                 )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                SireenBrandingBadge()
             }
 
             // Right: Cast, Search, and Profile Avatar Actions

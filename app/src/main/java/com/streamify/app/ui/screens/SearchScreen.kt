@@ -101,12 +101,23 @@ fun SearchScreen(
             .background(BgBase)
             .statusBarsPadding()
     ) {
-        // 1. YouTube Music Omnibar
-        YtSearchOmnibar(
-            query = query,
-            onQueryChange = { query = it },
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-        )
+        // 1. YouTube Music Omnibar & Branding Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            YtSearchOmnibar(
+                query = query,
+                onQueryChange = { query = it },
+                modifier = Modifier.weight(1f)
+            )
+            if (query.isBlank()) {
+                Spacer(modifier = Modifier.width(8.dp))
+                SireenBrandingBadge()
+            }
+        }
 
         // 2. Search Category Filter Chips (When Query is Active)
         if (query.isNotBlank()) {

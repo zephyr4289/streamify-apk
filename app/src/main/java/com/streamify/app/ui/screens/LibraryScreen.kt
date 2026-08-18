@@ -330,11 +330,15 @@ fun LibraryScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = "Library",
-                style = LocalAppTypography.current.headlineLarge.copy(fontSize = 24.sp),
-                color = TextMain
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Library",
+                    style = LocalAppTypography.current.headlineLarge.copy(fontSize = 24.sp),
+                    color = TextMain
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                SireenBrandingBadge()
+            }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
