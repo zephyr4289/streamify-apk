@@ -33,8 +33,15 @@ fun StatsWrappedScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        YtStatsTelemetryEngine.initFromContext(context)
+    }
     val cachedStats by YtStatsTelemetryEngine.cachedWrappedStats.collectAsState()
-    val computedStats by remember { YtStatsTelemetryEngine.computeWrappedStats() }.collectAsState(initial = cachedStats)
+    val computedStats by produceState<WrappedStats?>(initialValue = cachedStats) {
+        YtStatsTelemetryEngine.computeWrappedStats(forceRefresh = true).collect {
+            value = it
+        }
+    }
     val stats = computedStats ?: cachedStats
     val scrollState = rememberScrollState()
 

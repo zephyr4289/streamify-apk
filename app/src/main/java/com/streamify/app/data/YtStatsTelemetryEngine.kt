@@ -41,12 +41,10 @@ object YtStatsTelemetryEngine {
 
     private var secondsSinceLastCloudSync = 0L
 
-    init {
-        // Hydrate from persistent disk cache on engine initialization (0ms instant startup)
+    fun initFromContext(context: android.content.Context) {
         try {
-            val context = TrackRepository.appContext
-            val prefs = context?.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
-            val savedJson = prefs?.getString("wrapped_2026_cached_json", null)
+            val prefs = context.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
+            val savedJson = prefs.getString("wrapped_2026_cached_json", null)
             if (!savedJson.isNullOrBlank()) {
                 val diskStats = deserializeWrappedStats(savedJson)
                 if (diskStats != null) {
@@ -56,6 +54,11 @@ object YtStatsTelemetryEngine {
         } catch (e: Exception) {
             // Safe fallback
         }
+    }
+
+    init {
+        // Hydrate from persistent disk cache on engine initialization if context is already available
+        TrackRepository.appContext?.let { initFromContext(it) }
     }
 
     fun recordListeningSeconds(seconds: Long) {
@@ -75,10 +78,87 @@ object YtStatsTelemetryEngine {
                 prefs.edit().putString("wrapped_2026_cached_json", serializeWrappedStats(updated)).apply()
             }
 
-            // Periodic 60s Cloud Telemetry Auto-Sync (Fix for Admin Dashboard 0 mins)
+            // Periodic 60s Cloud Telemetry Auto-Sync (Cross-Device Cloud Sync)
             secondsSinceLastCloudSync += seconds
             if (secondsSinceLastCloudSync >= 60L) {
                 secondsSinceLastCloudSync = 0L
+                engineScope.launch(Dispatchers.IO) {
+                    syncCurrentTelemetryToCloud()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun recordTrackPlay(track: Track) {
+        val context = TrackRepository.appContext ?: return
+        try {
+            val prefs = context.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
+            val sig = "${track.title.trim().lowercase()}_${track.artist.trim().lowercase()}"
+            val countJson = prefs.getString("played_tracks_counts_map", "{}") ?: "{}"
+            val countObj = JSONObject(countJson)
+            val currentPlays = countObj.optInt(sig, 0) + 1
+            countObj.put(sig, currentPlays)
+
+            val totalPlays = prefs.getInt("total_plays_count", 0) + 1
+            
+            val metaJson = prefs.getString("played_tracks_meta_map", "{}") ?: "{}"
+            val metaObj = JSONObject(metaJson)
+            metaObj.put(sig, JSONObject().apply {
+                put("id", track.id)
+                put("title", track.title)
+                put("artist", track.artist)
+                put("album", track.album)
+                put("durationSec", track.durationSec)
+                put("filepath", track.filepath)
+                put("coverArtPath", track.coverArtPath ?: "")
+                put("bpm", track.bpm.toDouble())
+                put("isLiked", track.isLiked)
+            })
+
+            prefs.edit()
+                .putString("played_tracks_counts_map", countObj.toString())
+                .putString("played_tracks_meta_map", metaObj.toString())
+                .putInt("total_plays_count", totalPlays)
+                .apply()
+
+            // Trigger non-blocking cloud sync on play event
+            engineScope.launch(Dispatchers.IO) {
+                syncCurrentTelemetryToCloud()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun mergeCloudTelemetry(cloudSeconds: Long, cloudPlays: Int, cloudTopTrack: String = "") {
+        val context = TrackRepository.appContext ?: return
+        try {
+            val prefs = context.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
+            val localSeconds = prefs.getLong("total_listened_seconds", 0L)
+            val localPlays = prefs.getInt("total_plays_count", 0)
+
+            val mergedSeconds = maxOf(localSeconds, cloudSeconds)
+            val mergedPlays = maxOf(localPlays, cloudPlays)
+
+            prefs.edit()
+                .putLong("total_listened_seconds", mergedSeconds)
+                .putInt("total_plays_count", mergedPlays)
+                .apply()
+
+            val cur = _cachedWrappedStats.value
+            if (cur != null) {
+                val updated = cur.copy(
+                    totalMinutes = (mergedSeconds / 60).toInt(),
+                    topPlayedCount = mergedPlays
+                )
+                _cachedWrappedStats.value = updated
+                prefs.edit().putString("wrapped_2026_cached_json", serializeWrappedStats(updated)).apply()
+            }
+
+            // Two-way sync: If local listening was ahead of cloud, push up merged stats
+            if (localSeconds > cloudSeconds || localPlays > cloudPlays) {
                 engineScope.launch(Dispatchers.IO) {
                     syncCurrentTelemetryToCloud()
                 }
@@ -94,13 +174,14 @@ object YtStatsTelemetryEngine {
             val context = TrackRepository.appContext
             val prefs = context?.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
             val realListenedSeconds = prefs?.getLong("total_listened_seconds", 0L) ?: 0L
+            val realTotalPlays = prefs?.getInt("total_plays_count", 0) ?: 0
 
-            val topPlayedTracks = TrackRepository.getTopPlayedTracks(1)
+            val topPlayedTracks = getLocalTopPlayedTracks(context, 1)
             val topTrack = topPlayedTracks.firstOrNull()?.let { "${it.title} • ${it.artist}" } ?: ""
             val libraryTracks = TrackRepository.getAllTracks()
-            val totalPlays = libraryTracks.sumOf { it.playCount }.coerceAtLeast(topPlayedTracks.size)
+            val finalTotalPlays = maxOf(realTotalPlays, libraryTracks.sumOf { it.playCount }, topPlayedTracks.size)
 
-            val validBpms = libraryTracks.map { it.bpm }.filter { it > 40f && it < 240f }
+            val validBpms = (topPlayedTracks + libraryTracks).map { it.bpm }.filter { it > 40f && it < 240f }
             val weightedBpm = if (validBpms.isNotEmpty()) validBpms.average().toInt() else 124
 
             val persona = when {
@@ -116,7 +197,7 @@ object YtStatsTelemetryEngine {
             SupabaseClient.upsertTelemetry(
                 TelemetryPayload(
                     listeningSeconds = realListenedSeconds,
-                    totalPlays = totalPlays,
+                    totalPlays = finalTotalPlays,
                     topTrack = topTrack,
                     favoriteGenre = user.favoriteGenre.ifBlank { "Electronic & Synthwave" },
                     bio = persona,
@@ -126,6 +207,41 @@ object YtStatsTelemetryEngine {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun getLocalTopPlayedTracks(context: android.content.Context?, limit: Int): List<Track> {
+        if (context == null) return emptyList()
+        val result = mutableListOf<Track>()
+        try {
+            val prefs = context.getSharedPreferences("streamify_playback_telemetry", android.content.Context.MODE_PRIVATE)
+            val countJson = prefs.getString("played_tracks_counts_map", "{}") ?: "{}"
+            val metaJson = prefs.getString("played_tracks_meta_map", "{}") ?: "{}"
+            val countObj = JSONObject(countJson)
+            val metaObj = JSONObject(metaJson)
+
+            val sortedKeys = countObj.keys().asSequence().sortedByDescending { countObj.optInt(it, 0) }.take(limit).toList()
+            for (key in sortedKeys) {
+                val tObj = metaObj.optJSONObject(key)
+                if (tObj != null) {
+                    result.add(
+                        Track(
+                            id = tObj.optInt("id", 0),
+                            title = tObj.optString("title", ""),
+                            artist = tObj.optString("artist", ""),
+                            album = tObj.optString("album", ""),
+                            durationSec = tObj.optInt("durationSec", 0),
+                            filepath = tObj.optString("filepath", ""),
+                            coverArtPath = tObj.optString("coverArtPath", ""),
+                            bpm = tObj.optDouble("bpm", 120.0).toFloat(),
+                            isLiked = tObj.optBoolean("isLiked", false)
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return result
     }
 
     fun computeWrappedStats(forceRefresh: Boolean = false): Flow<WrappedStats> = flow {
@@ -143,18 +259,24 @@ object YtStatsTelemetryEngine {
             }
         }
 
-        // Tier 1: Instant 0ms RAM / Disk Cache Return
+        // Tier 1: Instant 0ms RAM / Disk Cache Return if not forcing refresh
         _cachedWrappedStats.value?.takeIf { !forceRefresh }?.let { cached ->
             emit(cached)
             return@flow
         }
 
-        // Tier 2: Hot Local Unified Matrix Computation (<5ms off main thread)
+        // Tier 2: Hot Dynamic Local Matrix Computation
         val likedTracks = TrackRepository.getLikedTracks()
-        val topPlayedTracks = TrackRepository.getTopPlayedTracks(20)
+        val trackedTopPlays = getLocalTopPlayedTracks(context, 20)
+        val nativeTopPlays = TrackRepository.getTopPlayedTracks(20)
         val libraryTracks = TrackRepository.getAllTracks()
 
+        val topPlayedTracks = (trackedTopPlays + nativeTopPlays).distinctBy {
+            "${it.title.lowercase().trim()}_${it.artist.lowercase().trim()}"
+        }
+
         val realListenedSeconds = prefs?.getLong("total_listened_seconds", 0L) ?: 0L
+        val realTotalPlays = prefs?.getInt("total_plays_count", 0) ?: 0
 
         val totalMinutes = if (realListenedSeconds > 0) {
             (realListenedSeconds / 60).toInt()
@@ -163,14 +285,14 @@ object YtStatsTelemetryEngine {
             if (playedSeconds > 0) (playedSeconds / 60).toInt() else (likedTracks.size * 3)
         }
 
-        // Unified distinct corpus across liked songs, top streams, and local library
+        // Unified distinct corpus across played songs, liked songs, and library
         val unifiedCorpus = (topPlayedTracks + likedTracks + libraryTracks).distinctBy {
             "${it.title.lowercase().trim()}_${it.artist.lowercase().trim()}"
         }
 
         val totalTracks = unifiedCorpus.size
         val likedCount = likedTracks.size
-        val topPlayedCount = topPlayedTracks.size
+        val topPlayedCount = maxOf(realTotalPlays, topPlayedTracks.size)
 
         // Select Top 5 Songs with strict priority: Top Played -> Liked Songs -> Unified Corpus
         val top5Songs = mutableListOf<Track>()

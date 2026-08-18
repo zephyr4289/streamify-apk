@@ -243,7 +243,7 @@ object SupabaseClient {
                         savedEmail.contains("sireenyadav", ignoreCase = true) ||
                         savedEmail.equals(BuildConfig.ADMIN_EMAIL, ignoreCase = true) ||
                         (savedName?.contains("sireen", ignoreCase = true) == true)
-                _currentUser.value = UserProfile(
+                val userProf = UserProfile(
                     id = savedUserId ?: "",
                     email = savedEmail,
                     displayName = savedName ?: savedEmail.substringBefore("@"),
@@ -252,6 +252,12 @@ object SupabaseClient {
                     favoriteGenre = savedGenre ?: "All",
                     isAdmin = isAdminUser
                 )
+                _currentUser.value = userProf
+                if (!savedUserId.isNullOrBlank()) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        fetchCloudTelemetryAndMerge(savedUserId)
+                    }
+                }
             }
         }
     }
@@ -399,6 +405,7 @@ object SupabaseClient {
                 }
 
                 ensureProfile(profile)
+                fetchCloudTelemetryAndMerge(userId)
 
                 Result.success(profile)
             } else {
@@ -477,20 +484,47 @@ object SupabaseClient {
         }
     }
 
+    suspend fun fetchCloudTelemetryAndMerge(userId: String) = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?id=eq.$userId&select=listening_seconds,total_plays,top_track,favorite_genre,bio")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                if (arr.length() > 0) {
+                    val o = arr.getJSONObject(0)
+                    val cloudSec = o.optLong("listening_seconds", 0L)
+                    val cloudPlays = o.optInt("total_plays", 0)
+                    val topTrack = o.optString("top_track", "")
+                    com.streamify.app.data.YtStatsTelemetryEngine.mergeCloudTelemetry(cloudSec, cloudPlays, topTrack)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     suspend fun upsertTelemetry(payload: TelemetryPayload): Result<Boolean> = withContext(Dispatchers.IO) {
         val user = _currentUser.value ?: return@withContext Result.failure(Exception("Not logged in"))
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}")
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?on_conflict=id")
             val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "PATCH"
+                requestMethod = "POST"
                 doOutput = true
                 setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
                 setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
                 setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Prefer", "return=minimal")
+                setRequestProperty("Prefer", "resolution=merge-duplicates")
             }
 
             val body = JSONObject().apply {
+                put("id", user.id)
+                put("email", user.email)
+                put("display_name", user.displayName)
                 put("listening_seconds", payload.listeningSeconds)
                 put("total_plays", payload.totalPlays)
                 if (payload.topTrack.isNotBlank()) put("top_track", payload.topTrack)

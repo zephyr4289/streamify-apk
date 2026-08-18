@@ -288,6 +288,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 val currentT = _playerState.value.currentTrack
                 val newTrackId = mediaItem?.mediaId?.removePrefix("trk_")?.toIntOrNull() ?: currentT?.id?.takeIf { it > 0 }
                 if (currentT != null) {
+                    com.streamify.app.data.YtStatsTelemetryEngine.recordTrackPlay(currentT)
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         try {
                             val registered = repository.registerStreamedTrack(currentT, appContext)

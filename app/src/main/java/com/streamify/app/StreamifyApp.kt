@@ -33,8 +33,9 @@ class StreamifyApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         
-        // 1. Ensure TrackRepository application context is bound
+        // 1. Ensure TrackRepository application context and Telemetry Engine are bound
         com.streamify.app.data.TrackRepository.appContext = this
+        com.streamify.app.data.YtStatsTelemetryEngine.initFromContext(this)
 
         // 2. Ensure database directory exists before C++ sqlite3_open_v2
         try {
