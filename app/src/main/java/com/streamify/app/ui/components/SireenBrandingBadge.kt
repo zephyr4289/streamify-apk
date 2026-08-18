@@ -2,24 +2,19 @@ package com.streamify.app.ui.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.ui.theme.*
@@ -27,60 +22,45 @@ import com.streamify.app.ui.theme.*
 /**
  * High-Performance Glassy Shimmering Brand Badge: "DEVELOPED BY SIREEN"
  *
- * Implements GPU Draw-Phase Shader Translation (Compose Phase 3).
- * Skips 100% of Recomposition and Layout measurement passes during the infinite shimmer cycle.
- * Produces 0 bytes of Garbage Collection allocations per frame (Locked 120 FPS).
+ * Implements GPU Draw-Phase Shader Translation matching PrismaticSplashScreen.
+ * Renders chromatic laser shimmer directly onto character glyphs with zero bounding-box bleed.
  */
 @Composable
 fun SireenBrandingBadge(
     modifier: Modifier = Modifier
 ) {
-    // 1. Hardware VSYNC infinite animation timeline (3.2s periodic glint)
     val transition = rememberInfiniteTransition(label = "sireen_shimmer_transition")
     val shimmerProgress by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3200, easing = LinearEasing),
+            animation = tween(durationMillis = 2800, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "shimmer_glint_progress"
     )
 
-    // 2. Pre-allocated chromatic laser palette matching PrismaticSplashScreen
-    val baseMuted = remember { TextSecondary.copy(alpha = 0.40f) }
-    val laserColors = remember {
-        listOf(
-            baseMuted,
-            Color.White.copy(alpha = 0.85f),
-            Primary,
-            ActiveControl,
-            Color.White,
-            baseMuted
-        )
-    }
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
 
-    // 3. Pre-composed luxury typography
     val annotatedText = remember {
         buildAnnotatedString {
             withStyle(
                 SpanStyle(
-                    color = TextSecondary.copy(alpha = 0.8f),
-                    fontSize = 8.5.sp,
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.0.sp,
-                    fontFamily = StreamifyFontFamily
+                    letterSpacing = 1.6.sp
                 )
             ) {
-                append("DEV BY ")
+                append("DEVELOPED BY ")
             }
             withStyle(
                 SpanStyle(
                     color = Primary,
                     fontSize = 9.5.sp,
                     fontWeight = FontWeight.Black,
-                    letterSpacing = 3.2.sp,
-                    fontFamily = StreamifyFontFamily
+                    letterSpacing = 2.2.sp
                 )
             ) {
                 append("SIREEN")
@@ -88,36 +68,52 @@ fun SireenBrandingBadge(
         }
     }
 
-    // 4. Glassy Translucent Frosted Capsule
+    val textLayout = remember(annotatedText) {
+        textMeasurer.measure(
+            text = annotatedText,
+            style = TextStyle(fontFamily = StreamifyFontFamily)
+        )
+    }
+
+    val badgeWidthDp = with(density) { textLayout.size.width.toDp() }
+    val badgeHeightDp = with(density) { textLayout.size.height.toDp() }
+
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = BgSurfaceElevated.copy(alpha = 0.60f),
-        border = BorderStroke(0.8.dp, BorderChip.copy(alpha = 0.50f)),
+        shape = RoundedCornerShape(10.dp),
+        color = BgSurfaceElevated.copy(alpha = 0.65f),
+        border = BorderStroke(0.8.dp, BorderChip.copy(alpha = 0.55f)),
         modifier = modifier
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+        Box(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.5.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = annotatedText,
-                modifier = Modifier.drawWithContent {
-                    // GPU Draw-Phase Shader Translation (Zero Recomposition Overhead)
-                    val width = size.width
-                    val shimmerX = (shimmerProgress * (width + 300f)) - 150f
-                    val sweepBrush = Brush.horizontalGradient(
-                        colors = laserColors,
-                        startX = shimmerX - 120f,
-                        endX = shimmerX + 120f
-                    )
+            Canvas(
+                modifier = Modifier.size(width = badgeWidthDp, height = badgeHeightDp)
+            ) {
+                val width = size.width
+                val shimmerX = (shimmerProgress * (width + 200f)) - 100f
 
-                    drawContent()
-                    drawRect(
-                        brush = sweepBrush,
-                        blendMode = BlendMode.SrcIn
-                    )
-                }
-            )
+                val sweepBrush = Brush.horizontalGradient(
+                    colors = listOf(
+                        TextSecondary.copy(alpha = 0.50f),
+                        Color.White.copy(alpha = 0.90f),
+                        Primary,
+                        Color(0xFF00E5FF),
+                        Color.White,
+                        TextSecondary.copy(alpha = 0.50f)
+                    ),
+                    startX = shimmerX - 70f,
+                    endX = shimmerX + 70f
+                )
+
+                drawText(
+                    textLayoutResult = textLayout,
+                    topLeft = Offset.Zero,
+                    brush = sweepBrush
+                )
+            }
         }
     }
 }
+
