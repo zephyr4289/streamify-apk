@@ -58,7 +58,7 @@ object ContinuumRadioEngine {
      * Raw Innertube RDAMVM radio crawler with multi-tier fallback used by UniversalCandidateBroker.
      */
     suspend fun fetchRawRadioTracks(canonicalVideoId: String, seedTrack: Track? = null): List<Track> = withContext(Dispatchers.IO) {
-        val (candidates, _) = executeNextRequest(canonicalVideoId, null)
+        val (candidates, _) = executeNextRequest(canonicalVideoId, null, seedTrack)
         if (candidates.isNotEmpty()) return@withContext candidates
 
         // Multi-tier fallback 3: If RDAMVM returns empty, query YouTube Music Search Mix
@@ -66,6 +66,7 @@ object ContinuumRadioEngine {
             try {
                 val query = "${seedTrack.title} ${seedTrack.artist} radio".trim()
                 val searchResults = YouTubeMusicSearchApi.search(query, maxResults = 20)
+                val dynamicBpm = if (seedTrack.bpm > 0f) seedTrack.bpm else 120f
                 return@withContext searchResults.mapNotNull { item ->
                     val vid = YouTubeStreamResolver.extractVideoId(item.url, item.thumbnail) ?: return@mapNotNull null
                     Track(
@@ -76,7 +77,7 @@ object ContinuumRadioEngine {
                         durationSec = item.duration,
                         filepath = "https://www.youtube.com/watch?v=$vid",
                         coverArtPath = item.thumbnail.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
-                        bpm = 120f,
+                        bpm = dynamicBpm,
                         key = "",
                         lyricsPath = null,
                         source = "online_stream"
@@ -204,13 +205,14 @@ object ContinuumRadioEngine {
         return emptyList()
     }
 
-    private fun executeNextRequest(videoId: String, continuationToken: String?): Pair<List<Track>, String?> {
+    private fun executeNextRequest(videoId: String, continuationToken: String?, seedTrack: Track? = null): Pair<List<Track>, String?> {
         // Tier 1: Try ANDROID_MUSIC client
         val androidResult = executeInnertubeNextCall(
             clientName = "ANDROID_MUSIC",
             clientVersion = "6.42.52",
             videoId = videoId,
-            continuationToken = continuationToken
+            continuationToken = continuationToken,
+            seedTrack = seedTrack
         )
         if (androidResult.first.isNotEmpty()) {
             return androidResult
@@ -221,7 +223,8 @@ object ContinuumRadioEngine {
             clientName = "WEB_REMIX",
             clientVersion = "1.20230515.01.00",
             videoId = videoId,
-            continuationToken = continuationToken
+            continuationToken = continuationToken,
+            seedTrack = seedTrack
         )
     }
 
@@ -229,7 +232,8 @@ object ContinuumRadioEngine {
         clientName: String,
         clientVersion: String,
         videoId: String,
-        continuationToken: String?
+        continuationToken: String?,
+        seedTrack: Track? = null
     ): Pair<List<Track>, String?> {
         try {
             val isAndroid = clientName == "ANDROID_MUSIC"
@@ -279,16 +283,17 @@ object ContinuumRadioEngine {
                 }
 
                 val root = JSONObject(responseBody)
-                return parseNextResponse(root)
+                return parseNextResponse(root, seedTrack)
             }
         } catch (e: Exception) {
             return Pair(emptyList(), null)
         }
     }
 
-    private fun parseNextResponse(root: JSONObject): Pair<List<Track>, String?> {
+    private fun parseNextResponse(root: JSONObject, seedTrack: Track? = null): Pair<List<Track>, String?> {
         val tracks = mutableListOf<Track>()
         var nextContinuation: String? = null
+        val dynamicBpm = if (seedTrack != null && seedTrack.bpm > 0f) seedTrack.bpm else 120f
 
         try {
             val candidateNodes = mutableListOf<JSONObject>()
@@ -324,7 +329,7 @@ object ContinuumRadioEngine {
                         durationSec = durationSec,
                         filepath = "https://www.youtube.com/watch?v=$videoId",
                         coverArtPath = thumbnail.takeIf { it.isNotBlank() },
-                        bpm = 120f,
+                        bpm = dynamicBpm,
                         key = "",
                         lyricsPath = null,
                         source = "online_stream"

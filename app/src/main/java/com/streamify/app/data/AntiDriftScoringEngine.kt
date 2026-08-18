@@ -93,6 +93,9 @@ object AntiDriftScoringEngine {
             val bpmDiff = abs(candidate.bpm - seedBpm)
             val bpmFactor = exp(-((bpmDiff.toDouble().pow(2.0)) / (2.0 * 25.0 * 25.0))).toFloat()
             score += bpmFactor * 30.0f
+        } else {
+            // Neutral baseline affinity for un-analyzed or stream candidates
+            score += 25.0f
         }
 
         // 2. Camelot Key Harmonic Compatibility

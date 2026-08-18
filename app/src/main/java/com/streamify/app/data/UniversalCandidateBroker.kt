@@ -34,7 +34,7 @@ object UniversalCandidateBroker {
             // 2. 3-Way Parallel Coroutine Fan-Out
             val innertubeDeferred = async(Dispatchers.IO) {
                 try {
-                    ContinuumRadioEngine.fetchRawRadioTracks(canonicalId)
+                    ContinuumRadioEngine.fetchRawRadioTracks(canonicalId, seedTrack)
                 } catch (e: Exception) {
                     emptyList()
                 }
@@ -69,25 +69,18 @@ object UniversalCandidateBroker {
             val cloudCandidates = withTimeoutOrNull(2500L) { cloudVectorDeferred.await() } ?: emptyList()
             val localCandidates = localMarkovDeferred.await()
 
-            // 4. Merge Raw Candidate Pool (~60-100 songs)
-            val rawPool = mutableListOf<Track>().apply {
+            // 4. Build Online Candidate Pool (YouTube Music Radio + Cloud Vector)
+            val onlinePool = mutableListOf<Track>().apply {
                 addAll(onlineCandidates)
                 addAll(cloudCandidates)
-                addAll(localCandidates)
             }
 
-            // 5. Native Anti-Drift & Acoustic Affinity Filter
-            val rankedTracks = AntiDriftScoringEngine.filterAndRankCandidates(
-                candidates = rawPool,
-                seedTrack = seedTrack,
-                activeQueue = activeQueue
-            )
-
-            // 6. Zero-Contamination Online Discovery Fallback: If ranked list is too small, fetch search mix
-            val finalTracks = if (rankedTracks.size < 5) {
-                val searchFallback = try {
+            // Online Discovery Fallback: If online pool has fewer than 5 tracks, fetch search mix
+            if (onlinePool.size < 5) {
+                try {
                     val query = "${seedTrack.title} ${seedTrack.artist} mix".trim()
-                    com.streamify.app.data.network.YouTubeMusicSearchApi.search(query, maxResults = 15).mapNotNull { item ->
+                    val dynamicBpm = if (seedTrack.bpm > 0f) seedTrack.bpm else 120f
+                    val searchFallback = com.streamify.app.data.network.YouTubeMusicSearchApi.search(query, maxResults = 15).mapNotNull { item ->
                         val vid = YouTubeStreamResolver.extractVideoId(item.url) ?: return@mapNotNull null
                         Track(
                             id = -(vid.hashCode()),
@@ -97,21 +90,55 @@ object UniversalCandidateBroker {
                             durationSec = item.duration,
                             filepath = "https://www.youtube.com/watch?v=$vid",
                             coverArtPath = item.thumbnail.ifBlank { "https://i.ytimg.com/vi/$vid/hqdefault.jpg" },
-                            bpm = 120f,
+                            bpm = dynamicBpm,
                             key = "",
                             lyricsPath = null,
                             source = "online_stream"
                         )
                     }
+                    onlinePool.addAll(searchFallback)
                 } catch (e: Exception) {
-                    emptyList()
+                    // Non-fatal
                 }
+            }
 
-                val activeKeys = activeQueue.map { "${it.title}:::${it.artist}".lowercase() }.toSet()
-                val validSearch = searchFallback.filter { !activeKeys.contains("${it.title}:::${it.artist}".lowercase()) }
-                (rankedTracks + validSearch).distinctBy { "${it.title}:::${it.artist}".lowercase() }.take(targetCount)
-            } else {
-                rankedTracks.take(targetCount)
+            // 5. Native Anti-Drift & Acoustic Affinity Filter (Ranked independently)
+            val rankedOnline = AntiDriftScoringEngine.filterAndRankCandidates(
+                candidates = onlinePool,
+                seedTrack = seedTrack,
+                activeQueue = activeQueue
+            )
+
+            val rankedLocal = AntiDriftScoringEngine.filterAndRankCandidates(
+                candidates = localCandidates,
+                seedTrack = seedTrack,
+                activeQueue = activeQueue
+            )
+
+            // 6. Discovery-First Interleaving (70% Internet Discovery / 30% Local Anchors)
+            val finalTracks = mutableListOf<Track>()
+            var onlineIdx = 0
+            var localIdx = 0
+
+            while (finalTracks.size < targetCount && (onlineIdx < rankedOnline.size || localIdx < rankedLocal.size)) {
+                // Add up to 2 online discovery tracks
+                repeat(2) {
+                    if (onlineIdx < rankedOnline.size && finalTracks.size < targetCount) {
+                        finalTracks.add(rankedOnline[onlineIdx++])
+                    }
+                }
+                // Add 1 local favorite anchor
+                if (localIdx < rankedLocal.size && finalTracks.size < targetCount) {
+                    finalTracks.add(rankedLocal[localIdx++])
+                }
+                // Backfill from remaining online if local exhausted
+                if (localIdx >= rankedLocal.size && onlineIdx < rankedOnline.size && finalTracks.size < targetCount) {
+                    finalTracks.add(rankedOnline[onlineIdx++])
+                }
+                // Backfill from remaining local if online exhausted
+                if (onlineIdx >= rankedOnline.size && localIdx < rankedLocal.size && finalTracks.size < targetCount) {
+                    finalTracks.add(rankedLocal[localIdx++])
+                }
             }
 
             _currentRecommendations.value = finalTracks
