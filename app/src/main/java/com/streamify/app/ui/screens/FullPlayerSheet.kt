@@ -123,6 +123,13 @@ fun FullPlayerSheet(
     }
     BackHandler(enabled = showRelatedSheet) {
         showRelatedSheet = false
+    // Pre-Allocated GPU Assets: Zero heap allocation inside Canvas draw phase
+    val ambientGlowColors = remember(dominantColor) {
+        listOf(
+            dominantColor.copy(alpha = 0.35f),
+            BgBase.copy(alpha = 0.85f),
+            BgBase
+        )
     }
 
     Box(
@@ -134,11 +141,7 @@ fun FullPlayerSheet(
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawRect(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        dominantColor.copy(alpha = 0.35f),
-                        BgBase.copy(alpha = 0.85f),
-                        BgBase
-                    ),
+                    colors = ambientGlowColors,
                     center = Offset(
                         if (isLandscape) size.width * 0.22f else size.width / 2,
                         if (isLandscape) size.height / 2 else size.height * 0.28f

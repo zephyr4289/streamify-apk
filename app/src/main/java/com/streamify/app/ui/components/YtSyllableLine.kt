@@ -47,6 +47,14 @@ fun YtSyllableLine(
         )
     }
 
+    // Pre-allocated GPU Assets: Zero heap allocations during draw phase
+    val vocalBloomColors = remember(dominantColor) {
+        listOf(
+            dominantColor.copy(alpha = 0.22f),
+            Color.Transparent
+        )
+    }
+
     // 2. Dynamic Spring Pop on Line Activation
     val scaleAnim = remember { Animatable(1f) }
 
@@ -116,10 +124,7 @@ fun YtSyllableLine(
             // Ambient Vocal Bloom behind active line
             drawRect(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        dominantColor.copy(alpha = 0.22f),
-                        Color.Transparent
-                    ),
+                    colors = vocalBloomColors,
                     center = Offset(size.width * 0.35f, size.height / 2f),
                     radius = size.width * 0.70f
                 )

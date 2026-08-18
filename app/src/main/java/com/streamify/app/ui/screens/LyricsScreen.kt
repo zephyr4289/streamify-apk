@@ -62,12 +62,14 @@ fun LyricsScreen(
         currentLyrics.isNotEmpty() && currentLyrics.any { it.timeMs > 0L }
     }
 
-    // 3. Active Index Calculus (Synced Mode)
-    val activeIndex = remember(lyricController.interpolatedPosMs, currentLyrics, isSynced) {
-        if (!isSynced) 0
-        else {
-            val idx = currentLyrics.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
-            if (idx >= 0) idx else 0
+    // 3. Integer State Derivation: Snapshot frequency step-down (Recomposes 1x per line instead of 120 FPS)
+    val activeIndex by remember(currentLyrics, isSynced) {
+        derivedStateOf {
+            if (!isSynced) 0
+            else {
+                val idx = currentLyrics.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
+                if (idx >= 0) idx else 0
+            }
         }
     }
 
@@ -97,6 +99,15 @@ fun LyricsScreen(
         }
     }
 
+    // Pre-allocated GPU Assets: Zero heap allocations during draw phase
+    val ambientVocalGlowColors = remember(dominantColor) {
+        listOf(
+            dominantColor.copy(alpha = 0.24f),
+            BgBase.copy(alpha = 0.88f),
+            BgBase
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -107,11 +118,7 @@ fun LyricsScreen(
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawRect(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        dominantColor.copy(alpha = 0.24f),
-                        BgBase.copy(alpha = 0.88f),
-                        BgBase
-                    ),
+                    colors = ambientVocalGlowColors,
                     center = Offset(size.width / 2, size.height * 0.25f),
                     radius = size.width * 1.15f
                 )
