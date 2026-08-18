@@ -64,10 +64,10 @@ fun SearchScreen(
     }
 
     // 120fps Debounce Engine: Cancels rapid keystroke jobs
-    LaunchedEffect(query) {
+    LaunchedEffect(query, selectedFilter) {
         if (query.isNotBlank()) {
             delay(150)
-            viewModel.search(query)
+            viewModel.search(query, selectedFilter)
             viewModel.updateSuggestions(query)
         } else {
             viewModel.updateSuggestions("")
@@ -372,66 +372,169 @@ fun SearchScreen(
                         }
 
                         // 4. Online Streamify Results
-                        if (onlineMatches.isNotEmpty() && (selectedFilter == "All" || selectedFilter == "Songs" || selectedFilter == "Videos")) {
+                        if (onlineMatches.isNotEmpty()) {
                             item(key = "header_online_results", contentType = "header") {
+                                val categoryHeader = when (selectedFilter) {
+                                    "Artists" -> "Artists"
+                                    "Albums" -> "Albums & EPs"
+                                    "Playlists" -> "Featured & Community Playlists"
+                                    "Videos" -> "Music Videos"
+                                    "Songs" -> "Studio Tracks"
+                                    else -> "Online Results"
+                                }
                                 YtSectionHeader(
-                                    title = "Online Results",
+                                    title = categoryHeader,
                                     kicker = "Instant High-Fidelity Stream"
                                 )
                             }
                             items(
                                 items = onlineMatches,
                                 key = { "online_${it.url}" },
-                                contentType = { "trackRow" }
+                                contentType = { "trackRow_${it.type.name}" }
                             ) { onlineTrack ->
-                                val isResolving = resolvingTrackUrl == onlineTrack.url
-                                val trackModel = Track(
-                                    id = (onlineTrack.url.hashCode() and 0x7FFFFFFF),
-                                    title = onlineTrack.title,
-                                    artist = onlineTrack.uploader,
-                                    album = "Streamify Cloud",
-                                    filepath = onlineTrack.url,
-                                    durationSec = onlineTrack.duration,
-                                    bpm = 0f,
-                                    coverArtPath = onlineTrack.thumbnail,
-                                    lyricsPath = null,
-                                    source = "online"
-                                )
-
-                                var itemPosition by remember { mutableStateOf(Offset.Zero) }
-
-                                YtQueueTrackItem(
-                                    track = trackModel,
-                                    isPlaying = isResolving || (currentTrack?.filepath == onlineTrack.url),
-                                    showDragHandle = false,
-                                    modifier = Modifier.onGloballyPositioned { coordinates ->
-                                        val pos = coordinates.positionInWindow()
-                                        itemPosition = Offset(pos.x + (coordinates.size.width / 2f), pos.y)
-                                    },
-                                    onClick = {
-                                        val dockPos = dockPositionState.value
-                                        val origin = if (itemPosition != Offset.Zero) itemPosition else Offset(200f, 300f)
-                                        val target = if (dockPos != Offset.Zero) dockPos else Offset(200f, 800f)
-                                        quantumController.triggerFlight(
-                                            tapOrigin = origin,
-                                            dockDestination = target,
-                                            title = trackModel.title,
-                                            artist = trackModel.artist,
-                                            art = trackModel.coverArtPath
-                                        )
-                                        viewModel.playOnlineTrack(
-                                            onlineTrack = onlineTrack,
-                                            allOnlineResults = onlineMatches,
-                                            playerViewModel = playerViewModel,
-                                            ingestionViewModel = ingestionViewModel,
-                                            context = context,
-                                            onTrackReady = {
-                                                quantumController.onTrackReady()
+                                when (onlineTrack.type) {
+                                    com.streamify.app.viewmodel.SearchResultType.ARTIST -> {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    query = onlineTrack.title
+                                                    selectedFilter = "Songs"
+                                                    viewModel.search(onlineTrack.title, "Songs")
+                                                }
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(54.dp)
+                                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                            ) {
+                                                YtThumbnail(
+                                                    url = onlineTrack.thumbnail,
+                                                    size = 54.dp,
+                                                    cornerRadius = 27.dp,
+                                                    title = onlineTrack.title,
+                                                    artist = onlineTrack.uploader
+                                                )
                                             }
+                                            Spacer(modifier = Modifier.width(14.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = onlineTrack.title,
+                                                    style = LocalAppTypography.current.songTitle.copy(
+                                                        fontSize = 15.sp,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                                    ),
+                                                    color = TextMain,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "Artist • Tap to explore songs",
+                                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                                    color = Primary,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                    com.streamify.app.viewmodel.SearchResultType.ALBUM, com.streamify.app.viewmodel.SearchResultType.PLAYLIST -> {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    query = "${onlineTrack.title} ${onlineTrack.uploader}".trim()
+                                                    selectedFilter = "Songs"
+                                                    viewModel.search(query, "Songs")
+                                                }
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            YtThumbnail(
+                                                url = onlineTrack.thumbnail,
+                                                size = 54.dp,
+                                                cornerRadius = 6.dp,
+                                                title = onlineTrack.title,
+                                                artist = onlineTrack.uploader
+                                            )
+                                            Spacer(modifier = Modifier.width(14.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = onlineTrack.title,
+                                                    style = LocalAppTypography.current.songTitle.copy(
+                                                        fontSize = 15.sp,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                                    ),
+                                                    color = TextMain,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                val badge = if (onlineTrack.type == com.streamify.app.viewmodel.SearchResultType.ALBUM) "Album" else "Playlist"
+                                                Text(
+                                                    text = "$badge • ${onlineTrack.uploader}",
+                                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                                    color = TextSecondary,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                    else -> {
+                                        val isResolving = resolvingTrackUrl == onlineTrack.url
+                                        val trackModel = Track(
+                                            id = (onlineTrack.url.hashCode() and 0x7FFFFFFF),
+                                            title = onlineTrack.title,
+                                            artist = onlineTrack.uploader,
+                                            album = if (onlineTrack.type == com.streamify.app.viewmodel.SearchResultType.VIDEO) "Music Video" else "Streamify Cloud",
+                                            filepath = onlineTrack.url,
+                                            durationSec = onlineTrack.duration,
+                                            bpm = 0f,
+                                            coverArtPath = onlineTrack.thumbnail,
+                                            lyricsPath = null,
+                                            source = "online"
                                         )
-                                    },
-                                    onMoreClick = { contextMenuController.show(trackModel, origin = MenuOrigin.SEARCH) }
-                                )
+
+                                        var itemPosition by remember { mutableStateOf(Offset.Zero) }
+
+                                        YtQueueTrackItem(
+                                            track = trackModel,
+                                            isPlaying = isResolving || (currentTrack?.filepath == onlineTrack.url),
+                                            showDragHandle = false,
+                                            modifier = Modifier.onGloballyPositioned { coordinates ->
+                                                val pos = coordinates.positionInWindow()
+                                                itemPosition = Offset(pos.x + (coordinates.size.width / 2f), pos.y)
+                                            },
+                                            onClick = {
+                                                val dockPos = dockPositionState.value
+                                                val origin = if (itemPosition != Offset.Zero) itemPosition else Offset(200f, 300f)
+                                                val target = if (dockPos != Offset.Zero) dockPos else Offset(200f, 800f)
+                                                quantumController.triggerFlight(
+                                                    tapOrigin = origin,
+                                                    dockDestination = target,
+                                                    title = trackModel.title,
+                                                    artist = trackModel.artist,
+                                                    art = trackModel.coverArtPath
+                                                )
+                                                viewModel.playOnlineTrack(
+                                                    onlineTrack = onlineTrack,
+                                                    allOnlineResults = onlineMatches,
+                                                    playerViewModel = playerViewModel,
+                                                    ingestionViewModel = ingestionViewModel,
+                                                    context = context,
+                                                    onTrackReady = {
+                                                        quantumController.onTrackReady()
+                                                    }
+                                                )
+                                            },
+                                            onMoreClick = { contextMenuController.show(trackModel, origin = MenuOrigin.SEARCH) }
+                                        )
+                                    }
+                                }
                             }
                         }
 

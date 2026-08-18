@@ -61,9 +61,25 @@ object TrackRepository {
     
     suspend fun searchTracks(query: String): List<Track> = withContext(Dispatchers.IO) {
         val likedIds = NativeBridge.getLikedTracks(1).map { it.id }.toSet()
-        NativeBridge.searchTracks(query).map { native ->
+        val directMatches = NativeBridge.searchTracks(query).map { native ->
             native.toTrack().copy(isLiked = likedIds.contains(native.id))
         }
+        if (directMatches.isNotEmpty()) {
+            return@withContext directMatches
+        }
+        // Typo-tolerant fuzzy fallback across in-memory tracks
+        val all = _allTracks.value
+        val cleanQ = query.trim().lowercase()
+        if (cleanQ.length >= 2) {
+            val fuzzyMatches = all.mapNotNull { track ->
+                val simTitle = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(cleanQ, track.title)
+                val simArtist = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(cleanQ, track.artist)
+                val maxSim = maxOf(simTitle, simArtist)
+                if (maxSim >= 0.65) Pair(track.copy(isLiked = likedIds.contains(track.id)), maxSim) else null
+            }.sortedByDescending { it.second }.map { it.first }
+            return@withContext fuzzyMatches.take(20)
+        }
+        emptyList()
     }
     
     suspend fun getLikedTracks(userId: Int = 1): List<Track> = withContext(Dispatchers.IO) {

@@ -17,12 +17,20 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class SearchResultType { SONG, VIDEO, ARTIST, ALBUM, PLAYLIST }
+
 data class OnlineSearchResult(
     val title: String,
     val uploader: String,
     val url: String,
     val duration: Int,
-    val thumbnail: String
+    val thumbnail: String,
+    val type: SearchResultType = SearchResultType.SONG,
+    val subtitle: String? = null,
+    val year: String? = null,
+    val browseId: String? = null,
+    val isExplicit: Boolean = false,
+    val isVerified: Boolean = false
 )
 
 sealed class SearchUiState {
@@ -110,11 +118,13 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
     private val _resolvingTrackUrl = MutableStateFlow<String?>(null)
     val resolvingTrackUrl: StateFlow<String?> = _resolvingTrackUrl.asStateFlow()
 
-    fun search(query: String) {
+    fun search(query: String, filter: String = "All") {
         searchJob?.cancel()
         historyJob?.cancel()
 
         val cleanQuery = query.trim()
+        val searchFilter = com.streamify.app.data.network.SearchFilter.fromLabel(filter)
+        val cacheKey = "${filter.lowercase()}:${cleanQuery.lowercase()}"
 
         if (cleanQuery.isBlank()) {
             _uiState.value = SearchUiState.Idle
@@ -133,11 +143,13 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             // Signal orchestrator to prioritize search over background AI ingestion
             com.streamify.app.data.NativeBridge.setHighPriorityActive(true)
 
-            // 1. Instantaneous Local Search (Sub-millisecond JNI)
-            val localResults = repository.searchTracks(cleanQuery)
+            // 1. Instantaneous Local Search (Sub-millisecond JNI + Fuzzy Fallback)
+            val localResults = if (filter == "All" || filter == "Songs") {
+                repository.searchTracks(cleanQuery)
+            } else emptyList()
 
             // 2. Check In-Memory LRU Cache for Instant Online Results (0ms)
-            val cachedOnline = searchCache.get(cleanQuery.lowercase())
+            val cachedOnline = searchCache.get(cacheKey)
             if (cachedOnline != null) {
                 _uiState.value = SearchUiState.Success(
                     localResults = localResults,
@@ -153,19 +165,17 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 isOnlineLoading = true
             )
 
-            // 3. Ultra-Fast Sub-100ms Native Innertube & Python Search Pipeline
+            // 3. Ultra-Fast Sub-100ms Parametric Innertube & Python Search Pipeline
             val onlineResults = withContext(Dispatchers.IO) {
                 try {
                     val searchResult: List<OnlineSearchResult> = com.streamify.app.data.network.ResilientMediaRouter.fetchWithFallback<List<OnlineSearchResult>>(
                         timeoutMs = 2500L,
                         primary = {
-                            // 1. Pure Kotlin Innertube HTTP/2 (<60ms)
-                            val yt = com.streamify.app.data.network.YouTubeMusicSearchApi.search(cleanQuery, maxResults = 25)
+                            val yt = com.streamify.app.data.network.YouTubeMusicSearchApi.search(cleanQuery, filter = searchFilter, maxResults = 30)
                             if (yt.isNotEmpty()) yt
                             else com.streamify.app.data.network.iTunesSearchApi.search(cleanQuery, maxResults = 25)
                         },
                         fallback = {
-                            // 2. Lazy Python Engine fallback
                             val pyRes = com.streamify.app.data.network.PythonEngine.executeFallback(
                                 "download_engine.search",
                                 "search_youtube",
@@ -178,15 +188,19 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                                     val results = mutableListOf<OnlineSearchResult>()
                                     for (i in 0 until jsonArr.length()) {
                                         val item = jsonArr.getJSONObject(i)
-                                        results.add(
-                                            OnlineSearchResult(
-                                                title = item.optString("title", "Unknown"),
-                                                uploader = item.optString("uploader", "Unknown"),
-                                                url = item.optString("url", ""),
-                                                duration = item.optInt("duration", 0),
-                                                thumbnail = item.optString("thumbnail", "")
+                                        val rawTitle = item.optString("title", "Unknown")
+                                        if (!com.streamify.app.data.network.SearchResultCleaner.isJunkModifier(rawTitle)) {
+                                            results.add(
+                                                OnlineSearchResult(
+                                                    title = com.streamify.app.data.network.SearchResultCleaner.cleanTitle(rawTitle),
+                                                    uploader = com.streamify.app.data.network.SearchResultCleaner.cleanUploader(item.optString("uploader", "Unknown")),
+                                                    url = item.optString("url", ""),
+                                                    duration = item.optInt("duration", 0),
+                                                    thumbnail = item.optString("thumbnail", ""),
+                                                    type = SearchResultType.SONG
+                                                )
                                             )
-                                        )
+                                        }
                                     }
                                     results
                                 } else {
@@ -196,7 +210,8 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                             pyRes.getOrNull() ?: emptyList()
                         }
                     ) ?: emptyList()
-                    val semanticResults: List<OnlineSearchResult> = if (com.streamify.app.data.network.SemanticSearchEngine.isSemanticQuery(cleanQuery)) {
+
+                    val semanticResults: List<OnlineSearchResult> = if (filter == "All" && com.streamify.app.data.network.SemanticSearchEngine.isSemanticQuery(cleanQuery)) {
                         try {
                             com.streamify.app.data.network.SemanticSearchEngine.resolveMoodQuery(cleanQuery)
                         } catch (e: Exception) {
@@ -204,19 +219,20 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         }
                     } else emptyList()
 
-                    val finalResults: List<OnlineSearchResult> = if (semanticResults.isNotEmpty()) {
+                    val combined = if (semanticResults.isNotEmpty()) {
                         (semanticResults + searchResult).distinctBy { it.url.ifBlank { it.title } }
                     } else {
                         searchResult
                     }
-                    finalResults
+
+                    rankSearchResults(combined, cleanQuery)
                 } catch (e: Exception) {
                     emptyList()
                 }
             }
 
             if (onlineResults.isNotEmpty()) {
-                searchCache.put(cleanQuery.lowercase(), onlineResults)
+                searchCache.put(cacheKey, onlineResults)
             }
 
             _uiState.value = SearchUiState.Success(
@@ -280,6 +296,31 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 }
             }
         }
+    }
+
+    private fun rankSearchResults(results: List<OnlineSearchResult>, query: String): List<OnlineSearchResult> {
+        val qLower = query.lowercase().trim()
+        return results.sortedWith(
+            compareByDescending<OnlineSearchResult> { item ->
+                var score = 0.0
+                val titleLower = item.title.lowercase()
+                val artistLower = item.uploader.lowercase()
+
+                if (item.isVerified) score += 50.0
+                if (item.type == SearchResultType.ARTIST && artistLower == qLower) score += 100.0
+                if (titleLower == qLower) score += 80.0
+                if (artistLower == qLower) score += 60.0
+
+                val simTitle = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(qLower, item.title)
+                val simArtist = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(qLower, item.uploader)
+                score += maxOf(simTitle, simArtist) * 40.0
+
+                if (item.type == SearchResultType.SONG && item.duration in 90..480) {
+                    score += 15.0
+                }
+                score
+            }
+        )
     }
 
     fun playOnlineTrack(
