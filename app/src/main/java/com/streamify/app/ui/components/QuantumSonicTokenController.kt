@@ -49,6 +49,10 @@ class QuantumSonicTokenController {
         private set
     var trackArt by mutableStateOf<String?>(null)
         private set
+    var telemetryStatus by mutableStateOf("Connecting to Streamify...")
+        private set
+
+    private var flightTime: Float = 0f
 
     // Direct 14-Float Zero-Allocation JNI Buffer
     // 0: x, 1: y, 2: z, 3: vx, 4: vy, 5: vz, 6: stretch_parallel, 7: stretch_perp, 8: rotation_rad, 9: pitch_deg, 10: roll_deg, 11: impact_progress, 12: is_docked, 13: is_ready_to_dock
@@ -67,6 +71,8 @@ class QuantumSonicTokenController {
         trackTitle = title
         trackArtist = artist
         trackArt = art
+        flightTime = 0f
+        telemetryStatus = "Connecting to Streamify..."
 
         val dx = dockDestination.x - tapOrigin.x
         val dy = dockDestination.y - tapOrigin.y
@@ -103,26 +109,36 @@ class QuantumSonicTokenController {
      */
     fun onTrackReady() {
         physicsBuffer[13] = 1f
+        telemetryStatus = "Coupling audio pipeline..."
         if (stage == TokenStage.FLYING) {
             val dx = destination.x - currentPosition.x
             val dy = destination.y - currentPosition.y
             val dist = sqrt(dx * dx + dy * dy)
             if (dist < 60f) {
-                stage = TokenStage.IMPACT
                 physicsBuffer[12] = 1f
-                com.streamify.app.util.StreamifyHapticEngine.tokenImpact()
+                physicsBuffer[11] = 0f
             }
         }
     }
 
     /**
-     * Advances simulation by dt (seconds) using C++ RK4 Native Kernel
+     * Advances simulation by dt seconds (RK4 integration).
+     * Dispatches directly to Native C++ engine if loaded,
      * with automatic fallback if native bridge encounters issues.
      */
     fun stepSimulation(dt: Float) {
         if (stage == TokenStage.IDLE || stage == TokenStage.DONE) return
 
         val safeDt = dt.coerceIn(0.001f, 0.05f)
+        flightTime += safeDt
+
+        telemetryStatus = when {
+            stage == TokenStage.IMPACT || stage == TokenStage.DONE -> "Coupled • Ready"
+            physicsBuffer[13] > 0.5f -> "Coupling audio pipeline..."
+            flightTime > 1.0f -> "Resolving audio stream..."
+            flightTime > 0.35f -> "Loading audio pipeline..."
+            else -> "Connecting to Streamify..."
+        }
 
         try {
             NativeBridge.stepAirDropPhysics(
@@ -148,6 +164,7 @@ class QuantumSonicTokenController {
         val isDocked = physicsBuffer[12] > 0.5f
         if (isDocked && stage == TokenStage.FLYING) {
             stage = TokenStage.IMPACT
+            telemetryStatus = "Coupled • Ready"
             com.streamify.app.util.StreamifyHapticEngine.tokenImpact()
         }
 

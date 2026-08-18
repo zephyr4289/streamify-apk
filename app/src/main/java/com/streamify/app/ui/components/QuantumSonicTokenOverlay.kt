@@ -106,6 +106,7 @@ fun QuantumSonicTokenOverlay(
             AirDropFluidCard(
                 title = controller.trackTitle,
                 artist = controller.trackArtist,
+                statusText = controller.telemetryStatus,
                 artUrl = controller.trackArt,
                 isFlying = controller.stage == TokenStage.FLYING
             )
@@ -117,6 +118,7 @@ fun QuantumSonicTokenOverlay(
 private fun AirDropFluidCard(
     title: String,
     artist: String,
+    statusText: String,
     artUrl: String?,
     isFlying: Boolean
 ) {
@@ -151,7 +153,10 @@ private fun AirDropFluidCard(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
                 Text(
                     text = title,
                     style = LocalAppTypography.current.songTitle.copy(
@@ -162,15 +167,31 @@ private fun AirDropFluidCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (artist.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text(
-                        text = artist,
-                        style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
-                        color = TextSecondary,
+                        text = statusText,
+                        style = LocalAppTypography.current.caption.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 0.3.sp
+                        ),
+                        color = Primary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (artist.isNotBlank()) {
+                        Text(
+                            text = " • $artist",
+                            style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
