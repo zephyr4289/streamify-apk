@@ -31,7 +31,8 @@ fun YtThumbnail(
     cornerRadius: Dp = 4.dp,
     title: String = "",
     artist: String = "",
-    videoId: String? = null
+    videoId: String? = null,
+    isLoading: Boolean = false
 ) {
     val shape = RoundedCornerShape(cornerRadius)
     val descriptor = remember(url, videoId, title, artist) {
@@ -61,55 +62,73 @@ fun YtThumbnail(
             .size(size)
             .clip(shape)
     ) {
-        if (!descriptor.primary.isNullOrBlank()) {
-            SubcomposeAsyncImage(
-                model = descriptor.primary,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(shape),
-                error = {
-                    if (!descriptor.secondary.isNullOrBlank() && descriptor.secondary != descriptor.primary) {
-                        SubcomposeAsyncImage(
-                            model = descriptor.secondary,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(shape),
-                            error = {
-                                GenerativeThumbnailFallback(size, fallbackColors)
-                            },
-                            loading = {
-                                GenerativeThumbnailFallback(size, fallbackColors)
-                            }
-                        )
-                    } else {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (!descriptor.primary.isNullOrBlank()) {
+                SubcomposeAsyncImage(
+                    model = descriptor.primary,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(shape),
+                    error = {
+                        if (!descriptor.secondary.isNullOrBlank() && descriptor.secondary != descriptor.primary) {
+                            SubcomposeAsyncImage(
+                                model = descriptor.secondary,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(shape),
+                                error = {
+                                    GenerativeThumbnailFallback(size, fallbackColors)
+                                },
+                                loading = {
+                                    GenerativeThumbnailFallback(size, fallbackColors)
+                                }
+                            )
+                        } else {
+                            GenerativeThumbnailFallback(size, fallbackColors)
+                        }
+                    },
+                    loading = {
                         GenerativeThumbnailFallback(size, fallbackColors)
                     }
-                },
-                loading = {
-                    GenerativeThumbnailFallback(size, fallbackColors)
+                )
+            } else if (!descriptor.secondary.isNullOrBlank()) {
+                SubcomposeAsyncImage(
+                    model = descriptor.secondary,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(shape),
+                    error = {
+                        GenerativeThumbnailFallback(size, fallbackColors)
+                    },
+                    loading = {
+                        GenerativeThumbnailFallback(size, fallbackColors)
+                    }
+                )
+            } else {
+                GenerativeThumbnailFallback(size, fallbackColors)
+            }
+
+            if (isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.52f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size((size * 0.38f).coerceIn(18.dp, 32.dp)),
+                        strokeWidth = 2.5.dp,
+                        color = Primary,
+                        trackColor = Primary.copy(alpha = 0.2f)
+                    )
                 }
-            )
-        } else if (!descriptor.secondary.isNullOrBlank()) {
-            SubcomposeAsyncImage(
-                model = descriptor.secondary,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(shape),
-                error = {
-                    GenerativeThumbnailFallback(size, fallbackColors)
-                },
-                loading = {
-                    GenerativeThumbnailFallback(size, fallbackColors)
-                }
-            )
-        } else {
-            GenerativeThumbnailFallback(size, fallbackColors)
+            }
         }
     }
 }

@@ -29,6 +29,7 @@ import com.streamify.app.ui.theme.*
 fun YtQueueTrackItem(
     track: Track,
     isPlaying: Boolean,
+    isBuffering: Boolean = false,
     dragOffset: Float = 0f, // Handled for 120fps GPU movement
     onDragStart: (() -> Unit)? = null,
     onDragMove: ((Float) -> Unit)? = null,
@@ -65,10 +66,11 @@ fun YtQueueTrackItem(
                 size = 48.dp,
                 cornerRadius = 4.dp,
                 title = track.title,
-                artist = track.artist
+                artist = track.artist,
+                isLoading = isBuffering && isPlaying
             )
 
-            if (isPlaying) {
+            if (isPlaying && !isBuffering) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

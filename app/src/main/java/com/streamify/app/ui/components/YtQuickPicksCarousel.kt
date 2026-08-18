@@ -23,7 +23,9 @@ fun YtQuickPicksCarousel(
     columns: List<List<Track>>, // Pre-chunked List<List<Track>> for zero GC allocations
     onTrackClick: (Track, List<Track>) -> Unit,
     onTrackMoreClick: ((Track) -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    currentPlayingTrack: Track? = null,
+    isBuffering: Boolean = false
 ) {
     val allTracksInCarousel = columns.flatten()
 
@@ -41,8 +43,13 @@ fun YtQuickPicksCarousel(
                 modifier = Modifier.width(320.dp)
             ) {
                 columnTracks.forEach { track ->
+                    val isCurrentlyBuffering = isBuffering && currentPlayingTrack != null && (
+                        (currentPlayingTrack.id > 0 && currentPlayingTrack.id == track.id) ||
+                        (currentPlayingTrack.title.equals(track.title, ignoreCase = true) && currentPlayingTrack.artist.equals(track.artist, ignoreCase = true))
+                    )
                     YtCompactTrackRow(
                         track = track,
+                        isLoading = isCurrentlyBuffering,
                         onClick = { onTrackClick(track, allTracksInCarousel) },
                         onMoreClick = { onTrackMoreClick?.invoke(track) }
                     )
@@ -55,6 +62,7 @@ fun YtQuickPicksCarousel(
 @Composable
 private fun YtCompactTrackRow(
     track: Track,
+    isLoading: Boolean = false,
     onClick: () -> Unit,
     onMoreClick: () -> Unit
 ) {
@@ -78,7 +86,8 @@ private fun YtCompactTrackRow(
             size = 48.dp,
             cornerRadius = 4.dp,
             title = track.title,
-            artist = track.artist
+            artist = track.artist,
+            isLoading = isLoading
         )
 
         Spacer(modifier = Modifier.width(12.dp))

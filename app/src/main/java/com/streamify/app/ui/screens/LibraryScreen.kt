@@ -49,7 +49,8 @@ fun LibraryScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val downloadTasks by ingestionViewModel.downloadTasks.collectAsState()
-    val currentTrack by playerViewModel.currentTrack.collectAsState()
+    val playerState by playerViewModel.playerState.collectAsState()
+    val currentTrack = playerState.currentTrack
     val playlists by PlaylistRepository.playlists.collectAsState()
     val user by SupabaseClient.currentUser.collectAsState()
 
@@ -616,6 +617,7 @@ fun LibraryScreen(
                                     YtQueueTrackItem(
                                         track = track,
                                         isPlaying = currentTrack?.id == track.id,
+                                        isBuffering = playerState.isBuffering,
                                         showDragHandle = false,
                                         onClick = { onTrackClick(track, allTracks) },
                                         onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.PLAYLIST, playlistId = "liked_songs") }
@@ -746,6 +748,7 @@ fun LibraryScreen(
                                     YtQueueTrackItem(
                                         track = track,
                                         isPlaying = currentTrack?.id == track.id,
+                                        isBuffering = playerState.isBuffering,
                                         showDragHandle = false,
                                         onClick = { onTrackClick(track, downloaded) },
                                         onMoreClick = { selectedOptionsTrack = track }

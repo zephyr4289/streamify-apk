@@ -103,6 +103,9 @@ object YouTubeStreamResolver {
 
     fun extractVideoId(urlOrId: String, fallbackThumbnail: String? = null): String? {
         val trimmed = urlOrId.trim()
+        if (trimmed.startsWith("ytsearch:") || trimmed.startsWith("online://")) {
+            return null
+        }
         if (trimmed.length == 11 && !trimmed.contains("/") && !trimmed.contains("?") && !trimmed.contains("&") && !trimmed.contains(".")) {
             return trimmed
         }
@@ -111,16 +114,6 @@ object YouTubeStreamResolver {
 
         val matchYtImg = Regex("i\\.ytimg\\.com/vi(_webp)?/([a-zA-Z0-9_-]{11})").find(trimmed)
         if (matchYtImg != null) return matchYtImg.groupValues[2]
-
-        // Check fallback thumbnail if provided
-        if (!fallbackThumbnail.isNullOrBlank()) {
-            val thumbTrimmed = fallbackThumbnail.trim()
-            val matchThumbImg = Regex("i\\.ytimg\\.com/vi(_webp)?/([a-zA-Z0-9_-]{11})").find(thumbTrimmed)
-            if (matchThumbImg != null) return matchThumbImg.groupValues[2]
-
-            val matchThumbWatch = Regex("(?:[?&]v=|youtu\\.be/|/embed/|/live/|^)([a-zA-Z0-9_-]{11})").find(thumbTrimmed)
-            if (matchThumbWatch != null) return matchThumbWatch.groupValues[1]
-        }
 
         return null
     }
@@ -165,7 +158,7 @@ object YouTubeStreamResolver {
         }
 
         // 1. Determine Video ID (or search online if missing/unresolved)
-        var videoId = extractVideoId(track.filepath, track.coverArtPath)
+        var videoId = extractVideoId(track.filepath)
         if (videoId == null) {
             val cleanQuery = if (track.filepath.startsWith("ytsearch:")) {
                 track.filepath.removePrefix("ytsearch:").trim()
@@ -174,10 +167,12 @@ object YouTubeStreamResolver {
             }
 
             if (cleanQuery.isNotBlank()) {
-                val searchMatches = YouTubeMusicSearchApi.search(cleanQuery, maxResults = 2)
-                val topMatch = searchMatches.firstOrNull()
+                val searchMatches = YouTubeMusicSearchApi.search(cleanQuery, maxResults = 3)
+                val topMatch = searchMatches.firstOrNull { match ->
+                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(track.title, track.artist, match.title, match.uploader)
+                } ?: searchMatches.firstOrNull()
                 if (topMatch != null) {
-                    videoId = extractVideoId(topMatch.url, topMatch.thumbnail)
+                    videoId = extractVideoId(topMatch.url)
                 }
             }
         }

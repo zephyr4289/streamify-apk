@@ -31,7 +31,8 @@ fun YtSupermixCard(
     artworkUrl: String?,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isLoading: Boolean = false
 ) {
     Column(
         modifier = modifier
@@ -49,7 +50,8 @@ fun YtSupermixCard(
             YtThumbnail(
                 url = artworkUrl,
                 size = 150.dp,
-                cornerRadius = 8.dp
+                cornerRadius = 8.dp,
+                isLoading = isLoading
             )
 
             // Bottom Scrim for Title Legibility

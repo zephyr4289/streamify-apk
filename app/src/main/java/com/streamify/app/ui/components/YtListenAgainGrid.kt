@@ -17,7 +17,9 @@ import com.streamify.app.ui.theme.*
 fun YtListenAgainGrid(
     columns: List<List<Track>>, // Pre-chunked pairs of 2
     onTrackClick: (Track, List<Track>) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    currentPlayingTrack: Track? = null,
+    isBuffering: Boolean = false
 ) {
     val allTracks = columns.flatten()
 
@@ -35,8 +37,13 @@ fun YtListenAgainGrid(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 columnTracks.forEach { track ->
+                    val isCurrentlyBuffering = isBuffering && currentPlayingTrack != null && (
+                        (currentPlayingTrack.id > 0 && currentPlayingTrack.id == track.id) ||
+                        (currentPlayingTrack.title.equals(track.title, ignoreCase = true) && currentPlayingTrack.artist.equals(track.artist, ignoreCase = true))
+                    )
                     YtMediumCard(
                         track = track,
+                        isLoading = isCurrentlyBuffering,
                         onClick = { onTrackClick(track, allTracks) }
                     )
                 }
@@ -48,6 +55,7 @@ fun YtListenAgainGrid(
 @Composable
 private fun YtMediumCard(
     track: Track,
+    isLoading: Boolean = false,
     onClick: () -> Unit
 ) {
     val contextMenuController = LocalContextMenuController.current
@@ -67,7 +75,8 @@ private fun YtMediumCard(
             size = 120.dp,
             cornerRadius = 8.dp,
             title = track.title,
-            artist = track.artist
+            artist = track.artist,
+            isLoading = isLoading
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(

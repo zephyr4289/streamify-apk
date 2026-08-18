@@ -43,7 +43,9 @@ object SmartOfflineVaultEngine {
     }
 
     private fun getTrackKey(track: Track): String {
-        return if (track.id > 0) "id_${track.id}" else "title_${track.title.trim().lowercase().replace(Regex("[^a-z0-9_]"), "_")}_${track.artist.trim().lowercase().replace(Regex("[^a-z0-9_]"), "_")}"
+        val cleanTitle = track.title.trim().lowercase().replace(Regex("[^a-z0-9_]"), "_")
+        val cleanArtist = track.artist.trim().lowercase().replace(Regex("[^a-z0-9_]"), "_")
+        return "vault_${cleanTitle}_${cleanArtist}"
     }
 
     private fun loadMemoryIndex(context: Context) {

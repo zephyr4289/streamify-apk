@@ -44,6 +44,7 @@ fun HomeScreen(
     val communityState by communityViewModel.uiState.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val user by SupabaseClient.currentUser.collectAsState()
+    val playerState by playerViewModel.playerState.collectAsState()
     val listState = rememberLazyListState()
     val contextMenuController = LocalContextMenuController.current
 
@@ -68,35 +69,18 @@ fun HomeScreen(
             selectedMood = selectedMood,
             onMoodSelected = { mood ->
                 selectedMood = if (selectedMood == mood) "All" else mood
-            }
+            },
+            modifier = Modifier.fillMaxWidth()
         )
 
-        // 3. GPU Pull-To-Refresh Discovery Feed Container
-        StreamifyPullToRefreshContainer(
-            isRefreshing = isRefreshing,
-            onRefresh = {
-                viewModel.loadData()
-                communityViewModel.loadCommunityFeed()
-            }
-        ) {
+        // 3. YouTube Music Shelves Content
+        Box(modifier = Modifier.fillMaxSize()) {
             when (val state = uiState) {
                 is HomeUiState.Loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = Primary,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
+                    YtHomeSkeleton()
                 }
                 is HomeUiState.Error -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = "Error: ${state.message}",
                             color = Primary,
@@ -189,6 +173,8 @@ fun HomeScreen(
                             item(key = "grid_listen_again") {
                                 YtListenAgainGrid(
                                     columns = listenAgainColumns,
+                                    currentPlayingTrack = playerState.currentTrack,
+                                    isBuffering = playerState.isBuffering,
                                     onTrackClick = onTrackClick
                                 )
                             }
@@ -205,6 +191,8 @@ fun HomeScreen(
                             item(key = "carousel_quick_picks") {
                                 YtQuickPicksCarousel(
                                     columns = quickPickColumns,
+                                    currentPlayingTrack = playerState.currentTrack,
+                                    isBuffering = playerState.isBuffering,
                                     onTrackClick = onTrackClick
                                 )
                             }
@@ -228,10 +216,15 @@ fun HomeScreen(
                                         items = supermixPool.take(8),
                                         key = { "supermix_${it.id}" }
                                     ) { track ->
+                                        val isCardBuffering = playerState.isBuffering && playerState.currentTrack != null && (
+                                            (playerState.currentTrack?.id ?: 0) > 0 && playerState.currentTrack?.id == track.id ||
+                                            (playerState.currentTrack?.title.equals(track.title, ignoreCase = true) && playerState.currentTrack?.artist.equals(track.artist, ignoreCase = true))
+                                        )
                                         YtSupermixCard(
                                             title = "${track.artist} Mix",
                                             subtitle = "Continuous station with ${track.title}",
                                             artworkUrl = track.coverArtPath,
+                                            isLoading = isCardBuffering,
                                             onClick = { onTrackClick(track, supermixPool) },
                                             onLongClick = {
                                                 com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
@@ -254,6 +247,8 @@ fun HomeScreen(
                             item(key = "grid_circadian") {
                                 YtListenAgainGrid(
                                     columns = circadianColumns,
+                                    currentPlayingTrack = playerState.currentTrack,
+                                    isBuffering = playerState.isBuffering,
                                     onTrackClick = onTrackClick
                                 )
                             }
@@ -270,6 +265,8 @@ fun HomeScreen(
                             item(key = "grid_hybrid") {
                                 YtListenAgainGrid(
                                     columns = hybridColumns,
+                                    currentPlayingTrack = playerState.currentTrack,
+                                    isBuffering = playerState.isBuffering,
                                     onTrackClick = onTrackClick
                                 )
                             }
