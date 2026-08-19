@@ -127,7 +127,7 @@ object TrackRepository {
         addToDefaultPlaylist: Boolean = false
     ): Track = withContext(Dispatchers.IO) {
         val albumName = if (track.album.isNotBlank() && !track.album.equals("Single", ignoreCase = true)) track.album else "Streamify"
-        val canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist)
+        val canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
         val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
         val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
 

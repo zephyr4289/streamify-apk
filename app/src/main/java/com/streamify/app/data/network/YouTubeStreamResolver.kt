@@ -84,13 +84,13 @@ object YouTubeStreamResolver {
     // ========================================================================
     // INVARIANT 1: STORAGE GATEKEEPER & IDENTITY SANITIZATION
     // ========================================================================
-    fun sanitizeForStorage(rawIdentifier: String, title: String, artist: String): String {
+    fun sanitizeForStorage(rawIdentifier: String, title: String, artist: String, fallbackCover: String? = null): String {
         val trimmed = rawIdentifier.trim()
         if (trimmed.startsWith("/") || trimmed.startsWith("file://")) {
             return trimmed
         }
 
-        val videoId = extractVideoId(trimmed)
+        val videoId = extractVideoId(trimmed, fallbackCover)
         if (videoId != null) {
             return "https://www.youtube.com/watch?v=$videoId"
         }
@@ -101,6 +101,7 @@ object YouTubeStreamResolver {
 
         return trimmed
     }
+
 
     fun sanitizeCoverUrl(rawUrl: String?, videoId: String?): String? {
         if (rawUrl.isNullOrBlank()) {
@@ -527,13 +528,19 @@ object YouTubeStreamResolver {
     )
 
     suspend fun resolveVideoStreamUrl(track: com.streamify.app.data.models.Track): ResolvedStream? = withContext(Dispatchers.IO) {
-        val videoId = CanonicalSeedResolver.resolveToCanonicalId(track)
+        val directId = extractVideoId(track.filepath, track.coverArtPath)
+        val videoId = if (!directId.isNullOrBlank() && directId.length == 11) {
+            directId
+        } else {
+            CanonicalSeedResolver.resolveToCanonicalId(track)
+        }
 
         // 1. Zero-RTT Edge Cache Check
         val cached = StreamEdgeCache.getVideoStream(videoId)
         if (cached != null) {
             return@withContext cached
         }
+
 
         // 2. Parallel Standard Client Video Stream Racing (ANDROID_VR / IOS / TV)
         val resolved = raceClientVideoEndpoints(videoId)

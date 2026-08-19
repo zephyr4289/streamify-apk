@@ -97,8 +97,9 @@ fun FullPlayerSheet(
     if (track == null) return
 
     val screenConfig = LocalScreenConfiguration.current
-    val isLandscape = screenConfig.isLandscape || screenConfig.isTablet
+    val isLandscape = screenConfig.isLandscape
     val playerViewModel: com.streamify.app.viewmodel.PlayerViewModel = viewModel()
+
     val playerState by playerViewModel.playerState.collectAsState()
     val isVideoMode = playerState.isVideoMode
 
@@ -1009,24 +1010,34 @@ private fun LandscapeLyricsPane(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 16.dp)
             ) {
-                items(lyricsLines.size) { index ->
-                    val line = lyricsLines[index]
-                    val isActive = isSynced && index == activeIndex
-                    val isPast = isSynced && index < activeIndex
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = isSynced) { onSeek(line.timeMs) }
-                            .padding(vertical = 10.dp, horizontal = 8.dp)
-                    ) {
+                if (!isSynced) {
+                    items(lyricsLines.size) { index ->
+                        val line = lyricsLines[index]
                         Text(
                             text = line.text,
                             style = LocalAppTypography.current.headlineSmall.copy(
-                                fontSize = if (isActive) 20.sp else 16.sp,
-                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Medium
                             ),
-                            color = if (!isSynced) TextMain else if (isActive) TextMain else if (isPast) TextSecondary.copy(alpha = 0.6f) else TextSecondary.copy(alpha = 0.4f)
+                            color = TextMain.copy(alpha = 0.90f),
+                            modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp)
+                        )
+                    }
+                } else {
+                    items(lyricsLines.size) { index ->
+                        val line = lyricsLines[index]
+                        val nextLineTime = if (index + 1 < lyricsLines.size) lyricsLines[index + 1].timeMs else line.timeMs + 3500L
+                        val isActive = index == activeIndex
+                        val isPast = index < activeIndex
+
+                        com.streamify.app.ui.components.FluidSyllableText(
+                            text = line.text,
+                            lineStartMs = line.timeMs,
+                            lineEndMs = nextLineTime,
+                            currentPlaybackMs = lyricController.interpolatedPosMs,
+                            isActive = isActive,
+                            isPast = isPast,
+                            onClick = { onSeek(line.timeMs) }
                         )
                     }
                 }
@@ -1034,6 +1045,7 @@ private fun LandscapeLyricsPane(
         }
     }
 }
+
 
 @Composable
 private fun LandscapeRelatedPane(
