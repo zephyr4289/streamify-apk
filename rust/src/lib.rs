@@ -1,12 +1,15 @@
 pub mod airdrop;
 pub mod aligner;
+pub mod auth;
 pub mod backup;
 pub mod consensus;
 pub mod crossfade;
 pub mod crypto;
+
 pub mod downloader;
 pub mod dsp;
 pub mod ffi;
+pub mod jni_bridge;
 pub mod json;
 pub mod lyrics;
 pub mod markov;
@@ -14,7 +17,9 @@ pub mod neuro_queue;
 pub mod playlist_parser;
 pub mod ptp;
 pub mod radio_scorer;
+pub mod repository;
 pub mod resolver;
+
 pub mod search;
 pub mod tagger;
 
