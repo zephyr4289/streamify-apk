@@ -96,8 +96,27 @@ object NeuroQueueManager {
 
         val candidatesArray = JSONArray()
 
-        // Source 0: Liked Tracks (Anchors)
-        likedTracks.take(25).forEach { t ->
+        // Source 0: Liked Tracks (Strict Acoustic & Artist Affinity Gated - Max 5 tracks)
+        val filteredLiked = likedTracks.filter { t ->
+            if (t.id == seedTrack.id || (t.title.equals(seedTrack.title, ignoreCase = true) && t.artist.equals(seedTrack.artist, ignoreCase = true))) {
+                false
+            } else {
+                val sameArtist = t.artist.equals(seedTrack.artist, ignoreCase = true) ||
+                                 t.artist.contains(seedTrack.artist, ignoreCase = true) ||
+                                 seedTrack.artist.contains(t.artist, ignoreCase = true)
+                val bpmDiff = if (seedTrack.bpm > 0f && t.bpm > 0f) kotlin.math.abs(seedTrack.bpm - t.bpm) else 0f
+                // Strict Gate: Must share artist OR have tight tempo proximity (<= 15 BPM) to prevent out-of-context vibe clashes
+                sameArtist || (seedTrack.bpm > 0f && t.bpm > 0f && bpmDiff <= 15f)
+            }
+        }.take(8)
+
+        filteredLiked.forEach { t ->
+            val sameArtist = t.artist.equals(seedTrack.artist, ignoreCase = true) ||
+                             t.artist.contains(seedTrack.artist, ignoreCase = true) ||
+                             seedTrack.artist.contains(t.artist, ignoreCase = true)
+            val bpmDiff = if (seedTrack.bpm > 0f && t.bpm > 0f) kotlin.math.abs(seedTrack.bpm - t.bpm) else 0f
+            val computedSim = if (sameArtist) 0.95 else (0.75 - (bpmDiff / 50.0).coerceIn(0.0, 0.25))
+
             candidatesArray.put(JSONObject().apply {
                 put("id", "liked_${t.id}")
                 put("title", t.title)
@@ -108,14 +127,14 @@ object NeuroQueueManager {
                 put("key", if (t.key.isNotBlank()) t.key else "8A")
                 put("energy", 0.65)
                 put("valence", 0.7)
-                put("acoustic_sim", 0.85)
-                put("user_affinity", 0.95)
+                put("acoustic_sim", computedSim)
+                put("user_affinity", if (sameArtist) 0.85 else 0.40)
                 put("last_played_sec", 0L)
             })
         }
 
-        // Source 1: Spotify Candidates (Vibe match)
-        spotifyTracks.take(25).forEachIndexed { idx, t ->
+        // Source 1: Spotify Candidates (Vibe & Genre continuity)
+        spotifyTracks.take(30).forEachIndexed { idx, t ->
             candidatesArray.put(JSONObject().apply {
                 put("id", "spotify_${idx}_${t.title.hashCode()}")
                 put("title", t.title)
@@ -124,16 +143,16 @@ object NeuroQueueManager {
                 put("source", 1)
                 put("bpm", if (t.bpm > 0f) t.bpm.toDouble() else (seedTrack.bpm.takeIf { it > 0f } ?: 120f).toDouble())
                 put("key", if (t.key.isNotBlank()) t.key else seedTrack.key.ifBlank { "8A" })
-                put("energy", 0.70)
-                put("valence", 0.65)
-                put("acoustic_sim", 0.92)
-                put("user_affinity", 0.30)
+                put("energy", 0.75)
+                put("valence", 0.70)
+                put("acoustic_sim", 0.95)
+                put("user_affinity", 0.60)
                 put("last_played_sec", 0L)
             })
         }
 
-        // Source 2: YouTube Candidates (Discovery)
-        youtubeTracks.take(25).forEachIndexed { idx, t ->
+        // Source 2: YouTube Candidates (Discovery & Seed Continuum)
+        youtubeTracks.take(30).forEachIndexed { idx, t ->
             candidatesArray.put(JSONObject().apply {
                 put("id", "yt_${idx}_${t.title.hashCode()}")
                 put("title", t.title)
@@ -144,11 +163,12 @@ object NeuroQueueManager {
                 put("key", if (t.key.isNotBlank()) t.key else seedTrack.key.ifBlank { "8A" })
                 put("energy", 0.75)
                 put("valence", 0.70)
-                put("acoustic_sim", 0.75)
-                put("user_affinity", 0.20)
+                put("acoustic_sim", 0.88)
+                put("user_affinity", 0.50)
                 put("last_played_sec", 0L)
             })
         }
+
 
         // 3. Delegate to Rust NeuroQueueEngine via JNI
         val outJson = try {

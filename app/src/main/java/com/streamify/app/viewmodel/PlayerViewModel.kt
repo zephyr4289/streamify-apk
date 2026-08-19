@@ -808,13 +808,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             com.streamify.app.data.NeuroQueueManager.onTrackStarted(hydratedTrack)
             playTrackInternal(hydratedTrack, targetIndex, hydratedQueue)
 
-            // Asynchronously hydrate upcoming continuum radio queue
+            // Asynchronously hydrate upcoming continuum radio queue seeded directly from the tapped track
             if (autoHydrateRadio) {
-                val seedToUse = if (hydratedQueue.size <= 3) hydratedTrack else hydratedQueue.last()
-                hydrateContinuumRadio(seedToUse)
+                hydrateContinuumRadio(hydratedTrack)
             }
         }
     }
+
 
     private fun hydrateContinuumRadio(seedTrack: Track) {
         hydrateJob?.cancel()
