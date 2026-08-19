@@ -67,10 +67,11 @@ fun AppNavGraph(
                 playerViewModel = playerViewModel,
                 communityViewModel = communityViewModel,
                 dominantColor = dominantColor,
-                onTrackClick = { track, list ->
-                    playerViewModel.playTrack(track, list)
+                onTrackClick = { track, _ ->
+                    playerViewModel.playTrack(track, listOf(track), autoHydrateRadio = true)
                 },
                 onSettingsClick = {
+
                     navController.navigate("settings")
                 },
                 onNavigateToJam = {

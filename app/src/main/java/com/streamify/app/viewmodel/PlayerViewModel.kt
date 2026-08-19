@@ -793,11 +793,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         // 2. Tracked Single Job - cancel previous resolution jobs to prevent race conditions
         playJob?.cancel()
         playJob = viewModelScope.launch {
+            com.streamify.app.data.NeuroQueueManager.onTrackStarted(hydratedTrack)
             playTrackInternal(hydratedTrack, targetIndex, hydratedQueue)
 
-            // Asynchronously hydrate upcoming continuum radio if queue is small (e.g. 1-3 songs)
-            if (autoHydrateRadio && hydratedQueue.size <= 3) {
-                hydrateContinuumRadio(hydratedTrack)
+            // Asynchronously hydrate upcoming continuum radio queue
+            if (autoHydrateRadio) {
+                val seedToUse = if (hydratedQueue.size <= 3) hydratedTrack else hydratedQueue.last()
+                hydrateContinuumRadio(seedToUse)
             }
         }
     }
@@ -807,11 +809,30 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         hydrateJob = viewModelScope.launch(Dispatchers.Default) {
             try {
                 val currentQ = _playerState.value.queue
-                val radioTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
-                    seedTrack = seedTrack,
-                    activeQueue = currentQ,
-                    targetCount = 20
-                )
+                val likedPool = com.streamify.app.data.TrackRepository.likedTracks.value
+
+                // 1. Generate via Neuro-Acoustic Adaptive Queue (Tri-Engine + 5-Slot Micro-Arc)
+                val neuroTracks = try {
+                    com.streamify.app.data.NeuroQueueManager.generateAdaptiveQueue(
+                        seedTrack = seedTrack,
+                        likedTracks = likedPool,
+                        targetCount = 20
+                    )
+                } catch (_: Exception) {
+                    emptyList()
+                }
+
+                // 2. Fallback / supplement with UniversalCandidateBroker
+                val radioTracks = if (neuroTracks.isNotEmpty()) {
+                    neuroTracks
+                } else {
+                    com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                        seedTrack = seedTrack,
+                        activeQueue = currentQ,
+                        targetCount = 20
+                    )
+                }
+
                 if (radioTracks.isNotEmpty()) {
                     // O(1) Root Hash Deduplication: Skip heavy comparison for already processed songs
                     val uniqueCandidates = radioTracks.filter { candidate ->
@@ -844,6 +865,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
         }
     }
+
 
     private fun handleAutomaticTimelineTransition() {
         val curState = _playerState.value
