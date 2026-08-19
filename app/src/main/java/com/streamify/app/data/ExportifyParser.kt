@@ -244,10 +244,11 @@ object ExportifyParser {
                                             title = title.trim(),
                                             artist = cleanArtist,
                                             album = entity.optString("name").ifBlank { "Spotify Import" },
-                                            duration = durFormatted
+                                            durationSec = (durMs / 1000).toInt()
                                         )
                                     )
                                 }
+
                             }
                         }
                     }
