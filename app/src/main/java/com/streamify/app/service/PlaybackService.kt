@@ -27,6 +27,8 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        DolbySpatialManager.init(this)
+
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
                 context: android.content.Context,
@@ -34,6 +36,7 @@ class PlaybackService : MediaSessionService() {
                 enableAudioTrackPlaybackParams: Boolean
             ): androidx.media3.exoplayer.audio.AudioSink? {
                 return DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(true)
                     .setAudioProcessors(arrayOf(CrossfadeAudioProcessor(), syncAudioProcessor, MeshPcmAudioProcessor()))
                     .build()
             }
@@ -60,12 +63,14 @@ class PlaybackService : MediaSessionService() {
                 AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .setUsage(C.USAGE_MEDIA)
+                .setSpatializationBehavior(C.SPATIALIZATION_BEHAVIOR_AUTO)
                 .build(), true
             )
             .setHandleAudioBecomingNoisy(true)
             .setPauseAtEndOfMediaItems(false)
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
+
         
         player = exoPlayer
         exoPlayer.setSkipSilenceEnabled(true)

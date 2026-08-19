@@ -433,6 +433,72 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
+                        // Dolby Atmos & Spatial Audio Hardware Statement
+                        val isDolbyDetected by com.streamify.app.service.DolbySpatialManager.isDolbyAtmosDetected.collectAsState()
+                        val dolbyDetail by com.streamify.app.service.DolbySpatialManager.hardwareDetail.collectAsState()
+
+                        LaunchedEffect(Unit) {
+                            com.streamify.app.service.DolbySpatialManager.checkHardwareCapabilities(context)
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isDolbyDetected) StreamifyColors.Primary.copy(alpha = 0.12f) else StreamifyColors.BgElevated)
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isDolbyDetected) StreamifyColors.Primary else StreamifyColors.BgSurfaceElevated),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Headphones,
+                                    contentDescription = null,
+                                    tint = if (isDolbyDetected) androidx.compose.ui.graphics.Color.White else StreamifyColors.TextSub,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = if (isDolbyDetected) "Dolby Atmos / Spatializer" else "Dolby Atmos Hardware",
+                                        style = StreamifyType.BodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                                        color = if (isDolbyDetected) StreamifyColors.Primary else StreamifyColors.TextMain
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (isDolbyDetected) StreamifyColors.Primary else StreamifyColors.BgSurfaceElevated)
+                                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isDolbyDetected) "DETECTED" else "NOT DETECTED",
+                                            style = StreamifyType.Caption.copy(
+                                                fontSize = 9.sp,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                            ),
+                                            color = if (isDolbyDetected) androidx.compose.ui.graphics.Color.White else StreamifyColors.TextSub
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = dolbyDetail,
+                                    style = StreamifyType.Caption,
+                                    color = if (isDolbyDetected) StreamifyColors.TextMain else StreamifyColors.TextSub
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
                         val isLoudnessOn by com.streamify.app.service.EqualizerManager.isLoudnessNormalizationEnabled.collectAsState()
                         var autoDownloadLiked by remember {
                             mutableStateOf(audioPrefs.getBoolean("auto_download_liked", false))
@@ -444,6 +510,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Loudness Normalization", style = StreamifyType.BodyMedium, color = StreamifyColors.TextMain)
                                 Text("Normalizes volume across tracks (-14 LUFS standard)", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
