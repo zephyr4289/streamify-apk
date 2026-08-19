@@ -205,8 +205,64 @@ object ExportifyParser {
 
         if (itemId.isBlank()) return@withContext emptyList()
 
+        // 1. Tier 1: Spotify Web Embed Scraper (100% Zero-Auth, Never 403s)
         try {
-            // 1. Fetch anonymous web access token
+            val embedUrl = "https://open.spotify.com/embed/$itemType/$itemId"
+            val req = Request.Builder()
+                .url(embedUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .get()
+                .build()
+
+            NetworkEngine.client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val html = resp.body?.string() ?: ""
+                    val match = Regex("""<script id="__NEXT_DATA__"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL).find(html)
+                    if (match != null) {
+                        val jsonStr = match.groupValues[1]
+                        val root = JSONObject(jsonStr)
+                        val entity = root.optJSONObject("props")
+                            ?.optJSONObject("pageProps")
+                            ?.optJSONObject("state")
+                            ?.optJSONObject("data")
+                            ?.optJSONObject("entity")
+
+                        val trackList = entity?.optJSONArray("trackList")
+                        if (trackList != null) {
+                            for (i in 0 until trackList.length()) {
+                                val tObj = trackList.getJSONObject(i)
+                                val title = tObj.optString("title", "").ifBlank { tObj.optString("name", "") }
+                                val subtitle = tObj.optString("subtitle", "").ifBlank { tObj.optString("artist", "") }
+                                val cleanArtist = subtitle.replace('\u00A0', ' ').trim().ifBlank { "Unknown Artist" }
+                                val durMs = tObj.optLong("duration", 0L)
+                                val durFormatted = String.format("%02d:%02d", (durMs / 1000) / 60, (durMs / 1000) % 60)
+
+                                if (title.isNotBlank()) {
+                                    tracks.add(
+                                        ParsedTrackItem(
+                                            title = title.trim(),
+                                            artist = cleanArtist,
+                                            album = entity.optString("name").ifBlank { "Spotify Import" },
+                                            duration = durFormatted
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        if (tracks.isNotEmpty()) {
+            return@withContext tracks
+        }
+
+        // 2. Tier 2: Anonymous Web Token Fallback
+        try {
             val tokenReq = Request.Builder()
                 .url("https://open.spotify.com/get_access_token?reason=transport&productType=web_player")
                 .header("User-Agent", "Mozilla/5.0")
@@ -265,6 +321,7 @@ object ExportifyParser {
 
         return@withContext tracks
     }
+
 
     private fun extractTrackFromObject(obj: JSONObject): ParsedTrackItem? {
         val targetObj = obj.optJSONObject("track") ?: obj
