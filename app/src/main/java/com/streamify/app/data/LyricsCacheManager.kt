@@ -189,6 +189,45 @@ object LyricsCacheManager {
     }
 
     /**
+     * Universally saves adjusted lyrics to local disk LRU cache, companion .lrc (if local),
+     * and synchronizes the path with the local SQLite database.
+     */
+    fun saveLyricsToDiskAndDb(context: Context, track: Track, lrcContent: String) {
+        try {
+            // 1. Write to local app disk LRU cache
+            val cachedFile = getCachedLyricsFile(context, track.title, track.artist)
+            cachedFile.writeText(lrcContent)
+
+            // 2. Clear memory SLYR cache for this track so fresh buffer is recomputed
+            val hash = getTrackHash(track.title, track.artist)
+            memorySlyrCache.remove(hash)
+            val slyrFile = getCachedSlyrFile(context, track.title, track.artist)
+            if (slyrFile.exists()) slyrFile.delete()
+
+            // 3. Save companion .lrc if local file
+            if (track.filepath.isNotBlank() && !track.filepath.startsWith("http")) {
+                saveCompanionLyrics(track.filepath, lrcContent)
+            }
+
+            // 4. Update SQLite database row if track exists
+            if (track.id > 0) {
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        TrackRepository.upsertStreamedTrack(
+                            track.copy(lyricsPath = cachedFile.absolutePath)
+                        )
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+
+    /**
      * Purges unpinned track buffers when memory pressure or track changes occur.
      */
     fun trimMemory(activeTrackId: Int, keepHashes: Set<String> = emptySet()) {

@@ -42,9 +42,11 @@ fun LyricsScreen(
     onSeek: (Long) -> Unit,
     onClose: (() -> Unit)? = null
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var currentLyrics by remember(lyrics) { mutableStateOf(lyrics) }
     val listState = rememberLazyListState()
+
 
     // 1. 120 FPS Sub-Frame Continuous Frame-Clock Controller
     val lyricController = remember { LyricPlaybackController() }
@@ -135,17 +137,20 @@ fun LyricsScreen(
                 onResetOffset = { lyricController.resetOffset() },
                 onSaveOffset = {
                     if (track != null && currentLyrics.isNotEmpty() && lyricController.userOffsetMs != 0L) {
+                        val offset = lyricController.userOffsetMs
+                        val shiftedLines = com.streamify.app.data.models.LyricsData.shiftTimestamps(currentLyrics, offset)
+                        val adjustedLrc = com.streamify.app.data.models.LyricsData.formatLrc(currentLyrics, offset)
+
+                        // 1. Instant in-memory shift
+                        currentLyrics = shiftedLines
+                        lyricController.resetOffset()
+
+                        // 2. Persist to Disk LRU, Companion LRC, SQLite DB & Supabase Community
                         coroutineScope.launch(Dispatchers.IO) {
                             try {
-                                val offset = lyricController.userOffsetMs
-                                val adjustedLrc = com.streamify.app.data.models.LyricsData.formatLrc(currentLyrics, offset)
+                                com.streamify.app.data.LyricsCacheManager.saveLyricsToDiskAndDb(context, track, adjustedLrc)
 
-                                // 1. Save safely to companion lyrics if local track
-                                if (track.filepath.isNotBlank() && !track.filepath.startsWith("http")) {
-                                    com.streamify.app.data.LyricsCacheManager.saveCompanionLyrics(track.filepath, adjustedLrc)
-                                }
-
-                                // 2. Submit to Community Supabase
+                                // Submit to Community Supabase
                                 try {
                                     val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
                                     val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
@@ -154,16 +159,12 @@ fun LyricsScreen(
                                     // Non-fatal
                                 }
 
-                                val reParsed = com.streamify.app.data.models.LyricsData.parseLrc(adjustedLrc)
-
                                 withContext(Dispatchers.Main) {
-                                    if (reParsed.lines.isNotEmpty()) {
-                                        currentLyrics = reParsed.lines
-                                    }
-                                    lyricController.resetOffset()
-                                    com.streamify.app.viewmodel.UiEventBus.emitEvent(
-                                        com.streamify.app.viewmodel.UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
-                                    )
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "❤️ Thank you for syncing! Lyrics timing saved & synced.",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
@@ -172,6 +173,7 @@ fun LyricsScreen(
                     }
                 },
                 onClose = onClose
+
             )
 
             if (currentLyrics.isEmpty()) {

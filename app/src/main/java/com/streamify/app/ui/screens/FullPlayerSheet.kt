@@ -898,20 +898,25 @@ private fun LandscapeLyricsPane(
     val isSynced = remember(lyricsLines) {
         lyricsLines.isNotEmpty() && lyricsLines.any { it.timeMs > 0L }
     }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
 
     val handleSaveOffset: () -> Unit = {
         if (lyricsLines.isNotEmpty() && lyricController.userOffsetMs != 0L) {
+            val offset = lyricController.userOffsetMs
+            val shiftedLines = LyricsData.shiftTimestamps(lyricsLines, offset)
+            val adjustedLrc = LyricsData.formatLrc(lyricsLines, offset)
+
+            // 1. Instant in-memory shift
+            lyricsLines = shiftedLines
+            lyricController.resetOffset()
+
+            // 2. Persist to Disk LRU, Companion LRC, SQLite DB & Supabase Community
             coroutineScope.launch(Dispatchers.IO) {
                 try {
-                    val offset = lyricController.userOffsetMs
-                    val adjustedLrc = LyricsData.formatLrc(lyricsLines, offset)
+                    com.streamify.app.data.LyricsCacheManager.saveLyricsToDiskAndDb(context, track, adjustedLrc)
 
-                    // 1. Save safely to companion lyrics if local track
-                    if (track.filepath.isNotBlank() && !track.filepath.startsWith("http")) {
-                        com.streamify.app.data.LyricsCacheManager.saveCompanionLyrics(track.filepath, adjustedLrc)
-                    }
-
-                    // 2. Submit to Community Supabase
+                    // Submit to Community Supabase
                     try {
                         val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
                         val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
@@ -920,16 +925,12 @@ private fun LandscapeLyricsPane(
                         // Non-fatal
                     }
 
-                    val reParsed = LyricsData.parseLrc(adjustedLrc)
-
                     withContext(Dispatchers.Main) {
-                        if (reParsed.lines.isNotEmpty()) {
-                            lyricsLines = reParsed.lines
-                        }
-                        lyricController.resetOffset()
-                        UiEventBus.emitEvent(
-                            UiEvent.ShowSnackbar("Lyrics timing saved & shared with community!")
-                        )
+                        android.widget.Toast.makeText(
+                            context,
+                            "❤️ Thank you for syncing! Lyrics timing saved & synced.",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -937,6 +938,7 @@ private fun LandscapeLyricsPane(
             }
         }
     }
+
 
     Column(modifier = Modifier.fillMaxSize()) {
         YtLyricsHeader(

@@ -110,6 +110,23 @@ data class LyricsData(
             return LyricsData(emptyList(), isSynced = false)
         }
 
+        fun shiftTimestamps(lines: List<LyricsLine>, offsetMs: Long): List<LyricsLine> {
+            if (offsetMs == 0L) return lines
+            return lines.map { line ->
+                val adjustedLineStart = (line.timeMs + offsetMs).coerceAtLeast(0L)
+                val shiftedSyllables = line.syllables.map { syl ->
+                    syl.copy(
+                        startMs = (syl.startMs + offsetMs).coerceAtLeast(0L),
+                        endMs = (syl.endMs + offsetMs).coerceAtLeast(0L)
+                    )
+                }
+                line.copy(
+                    timeMs = adjustedLineStart,
+                    syllables = shiftedSyllables
+                )
+            }
+        }
+
         fun formatLrc(lines: List<LyricsLine>, offsetMs: Long = 0L): String {
             val sb = StringBuilder()
             for (line in lines) {
@@ -117,9 +134,22 @@ data class LyricsData(
                 val min = (adjustedMs / 60000).toInt()
                 val sec = ((adjustedMs % 60000) / 1000).toInt()
                 val ms = ((adjustedMs % 1000) / 10).toInt()
-                sb.append(String.format(java.util.Locale.US, "[%02d:%02d.%02d]%s\n", min, sec, ms, line.text))
+                if (line.syllables.isNotEmpty()) {
+                    sb.append(String.format(java.util.Locale.US, "[%02d:%02d.%02d]", min, sec, ms))
+                    for (syl in line.syllables) {
+                        val sMs = (syl.startMs + offsetMs).coerceAtLeast(0L)
+                        val sMin = (sMs / 60000).toInt()
+                        val sSec = ((sMs % 60000) / 1000).toInt()
+                        val sMillis = ((sMs % 1000) / 10).toInt()
+                        sb.append(String.format(java.util.Locale.US, "<%02d:%02d.%02d>%s", sMin, sSec, sMillis, syl.text))
+                    }
+                    sb.append("\n")
+                } else {
+                    sb.append(String.format(java.util.Locale.US, "[%02d:%02d.%02d]%s\n", min, sec, ms, line.text))
+                }
             }
             return sb.toString().trim()
         }
     }
 }
+
