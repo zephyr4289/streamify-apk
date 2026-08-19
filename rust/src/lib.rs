@@ -1,3 +1,4 @@
+pub mod airdrop;
 pub mod aligner;
 pub mod backup;
 pub mod consensus;
@@ -17,7 +18,9 @@ pub mod resolver;
 pub mod search;
 pub mod tagger;
 
+pub use airdrop::{AirdropPhysicsEngine, AirdropState};
 pub use aligner::{AlignedLine, AlignedSyllable, LyricAlignerEngine};
+
 pub use backup::{BackupArchiveEngine, BackupRecord};
 pub use consensus::ConsensusEngine;
 pub use crossfade::CrossfadeDspEngine;

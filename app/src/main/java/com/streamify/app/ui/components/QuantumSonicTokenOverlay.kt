@@ -68,22 +68,20 @@ fun QuantumSonicTokenOverlay(
             )
         }
 
-        // ─── 2. FLUID METAMORPHIC AIRDROP CAPSULE ───
+        // ─── 2. FLUID METAMORPHIC AIRDROP CAPSULE (100% GPU RENDER-NODE PHASE) ───
         Box(
             modifier = Modifier
-                .offset {
-                    // Frame-tick read inside layout phase skips Tree recomposition
+                .width(cardWidthDp)
+                .height(60.dp)
+                .graphicsLayer {
+                    // 120 FPS GPU RenderNode Phase (Zero Tree Recomposition, Zero Layout Phase)
                     val tick = controller.frameTick
                     val xClamped = (controller.posX - (cardWidthPx / 2f))
                         .coerceIn(8f, (screenWidthPx - cardWidthPx - 8f).coerceAtLeast(8f))
                     val yClamped = (controller.posY - (cardHeightPx / 2f)).coerceAtLeast(0f)
-                    IntOffset(xClamped.toInt(), yClamped.toInt())
-                }
-                .width(cardWidthDp)
-                .height(60.dp)
-                .graphicsLayer {
-                    // 120 FPS GPU RenderNode Phase (Zero Tree Recomposition)
-                    val tick = controller.frameTick
+
+                    this.translationX = xClamped
+                    this.translationY = yClamped
                     this.scaleX = controller.stretchParallel
                     this.scaleY = controller.stretchPerp
                     this.rotationX = controller.pitchDeg
@@ -98,12 +96,6 @@ fun QuantumSonicTokenOverlay(
                         1f
                     }
                 }
-                .shadow(
-                    elevation = if (controller.stage == TokenStage.FLYING) 24.dp else 8.dp,
-                    shape = RoundedCornerShape(16.dp),
-                    spotColor = Primary.copy(alpha = 0.5f),
-                    ambientColor = ActiveControl.copy(alpha = 0.35f)
-                )
         ) {
             AirDropFluidCard(
                 title = controller.trackTitle,
@@ -115,6 +107,7 @@ fun QuantumSonicTokenOverlay(
         }
     }
 }
+
 
 @Composable
 private fun AirDropFluidCard(

@@ -215,11 +215,12 @@ fun StatsWrappedScreen(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "${track.artist} • ${if (track.durationSec > 0) "${track.durationSec / 60}m ${track.durationSec % 60}s" else "Heavy Rotation"}",
+                                        text = "${track.artist} • ${if (track.playCount > 0) "${track.playCount} plays" else if (track.durationSec > 0) "${track.durationSec / 60}m ${track.durationSec % 60}s" else "Heavy Rotation"}",
                                         style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
                                         color = TextSecondary,
                                         maxLines = 1
                                     )
+
                                 }
 
                                 // Play Button Icon

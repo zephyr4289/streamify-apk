@@ -273,7 +273,7 @@ object YtStatsTelemetryEngine {
 
         val topPlayedTracks = (trackedTopPlays + nativeTopPlays).distinctBy {
             "${it.title.lowercase().trim()}_${it.artist.lowercase().trim()}"
-        }
+        }.sortedByDescending { it.playCount }
 
         val realListenedSeconds = prefs?.getLong("total_listened_seconds", 0L) ?: 0L
         val realTotalPlays = prefs?.getInt("total_plays_count", 0) ?: 0
@@ -281,8 +281,8 @@ object YtStatsTelemetryEngine {
         val totalMinutes = if (realListenedSeconds > 0) {
             (realListenedSeconds / 60).toInt()
         } else {
-            val playedSeconds = topPlayedTracks.sumOf { it.durationSec.toLong() }
-            if (playedSeconds > 0) (playedSeconds / 60).toInt() else (likedTracks.size * 3)
+            val playedSeconds = topPlayedTracks.sumOf { (it.playCount.coerceAtLeast(1) * it.durationSec).toLong() }
+            (playedSeconds / 60).toInt()
         }
 
         // Unified distinct corpus across played songs, liked songs, and library
@@ -292,32 +292,15 @@ object YtStatsTelemetryEngine {
 
         val totalTracks = unifiedCorpus.size
         val likedCount = likedTracks.size
-        val topPlayedCount = maxOf(realTotalPlays, topPlayedTracks.size)
+        val topPlayedCount = maxOf(realTotalPlays, topPlayedTracks.sumOf { it.playCount }, topPlayedTracks.size)
 
-        // Select Top 5 Songs with strict priority: Top Played -> Liked Songs -> Unified Corpus
-        val top5Songs = mutableListOf<Track>()
-        for (t in topPlayedTracks) {
-            if (top5Songs.none { FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, t.title, t.artist) }) {
-                top5Songs.add(t)
-                if (top5Songs.size >= 5) break
-            }
+        // Select Top 5 Songs with strict priority: Real Top Played Tracks
+        val top5Songs = if (topPlayedTracks.isNotEmpty()) {
+            topPlayedTracks.take(5)
+        } else {
+            likedTracks.take(5).ifEmpty { libraryTracks.take(5) }
         }
-        if (top5Songs.size < 5) {
-            for (t in likedTracks) {
-                if (top5Songs.none { FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, t.title, t.artist) }) {
-                    top5Songs.add(t)
-                    if (top5Songs.size >= 5) break
-                }
-            }
-        }
-        if (top5Songs.size < 5) {
-            for (t in unifiedCorpus) {
-                if (top5Songs.none { FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, t.title, t.artist) }) {
-                    top5Songs.add(t)
-                    if (top5Songs.size >= 5) break
-                }
-            }
-        }
+
 
         // Weighted BPM calculation across user's true favorites
         val validBpms = (likedTracks.map { it.bpm } + topPlayedTracks.map { it.bpm } + unifiedCorpus.map { it.bpm })

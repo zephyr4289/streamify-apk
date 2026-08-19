@@ -730,3 +730,66 @@ pub unsafe extern "C" fn rust_generate_neuro_queue(
     result.unwrap_or(std::ptr::null_mut())
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn rust_step_airdrop_physics(
+    buf_ptr: *mut f32,
+    buf_len: usize,
+    target_x: f32,
+    target_y: f32,
+    initial_dist: f32,
+    dt: f32,
+    particle_budget: u32,
+) -> i32 {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if buf_ptr.is_null() || buf_len < 13 {
+            return -1;
+        }
+
+        let slice = std::slice::from_raw_parts_mut(buf_ptr, buf_len);
+        let mut state = crate::airdrop::AirdropState {
+            pos: [slice[0], slice[1], slice[2]],
+            vel: [slice[3], slice[4], slice[5]],
+            stretch_parallel: slice[6],
+            stretch_perp: slice[7],
+            rotation_rad: slice[8],
+            pitch_deg: slice[9],
+            roll_deg: slice[10],
+            impact_progress: slice[11],
+            is_docked: slice[12] > 0.5,
+            is_ready_to_dock: if buf_len >= 14 { slice[13] > 0.5 } else { true },
+            ..Default::default()
+        };
+
+        crate::airdrop::AirdropPhysicsEngine::step(
+            &mut state,
+            target_x,
+            target_y,
+            initial_dist,
+            dt,
+            particle_budget,
+        );
+
+        slice[0] = state.pos[0];
+        slice[1] = state.pos[1];
+        slice[2] = state.pos[2];
+        slice[3] = state.vel[0];
+        slice[4] = state.vel[1];
+        slice[5] = state.vel[2];
+        slice[6] = state.stretch_parallel;
+        slice[7] = state.stretch_perp;
+        slice[8] = state.rotation_rad;
+        slice[9] = state.pitch_deg;
+        slice[10] = state.roll_deg;
+        slice[11] = state.impact_progress;
+        slice[12] = if state.is_docked { 1.0 } else { 0.0 };
+        if buf_len >= 14 {
+            slice[13] = if state.is_ready_to_dock { 1.0 } else { 0.0 };
+        }
+
+        0
+    }));
+
+    result.unwrap_or(-2)
+}
+
+

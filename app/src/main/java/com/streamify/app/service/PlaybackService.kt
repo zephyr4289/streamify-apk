@@ -71,6 +71,49 @@ class PlaybackService : MediaSessionService() {
         exoPlayer.addListener(preBufferManager!!)
 
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
+            private var lastPlayStartMs: Long = 0L
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                val now = System.currentTimeMillis()
+                if (isPlaying) {
+                    lastPlayStartMs = now
+                } else if (lastPlayStartMs > 0L) {
+                    val deltaSec = ((now - lastPlayStartMs) / 1000L).coerceAtLeast(0L)
+                    if (deltaSec > 0) {
+                        com.streamify.app.data.YtStatsTelemetryEngine.recordListeningSeconds(deltaSec)
+                    }
+                    lastPlayStartMs = 0L
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                val now = System.currentTimeMillis()
+                if (lastPlayStartMs > 0L) {
+                    val deltaSec = ((now - lastPlayStartMs) / 1000L).coerceAtLeast(0L)
+                    if (deltaSec > 0) {
+                        com.streamify.app.data.YtStatsTelemetryEngine.recordListeningSeconds(deltaSec)
+                    }
+                    lastPlayStartMs = if (exoPlayer.isPlaying) now else 0L
+                }
+
+                if (mediaItem != null) {
+                    val title = mediaItem.mediaMetadata.title?.toString() ?: ""
+                    val artist = mediaItem.mediaMetadata.artist?.toString() ?: ""
+                    val cover = mediaItem.mediaMetadata.artworkUri?.toString() ?: ""
+                    val path = mediaItem.localConfiguration?.uri?.toString() ?: ""
+                    if (title.isNotBlank()) {
+                        val track = com.streamify.app.data.models.Track(
+                            id = mediaItem.mediaId.toIntOrNull() ?: 0,
+                            title = title,
+                            artist = artist,
+                            filepath = path,
+                            coverArtPath = cover
+                        )
+                        com.streamify.app.data.YtStatsTelemetryEngine.recordTrackPlay(track)
+                    }
+                }
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering.value = (playbackState == androidx.media3.common.Player.STATE_BUFFERING)
             }
@@ -79,6 +122,7 @@ class PlaybackService : MediaSessionService() {
                 super.onAudioSessionIdChanged(audioSessionId)
                 EqualizerManager.init(this@PlaybackService, audioSessionId)
             }
+
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 super.onPlayerError(error)
