@@ -219,8 +219,20 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private fun setupController(context: Context) {
         val ctrl = controller ?: return
         
+        com.streamify.app.service.PlaybackService.onSeekNextListener = {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                advanceQueue(isUserSkip = true)
+            }
+        }
+        com.streamify.app.service.PlaybackService.onSeekPrevListener = {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                skipPrevious()
+            }
+        }
+
         ctrl.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+
                 _playerState.value = _playerState.value.copy(isPlaying = isPlaying)
                 if (isPlaying) startPollingPosition() else stopPollingPosition()
                 if (!isApplyingJamSync && com.streamify.app.data.remote.SupabaseClient.activeJam.value != null) {
@@ -1360,7 +1372,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
     override fun onCleared() {
         super.onCleared()
+        com.streamify.app.service.PlaybackService.onSeekNextListener = null
+        com.streamify.app.service.PlaybackService.onSeekPrevListener = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
     }
+
 }
 

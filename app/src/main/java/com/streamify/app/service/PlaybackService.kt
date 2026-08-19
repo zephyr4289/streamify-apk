@@ -17,7 +17,10 @@ class PlaybackService : MediaSessionService() {
     companion object {
         val syncAudioProcessor: SyncAudioProcessor = SyncAudioProcessor()
         val isBuffering = kotlinx.coroutines.flow.MutableStateFlow(false)
+        @Volatile var onSeekNextListener: (() -> Unit)? = null
+        @Volatile var onSeekPrevListener: (() -> Unit)? = null
     }
+
 
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
@@ -164,7 +167,79 @@ class PlaybackService : MediaSessionService() {
             }
         })
 
-        mediaSession = MediaSession.Builder(this, exoPlayer)
+        val forwardingPlayer = object : androidx.media3.common.ForwardingPlayer(exoPlayer) {
+            override fun getAvailableCommands(): androidx.media3.common.Player.Commands {
+                return super.getAvailableCommands().buildUpon()
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .build()
+            }
+
+            override fun isCommandAvailable(command: Int): Boolean {
+                return when (command) {
+                    androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT,
+                    androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS,
+                    androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                    androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> true
+                    else -> super.isCommandAvailable(command)
+                }
+            }
+
+            override fun seekToNext() {
+                if (onSeekNextListener != null) {
+                    onSeekNextListener?.invoke()
+                } else {
+                    super.seekToNext()
+                }
+            }
+
+            override fun seekToNextMediaItem() {
+                if (onSeekNextListener != null) {
+                    onSeekNextListener?.invoke()
+                } else {
+                    super.seekToNextMediaItem()
+                }
+            }
+
+            override fun seekToPrevious() {
+                if (onSeekPrevListener != null) {
+                    onSeekPrevListener?.invoke()
+                } else {
+                    super.seekToPrevious()
+                }
+            }
+
+            override fun seekToPreviousMediaItem() {
+                if (onSeekPrevListener != null) {
+                    onSeekPrevListener?.invoke()
+                } else {
+                    super.seekToPreviousMediaItem()
+                }
+            }
+        }
+
+        val sessionCallback = object : MediaSession.Callback {
+            override fun onConnect(
+                session: MediaSession,
+                controller: MediaSession.ControllerInfo
+            ): MediaSession.ConnectionResult {
+                val base = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_COMMANDS
+                val customCommands = session.player.availableCommands.buildUpon()
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .build()
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    .setAvailablePlayerCommands(customCommands)
+                    .build()
+            }
+        }
+
+        mediaSession = MediaSession.Builder(this, forwardingPlayer)
+            .setCallback(sessionCallback)
             .build()
     }
 
@@ -186,4 +261,5 @@ class PlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 }
+
 
