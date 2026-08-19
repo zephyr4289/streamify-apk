@@ -44,10 +44,11 @@ object DolbySpatialManager {
                     if (spatializer.isAvailable) {
                         spatializerFound = true
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            if (spatializer.isHeadTrackingAvailable) {
+                            if (spatializer.isHeadTrackerAvailable) {
                                 headTrackingFound = true
                             }
                         }
+
                     }
                 }
             } catch (e: Exception) {

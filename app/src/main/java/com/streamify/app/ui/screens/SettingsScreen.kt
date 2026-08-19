@@ -457,11 +457,12 @@ fun SettingsScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.Headphones,
+                                    imageVector = if (isDolbyDetected) Icons.Filled.CheckCircle else Icons.Filled.Warning,
                                     contentDescription = null,
                                     tint = if (isDolbyDetected) androidx.compose.ui.graphics.Color.White else StreamifyColors.TextSub,
                                     modifier = Modifier.size(20.dp)
                                 )
+
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {

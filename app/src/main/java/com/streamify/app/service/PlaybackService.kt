@@ -230,7 +230,6 @@ class PlaybackService : MediaSessionService() {
                 session: MediaSession,
                 controller: MediaSession.ControllerInfo
             ): MediaSession.ConnectionResult {
-                val base = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_COMMANDS
                 val customCommands = session.player.availableCommands.buildUpon()
                     .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
                     .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
@@ -242,6 +241,7 @@ class PlaybackService : MediaSessionService() {
                     .build()
             }
         }
+
 
         mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setCallback(sessionCallback)
