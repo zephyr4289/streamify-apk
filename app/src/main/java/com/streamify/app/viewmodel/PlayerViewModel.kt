@@ -805,6 +805,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         // 2. Tracked Single Job - cancel previous resolution jobs to prevent race conditions
         playJob?.cancel()
         playJob = viewModelScope.launch {
+            // Reset per-session hash deduplication set and prime with current queue to allow fresh continuum discovery
+            processedTitleHashes.clear()
+            for (t in hydratedQueue) {
+                val h = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(t.title)
+                if (h != 0L) processedTitleHashes.add(h)
+            }
+
             com.streamify.app.data.NeuroQueueManager.onTrackStarted(hydratedTrack)
             playTrackInternal(hydratedTrack, targetIndex, hydratedQueue)
 
@@ -814,6 +821,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
         }
     }
+
 
 
     private fun hydrateContinuumRadio(seedTrack: Track) {

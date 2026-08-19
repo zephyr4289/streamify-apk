@@ -4,8 +4,9 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -50,31 +51,24 @@ fun YtPlayerSeekBar(
                 .fillMaxWidth()
                 .height(28.dp)
                 .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = { offset ->
-                            val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                            com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
-                            onSeek(newProgress)
-                        }
-                    )
-                }
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            isDragging = true
-                            dragProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                            com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
-                            scope.launch {
-                                thumbScale.animateTo(
-                                    targetValue = 2.2f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessMedium
-                                    )
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        isDragging = true
+                        dragProgress = (down.position.x / size.width).coerceIn(0f, 1f)
+                        onSeek(dragProgress)
+                        com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
+                        scope.launch {
+                            thumbScale.animateTo(
+                                targetValue = 2.2f,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMedium
                                 )
-                            }
-                        },
-                        onDrag = { change, _ ->
+                            )
+                        }
+
+                        drag(down.id) { change ->
                             change.consume()
                             val prevStep = (dragProgress * 20).toInt()
                             dragProgress = (change.position.x / size.width).coerceIn(0f, 1f)
@@ -82,35 +76,23 @@ fun YtPlayerSeekBar(
                             if (prevStep != newStep) {
                                 com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
                             }
-                        },
-                        onDragEnd = {
-                            isDragging = false
-                            onSeek(dragProgress)
-                            scope.launch {
-                                thumbScale.animateTo(
-                                    targetValue = 1f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessMedium
-                                    )
-                                )
-                            }
-                        },
-                        onDragCancel = {
-                            isDragging = false
-                            scope.launch {
-                                thumbScale.animateTo(
-                                    targetValue = 1f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessMedium
-                                    )
-                                )
-                            }
                         }
-                    )
+
+                        isDragging = false
+                        onSeek(dragProgress)
+                        scope.launch {
+                            thumbScale.animateTo(
+                                targetValue = 1f,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMedium
+                                )
+                            )
+                        }
+                    }
                 }
         ) {
+
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
