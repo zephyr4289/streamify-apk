@@ -9,6 +9,7 @@ pub mod ffi;
 pub mod json;
 pub mod lyrics;
 pub mod markov;
+pub mod neuro_queue;
 pub mod playlist_parser;
 pub mod ptp;
 pub mod radio_scorer;
@@ -26,10 +27,12 @@ pub use dsp::{BiquadFilter, FilterType, SpectrumVisualizer, StudioEqualizer};
 pub use json::{InnertubeParser, ParsedCandidate, ResolvedStreamFormat};
 pub use lyrics::{CompiledLyricEntry, CompiledLyrics, LyricCompiler};
 pub use markov::MarkovEngine;
+pub use neuro_queue::{BrainState, NeuroCandidate, NeuroQueueEngine};
 pub use playlist_parser::{ParsedPlaylistResult, ParsedPlaylistTrack, PlaylistParser};
 pub use ptp::PtpFilter;
 pub use radio_scorer::{RadioAntiDriftEngine, ScoredCandidate};
 pub use resolver::StreamResolver;
 pub use search::{FuzzySearchEngine, SearchCandidate};
 pub use tagger::{AudioMetadataEngine, TrackMetadata};
+
 
