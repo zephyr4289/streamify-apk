@@ -8,10 +8,15 @@ on:
   schedule:
     - cron: '0 0 * * *' # Nightly Deep Annihilation Matrix
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   pull-requests: write
   security-events: write # Required for CodeQL
+
 
 jobs:
   # 1. GATEKEEPER JOB: Compile everything first to save CI minutes
