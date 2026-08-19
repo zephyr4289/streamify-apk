@@ -316,45 +316,30 @@ fun SearchScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 120.dp)
                     ) {
-                        // 1. Top Result Hero Card
+                        // 1. Library Songs (Compact Preview: Max 2-3 items so online results are never pushed down)
                         if (localMatches.isNotEmpty() && (selectedFilter == "All" || selectedFilter == "Songs")) {
-                            val topHit = localMatches.first()
-                            item(key = "header_top_hit", contentType = "header") {
-                                YtSectionHeader(title = "Top result")
+                            val previewLocal = localMatches.take(3)
+                            item(key = "header_local_songs", contentType = "header") {
+                                YtSectionHeader(
+                                    title = "From your library",
+                                    kicker = if (localMatches.size > 3) "${localMatches.size} Matches • Showing top 3" else "${localMatches.size} Tracks Found"
+                                )
                             }
-                            item(key = "card_top_hit", contentType = "topCard") {
-                                YtTopResultCard(
-                                    track = topHit,
-                                    onPlay = { onTrackClick(topHit, localMatches) }
+                            items(
+                                items = previewLocal,
+                                key = { "local_${it.id}" },
+                                contentType = { "trackRow" }
+                            ) { track ->
+                                YtQueueTrackItem(
+                                    track = track,
+                                    isPlaying = currentTrack?.id == track.id,
+                                    showDragHandle = false,
+                                    onClick = { onTrackClick(track, localMatches) },
+                                    onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.SEARCH) }
                                 )
                             }
                         }
 
-                        // 2. Library Songs
-                        if (localMatches.isNotEmpty() && (selectedFilter == "All" || selectedFilter == "Songs")) {
-                            val remainingLocal = if (localMatches.size > 1) localMatches.drop(1) else emptyList()
-                            if (remainingLocal.isNotEmpty()) {
-                                item(key = "header_local_songs", contentType = "header") {
-                                    YtSectionHeader(
-                                        title = "From your library",
-                                        kicker = "${localMatches.size} Tracks Found"
-                                    )
-                                }
-                                items(
-                                    items = remainingLocal,
-                                    key = { "local_${it.id}" },
-                                    contentType = { "trackRow" }
-                                ) { track ->
-                                    YtQueueTrackItem(
-                                        track = track,
-                                        isPlaying = currentTrack?.id == track.id,
-                                        showDragHandle = false,
-                                        onClick = { onTrackClick(track, localMatches) },
-                                        onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.SEARCH) }
-                                    )
-                                }
-                            }
-                        }
 
                         // 3. Online Shimmer Loading Indicator
                         if (state.isOnlineLoading) {
