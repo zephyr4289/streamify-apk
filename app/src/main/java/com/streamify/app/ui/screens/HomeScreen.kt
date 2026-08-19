@@ -36,6 +36,7 @@ fun HomeScreen(
     dominantColor: Color = BgBase,
     onTrackClick: (Track, List<Track>) -> Unit,
     onSettingsClick: () -> Unit,
+    onSearchClick: () -> Unit = {},
     onNavigateToJam: () -> Unit = {},
     onNavigateToCommunity: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {}
@@ -64,12 +65,13 @@ fun HomeScreen(
     ) {
         // 1. YouTube Music Sticky Top App Bar
         YtTopAppBar(
-            onSearchClick = { /* Handled via Explore tab / Search */ },
+            onSearchClick = onSearchClick,
             onAvatarClick = onNavigateToProfile,
             onCastClick = onNavigateToJam,
             avatarUrl = user?.avatarUrl,
             avatarInitial = user?.displayName?.take(1) ?: "S"
         )
+
 
         // 2. YouTube Music Sticky Mood Filter Rail
         YtMoodFilterRail(

@@ -70,8 +70,10 @@ fun AppNavGraph(
                 onTrackClick = { track, _ ->
                     playerViewModel.playTrack(track, listOf(track), autoHydrateRadio = true)
                 },
+                onSearchClick = {
+                    navController.navigate("search")
+                },
                 onSettingsClick = {
-
                     navController.navigate("settings")
                 },
                 onNavigateToJam = {
@@ -85,6 +87,7 @@ fun AppNavGraph(
                 }
             )
         }
+
         composable("search") {
             SearchScreen(
                 playerViewModel = playerViewModel,

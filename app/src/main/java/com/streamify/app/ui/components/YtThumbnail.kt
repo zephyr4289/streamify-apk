@@ -44,7 +44,7 @@ fun YtThumbnail(
         if (!url.isNullOrBlank()) {
             YouTubeStreamResolver.sanitizeCoverUrl(url, resolvedVideoId)
         } else if (!resolvedVideoId.isNullOrBlank()) {
-            "https://i.ytimg.com/vi/$resolvedVideoId/hqdefault.jpg"
+            "https://i.ytimg.com/vi/$resolvedVideoId/sddefault.jpg"
         } else {
             null
         }
@@ -57,7 +57,7 @@ fun YtThumbnail(
             .size(size)
             .clip(shape)
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (!displayUrl.isNullOrBlank()) {
                 SubcomposeAsyncImage(
                     model = displayUrl,
@@ -91,6 +91,7 @@ fun YtThumbnail(
                                 }
                             )
                         } else {
+
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
