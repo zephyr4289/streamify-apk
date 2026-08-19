@@ -209,19 +209,34 @@ object YouTubeStreamResolver {
         }
 
         // 1. Determine Video ID (or search online if missing/unresolved)
-        var videoId = extractVideoId(track.filepath)
+        var videoId = extractVideoId(track.filepath, track.coverArtPath)
+        var wasUnpinnedSearch = false
         if (videoId == null) {
             val cleanQuery = if (track.filepath.startsWith("ytsearch:")) {
+                wasUnpinnedSearch = true
                 track.filepath.removePrefix("ytsearch:").trim()
             } else {
                 "${track.title} ${track.artist}".trim()
             }
 
             if (cleanQuery.isNotBlank()) {
-                val searchMatches = YouTubeMusicSearchApi.search(cleanQuery, maxResults = 3)
+                val searchMatches = YouTubeMusicSearchApi.search(cleanQuery, maxResults = 5)
+                // Strict Official Audio Filter: Exclude user covers, live recordings, slowed, and remixes
                 val topMatch = searchMatches.firstOrNull { match ->
-                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(track.title, track.artist, match.title, match.uploader)
+                    val isOfficial = match.uploader.contains(track.artist, ignoreCase = true) || match.uploader.contains("Topic", ignoreCase = true)
+                    val isCleanTitle = !match.title.contains("live", ignoreCase = true) &&
+                                       !match.title.contains("cover", ignoreCase = true) &&
+                                       !match.title.contains("remix", ignoreCase = true) &&
+                                       !match.title.contains("slowed", ignoreCase = true) &&
+                                       !match.title.contains("sped up", ignoreCase = true)
+                    isOfficial && isCleanTitle && com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(track.title, track.artist, match.title, match.uploader)
+                } ?: searchMatches.firstOrNull { match ->
+                    val isCleanTitle = !match.title.contains("live", ignoreCase = true) &&
+                                       !match.title.contains("cover", ignoreCase = true) &&
+                                       !match.title.contains("remix", ignoreCase = true)
+                    isCleanTitle && com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(track.title, track.artist, match.title, match.uploader)
                 } ?: searchMatches.firstOrNull()
+
                 if (topMatch != null) {
                     videoId = extractVideoId(topMatch.url)
                 }
@@ -230,6 +245,20 @@ object YouTubeStreamResolver {
 
         if (videoId == null) {
             return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
+        }
+
+        // Canonical Pinning: Lock resolved immutable Video ID in DB so audio never shifts on future plays
+        if (wasUnpinnedSearch && track.id > 0) {
+            val canonicalWatchUrl = "https://www.youtube.com/watch?v=$videoId"
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    com.streamify.app.data.TrackRepository.upsertStreamedTrack(
+                        track.copy(filepath = canonicalWatchUrl)
+                    )
+                } catch (_: Exception) {
+                    // Best-effort DB update
+                }
+            }
         }
 
         // 2. In-Memory LRU Cache with 4-Hour / 600s safety margin (bypassed if forceFresh requested)
@@ -243,6 +272,7 @@ object YouTubeStreamResolver {
         }
 
         // 3. Tier 1: Native HTTP/2 Innertube Multi-Client Race (<80ms)
+
         val nativeResolved = raceClientEndpoints(videoId)
         if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putStream(videoId, nativeResolved)

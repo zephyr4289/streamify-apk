@@ -127,9 +127,16 @@ object TrackRepository {
         addToDefaultPlaylist: Boolean = false
     ): Track = withContext(Dispatchers.IO) {
         val albumName = if (track.album.isNotBlank() && !track.album.equals("Single", ignoreCase = true)) track.album else "Streamify"
-        val canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
+        var canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
+        if (canonicalPath.startsWith("ytsearch:") || canonicalPath.isBlank()) {
+            val cid = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(track)
+            if (cid.length == 11 && cid != "dQw4w9WgXcQ") {
+                canonicalPath = "https://www.youtube.com/watch?v=$cid"
+            }
+        }
         val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
         val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
+
 
         val validId = NativeBridge.upsertStreamedTrack(
             filepath = canonicalPath,
@@ -305,9 +312,16 @@ object TrackRepository {
     }
 
     suspend fun upsertStreamedTrack(track: Track): Int = withContext(Dispatchers.IO) {
-        val canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist)
+        var canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
+        if (canonicalPath.startsWith("ytsearch:") || canonicalPath.isBlank()) {
+            val cid = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(track)
+            if (cid.length == 11 && cid != "dQw4w9WgXcQ") {
+                canonicalPath = "https://www.youtube.com/watch?v=$cid"
+            }
+        }
         val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
         val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
+
 
         val id = NativeBridge.upsertStreamedTrack(
             filepath = canonicalPath,
