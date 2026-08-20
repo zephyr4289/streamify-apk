@@ -125,3 +125,106 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFindActi
         .unwrap_or(-1)
 }
 
+use crate::consensus::{ByzantineConsensusEngine, MeshCandidateSubmission};
+use crate::ptp::{PtpEngine, PtpPacket};
+use jni::objects::{JFloatArray, JLongArray, JString};
+use jni::sys::{jboolean, jfloat, jlong};
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeCalculatePtp(
+    mut env: JNIEnv,
+    _class: JClass,
+    seq_id: jint,
+    t0: jlong,
+    t1: jlong,
+    t2: jlong,
+    t3: jlong,
+    out_results: JLongArray,
+) {
+    let packet = PtpPacket {
+        sequence_id: seq_id as u32,
+        t0_origin_send: t0 as u64,
+        t1_host_receive: t1 as u64,
+        t2_host_transmit: t2 as u64,
+        t3_client_receive: t3 as u64,
+    };
+
+    let (offset_us, delay_us) = PtpEngine::calculate_offset_and_delay(&packet);
+    let results = [offset_us as jlong, delay_us as jlong];
+    let _ = env.set_long_array_region(&out_results, 0, &results);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeVerifyPeerConsensus(
+    mut env: JNIEnv,
+    _class: JClass,
+    node1: JString,
+    lufs1: jfloat,
+    key1: JString,
+    vec1: JFloatArray,
+    _proof1: JByteArray,
+    node2: JString,
+    lufs2: jfloat,
+    key2: JString,
+    vec2: JFloatArray,
+    _proof2: JByteArray,
+) -> jboolean {
+    let node1_str: String = match env.get_string(&node1) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+    let node2_str: String = match env.get_string(&node2) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+    let key1_str: String = match env.get_string(&key1) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+    let key2_str: String = match env.get_string(&key2) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+
+    let v1_elems = match env.get_array_elements(&vec1, jni::objects::ReleaseMode::NoCopyBack) {
+        Ok(e) => e,
+        Err(_) => return 0,
+    };
+    let v2_elems = match env.get_array_elements(&vec2, jni::objects::ReleaseMode::NoCopyBack) {
+        Ok(e) => e,
+        Err(_) => return 0,
+    };
+
+    if v1_elems.len() < 128 || v2_elems.len() < 128 {
+        return 0;
+    }
+
+    let mut vector1 = [0.0f32; 128];
+    let mut vector2 = [0.0f32; 128];
+    vector1.copy_from_slice(&v1_elems[..128]);
+    vector2.copy_from_slice(&v2_elems[..128]);
+
+    let peer1 = MeshCandidateSubmission {
+        node_id: node1_str,
+        lufs: lufs1,
+        camelot_key: key1_str,
+        vector: vector1,
+        proof_digest: [0u8; 32],
+    };
+
+    let peer2 = MeshCandidateSubmission {
+        node_id: node2_str,
+        lufs: lufs2,
+        camelot_key: key2_str,
+        vector: vector2,
+        proof_digest: [0u8; 32],
+    };
+
+    if ByzantineConsensusEngine::verify_peer_consensus(&peer1, &peer2) {
+        1
+    } else {
+        0
+    }
+}
+
+

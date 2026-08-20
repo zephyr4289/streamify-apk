@@ -337,4 +337,36 @@ object NativeBridge {
         hourOfDay: Int,
         targetCount: Int
     ): String?
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 7: BYZANTINE CONSENSUS & IEEE 1588 PTP JNI EXPORTS
+    // ═══════════════════════════════════════════════════════════════
+
+    fun verifyPeerConsensus(
+        node1: String, lufs1: Float, key1: String, vec1: FloatArray, proof1: ByteArray,
+        node2: String, lufs2: Float, key2: String, vec2: FloatArray, proof2: ByteArray
+    ): Boolean {
+        require(vec1.size == 128 && vec2.size == 128) { "Vectors must be 128-D" }
+        return nativeVerifyPeerConsensus(
+            node1, lufs1, key1, vec1, proof1,
+            node2, lufs2, key2, vec2, proof2
+        )
+    }
+
+    fun computePtpOffsetAndDelay(
+        seqId: Int, t0: Long, t1: Long, t2: Long, t3: Long, outResultsUs: LongArray
+    ) {
+        require(outResultsUs.size >= 2) { "Output array must hold at least 2 elements [offset, delay]" }
+        nativeCalculatePtp(seqId, t0, t1, t2, t3, outResultsUs)
+    }
+
+    private external fun nativeVerifyPeerConsensus(
+        node1: String, lufs1: Float, key1: String, vec1: FloatArray, proof1: ByteArray,
+        node2: String, lufs2: Float, key2: String, vec2: FloatArray, proof2: ByteArray
+    ): Boolean
+
+    private external fun nativeCalculatePtp(
+        seqId: Int, t0: Long, t1: Long, t2: Long, t3: Long, outResults: LongArray
+    )
 }
+
