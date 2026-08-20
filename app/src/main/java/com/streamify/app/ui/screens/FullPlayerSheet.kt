@@ -311,9 +311,10 @@ fun FullPlayerSheet(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     // Precision Canvas SeekBar
+                    val effectiveDurationMs = if (durationMs > 0) durationMs else (track.durationSec * 1000L)
                     YtPlayerSeekBar(
                         progress = progress,
-                        durationMs = durationMs,
+                        durationMs = effectiveDurationMs,
                         currentPositionMs = currentPositionMs,
                         onSeek = onSeek
                     )
@@ -638,9 +639,10 @@ fun FullPlayerSheet(
                 Spacer(modifier = Modifier.weight(1f))
 
                 // --- PRECISION CANVAS SEEKBAR ---
+                val effectiveDurationMs = if (durationMs > 0) durationMs else (track.durationSec * 1000L)
                 YtPlayerSeekBar(
                     progress = progress,
-                    durationMs = durationMs,
+                    durationMs = effectiveDurationMs,
                     currentPositionMs = currentPositionMs,
                     onSeek = onSeek
                 )

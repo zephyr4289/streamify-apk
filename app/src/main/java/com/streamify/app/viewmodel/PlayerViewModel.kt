@@ -1164,13 +1164,15 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun seekTo(positionMs: Long) {
-        controller?.seekTo(positionMs)
-        _playerState.value = _playerState.value.copy(currentPosition = positionMs)
-        broadcastJamAction("SEEK", positionMs = positionMs)
-        
         val currentT = _playerState.value.currentTrack
+        val maxDurationMs = if (_playerState.value.duration > 0) _playerState.value.duration else ((currentT?.durationSec ?: 0) * 1000L)
+        val validPos = if (maxDurationMs > 0) positionMs.coerceIn(0L, maxDurationMs) else positionMs.coerceAtLeast(0L)
+        controller?.seekTo(validPos)
+        _playerState.value = _playerState.value.copy(currentPosition = validPos)
+        broadcastJamAction("SEEK", positionMs = validPos)
+        
         if (currentT != null && currentT.id > 0) {
-            NativeBridge.pushTelemetryEvent(NativeBridge.EVENT_SCRUB_SEEK, currentT.id.toLong(), positionMs.toFloat())
+            NativeBridge.pushTelemetryEvent(NativeBridge.EVENT_SCRUB_SEEK, currentT.id.toLong(), validPos.toFloat())
         }
     }
 

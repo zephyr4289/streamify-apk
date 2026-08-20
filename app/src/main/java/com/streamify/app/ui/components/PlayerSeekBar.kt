@@ -1,8 +1,8 @@
 package com.streamify.app.ui.components
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.*
@@ -31,31 +31,30 @@ fun PlayerSeekBar(
             .fillMaxWidth()
             .height(StreamifyDimens.SpaceXL)
             .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { offset ->
-                        val newProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                        onSeek(newProgress)
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    isDragging = true
+                    var targetProgress = (down.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                    dragProgress = targetProgress
+
+                    val pointerId = down.id
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                        if (change.pressed) {
+                            change.consume()
+                            targetProgress = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            dragProgress = targetProgress
+                        } else {
+                            change.consume()
+                            break
+                        }
                     }
-                )
-            }
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        isDragging = true
-                        dragProgress = (offset.x / size.width).coerceIn(0f, 1f)
-                    },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        dragProgress = (change.position.x / size.width).coerceIn(0f, 1f)
-                    },
-                    onDragEnd = {
-                        isDragging = false
-                        onSeek(dragProgress)
-                    },
-                    onDragCancel = {
-                        isDragging = false
-                    }
-                )
+
+                    isDragging = false
+                    onSeek(targetProgress)
+                }
             }
     ) {
         val width = size.width
