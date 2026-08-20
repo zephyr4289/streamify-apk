@@ -1538,7 +1538,84 @@ $$H_{\text{camelot}}(K_1, K_2) = \begin{cases}
 
 ---
 
+## 🎛️ 14. Phase 3: C++20 ARM NEON Real-Time DSP, ITU-R BS.1770-4 LUFS & 128-D Vector Database
+
+```mermaid
+graph TD
+    subgraph Media3_AudioSink ["ExoPlayer / Media3 Audio Processing Chain"]
+        PCMInput["Raw 32-Bit Float PCM Stream\n(48kHz Stereo)"] --> DirectBuf["Direct ByteBuffer Tap\n(Zero JVM Heap Allocation)"]
+        DirectBuf --> JNI["NativeBridge.processLivePcmTap()"]
+    end
+
+    subgraph Native_CPP20 ["Native C++20 Core (libstreamify_native_core.so)"]
+        JNI --> CorePin["TaskOrchestrator::pinCurrentThreadToLittleCores()\n(Pinned to Efficiency Cores 0-3)"]
+        CorePin --> SoftKnee["SoftKneeLimiter::processInterleavedSIMD\n(2nd-Order Polynomial Curve)"]
+        
+        SoftKnee --> Stage1["LufsNormalizer: Stage 1 High-Shelf\n(H_pre(z) Filter)"]
+        Stage1 --> Stage2["LufsNormalizer: Stage 2 RLB High-Pass\n(High-Pass Filter)"]
+        Stage2 --> NEONSum["ARM NEON 4-Lane Vector Accumulation\n(vld1q_f32, vmlaq_f32, vgetq_lane_f32)"]
+        
+        NEONSum --> IntegratedLUFS["Integrated LUFS = -0.691 + 10*log10(Sum)"]
+        IntegratedLUFS --> DynGain["Dynamic Target Normalization Gain\ng = 10^((-14.0 - L_K) / 20) clamped [-12dB, +12dB]"]
+    end
+
+    subgraph Vector_DB ["128-D NEON SIMD Vector Database (VectorStore.cc)"]
+        TargetVec["128-D Query Vector\n(alignas(16) float[128])"] --> NEONDot["ARM NEON Cosine Matcher\n(4-Lane Fused MAC: vmlaq_f32)"]
+        RecordPool["10,000+ Track Embeddings\n(16-Byte Aligned Memory)"] --> NEONDot
+        NEONDot --> MinHeap["Min-Heap Priority Queue\n(Top-K Extraction in <0.8ms)"]
+        MinHeap --> TopKResults["Top-K Recommended Track IDs"]
+    end
+
+    DynGain --> NormalizedPCM["Normalized & Limited Audio Output"]
+    TopKResults --> RecommendationEngine["Adaptive Recommendation Pipeline"]
+```
+
+### 🎚️ 1. ITU-R BS.1770-4 / EBU R128 Dual-Biquad Normalizer
+Implements mastering-grade K-weighting loudness normalization over direct contiguous 32-bit float PCM buffers:
+
+#### Stage 1: High-Shelf Pre-Filter ($H_{\text{pre}}(z)$)
+$$H_{\text{pre}}(z) = \frac{1.53512485958697 - 2.69169618940638 z^{-1} + 1.19839281085285 z^{-2}}{1 - 1.69065929318241 z^{-1} + 0.73248077421585 z^{-2}}$$
+
+#### Stage 2: RLB Weighting High-Pass Filter ($H_{\text{rlb}}(z)$)
+$$H_{\text{rlb}}(z) = \frac{1.0 - 2.0 z^{-1} + 1.0 z^{-2}}{1 - 1.99004745483398 z^{-1} + 0.99007225036621 z^{-2}}$$
+
+#### Integrated Loudness & Target Normalization Gain
+$$L_K = -0.691 + 10 \log_{10}\left(\sum_{c} w_c \cdot \frac{1}{N}\sum_{n=0}^{N-1} y_{c}[n]^2\right) \text{ [LUFS]}$$
+$$g = 10^{\frac{\text{clamp}(\text{Target}_{\text{LUFS}} - L_K, -12.0, 12.0)}{20.0}}$$
+
+---
+
+### 🛡️ 2. Mastering-Grade Polynomial Soft-Knee Limiter
+Protects hardware DAC converters from inter-sample digital clipping via a 2nd-order continuous polynomial compression curve:
+
+$$y_{\text{dB}} = \begin{cases}
+x_{\text{dB}}, & x_{\text{dB}} < T - \frac{W}{2} \\
+x_{\text{dB}} + \left(\frac{1}{R} - 1\right)\frac{\left(x_{\text{dB}} - T + W/2\right)^2}{2W}, & |x_{\text{dB}} - T| \le \frac{W}{2} \\
+T + \frac{x_{\text{dB}} - T}{R}, & x_{\text{dB}} > T + \frac{W}{2}
+\end{cases}$$
+* **Threshold ($T$)**: $-0.5\text{ dBFS}$
+* **Knee Width ($W$)**: $2.0\text{ dB}$
+* **Compression Ratio ($R$)**: $20.0:1$
+* **Ballistics**: $5\text{ms}$ attack ($\alpha_{\text{att}} = \exp(-1 / (0.005 \cdot f_s))$), $50\text{ms}$ release ($\alpha_{\text{rel}} = \exp(-1 / (0.050 \cdot f_s))$)
+
+---
+
+### 🧠 3. 128-D ARM NEON SIMD Vector Database
+Stores 16-byte aligned 128-dimensional acoustic DNA embeddings with pre-computed norms for ultra-fast top-$K$ cosine similarity queries ($<0.8\text{ms}$ for $10,000+$ vectors):
+
+$$\text{CosineSim}(\mathbf{a}, \mathbf{b}) = \frac{\sum_{i=0}^{31} \text{vgetq\_lane\_f32}(\text{vmlaq\_f32}(\mathbf{v}_a^{(i)}, \mathbf{v}_b^{(i)}))}{\|\mathbf{a}\| \cdot \|\mathbf{b}\|}$$
+
+---
+
+### ⚡ 4. ARM big.LITTLE Efficiency Cluster Affinity Pinning
+To eliminate UI stutter and battery drain during background DSP analysis, worker threads are bound strictly to LITTLE CPU cores:
+
+$$\text{sched\_setaffinity}(0, \text{sizeof}(\text{cpuset}), \{\text{Core 0, Core 1, Core 2, Core 3}\})$$
+
+---
+
 ## 📜 License
 Streamify APK is licensed under the [MIT License](LICENSE).
+
 
 

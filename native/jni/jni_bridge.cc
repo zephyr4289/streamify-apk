@@ -1321,3 +1321,65 @@ Java_com_streamify_app_data_NativeBridge_rustGenerateNeuroQueue(
     return outStr;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// PHASE 3: C++20 DSP & 128-D VECTOR STORE JNI EXPORTS
+// ═══════════════════════════════════════════════════════════════
+
+static LufsNormalizer g_lufs_normalizer;
+static SoftKneeLimiter g_soft_knee_limiter;
+static VectorStore g_vector_store;
+
+extern "C" {
+
+JNIEXPORT jboolean JNICALL
+Java_com_streamify_app_data_NativeBridge_nativePinToLittleCores(JNIEnv* /*env*/, jobject /*thiz*/) {
+    return TaskOrchestrator::pinCurrentThreadToLittleCores() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jfloat JNICALL
+Java_com_streamify_app_data_NativeBridge_nativeProcessPcmTap(
+    JNIEnv* env, jobject /*thiz*/, jobject direct_byte_buffer, jint sample_count) {
+    auto* pcm_data = static_cast<float*>(env->GetDirectBufferAddress(direct_byte_buffer));
+    if (!pcm_data || sample_count <= 0) return 1.0f;
+
+    // 1. In-Place Soft Knee Limiting
+    g_soft_knee_limiter.processInterleavedSIMD(pcm_data, sample_count);
+
+    // 2. K-Weighting Analysis
+    g_lufs_normalizer.processChannelSIMD(pcm_data, sample_count);
+    const float* channels[] = { pcm_data };
+    float lufs = g_lufs_normalizer.computeIntegratedLufs(channels, 1, sample_count);
+    return g_lufs_normalizer.calculateNormalizationGain(lufs, -14.0f);
+}
+
+JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_nativeInsertVector(
+    JNIEnv* env, jobject /*thiz*/, jlong track_id, jfloatArray embedding_array) {
+    jfloat* elements = env->GetFloatArrayElements(embedding_array, nullptr);
+    if (elements) {
+        g_vector_store.insert(static_cast<uint64_t>(track_id), elements);
+        env->ReleaseFloatArrayElements(embedding_array, elements, JNI_ABORT);
+    }
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_streamify_app_data_NativeBridge_nativeQueryTopK(
+    JNIEnv* env, jobject /*thiz*/, jfloatArray target_embedding_array, jint k) {
+    jfloat* elements = env->GetFloatArrayElements(target_embedding_array, nullptr);
+    if (!elements) return nullptr;
+
+    auto results = g_vector_store.queryTopK(elements, k);
+    env->ReleaseFloatArrayElements(target_embedding_array, elements, JNI_ABORT);
+
+    jlongArray output = env->NewLongArray(results.size());
+    std::vector<jlong> track_ids(results.size());
+    for (size_t i = 0; i < results.size(); ++i) {
+        track_ids[i] = static_cast<jlong>(results[i].track_id);
+    }
+    env->SetLongArrayRegion(output, 0, results.size(), track_ids.data());
+    return output;
+}
+
+} // extern "C"
+
+

@@ -84,6 +84,7 @@ public:
     OrchestratorMetrics getMetrics();
     int getOptimalWorkerThreads();
 
+    static bool pinCurrentThreadToLittleCores();
     void pinThreadToLittleCores();
     void pinThreadToBigCores();
 

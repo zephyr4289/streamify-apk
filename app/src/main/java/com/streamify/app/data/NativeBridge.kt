@@ -12,11 +12,57 @@ object NativeBridge {
             e.printStackTrace()
         }
         try {
+            System.loadLibrary("streamify_native_core")
+        } catch (e: UnsatisfiedLinkError) {
+            e.printStackTrace()
+        }
+        try {
             System.loadLibrary("streamify_core")
         } catch (e: UnsatisfiedLinkError) {
             e.printStackTrace()
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 3: C++20 DSP & 128-D VECTOR STORE INTERFACES
+    // ═══════════════════════════════════════════════════════════════
+    fun pinToLittleCores(): Boolean = try {
+        nativePinToLittleCores()
+    } catch (e: Throwable) {
+        false
+    }
+
+    fun processLivePcmTap(directBuffer: java.nio.ByteBuffer, sampleCount: Int): Float {
+        if (!directBuffer.isDirect) throw IllegalArgumentException("Buffer must be allocated direct")
+        return try {
+            nativeProcessPcmTap(directBuffer, sampleCount)
+        } catch (e: Throwable) {
+            1.0f
+        }
+    }
+
+    fun insertVector(trackId: Long, embedding: FloatArray) {
+        require(embedding.size == 128) { "Embedding must be exactly 128 dimensions" }
+        try {
+            nativeInsertVector(trackId, embedding)
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
+
+    fun queryTopK(targetEmbedding: FloatArray, k: Int): LongArray {
+        require(targetEmbedding.size == 128) { "Embedding must be exactly 128 dimensions" }
+        return try {
+            nativeQueryTopK(targetEmbedding, k) ?: LongArray(0)
+        } catch (e: Throwable) {
+            LongArray(0)
+        }
+    }
+
+    private external fun nativePinToLittleCores(): Boolean
+    private external fun nativeProcessPcmTap(directBuffer: java.nio.ByteBuffer, sampleCount: Int): Float
+    private external fun nativeInsertVector(trackId: Long, embedding: FloatArray)
+    private external fun nativeQueryTopK(targetEmbedding: FloatArray, k: Int): LongArray?
 
     private const val BUFFER_SIZE = 512
 

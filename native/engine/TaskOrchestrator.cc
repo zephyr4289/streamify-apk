@@ -249,17 +249,22 @@ void TaskOrchestrator::workerLoop(int workerId) {
     }
 }
 
-void TaskOrchestrator::pinThreadToLittleCores() {
+bool TaskOrchestrator::pinCurrentThreadToLittleCores() {
 #if defined(__linux__) || defined(__ANDROID__)
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
-    // Pin to Cores 0, 1, 2, 3 (Standard efficiency cluster on mobile SoC)
     CPU_SET(0, &cpuset);
     CPU_SET(1, &cpuset);
     CPU_SET(2, &cpuset);
     CPU_SET(3, &cpuset);
-    sched_setaffinity(0, sizeof(cpu_set_t), &cpuset);
+    return sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) == 0;
+#else
+    return false;
 #endif
+}
+
+void TaskOrchestrator::pinThreadToLittleCores() {
+    pinCurrentThreadToLittleCores();
 }
 
 void TaskOrchestrator::pinThreadToBigCores() {
