@@ -308,6 +308,18 @@ object NativeBridge {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 4: 32-BIT FLOAT NATIVE DSP AUDIO ENGINE
+    // ═══════════════════════════════════════════════════════════════
+    external fun nativeInitDsp(): Long
+    external fun nativeFreeDsp(statePtr: Long)
+    external fun nativeProcessDsp(
+        statePtr: Long,
+        input: java.nio.ByteBuffer,
+        output: java.nio.ByteBuffer,
+        numFrames: Int
+    ): Int
+
     // 1MB pre-allocated DirectByteBuffer for virtual shelf binary streaming (~500 tracks)
     private val shelfBuffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
 

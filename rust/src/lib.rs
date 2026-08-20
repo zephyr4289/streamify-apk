@@ -1,5 +1,6 @@
 pub mod airdrop;
 pub mod aligner;
+pub mod audio_dsp;
 pub mod auth;
 pub mod backup;
 pub mod consensus;

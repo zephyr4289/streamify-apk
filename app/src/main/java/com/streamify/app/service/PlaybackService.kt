@@ -18,6 +18,7 @@ class PlaybackService : MediaSessionService() {
         val syncAudioProcessor: SyncAudioProcessor = SyncAudioProcessor()
         val meshAudioProcessor: MeshPcmAudioProcessor = MeshPcmAudioProcessor()
         val crossfadeAudioProcessor: CrossfadeAudioProcessor = CrossfadeAudioProcessor()
+        val rustDspAudioProcessor: RustDspAudioProcessor = RustDspAudioProcessor()
         val isBuffering = kotlinx.coroutines.flow.MutableStateFlow(false)
         @Volatile var onSeekNextListener: (() -> Unit)? = null
         @Volatile var onSeekPrevListener: (() -> Unit)? = null
@@ -40,7 +41,7 @@ class PlaybackService : MediaSessionService() {
             ): androidx.media3.exoplayer.audio.AudioSink? {
                 return DefaultAudioSink.Builder(context)
                     .setEnableFloatOutput(true)
-                    .setAudioProcessors(arrayOf(meshAudioProcessor, crossfadeAudioProcessor, syncAudioProcessor))
+                    .setAudioProcessors(arrayOf(meshAudioProcessor, crossfadeAudioProcessor, syncAudioProcessor, rustDspAudioProcessor))
                     .build()
             }
         }.apply {

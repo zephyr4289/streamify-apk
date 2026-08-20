@@ -88,13 +88,26 @@ private fun ShelfTrackCard(
     track: VirtualShelfTrack,
     onClick: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val imageRequest = remember(track.artworkUrl) {
+        coil.request.ImageRequest.Builder(context)
+            .data(track.artworkUrl)
+            .crossfade(false)
+            .build()
+    }
+
     Column(
         modifier = Modifier
             .width(140.dp)
+            .androidx.compose.ui.graphics.graphicsLayer {
+                shadowElevation = 4f
+                shape = RoundedCornerShape(8.dp)
+                clip = false
+            }
             .clickable(onClick = onClick)
     ) {
         AsyncImage(
-            model = track.artworkUrl,
+            model = imageRequest,
             contentDescription = track.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier

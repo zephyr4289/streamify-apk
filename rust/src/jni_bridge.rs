@@ -454,4 +454,57 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeVerifyPe
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeInitDsp(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    crate::audio_dsp::init_audio_dsp() as jlong
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFreeDsp(
+    _env: JNIEnv,
+    _class: JClass,
+    state_ptr: jlong,
+) {
+    if state_ptr != 0 {
+        crate::audio_dsp::free_audio_dsp(state_ptr as *mut crate::audio_dsp::DspState);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeProcessDsp(
+    mut env: JNIEnv,
+    _class: JClass,
+    state_ptr: jlong,
+    input_buffer: jni::objects::JObject,
+    output_buffer: jni::objects::JObject,
+    num_frames: jint,
+) -> jint {
+    if state_ptr == 0 || num_frames <= 0 {
+        return -1;
+    }
+
+    let input_ptr = match env.get_direct_buffer_address(&input_buffer) {
+        Ok(p) => p as *const i16,
+        Err(_) => return -10,
+    };
+    let output_ptr = match env.get_direct_buffer_address(&output_buffer) {
+        Ok(p) => p as *mut f32,
+        Err(_) => return -10,
+    };
+
+    if input_ptr.is_null() || output_ptr.is_null() {
+        return -10;
+    }
+
+    crate::audio_dsp::process_audio_dsp(
+        state_ptr as *mut crate::audio_dsp::DspState,
+        input_ptr,
+        output_ptr,
+        num_frames as usize,
+    )
+}
+
 
