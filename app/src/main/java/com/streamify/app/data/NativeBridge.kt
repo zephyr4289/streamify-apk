@@ -320,6 +320,81 @@ object NativeBridge {
         numFrames: Int
     ): Int
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 5: INFINITE DYNAMIC QUEUE & BACKGROUND DELTA SYNC
+    // ═══════════════════════════════════════════════════════════════
+    private val nextCadBuffer = ByteArray(32)
+    private val nextVidBuffer = ByteArray(16)
+
+    private external fun nativeGetNextTrack(
+        dbPath: String,
+        currentCadId: String,
+        isShuffle: Boolean,
+        outCad: ByteArray,
+        outVideo: ByteArray
+    ): Int
+
+    private external fun spotifyDeltaSync(
+        dbPath: String,
+        accessToken: String,
+        lastSyncTimestamp: Long
+    ): Int
+
+    private external fun nativeShutdown(dbPath: String)
+
+    fun getNextTrack(
+        dbPath: String,
+        currentCadId: String,
+        isShuffle: Boolean
+    ): Pair<String, String>? {
+        if (dbPath.isBlank()) return null
+        synchronized(nextCadBuffer) {
+            nextCadBuffer.fill(0)
+            nextVidBuffer.fill(0)
+            val result = try {
+                nativeGetNextTrack(
+                    dbPath.trim(),
+                    currentCadId.trim(),
+                    isShuffle,
+                    nextCadBuffer,
+                    nextVidBuffer
+                )
+            } catch (e: Throwable) {
+                -3
+            }
+
+            if (result > 0) {
+                val cadId = String(nextCadBuffer, 0, result, Charsets.UTF_8).trim()
+                val vidLen = nextVidBuffer.indexOf(0).takeIf { it >= 0 } ?: nextVidBuffer.size
+                val videoId = String(nextVidBuffer, 0, vidLen, Charsets.UTF_8).trim()
+                if (cadId.isNotBlank()) {
+                    return Pair(cadId, videoId)
+                }
+            }
+            return null
+        }
+    }
+
+    suspend fun performSpotifyDeltaSync(
+        dbPath: String,
+        accessToken: String,
+        lastSyncTimestamp: Long
+    ): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            spotifyDeltaSync(dbPath.trim(), accessToken.trim(), lastSyncTimestamp)
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
+    fun shutdown(dbPath: String = "") {
+        try {
+            nativeShutdown(dbPath)
+        } catch (e: Throwable) {
+            // Ignore
+        }
+    }
+
     // 1MB pre-allocated DirectByteBuffer for virtual shelf binary streaming (~500 tracks)
     private val shelfBuffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
 

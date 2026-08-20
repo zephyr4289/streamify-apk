@@ -420,7 +420,16 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
+
+    override fun onDestroy() {
+        try {
+            val dbPath = getDatabasePath("streamify_universal.db").absolutePath
+            com.streamify.app.data.NativeBridge.shutdown(dbPath)
+        } catch (e: Throwable) {
+            // Ignore
+        }
+        super.onDestroy()
+    }
 }
 
 private fun enqueueMediaScan(context: android.content.Context) {

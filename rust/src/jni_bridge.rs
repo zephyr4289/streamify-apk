@@ -507,4 +507,101 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeProcessD
     )
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeGetNextTrack(
+    mut env: JNIEnv,
+    _class: JClass,
+    db_path: JString,
+    current_cad_id: JString,
+    is_shuffle: jboolean,
+    out_cad: JByteArray,
+    out_video: JByteArray,
+) -> jint {
+    let db_str: String = match env.get_string(&db_path) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let cad_str: String = match env.get_string(&current_cad_id) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+
+    let mut cad_elements = match env.get_array_elements(&out_cad, jni::objects::ReleaseMode::CopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+    let mut vid_elements = match env.get_array_elements(&out_video, jni::objects::ReleaseMode::CopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+
+    let c_db = match std::ffi::CString::new(db_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+    let c_cad = match std::ffi::CString::new(cad_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+
+    crate::queue_engine::get_next_track(
+        c_db.as_ptr(),
+        c_cad.as_ptr(),
+        if is_shuffle != 0 { 1 } else { 0 },
+        cad_elements.as_mut_ptr() as *mut u8,
+        cad_elements.len(),
+        vid_elements.as_mut_ptr() as *mut u8,
+        vid_elements.len(),
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_spotifyDeltaSync(
+    mut env: JNIEnv,
+    _class: JClass,
+    db_path: JString,
+    access_token: JString,
+    last_sync_timestamp: jlong,
+) -> jint {
+    let db_str: String = match env.get_string(&db_path) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let token_str: String = match env.get_string(&access_token) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+
+    let c_db = match std::ffi::CString::new(db_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+    let c_token = match std::ffi::CString::new(token_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+
+    crate::queue_engine::spotify_delta_sync(
+        c_db.as_ptr(),
+        c_token.as_ptr(),
+        last_sync_timestamp as i64,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeShutdown(
+    mut env: JNIEnv,
+    _class: JClass,
+    db_path: JString,
+) {
+    if !db_path.is_null() {
+        if let Ok(db_str) = env.get_string(&db_path) {
+            let s: String = db_str.into();
+            if let Ok(c_db) = std::ffi::CString::new(s) {
+                crate::queue_engine::shutdown_engine(c_db.as_ptr());
+            }
+        }
+    }
+}
+
 

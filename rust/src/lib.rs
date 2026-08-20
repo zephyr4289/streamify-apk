@@ -17,6 +17,7 @@ pub mod markov;
 pub mod neuro_queue;
 pub mod playlist_parser;
 pub mod ptp;
+pub mod queue_engine;
 pub mod queue_optimizer;
 pub mod radio_scorer;
 pub mod repository;

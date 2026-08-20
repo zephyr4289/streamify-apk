@@ -101,6 +101,12 @@ class StreamifyApp : Application(), ImageLoaderFactory {
             android.util.Log.e("StreamifyApp", "Failed to initialize StreamifyHapticEngine", e)
         }
 
+        try {
+            com.streamify.app.service.LibrarySyncWorker.schedulePeriodicSync(this)
+        } catch (e: Throwable) {
+            // Non-blocking
+        }
+
         createNotificationChannels()
     }
 
