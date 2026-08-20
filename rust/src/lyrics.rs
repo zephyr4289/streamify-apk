@@ -1,354 +1,208 @@
 use serde::{Deserialize, Serialize};
 
-pub const SLYR_MAGIC: &[u8; 4] = b"SLYR";
+pub const SLYR_MAGIC: u32 = 0x534C5952; // "SLYR"
 pub const SLYR_VERSION: u16 = 1;
 
-/// Global Header (32 bytes, 16-byte aligned)
 #[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SlyrHeader {
-    pub magic: [u8; 4],
-    pub version: u16,
-    pub line_count: u16,
-    pub syllable_count: u32,
-    pub duration_ms: u32,
-    pub padding: [u8; 16],
+    pub magic: u32,             // 0x534C5952
+    pub version: u16,           // 1
+    pub line_count: u16,        // Total lyric lines
+    pub syllable_count: u32,    // Total syllable segments
+    pub text_pool_len: u32,     // Byte length of UTF-8 string pool
+    pub vocal_offset_ms: i32,   // Auto-calibrated KissFFT drift offset (Δτ*)
+    pub flags: u32,             // Bit 0: Has Syllables, Bit 1: Is Explicit
+    pub reserved: [u8; 8],      // 16-byte boundary padding
 }
 
-/// Line Header Entry (16 bytes, 16-byte aligned)
 #[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct SlyrLineHeader {
-    pub start_ms: u32,
-    pub end_ms: u32,
-    pub syllable_start_idx: u16,
-    pub syllable_count: u16,
-    pub text_offset: u32,
+    pub start_time_ms: u32,     // Line onset
+    pub end_time_ms: u32,       // Line offset
+    pub syllable_start_idx: u16,// Index into syllable table
+    pub syllable_count: u16,    // Number of syllables in line
+    pub text_offset: u32,       // Byte offset into UTF-8 text pool
 }
 
-/// Syllable Span Entry (16 bytes, 16-byte aligned)
 #[repr(C, align(16))]
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct SlyrSyllableSpan {
-    pub start_ms: u32,
-    pub end_ms: u32,
-    pub char_start: u16,
-    pub char_len: u16,
-    pub flags: u32,
+    pub start_time_ms: u32,     // Syllable start
+    pub end_time_ms: u32,       // Syllable end
+    pub char_start: u16,        // Relative character start inside line text
+    pub char_len: u16,          // Character length
+    pub flags: u32,             // Bit 0: Background vocal, Bit 1: Melisma
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParsedSyllable {
+pub struct RawParsedLine {
+    pub start_time_ms: u32,
+    pub end_time_ms: u32,
     pub text: String,
-    pub start_ms: u32,
-    pub end_ms: u32,
-    pub flags: u32,
+    pub syllables: Vec<(u32, u32, u16, u16)>, // (start_ms, end_ms, char_start, char_len)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParsedLine {
-    pub line_text: String,
-    pub start_ms: u32,
-    pub end_ms: u32,
-    pub syllables: Vec<ParsedSyllable>,
+pub struct SlyrCompiler;
+
+impl SlyrCompiler {
+    /// Compiles parsed multi-track text into a contiguous 16-byte aligned binary buffer
+    pub fn compile(lines: &[RawParsedLine], vocal_offset_ms: i32) -> Vec<u8> {
+        let mut text_pool = Vec::new();
+        let mut line_headers = Vec::with_capacity(lines.len());
+        let mut syllable_spans = Vec::new();
+
+        for line in lines {
+            let text_offset = text_pool.len() as u32;
+            let text_bytes = line.text.as_bytes();
+            text_pool.extend_from_slice(text_bytes);
+            text_pool.push(0); // Null terminator
+
+            let syllable_start_idx = syllable_spans.len() as u16;
+            let syllable_count = line.syllables.len() as u16;
+
+            for &(s_start, s_end, c_start, c_len) in &line.syllables {
+                syllable_spans.push(SlyrSyllableSpan {
+                    start_time_ms: s_start,
+                    end_time_ms: s_end,
+                    char_start: c_start,
+                    char_len: c_len,
+                    flags: 0,
+                });
+            }
+
+            line_headers.push(SlyrLineHeader {
+                start_time_ms: line.start_time_ms,
+                end_time_ms: line.end_time_ms,
+                syllable_start_idx,
+                syllable_count,
+                text_offset,
+            });
+        }
+
+        let header = SlyrHeader {
+            magic: SLYR_MAGIC,
+            version: SLYR_VERSION,
+            line_count: line_headers.len() as u16,
+            syllable_count: syllable_spans.len() as u32,
+            text_pool_len: text_pool.len() as u32,
+            vocal_offset_ms,
+            flags: if !syllable_spans.is_empty() { 1 } else { 0 },
+            reserved: [0; 8],
+        };
+
+        // Serialize into memory buffer with exact 16-byte struct alignment
+        let mut buffer = Vec::new();
+        unsafe {
+            let header_slice = std::slice::from_raw_parts(
+                &header as *const _ as *const u8,
+                std::mem::size_of::<SlyrHeader>(),
+            );
+            buffer.extend_from_slice(header_slice);
+
+            let lines_slice = std::slice::from_raw_parts(
+                line_headers.as_ptr() as *const u8,
+                line_headers.len() * std::mem::size_of::<SlyrLineHeader>(),
+            );
+            buffer.extend_from_slice(lines_slice);
+
+            let syllables_slice = std::slice::from_raw_parts(
+                syllable_spans.as_ptr() as *const u8,
+                syllable_spans.len() * std::mem::size_of::<SlyrSyllableSpan>(),
+            );
+            buffer.extend_from_slice(syllables_slice);
+        }
+
+        buffer.extend_from_slice(&text_pool);
+        while buffer.len() % 16 != 0 {
+            buffer.push(0);
+        }
+        buffer
+    }
+
+    /// O(log N) binary search lookup for active line and syllable
+    pub fn find_active_line(buffer: &[u8], playhead_ms: u32) -> Option<usize> {
+        if buffer.len() < std::mem::size_of::<SlyrHeader>() {
+            return None;
+        }
+
+        let header = unsafe { &*(buffer.as_ptr() as *const SlyrHeader) };
+        if header.magic != SLYR_MAGIC {
+            return None;
+        }
+
+        let adjusted_time = (playhead_ms as i32 + header.vocal_offset_ms).max(0) as u32;
+        let line_offset = std::mem::size_of::<SlyrHeader>();
+        let total_lines = header.line_count as usize;
+
+        if buffer.len() < line_offset + total_lines * std::mem::size_of::<SlyrLineHeader>() {
+            return None;
+        }
+
+        let lines = unsafe {
+            std::slice::from_raw_parts(
+                buffer[line_offset..].as_ptr() as *const SlyrLineHeader,
+                total_lines,
+            )
+        };
+
+        lines
+            .binary_search_by(|line| {
+                if adjusted_time < line.start_time_ms {
+                    std::cmp::Ordering::Greater
+                } else if adjusted_time > line.end_time_ms {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .ok()
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SlyrDocument {
-    pub duration_ms: u32,
-    pub lines: Vec<ParsedLine>,
-}
-
+// Backward-compatible LyricCompiler helper for string LRC conversion
 pub struct LyricCompiler;
 
 impl LyricCompiler {
-    /// Compiles standard LRC or enhanced syllable-tagged LRC into a 16-byte aligned binary .slyr buffer
     pub fn compile_to_slyr(lrc_text: &str) -> Vec<u8> {
-        let doc = Self::parse_lrc_document(lrc_text);
-        Self::serialize_slyr(&doc)
-    }
+        let mut raw_lines = Vec::new();
+        let re_line = regex::Regex::new(r"^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$").unwrap();
 
-    /// Parses text LRC with support for both standard [mm:ss.xx] and enhanced <mm:ss.xx> syllable tags
-    pub fn parse_lrc_document(lrc_text: &str) -> SlyrDocument {
-        let mut lines = Vec::new();
-        let re_line_ts = regex::Regex::new(r"^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$").unwrap();
-        let re_syllable_tag = regex::Regex::new(r"<(\d{2}):(\d{2})\.(\d{2,3})>([^<]*)").unwrap();
-
-        let mut max_duration = 0u32;
-
-        for raw_line in lrc_text.lines() {
-            let line_trimmed = raw_line.trim();
-            if line_trimmed.is_empty() || line_trimmed.starts_with("[ti:") || line_trimmed.starts_with("[ar:") || line_trimmed.starts_with("[al:") {
+        for line_str in lrc_text.lines() {
+            let trimmed = line_str.trim();
+            if trimmed.is_empty() || trimmed.starts_with("[ti:") || trimmed.starts_with("[ar:") {
                 continue;
             }
-
-            if let Some(caps) = re_line_ts.captures(line_trimmed) {
-                let mins: u32 = caps.get(1).unwrap().as_str().parse().unwrap_or(0);
-                let secs: u32 = caps.get(2).unwrap().as_str().parse().unwrap_or(0);
-                let ms_str = caps.get(3).unwrap().as_str();
-                let ms_val: u32 = if ms_str.len() == 2 {
-                    ms_str.parse::<u32>().unwrap_or(0) * 10
+            if let Some(caps) = re_line.captures(trimmed) {
+                let m: u32 = caps[1].parse().unwrap_or(0);
+                let s: u32 = caps[2].parse().unwrap_or(0);
+                let ms: u32 = if caps[3].len() == 2 {
+                    caps[3].parse::<u32>().unwrap_or(0) * 10
                 } else {
-                    ms_str.parse().unwrap_or(0)
+                    caps[3].parse().unwrap_or(0)
                 };
-
-                let line_start_ms = (mins * 60 + secs) * 1000 + ms_val;
-                let rest_text = caps.get(4).unwrap().as_str();
-
-                let mut syllables = Vec::new();
-                let mut clean_line_text = String::new();
-
-                // Check for enhanced syllable tags <mm:ss.xx>
-                let syllable_matches: Vec<_> = re_syllable_tag.captures_iter(rest_text).collect();
-                if !syllable_matches.is_empty() {
-                    for (i, syl_cap) in syllable_matches.iter().enumerate() {
-                        let s_mins: u32 = syl_cap.get(1).unwrap().as_str().parse().unwrap_or(0);
-                        let s_secs: u32 = syl_cap.get(2).unwrap().as_str().parse().unwrap_or(0);
-                        let s_ms_str = syl_cap.get(3).unwrap().as_str();
-                        let s_ms_val: u32 = if s_ms_str.len() == 2 {
-                            s_ms_str.parse::<u32>().unwrap_or(0) * 10
-                        } else {
-                            s_ms_str.parse().unwrap_or(0)
-                        };
-
-                        let s_start = (s_mins * 60 + s_secs) * 1000 + s_ms_val;
-                        let s_text = syl_cap.get(4).unwrap().as_str().to_string();
-
-                        let s_end = if i + 1 < syllable_matches.len() {
-                            let next_cap = &syllable_matches[i + 1];
-                            let n_mins: u32 = next_cap.get(1).unwrap().as_str().parse().unwrap_or(0);
-                            let n_secs: u32 = next_cap.get(2).unwrap().as_str().parse().unwrap_or(0);
-                            let n_ms_str = next_cap.get(3).unwrap().as_str();
-                            let n_ms_val: u32 = if n_ms_str.len() == 2 {
-                                n_ms_str.parse::<u32>().unwrap_or(0) * 10
-                            } else {
-                                n_ms_str.parse().unwrap_or(0)
-                            };
-                            (n_mins * 60 + n_secs) * 1000 + n_ms_val
-                        } else {
-                            s_start + 400
-                        };
-
-                        clean_line_text.push_str(&s_text);
-                        syllables.push(ParsedSyllable {
-                            text: s_text,
-                            start_ms: s_start,
-                            end_ms: s_end,
-                            flags: 0,
-                        });
-                    }
-                } else {
-                    // Standard line-level LRC: interpolate words/syllables evenly
-                    let cleaned = rest_text.trim();
-                    clean_line_text = cleaned.to_string();
-
-                    let words: Vec<&str> = cleaned.split_whitespace().collect();
-                    if !words.is_empty() {
-                        let default_line_duration = 3000u32;
-                        let step = default_line_duration / words.len() as u32;
-
-                        for (w_idx, w) in words.iter().enumerate() {
-                            let w_start = line_start_ms + (w_idx as u32 * step);
-                            let w_end = w_start + step;
-                            let word_with_space = if w_idx + 1 < words.len() {
-                                format!("{} ", w)
-                            } else {
-                                w.to_string()
-                            };
-
-                            syllables.push(ParsedSyllable {
-                                text: word_with_space,
-                                start_ms: w_start,
-                                end_ms: w_end,
-                                flags: 0,
-                            });
-                        }
-                    }
-                }
-
-                let line_end_ms = syllables.last().map(|s| s.end_ms).unwrap_or(line_start_ms + 3000);
-                if line_end_ms > max_duration {
-                    max_duration = line_end_ms;
-                }
-
-                if !clean_line_text.is_empty() {
-                    lines.push(ParsedLine {
-                        line_text: clean_line_text,
-                        start_ms: line_start_ms,
-                        end_ms: line_end_ms,
-                        syllables,
+                let start_ms = (m * 60 + s) * 1000 + ms;
+                let text = caps[4].trim().to_string();
+                if !text.is_empty() {
+                    let end_ms = start_ms + 3000;
+                    raw_lines.push(RawParsedLine {
+                        start_time_ms: start_ms,
+                        end_time_ms: end_ms,
+                        text,
+                        syllables: Vec::new(),
                     });
                 }
             }
         }
 
-        // Adjust line end timestamps based on subsequent line starts
-        for i in 0..lines.len() {
-            if i + 1 < lines.len() {
-                let next_start = lines[i + 1].start_ms;
-                if lines[i].end_ms > next_start {
-                    lines[i].end_ms = next_start;
-                }
+        for i in 0..raw_lines.len() {
+            if i + 1 < raw_lines.len() {
+                let next_start = raw_lines[i + 1].start_time_ms;
+                raw_lines[i].end_time_ms = next_start;
             }
         }
 
-        SlyrDocument {
-            duration_ms: max_duration,
-            lines,
-        }
-    }
-
-    /// Serializes a SlyrDocument into a contiguous, 16-byte aligned binary buffer (.slyr)
-    pub fn serialize_slyr(doc: &SlyrDocument) -> Vec<u8> {
-        let line_count = doc.lines.len() as u16;
-        let mut total_syllables = 0u32;
-        for line in &doc.lines {
-            total_syllables += line.syllables.len() as u32;
-        }
-
-        let header = SlyrHeader {
-            magic: *SLYR_MAGIC,
-            version: SLYR_VERSION,
-            line_count,
-            syllable_count: total_syllables,
-            duration_ms: doc.duration_ms,
-            padding: [0u8; 16],
-        };
-
-        let mut buffer = Vec::with_capacity(1024);
-
-        // 1. Write Header (32 bytes, 16-byte aligned)
-        let header_slice = unsafe {
-            std::slice::from_raw_parts(
-                &header as *const SlyrHeader as *const u8,
-                std::mem::size_of::<SlyrHeader>(),
-            )
-        };
-        buffer.extend_from_slice(header_slice);
-
-        // 2. Prepare LineHeaders and SyllableSpans
-        let mut line_headers = Vec::with_capacity(doc.lines.len());
-        let mut syllable_spans = Vec::with_capacity(total_syllables as usize);
-        let mut text_pool = Vec::new();
-
-        let mut current_syllable_idx = 0u16;
-
-        for line in &doc.lines {
-            let text_offset = text_pool.len() as u32;
-            let line_bytes = line.line_text.as_bytes();
-            text_pool.extend_from_slice(line_bytes);
-            text_pool.push(0u8); // null-terminator for safety
-
-            let syl_start = current_syllable_idx;
-            let syl_count = line.syllables.len() as u16;
-
-            let mut char_cursor = 0u16;
-            for syl in &line.syllables {
-                let char_len = syl.text.encode_utf16().count() as u16;
-                syllable_spans.push(SlyrSyllableSpan {
-                    start_ms: syl.start_ms,
-                    end_ms: syl.end_ms,
-                    char_start: char_cursor,
-                    char_len,
-                    flags: syl.flags,
-                });
-                char_cursor += char_len;
-                current_syllable_idx += 1;
-            }
-
-            line_headers.push(SlyrLineHeader {
-                start_ms: line.start_ms,
-                end_ms: line.end_ms,
-                syllable_start_idx: syl_start,
-                syllable_count: syl_count,
-                text_offset,
-            });
-        }
-
-        // 3. Write LineHeaders
-        for lh in &line_headers {
-            let slice = unsafe {
-                std::slice::from_raw_parts(
-                    lh as *const SlyrLineHeader as *const u8,
-                    std::mem::size_of::<SlyrLineHeader>(),
-                )
-            };
-            buffer.extend_from_slice(slice);
-        }
-
-        // 4. Write SyllableSpans
-        for span in &syllable_spans {
-            let slice = unsafe {
-                std::slice::from_raw_parts(
-                    span as *const SlyrSyllableSpan as *const u8,
-                    std::mem::size_of::<SlyrSyllableSpan>(),
-                )
-            };
-            buffer.extend_from_slice(slice);
-        }
-
-        // 5. Align to 16 bytes before writing TextPool
-        while buffer.len() % 16 != 0 {
-            buffer.push(0u8);
-        }
-
-        // 6. Write TextPool
-        buffer.extend_from_slice(&text_pool);
-
-        // Ensure final buffer length is 16-byte aligned
-        while buffer.len() % 16 != 0 {
-            buffer.push(0u8);
-        }
-
-        buffer
-    }
-
-    /// Finds the active line index and syllable index in O(log N) from raw .slyr memory
-    pub unsafe fn find_active_positions(
-        slyr_ptr: *const u8,
-        slyr_len: usize,
-        position_ms: u32,
-    ) -> Option<(usize, usize)> {
-        if slyr_ptr.is_null() || slyr_len < std::mem::size_of::<SlyrHeader>() {
-            return None;
-        }
-
-        let header = &*(slyr_ptr as *const SlyrHeader);
-        if &header.magic != SLYR_MAGIC || header.line_count == 0 {
-            return None;
-        }
-
-        let line_count = header.line_count as usize;
-        let line_headers_ptr = slyr_ptr.add(std::mem::size_of::<SlyrHeader>()) as *const SlyrLineHeader;
-        let line_headers = std::slice::from_raw_parts(line_headers_ptr, line_count);
-
-        // Binary search for active line
-        let line_idx = match line_headers.binary_search_by_key(&position_ms, |lh| lh.start_ms) {
-            Ok(idx) => idx,
-            Err(0) => 0,
-            Err(idx) => idx - 1,
-        };
-
-        let active_line = &line_headers[line_idx];
-        if active_line.syllable_count == 0 {
-            return Some((line_idx, 0));
-        }
-
-        let syllable_spans_offset = std::mem::size_of::<SlyrHeader>() + line_count * std::mem::size_of::<SlyrLineHeader>();
-        let syllable_spans_ptr = slyr_ptr.add(syllable_spans_offset) as *const SlyrSyllableSpan;
-        let syllable_spans = std::slice::from_raw_parts(syllable_spans_ptr, header.syllable_count as usize);
-
-        let syl_start = active_line.syllable_start_idx as usize;
-        let syl_end = syl_start + active_line.syllable_count as usize;
-        let active_syllables = &syllable_spans[syl_start..syl_end.min(syllable_spans.len())];
-
-        let syl_rel_idx = match active_syllables.binary_search_by_key(&position_ms, |s| s.start_ms) {
-            Ok(idx) => idx,
-            Err(0) => 0,
-            Err(idx) => idx - 1,
-        };
-
-        Some((line_idx, syl_start + syl_rel_idx))
+        SlyrCompiler::compile(&raw_lines, 0)
     }
 }
-

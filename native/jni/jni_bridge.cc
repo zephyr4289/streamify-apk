@@ -1380,6 +1380,35 @@ Java_com_streamify_app_data_NativeBridge_nativeQueryTopK(
     return output;
 }
 
+static LyricAligner g_lyric_aligner(30);
+
+JNIEXPORT jint JNICALL
+Java_com_streamify_app_data_NativeBridge_nativeCalculateDriftOffset(
+    JNIEnv* env, jobject /*thiz*/,
+    jfloatArray vocal_energy_array, jint vocal_len,
+    jfloatArray lyric_onsets_array, jint lyric_len) {
+
+    jfloat* vocal_ptr = env->GetFloatArrayElements(vocal_energy_array, nullptr);
+    jfloat* lyric_ptr = env->GetFloatArrayElements(lyric_onsets_array, nullptr);
+
+    if (!vocal_ptr || !lyric_ptr) {
+        if (vocal_ptr) env->ReleaseFloatArrayElements(vocal_energy_array, vocal_ptr, JNI_ABORT);
+        if (lyric_ptr) env->ReleaseFloatArrayElements(lyric_onsets_array, lyric_ptr, JNI_ABORT);
+        return 0;
+    }
+
+    int drift_ms = g_lyric_aligner.calculateDriftOffset(
+        vocal_ptr, static_cast<size_t>(vocal_len),
+        lyric_ptr, static_cast<size_t>(lyric_len)
+    );
+
+    env->ReleaseFloatArrayElements(vocal_energy_array, vocal_ptr, JNI_ABORT);
+    env->ReleaseFloatArrayElements(lyric_onsets_array, lyric_ptr, JNI_ABORT);
+
+    return static_cast<jint>(drift_ms);
+}
+
 } // extern "C"
+
 
 

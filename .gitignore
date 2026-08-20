@@ -42,3 +42,7 @@ Cargo.lock
 *.jks
 *.keystore
 !app/debug.keystore
+
+# Scratch Plans
+nano/
+

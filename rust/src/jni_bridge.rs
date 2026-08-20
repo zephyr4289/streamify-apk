@@ -105,3 +105,23 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveT
         out_buf_len as usize,
     )
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFindActiveSlyrLine(
+    mut env: JNIEnv,
+    _class: JClass,
+    slyr_buffer: JByteArray,
+    slyr_len: jint,
+    playhead_ms: jint,
+) -> jint {
+    let elements = match env.get_array_elements(&slyr_buffer, jni::objects::ReleaseMode::NoCopyBack) {
+        Ok(e) => e,
+        Err(_) => return -1,
+    };
+
+    let slice = std::slice::from_raw_parts(elements.as_ptr() as *const u8, slyr_len as usize);
+    crate::lyrics::SlyrCompiler::find_active_line(slice, playhead_ms as u32)
+        .map(|idx| idx as jint)
+        .unwrap_or(-1)
+}
+

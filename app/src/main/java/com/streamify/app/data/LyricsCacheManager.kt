@@ -28,6 +28,41 @@ object LyricsCacheManager {
 
     // In-memory pinned cache for active and lookahead tracks (Direct ByteBuffers)
     private val memorySlyrCache = ConcurrentHashMap<String, ByteBuffer>()
+    private var currentlyPlayingTrackIdStr: String? = null
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 4: PINNED MEMORY STORE & DRIFT CALIBRATION
+    // ═══════════════════════════════════════════════════════════════
+    fun pinTrack(trackId: String, rawSlyrBytes: ByteArray) {
+        currentlyPlayingTrackIdStr = trackId
+        val directBuffer = ByteBuffer.allocateDirect(rawSlyrBytes.size).apply {
+            order(ByteOrder.nativeOrder())
+            put(rawSlyrBytes)
+            flip()
+        }
+        memorySlyrCache[trackId] = directBuffer
+    }
+
+    fun getActiveLineIndex(trackId: String, playheadMs: Long): Int {
+        val buffer = memorySlyrCache[trackId] ?: return -1
+        val rawArray = ByteArray(buffer.remaining())
+        val position = buffer.position()
+        buffer.get(rawArray)
+        buffer.position(position)
+
+        return NativeBridge.findActiveSlyrLine(rawArray, rawArray.size, playheadMs.toInt())
+    }
+
+    fun calibrateDrift(vocalEnergy100Hz: FloatArray, lyricOnsets100Hz: FloatArray): Int {
+        return NativeBridge.calculateDriftOffset(
+            vocalEnergy100Hz, vocalEnergy100Hz.size,
+            lyricOnsets100Hz, lyricOnsets100Hz.size
+        )
+    }
+
+    fun evictUnpinned() {
+        memorySlyrCache.keys.removeIf { it != currentlyPlayingTrackIdStr }
+    }
 
     // Bluetooth latency offset cache (milliseconds)
     @Volatile

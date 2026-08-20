@@ -64,6 +64,37 @@ object NativeBridge {
     private external fun nativeInsertVector(trackId: Long, embedding: FloatArray)
     private external fun nativeQueryTopK(targetEmbedding: FloatArray, k: Int): LongArray?
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 4: SLYR PARSER & WIENER-KHINCHIN LYRIC ALIGNMENT
+    // ═══════════════════════════════════════════════════════════════
+    fun findActiveSlyrLine(slyrBytes: ByteArray, slyrLen: Int, playheadMs: Int): Int {
+        return try {
+            nativeFindActiveSlyrLine(slyrBytes, slyrLen, playheadMs)
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
+    fun calculateDriftOffset(
+        vocalEnergy: FloatArray, vocalLen: Int,
+        lyricOnsets: FloatArray, lyricLen: Int
+    ): Int {
+        return try {
+            nativeCalculateDriftOffset(vocalEnergy, vocalLen, lyricOnsets, lyricLen)
+        } catch (e: Throwable) {
+            0
+        }
+    }
+
+    private external fun nativeFindActiveSlyrLine(
+        slyrBuffer: ByteArray, slyrLen: Int, playheadMs: Int
+    ): Int
+
+    private external fun nativeCalculateDriftOffset(
+        vocalEnergy: FloatArray, vocalLen: Int,
+        lyricOnsets: FloatArray, lyricLen: Int
+    ): Int
+
     private const val BUFFER_SIZE = 512
 
     // ═══════════════════════════════════════════════════════════════
