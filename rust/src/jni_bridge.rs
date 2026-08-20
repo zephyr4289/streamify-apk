@@ -11,34 +11,30 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeGenerate
     _class: JClass,
     sapisid: JString,
     origin: JString,
-) -> jstring {
+    out_buffer: JByteArray,
+) -> jint {
     let sapisid_str: String = match env.get_string(&sapisid) {
         Ok(s) => s.into(),
-        Err(_) => return std::ptr::null_mut(),
+        Err(_) => return -10,
     };
     let origin_str: String = match env.get_string(&origin) {
         Ok(s) => s.into(),
-        Err(_) => return std::ptr::null_mut(),
+        Err(_) => return -10,
     };
 
-    let mut out_buffer = [0u8; 512];
-    let written = generate_sapisid_hash(
+    let mut out_elements = match env.get_array_elements(&out_buffer, jni::objects::ReleaseMode::CopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+
+    generate_sapisid_hash(
         sapisid_str.as_ptr(),
         sapisid_str.len(),
         origin_str.as_ptr(),
         origin_str.len(),
-        out_buffer.as_mut_ptr(),
-        out_buffer.len(),
-    );
-
-    if written > 0 {
-        if let Ok(hash_str) = std::str::from_utf8(&out_buffer[..written as usize]) {
-            if let Ok(jstr) = env.new_string(hash_str) {
-                return jstr.into_raw();
-            }
-        }
-    }
-    std::ptr::null_mut()
+        out_elements.as_mut_ptr() as *mut u8,
+        out_elements.len(),
+    )
 }
 
 #[no_mangle]

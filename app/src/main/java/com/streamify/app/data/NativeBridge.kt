@@ -136,21 +136,39 @@ object NativeBridge {
     // ═══════════════════════════════════════════════════════════════
     // PHASE 1: SAPISID AUTH & CANONICAL AUDIO DESCRIPTOR (CAD)
     // ═══════════════════════════════════════════════════════════════
-    fun getSapisidHash(sapisid: String, origin: String = "https://music.youtube.com"): String? {
-        if (sapisid.isBlank()) return null
-        return try {
-            nativeGenerateSapisidHash(sapisid.trim(), origin.trim())
-        } catch (e: Throwable) {
-            null
-        }
-    }
-
-    external fun nativeGenerateCadId(title: String, artist: String, durationSec: Int): String
+    private const val HASH_BUFFER_SIZE = 128
+    private val hashBuffer = ByteArray(HASH_BUFFER_SIZE)
 
     private external fun nativeGenerateSapisidHash(
         sapisid: String,
-        origin: String
-    ): String?
+        origin: String,
+        outBuffer: ByteArray
+    ): Int
+
+    fun generateSapisidHash(sapisid: String, origin: String = "https://music.youtube.com"): String? {
+        if (sapisid.isBlank()) return null
+        synchronized(hashBuffer) {
+            val result = try {
+                nativeGenerateSapisidHash(
+                    sapisid.trim(),
+                    origin.trim(),
+                    hashBuffer
+                )
+            } catch (e: Throwable) {
+                -3
+            }
+
+            if (result <= 0) return null
+            return String(hashBuffer, 0, result, Charsets.UTF_8)
+        }
+    }
+
+    fun getSapisidHash(sapisid: String, origin: String = "https://music.youtube.com"): String? {
+        val rawHash = generateSapisidHash(sapisid, origin) ?: return null
+        return if (rawHash.startsWith("SAPISIDHASH ")) rawHash else "SAPISIDHASH $rawHash"
+    }
+
+    external fun nativeGenerateCadId(title: String, artist: String, durationSec: Int): String
 
     // ═══════════════════════════════════════════════════════════════
     // CORE C++ ENGINE JNI BINDINGS

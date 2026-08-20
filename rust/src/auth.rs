@@ -1,6 +1,9 @@
 use sha1::{Digest, Sha1};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::panic::catch_unwind;
 
+/// Generates SAPISIDHASH safely across FFI.
+/// Returns: Length of string written to out_buf, or negative error code on failure.
 #[no_mangle]
 pub unsafe extern "C" fn generate_sapisid_hash(
     sapisid_ptr: *const u8,
@@ -10,33 +13,44 @@ pub unsafe extern "C" fn generate_sapisid_hash(
     out_buf: *mut u8,
     out_buf_len: usize,
 ) -> i32 {
-    let result = std::panic::catch_unwind(|| {
+    let result = catch_unwind(|| {
+        // Validate pointers
         if sapisid_ptr.is_null() || origin_ptr.is_null() || out_buf.is_null() || sapisid_len == 0 {
-            return -2;
+            return -1;
         }
+
         let sapisid = std::slice::from_raw_parts(sapisid_ptr, sapisid_len);
         let origin = std::slice::from_raw_parts(origin_ptr, origin_len);
+
         let timestamp = match SystemTime::now().duration_since(UNIX_EPOCH) {
             Ok(d) => d.as_secs(),
-            Err(_) => return -2,
+            Err(_) => return -1,
         };
-        let timestamp_str = timestamp.to_string();
-        let timestamp_bytes = timestamp_str.as_bytes();
+
+        // SHA1(payload) = SHA1("{timestamp} {sapisid} {origin}")
         let mut hasher = Sha1::new();
-        hasher.update(timestamp_bytes);
+        hasher.update(timestamp.to_string().as_bytes());
         hasher.update(b" ");
         hasher.update(sapisid);
         hasher.update(b" ");
         hasher.update(origin);
+
         let digest = hasher.finalize();
-        let digest_hex = hex::encode(digest);
-        let formatted = format!("SAPISIDHASH {}_{}", timestamp_str, digest_hex);
-        let formatted_bytes = formatted.as_bytes();
-        if formatted_bytes.len() > out_buf_len {
-            return -1;
+        let hash_hex = hex::encode(digest);
+        
+        // Format: "{timestamp}_{hash_hex}"
+        let formatted = format!("{}_{}", timestamp, hash_hex);
+        let bytes = formatted.as_bytes();
+
+        if bytes.len() > out_buf_len {
+            return -2; // Buffer too small
         }
-        std::ptr::copy_nonoverlapping(formatted_bytes.as_ptr(), out_buf, formatted_bytes.len());
-        formatted_bytes.len() as i32
+
+        // Write result to Kotlin's pre-allocated buffer
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len());
+        bytes.len() as i32
     });
+
+    // If a panic occurred (e.g., hash failed), return -3. NEVER crash the JVM.
     result.unwrap_or(-3)
 }

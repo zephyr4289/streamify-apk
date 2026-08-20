@@ -30,10 +30,11 @@ class YtSessionExtractor(private val context: Context) {
             userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36"
         }
 
-        fun checkAndHarvestCookies() {
+        fun checkAndHarvestCookies(currentUrl: String?) {
             if (isIntercepted.get()) return
+            cookieManager.flush()
 
-            // Query all candidate domains that carry Google/YouTube authorization state
+            // Query candidate domains that carry Google/YouTube authorization state
             val ytMusicCookies = cookieManager.getCookie("https://music.youtube.com").orEmpty()
             val ytBaseCookies = cookieManager.getCookie("https://www.youtube.com").orEmpty()
             val googleCookies = cookieManager.getCookie("https://accounts.google.com").orEmpty()
@@ -43,15 +44,17 @@ class YtSessionExtractor(private val context: Context) {
                 ?: extractCookieValue(aggregatedCookies, "__Secure-3PAPISID")
 
             if (!sapisid.isNullOrBlank()) {
-                val authHeader = NativeBridge.getSapisidHash(sapisid)
-                if (authHeader != null && isIntercepted.compareAndSet(false, true)) {
-                    // Abort loading web resources instantly to avoid rendering YouTube Music UI
+                val origin = "https://music.youtube.com"
+                val authHash = NativeBridge.generateSapisidHash(sapisid, origin)
+                if (authHash != null && isIntercepted.compareAndSet(false, true)) {
+                    val fullAuthHeader = "SAPISIDHASH $authHash"
                     try {
                         webView.stopLoading()
+                        webView.loadUrl("about:blank")
                     } catch (e: Exception) {
                         // Ignore
                     }
-                    onSuccess(authHeader, aggregatedCookies)
+                    onSuccess(fullAuthHeader, aggregatedCookies)
                 }
             }
         }
@@ -59,17 +62,17 @@ class YtSessionExtractor(private val context: Context) {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                checkAndHarvestCookies()
+                checkAndHarvestCookies(url)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                checkAndHarvestCookies()
+                checkAndHarvestCookies(url)
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
-                checkAndHarvestCookies()
+                checkAndHarvestCookies(url)
             }
         }
 
