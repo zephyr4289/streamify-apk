@@ -1121,7 +1121,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         withContext(Dispatchers.Main) {
                             val cur = _playerState.value.currentTrack
                             if (cur != null && cur.title == track.title && cur.artist == track.artist) {
-                                _playerState.value = _playerState.value.copy(currentTrack = registered.copy(filepath = resolvedTrack.filepath))
+                                val finalVid = registered.ytmVideoId ?: track.ytmVideoId ?: resolvedTrack.ytmVideoId
+                                _playerState.value = _playerState.value.copy(
+                                    currentTrack = registered.copy(
+                                        filepath = resolvedTrack.filepath,
+                                        ytmVideoId = finalVid
+                                    )
+                                )
                             }
                         }
                     }

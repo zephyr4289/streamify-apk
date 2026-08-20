@@ -91,7 +91,8 @@ class HomeViewModel(
                                         key = "C",
                                         lyricsPath = null,
                                         source = "online_stream",
-                                        isLiked = repository.isTrackLiked(Track(title = res.title, artist = res.uploader))
+                                        isLiked = repository.isTrackLiked(Track(title = res.title, artist = res.uploader)),
+                                        ytmVideoId = vid
                                     )
                                     repository.hydrateTrack(trackObj)
                                 }
@@ -230,7 +231,8 @@ class HomeViewModel(
                                                     key = "",
                                                     lyricsPath = null,
                                                     source = "online_stream",
-                                                    isLiked = repository.isTrackLiked(Track(title = item.title, artist = item.uploader))
+                                                    isLiked = repository.isTrackLiked(Track(title = item.title, artist = item.uploader)),
+                                                    ytmVideoId = vid
                                                 )
                                                 repository.hydrateTrack(trackObj)
                                             }

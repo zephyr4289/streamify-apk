@@ -153,21 +153,32 @@ object YouTubeStreamResolver {
         )
     }
 
-    fun extractVideoId(urlOrId: String, fallbackThumbnail: String? = null): String? {
-        val trimmed = urlOrId.trim()
-        if (trimmed.startsWith("ytsearch:") || trimmed.startsWith("online://")) {
-            return null
-        }
-        if (trimmed.length == 11 && !trimmed.contains("/") && !trimmed.contains("?") && !trimmed.contains("&") && !trimmed.contains(".")) {
-            return trimmed
-        }
-        val matchWatch = Regex("(?:[?&]v=|youtu\\.be/|/embed/|/live/|^)([a-zA-Z0-9_-]{11})").find(trimmed)
-        if (matchWatch != null) return matchWatch.groupValues[1]
+    private val YT_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
+    private val YT_URL_REGEX = Regex("(?:[?&]v=|/v/|youtu\\.be/|/embed/|/shorts/|/live/|^)([a-zA-Z0-9_-]{11})")
+    private val YT_THUMBNAIL_REGEX = Regex("(?:vi|vi_webp)/([a-zA-Z0-9_-]{11})")
 
-        val matchYtImg = Regex("i\\.ytimg\\.com/vi(_webp)?/([a-zA-Z0-9_-]{11})").find(trimmed)
-        if (matchYtImg != null) return matchYtImg.groupValues[2]
+    fun extractIdFromThumbnail(thumbnailUrl: String?): String? {
+        if (thumbnailUrl.isNullOrBlank()) return null
+        return YT_THUMBNAIL_REGEX.find(thumbnailUrl)?.groupValues?.getOrNull(1)
+    }
 
-        return null
+    fun extractVideoId(urlOrId: String?, fallbackThumbnail: String? = null): String? {
+        if (urlOrId.isNullOrBlank()) return extractIdFromThumbnail(fallbackThumbnail)
+        val cleanInput = urlOrId.trim()
+        if (cleanInput.startsWith("ytsearch:") || cleanInput.startsWith("online://")) {
+            return extractIdFromThumbnail(fallbackThumbnail)
+        }
+        // 1. Direct 11-character video ID
+        if (YT_ID_REGEX.matches(cleanInput)) {
+            return cleanInput
+        }
+        // 2. Standard YouTube URL patterns
+        val match = YT_URL_REGEX.find(cleanInput)?.groupValues?.getOrNull(1)
+        if (match != null && YT_ID_REGEX.matches(match)) {
+            return match
+        }
+        // 3. Fallback to thumbnail URL if input is a CDN URL (googlevideo.com) or custom scheme
+        return extractIdFromThumbnail(fallbackThumbnail)
     }
 
     fun getCanonicalWatchUrl(urlOrId: String, fallbackThumbnail: String? = null): String? {
@@ -211,7 +222,8 @@ object YouTubeStreamResolver {
         }
 
         // 1. Determine Video ID (or search online if missing/unresolved)
-        var videoId = extractVideoId(track.filepath, track.coverArtPath)
+        var videoId = track.ytmVideoId?.takeIf { YT_ID_REGEX.matches(it) }
+            ?: extractVideoId(track.filepath, track.coverArtPath)
         var wasUnpinnedSearch = false
         if (videoId == null) {
             val cleanQuery = if (track.filepath.startsWith("ytsearch:")) {
@@ -561,8 +573,11 @@ object YouTubeStreamResolver {
     )
 
     suspend fun resolveVideoStreamUrl(track: com.streamify.app.data.models.Track): ResolvedStream? = withContext(Dispatchers.IO) {
-        val directId = extractVideoId(track.filepath, track.coverArtPath)
-        val videoId = if (!directId.isNullOrBlank() && directId.length == 11) {
+        // 1. Strict Primary: Use track.ytmVideoId if valid, then extract from filepath/coverArt
+        val directId = track.ytmVideoId?.takeIf { YT_ID_REGEX.matches(it) }
+            ?: extractVideoId(track.filepath, track.coverArtPath)
+
+        val videoId = if (!directId.isNullOrBlank() && YT_ID_REGEX.matches(directId)) {
             directId
         } else {
             CanonicalSeedResolver.resolveToCanonicalId(track)

@@ -220,16 +220,17 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                     candidates.forEach { candidate ->
                         launch {
                             try {
+                                val vidId = YouTubeStreamResolver.extractVideoId(candidate.url, candidate.thumbnail)
                                 val tempTrack = Track(
                                     id = 0,
                                     title = candidate.title,
                                     artist = candidate.uploader,
                                     filepath = candidate.url,
-                                    coverArtPath = candidate.thumbnail
+                                    coverArtPath = candidate.thumbnail,
+                                    ytmVideoId = vidId
                                 )
                                 val resolved = YouTubeStreamResolver.resolveStreamJit(tempTrack).getOrNull()
                                 if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                                    val vidId = YouTubeStreamResolver.extractVideoId(candidate.url, candidate.thumbnail)
                                     if (vidId != null) {
                                         StreamEdgeCache.putStream(vidId, resolved)
                                     }
@@ -298,7 +299,8 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         album = "Online Stream",
                         durationSec = onlineTrack.duration,
                         filepath = onlineTrack.url,
-                        coverArtPath = onlineTrack.thumbnail
+                        coverArtPath = onlineTrack.thumbnail,
+                        ytmVideoId = videoId
                     )
                     val resolveResult = YouTubeStreamResolver.resolveStreamJit(candidateTrack)
                     resolveResult.getOrNull()?.streamUrl ?: ""
@@ -316,7 +318,8 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         bpm = 0f,
                         key = "",
                         lyricsPath = null,
-                        source = "online_stream"
+                        source = "online_stream",
+                        ytmVideoId = videoId
                     )
 
                     // 2. Play tapped track immediately and kick off Continuum Radio Engine

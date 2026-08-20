@@ -103,6 +103,7 @@ object TrackRepository {
             _allTracks.value.find { 
                 it.id > 0 && (
                     it.filepath == track.filepath || 
+                    (it.ytmVideoId != null && track.ytmVideoId != null && it.ytmVideoId == track.ytmVideoId) ||
                     com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
                 )
             }
@@ -110,14 +111,17 @@ object TrackRepository {
             _allTracks.value.find { it.id == track.id }
         }
 
+        val resolvedVid = track.ytmVideoId ?: matchedInDb?.ytmVideoId ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+
         return if (matchedInDb != null) {
             track.copy(
                 id = matchedInDb.id,
                 coverArtPath = if (!matchedInDb.coverArtPath.isNullOrBlank()) matchedInDb.coverArtPath else track.coverArtPath,
-                isLiked = liked
+                isLiked = liked,
+                ytmVideoId = resolvedVid
             )
         } else {
-            track.copy(isLiked = liked)
+            track.copy(isLiked = liked, ytmVideoId = resolvedVid)
         }
     }
 
@@ -127,14 +131,25 @@ object TrackRepository {
         addToDefaultPlaylist: Boolean = false
     ): Track = withContext(Dispatchers.IO) {
         val albumName = if (track.album.isNotBlank() && !track.album.equals("Single", ignoreCase = true)) track.album else "Streamify"
-        var canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
-        if (canonicalPath.startsWith("ytsearch:") || canonicalPath.isBlank()) {
-            val cid = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(track)
-            if (cid.length == 11 && cid != "dQw4w9WgXcQ") {
-                canonicalPath = "https://www.youtube.com/watch?v=$cid"
+
+        // 1. Guard against canonical overwrites: prioritize explicit ytmVideoId or extracted ID
+        val existingVideoId = track.ytmVideoId?.takeIf { com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(it) != null }
+            ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+
+        var canonicalPath = if (!existingVideoId.isNullOrBlank()) {
+            "https://www.youtube.com/watch?v=$existingVideoId"
+        } else {
+            var path = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
+            if (path.startsWith("ytsearch:") || path.isBlank()) {
+                val cid = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(track)
+                if (cid.length == 11 && cid != "dQw4w9WgXcQ") {
+                    path = "https://www.youtube.com/watch?v=$cid"
+                }
             }
+            path
         }
-        val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
+
+        val videoId = existingVideoId ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
         val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
 
 
@@ -168,7 +183,8 @@ object TrackRepository {
             coverArtPath = sanitizedCover,
             album = albumName,
             source = "online_stream",
-            isLiked = isLikedInDb
+            isLiked = isLikedInDb,
+            ytmVideoId = videoId
         )
 
         if (savedId > 0) {
@@ -312,14 +328,23 @@ object TrackRepository {
     }
 
     suspend fun upsertStreamedTrack(track: Track): Int = withContext(Dispatchers.IO) {
-        var canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
-        if (canonicalPath.startsWith("ytsearch:") || canonicalPath.isBlank()) {
-            val cid = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(track)
-            if (cid.length == 11 && cid != "dQw4w9WgXcQ") {
-                canonicalPath = "https://www.youtube.com/watch?v=$cid"
+        val existingVideoId = track.ytmVideoId?.takeIf { com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(it) != null }
+            ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+
+        var canonicalPath = if (!existingVideoId.isNullOrBlank()) {
+            "https://www.youtube.com/watch?v=$existingVideoId"
+        } else {
+            var path = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
+            if (path.startsWith("ytsearch:") || path.isBlank()) {
+                val cid = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(track)
+                if (cid.length == 11 && cid != "dQw4w9WgXcQ") {
+                    path = "https://www.youtube.com/watch?v=$cid"
+                }
             }
+            path
         }
-        val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
+
+        val videoId = existingVideoId ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
         val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
 
 
@@ -334,7 +359,7 @@ object TrackRepository {
             bpm = track.bpm,
             key = track.key
         )
-        val sanitizedTrack = track.copy(id = id, filepath = canonicalPath, coverArtPath = sanitizedCover)
+        val sanitizedTrack = track.copy(id = id, filepath = canonicalPath, coverArtPath = sanitizedCover, ytmVideoId = videoId)
         // Also mirror to Supabase cloud catalog asynchronously
         try {
             com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(sanitizedTrack)
