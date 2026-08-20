@@ -5,6 +5,7 @@ pub mod auth;
 pub mod backup;
 pub mod cache;
 pub mod consensus;
+pub mod continuum_engine;
 pub mod crossfade;
 pub mod crypto;
 

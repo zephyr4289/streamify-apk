@@ -900,33 +900,18 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
 
     private fun hydrateContinuumRadio(seedTrack: Track) {
+        if (!_playerState.value.isAutoPlayEnabled) return
         hydrateJob?.cancel()
         hydrateJob = viewModelScope.launch(Dispatchers.Default) {
             try {
                 val currentQ = _playerState.value.queue
-                val likedPool = com.streamify.app.data.TrackRepository.likedTracks.value
 
-                // 1. Generate via Neuro-Acoustic Adaptive Queue (Tri-Engine + 5-Slot Micro-Arc)
-                val neuroTracks = try {
-                    com.streamify.app.data.NeuroQueueManager.generateAdaptiveQueue(
-                        seedTrack = seedTrack,
-                        likedTracks = likedPool,
-                        targetCount = 20
-                    )
-                } catch (_: Exception) {
-                    emptyList()
-                }
-
-                // 2. Fallback / supplement with UniversalCandidateBroker
-                val radioTracks = if (neuroTracks.isNotEmpty()) {
-                    neuroTracks
-                } else {
-                    com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
-                        seedTrack = seedTrack,
-                        activeQueue = currentQ,
-                        targetCount = 20
-                    )
-                }
+                // Harvest full 25+ candidate batch across Innertube, Spotify, and Local
+                val radioTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                    seedTrack = seedTrack,
+                    activeQueue = currentQ,
+                    targetCount = 25
+                )
 
                 if (radioTracks.isNotEmpty()) {
                     // O(1) Root Hash Deduplication: Skip heavy comparison for already processed songs

@@ -39,12 +39,20 @@ fun QueueScreen(
     var draggedItemOffset by remember { mutableStateOf(0f) }
     val itemHeightPx = with(LocalDensity.current) { 56.dp.toPx() }
 
-    // Index-Aware Queue Filtering: Preserves duplicate songs elsewhere in the playlist
-    val upNext = remember(queue, currentIndex) {
-        if (queue.isNotEmpty() && currentIndex in queue.indices) {
-            queue.filterIndexed { index, _ -> index != currentIndex }
+    // Distinct Index-Aware Queue Slices
+    val playedTracks = remember(queue, currentIndex) {
+        if (queue.isNotEmpty() && currentIndex > 0) {
+            queue.subList(0, currentIndex.coerceAtMost(queue.size))
         } else {
-            queue
+            emptyList()
+        }
+    }
+
+    val upNext = remember(queue, currentIndex) {
+        if (queue.isNotEmpty() && currentIndex in queue.indices && currentIndex + 1 < queue.size) {
+            queue.subList(currentIndex + 1, queue.size)
+        } else {
+            emptyList()
         }
     }
 
@@ -61,7 +69,7 @@ fun QueueScreen(
             onToggleAutoplay = { playerViewModel.toggleAutoPlay() },
             onClearQueue = { playerViewModel.clearQueue() },
             onClose = { onClose?.invoke() ?: run { /* Pop backstack */ } },
-            hasQueueItems = upNext.isNotEmpty()
+            hasQueueItems = upNext.isNotEmpty() || playedTracks.isNotEmpty()
         )
 
         // 2. Queue LazyColumn
@@ -70,6 +78,39 @@ fun QueueScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 120.dp) // Protective padding for docked player
         ) {
+            // Section 0: Previously Played Tracks
+            if (playedTracks.isNotEmpty()) {
+                item(key = "header_played") {
+                    Text(
+                        text = "PLAYED (${playedTracks.size})",
+                        style = LocalAppTypography.current.songArtist.copy(
+                            fontSize = 11.sp,
+                            letterSpacing = 0.5.sp
+                        ),
+                        color = TextTertiary.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 6.dp)
+                    )
+                }
+
+                itemsIndexed(
+                    items = playedTracks,
+                    key = { index, track -> "played_${track.id}_${track.filepath.hashCode()}_${index}" },
+                    contentType = { _, _ -> "trackRow" }
+                ) { index, track ->
+                    YtQueueTrackItem(
+                        track = track,
+                        isPlaying = false,
+                        dragOffset = 0f,
+                        showDragHandle = false,
+                        onClick = {
+                            onTrackClick(track.id)
+                            playerViewModel.playTrack(track, queue)
+                        },
+                        onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.QUEUE) }
+                    )
+                }
+            }
+
             // Section A: Now Playing Active Track
             if (nowPlaying != null) {
                 item(key = "header_now_playing") {
@@ -96,7 +137,7 @@ fun QueueScreen(
                 }
             }
 
-            // Section B: Up Next Queue Items
+            // Section B: Up Next Queue Items (Guaranteed zero played song repetition)
             if (upNext.isNotEmpty()) {
                 item(key = "header_up_next") {
                     Text(

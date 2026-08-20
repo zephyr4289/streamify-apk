@@ -792,4 +792,100 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResetSee
     crate::seek_guard::reset_seek_guard();
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeInitContinuumState(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    crate::continuum_engine::init_continuum_state() as jlong
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFreeContinuumState(
+    _env: JNIEnv,
+    _class: JClass,
+    state_ptr: jlong,
+) {
+    if state_ptr != 0 {
+        crate::continuum_engine::free_continuum_state(state_ptr as *mut crate::continuum_engine::ContinuumState);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeEvaluateContinuum(
+    mut env: JNIEnv,
+    _class: JClass,
+    state_ptr: jlong,
+    candidates: jni::objects::JFloatArray,
+    out_scores: jni::objects::JFloatArray,
+) -> jint {
+    if state_ptr == 0 {
+        return -1;
+    }
+    let cand_len = match env.get_array_length(&candidates) {
+        Ok(l) => l as usize,
+        Err(_) => return -10,
+    };
+    let score_len = match env.get_array_length(&out_scores) {
+        Ok(l) => l as usize,
+        Err(_) => return -10,
+    };
+
+    let candidate_count = cand_len / 128;
+    if candidate_count == 0 || score_len < candidate_count {
+        return -2;
+    }
+
+    let cand_elements = match env.get_array_elements(&candidates, jni::objects::ReleaseMode::NoCopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+    let mut score_elements = match env.get_array_elements(&out_scores, jni::objects::ReleaseMode::CopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+
+    crate::continuum_engine::evaluate_continuum_batch(
+        state_ptr as *mut crate::continuum_engine::ContinuumState,
+        cand_elements.as_ptr(),
+        candidate_count,
+        score_elements.as_mut_ptr(),
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeCommitTrackToContinuum(
+    mut env: JNIEnv,
+    _class: JClass,
+    state_ptr: jlong,
+    track_vector: jni::objects::JFloatArray,
+    artist_hash: jlong,
+    track_hash: jlong,
+    dwell_percentage: jfloat,
+) -> jint {
+    if state_ptr == 0 {
+        return -1;
+    }
+    let vec_len = match env.get_array_length(&track_vector) {
+        Ok(l) => l as usize,
+        Err(_) => return -10,
+    };
+    if vec_len < 128 {
+        return -2;
+    }
+
+    let vec_elements = match env.get_array_elements(&track_vector, jni::objects::ReleaseMode::NoCopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+
+    crate::continuum_engine::commit_track_to_continuum(
+        state_ptr as *mut crate::continuum_engine::ContinuumState,
+        vec_elements.as_ptr(),
+        artist_hash as u64,
+        track_hash as u64,
+        dwell_percentage,
+    )
+}
+
 

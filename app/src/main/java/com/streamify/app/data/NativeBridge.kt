@@ -483,6 +483,24 @@ object NativeBridge {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 10: CONTEXTUAL KINETIC TRAJECTORY ENGINE
+    // ═══════════════════════════════════════════════════════════════
+    external fun nativeInitContinuumState(): Long
+    external fun nativeFreeContinuumState(statePtr: Long)
+    external fun nativeEvaluateContinuum(
+        statePtr: Long,
+        candidates: FloatArray,
+        outScores: FloatArray
+    ): Int
+    external fun nativeCommitTrackToContinuum(
+        statePtr: Long,
+        trackVector: FloatArray,
+        artistHash: Long,
+        trackHash: Long,
+        dwellPercentage: Float
+    ): Int
+
     // 1MB pre-allocated DirectByteBuffer for virtual shelf binary streaming (~500 tracks)
     private val shelfBuffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
 
