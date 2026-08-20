@@ -213,8 +213,9 @@ class MainActivity : ComponentActivity() {
                         label = "dockAlpha"
                     )
 
-                    val progress = if (playerState.duration > 0)
-                        playerState.currentPosition.toFloat() / playerState.duration.toFloat()
+                    val effectiveDuration = if (playerState.duration > 0) playerState.duration else ((playerState.currentTrack?.durationSec?.toLong() ?: 0L) * 1000L)
+                    val progress = if (effectiveDuration > 0)
+                        (playerState.currentPosition.toFloat() / effectiveDuration.toFloat()).coerceIn(0f, 1f)
                     else 0f
 
                     CompositionLocalProvider(

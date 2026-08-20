@@ -71,6 +71,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var lookaheadJob: Job? = null
     private var playJob: Job? = null
     private var hydrateJob: Job? = null
+    private var lastSeekTimestampMs: Long = 0L
+    private var lastSeekTargetPosMs: Long = 0L
     private val processedTitleHashes = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
     private var playbackStartTimeMs: Long = 0L
@@ -664,6 +666,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 }
 
                 controller?.let { ctrl ->
+                    val now = System.currentTimeMillis()
+                    val isSeekingGrace = (now - lastSeekTimestampMs) < 800L
+
                     val curState = _playerState.value
                     val playerDuration = if (ctrl.duration > 0) ctrl.duration else 0L
                     val currentTrack = curState.currentTrack
@@ -674,7 +679,14 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         currentTrack.copy(durationSec = (finalDuration / 1000).toInt())
                     } else currentTrack
 
-                    val newPos = ctrl.currentPosition.coerceAtLeast(0L)
+                    val ctrlPos = ctrl.currentPosition.coerceAtLeast(0L)
+                    val newPos = if (isSeekingGrace && kotlin.math.abs(ctrlPos - lastSeekTargetPosMs) > 1500L) {
+                        // Suppress stale pre-seek position during MediaController IPC transition
+                        lastSeekTargetPosMs
+                    } else {
+                        ctrlPos
+                    }
+
                     if (curState.currentPosition != newPos || curState.duration != finalDuration || curState.currentTrack !== updatedTrack) {
                         _playerState.value = curState.copy(
                             currentPosition = newPos,
@@ -1219,6 +1231,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         val currentT = _playerState.value.currentTrack
         val maxDurationMs = if (_playerState.value.duration > 0) _playerState.value.duration else ((currentT?.durationSec ?: 0) * 1000L)
         val validPos = if (maxDurationMs > 0) positionMs.coerceIn(0L, maxDurationMs) else positionMs.coerceAtLeast(0L)
+        
+        lastSeekTimestampMs = System.currentTimeMillis()
+        lastSeekTargetPosMs = validPos
+
         controller?.seekTo(validPos)
         _playerState.value = _playerState.value.copy(currentPosition = validPos)
         broadcastJamAction("SEEK", positionMs = validPos)

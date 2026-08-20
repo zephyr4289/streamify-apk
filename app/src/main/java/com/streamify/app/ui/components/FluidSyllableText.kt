@@ -1,6 +1,7 @@
 package com.streamify.app.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
@@ -106,7 +107,7 @@ fun FluidSyllableText(
         isActiveLine = isActive,
         baseColor = if (isPast) Color(0xAAFFFFFF) else baseColor,
         highlightColor = highlightColor,
-        modifier = modifier.androidx.compose.foundation.clickable { onClick() }
+        modifier = modifier.clickable { onClick() }
     )
 }
 
