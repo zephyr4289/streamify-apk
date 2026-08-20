@@ -56,15 +56,20 @@ fun SettingsScreen(
     onNavigateToAdmin: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
     onNavigateToWrapped: () -> Unit = {},
-    onNavigateToCommunity: () -> Unit = {}
+    onNavigateToCommunity: () -> Unit = {},
+    onNavigateToProfileSelection: () -> Unit = {}
 ) {
     val playerState by playerViewModel.playerState.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val audioPrefs = remember { context.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE) }
     var selectedQuality by remember { mutableStateOf(audioPrefs.getString("download_quality", "320") ?: "320") }
     var crossfadeValue by remember { mutableStateOf(CrossfadeAudioProcessor.crossfadeDurationMs / 1000f) }
+    var showConnectAccountsSheet by remember { mutableStateOf(false) }
 
     val user by com.streamify.app.data.remote.SupabaseClient.currentUser.collectAsState()
+    val isSpotifyConnected by com.streamify.app.data.remote.SpotifyAuthManager.isSpotifyConnectedFlow.collectAsState()
+    val isYtConnected by com.streamify.app.data.remote.SpotifyAuthManager.isYtConnectedFlow.collectAsState()
+    val currentAppMode by com.streamify.app.data.models.AppMode.currentMode.collectAsState()
     val scope = rememberCoroutineScope()
 
     Column(
@@ -99,6 +104,74 @@ fun SettingsScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(StreamifyDimens.SpaceLG)
         ) {
+            // CONNECTED STREAMING ACCOUNTS & TASTE SYNC
+            item {
+                SectionHeader("Connected Streaming Accounts")
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Music Services & Continuum", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
+                                Text("Active Mode: ${currentAppMode.name.replace('_', ' ')}", style = StreamifyType.Caption, color = StreamifyColors.Primary)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (isSpotifyConnected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(androidx.compose.ui.graphics.Color(0xFF1DB954).copy(alpha = 0.2f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("SPOTIFY", color = androidx.compose.ui.graphics.Color(0xFF1DB954), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                    }
+                                }
+                                if (isYtConnected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(androidx.compose.ui.graphics.Color(0xFFFF0000).copy(alpha = 0.2f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("YTM", color = androidx.compose.ui.graphics.Color(0xFFFF4444), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { showConnectAccountsSheet = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.Primary),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Manage Accounts", style = StreamifyType.CaptionBold, color = androidx.compose.ui.graphics.Color.Black)
+                            }
+                            OutlinedButton(
+                                onClick = onNavigateToProfileSelection,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Switch Mode", style = StreamifyType.CaptionBold)
+                            }
+                        }
+                    }
+                }
+            }
+
             // SUPABASE CLOUD & COMMUNITY SECTION
             item {
                 SectionHeader("Cloud & Social Hub")
@@ -1080,6 +1153,10 @@ fun SettingsScreen(
                     }
                 }
             }
-        }
+        // Connect Accounts Modal Bottom Sheet
+        com.streamify.app.ui.components.ConnectAccountsSheet(
+            isOpen = showConnectAccountsSheet,
+            onDismiss = { showConnectAccountsSheet = false }
+        )
     }
 }

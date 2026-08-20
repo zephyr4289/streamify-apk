@@ -207,7 +207,17 @@ fun AppNavGraph(
                 onNavigateToAdmin = { navController.navigate("admin") },
                 onNavigateToProfile = { navController.navigate("profile") },
                 onNavigateToWrapped = { navController.navigate("wrapped") },
-                onNavigateToCommunity = { navController.navigate("community") }
+                onNavigateToCommunity = { navController.navigate("community") },
+                onNavigateToProfileSelection = { navController.navigate("profile_selection") }
+            )
+        }
+        composable("profile_selection") {
+            ProfileSelectionScreen(
+                onProfileConfigured = { mode ->
+                    navController.navigate("home") {
+                        popUpTo("profile_selection") { inclusive = true }
+                    }
+                }
             )
         }
         composable("jam") {

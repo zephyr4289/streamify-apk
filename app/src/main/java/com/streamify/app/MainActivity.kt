@@ -52,9 +52,39 @@ import com.streamify.app.viewmodel.UiEventBus
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    override fun onNewIntent(intent: android.content.Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleSpotifyCallback(intent)
+    }
+
+    private fun handleSpotifyCallback(intent: android.content.Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "streamify" && uri.host == "callback") {
+            val authCode = uri.getQueryParameter("code")
+            val error = uri.getQueryParameter("error")
+            if (!authCode.isNullOrEmpty()) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    val spotifyAuth = com.streamify.app.data.remote.SpotifyAuthManager(this@MainActivity)
+                    val result = spotifyAuth.exchangeCodeForTokens(authCode)
+                    if (result.isSuccess) {
+                        android.widget.Toast.makeText(this@MainActivity, "Spotify connected successfully! 🎵", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        android.widget.Toast.makeText(this@MainActivity, "Spotify connection: ${result.exceptionOrNull()?.message}", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            } else if (!error.isNullOrEmpty()) {
+                android.widget.Toast.makeText(this, "Spotify auth cancelled: $error", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleSpotifyCallback(intent)
+        com.streamify.app.data.models.AppMode.initialize(this)
 
         setContent {
             val audioPrefs = remember { getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE) }

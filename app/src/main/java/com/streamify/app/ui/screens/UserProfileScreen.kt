@@ -364,6 +364,68 @@ fun UserProfileScreen(
             }
         }
 
+        // Connected Accounts Card
+        var showConnectSheet by remember { mutableStateOf(false) }
+        val isSpotifyConn by com.streamify.app.data.remote.SpotifyAuthManager.isSpotifyConnectedFlow.collectAsState()
+        val isYtConn by com.streamify.app.data.remote.SpotifyAuthManager.isYtConnectedFlow.collectAsState()
+
+        Surface(
+            color = BgSurfaceElevated,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .clickable { showConnectSheet = true }
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Link,
+                            contentDescription = "Connect Accounts",
+                            tint = Primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Connected Streaming Accounts",
+                                style = LocalAppTypography.current.songTitle.copy(
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = TextMain
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isSpotifyConn || isYtConn) "Spotify: ${if (isSpotifyConn) "Connected" else "Off"} • YTM: ${if (isYtConn) "Connected" else "Off"}" else "Connect Spotify & YouTube Music",
+                            style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                            color = if (isSpotifyConn || isYtConn) Primary else TextSecondary
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = Icons.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
         // App Settings & Preferences Card (Audio Quality, Equalizer, Database Reset)
         Surface(
             color = BgSurfaceElevated,
@@ -584,4 +646,9 @@ fun UserProfileScreen(
             containerColor = BgSurfaceElevated
         )
     }
+
+    com.streamify.app.ui.components.ConnectAccountsSheet(
+        isOpen = showConnectSheet,
+        onDismiss = { showConnectSheet = false }
+    )
 }
