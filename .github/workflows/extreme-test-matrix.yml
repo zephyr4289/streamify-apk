@@ -2,9 +2,9 @@ name: Extreme Test Matrix & Chaos Suite
 
 on:
   push:
-    branches: [ "**" ]
+    branches: [ main, streamify-yt-spt ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, streamify-yt-spt ]
   schedule:
     - cron: '0 0 * * *' # Nightly Deep Annihilation Matrix
 
