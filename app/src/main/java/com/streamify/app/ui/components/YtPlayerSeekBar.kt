@@ -4,9 +4,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -35,7 +34,7 @@ fun YtPlayerSeekBar(
 ) {
     val scope = rememberCoroutineScope()
     var isDragging by remember { mutableStateOf(false) }
-    var dragProgress by remember { mutableStateOf(0f) }
+    var dragProgress by remember { mutableFloatStateOf(0f) }
     val currentProgress = if (isDragging) dragProgress else progress.coerceIn(0f, 1f)
 
     // Hardware-Accelerated Animatable Thumb Physics
@@ -49,49 +48,62 @@ fun YtPlayerSeekBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(28.dp)
+                .height(36.dp)
                 .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        down.consume()
-                        isDragging = true
-                        dragProgress = (down.position.x / size.width).coerceIn(0f, 1f)
-                        onSeek(dragProgress)
-                        com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
-                        scope.launch {
-                            thumbScale.animateTo(
-                                targetValue = 2.2f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMedium
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            isDragging = true
+                            dragProgress = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
+                            scope.launch {
+                                thumbScale.animateTo(
+                                    targetValue = 2.0f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
                                 )
-                            )
-                        }
-
-                        drag(down.id) { change ->
+                            }
+                        },
+                        onHorizontalDrag = { change, _ ->
                             change.consume()
-                            val prevStep = (dragProgress * 20).toInt()
-                            dragProgress = (change.position.x / size.width).coerceIn(0f, 1f)
-                            val newStep = (dragProgress * 20).toInt()
+                            val newProgress = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            val prevStep = (dragProgress * 25).toInt()
+                            val newStep = (newProgress * 25).toInt()
                             if (prevStep != newStep) {
                                 com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
                             }
-                        }
-
-                        isDragging = false
-                        onSeek(dragProgress)
-                        scope.launch {
-                            thumbScale.animateTo(
-                                targetValue = 1f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMedium
+                            dragProgress = newProgress
+                        },
+                        onDragEnd = {
+                            isDragging = false
+                            onSeek(dragProgress)
+                            scope.launch {
+                                thumbScale.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
                                 )
-                            )
+                            }
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                            scope.launch {
+                                thumbScale.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
+                                )
+                            }
                         }
-                    }
+                    )
                 }
         ) {
+
 
             Canvas(
                 modifier = Modifier
