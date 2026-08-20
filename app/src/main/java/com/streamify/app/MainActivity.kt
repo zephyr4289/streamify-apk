@@ -70,7 +70,7 @@ class MainActivity : ComponentActivity() {
                     val dbPath = getDatabasePath("streamify_universal.db").absolutePath
                     spotifyAuth.handleAuthCallback(authCode, dbPath) { count ->
                         if (count >= 0) {
-                            android.widget.Toast.makeText(this@MainActivity, "Spotify connected! Synced $count tracks into your taste profile 🎵", android.widget.Toast.SHORT).show()
+                            android.widget.Toast.makeText(this@MainActivity, "Spotify connected! Synced $count tracks into your taste profile 🎵", android.widget.Toast.LENGTH_SHORT).show()
                         } else {
                             android.widget.Toast.makeText(this@MainActivity, "Spotify connected successfully! 🎵", android.widget.Toast.LENGTH_SHORT).show()
                         }
@@ -420,6 +420,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)

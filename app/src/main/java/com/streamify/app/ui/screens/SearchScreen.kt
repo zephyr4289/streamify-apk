@@ -391,11 +391,11 @@ fun SearchScreen(
                                     kicker = "Instant High-Fidelity Stream"
                                 )
                             }
-                            items(
+                            itemsIndexed(
                                 items = onlineMatches,
-                                key = { "online_${it.url}" },
-                                contentType = { "trackRow_${it.type.name}" }
-                            ) { onlineTrack ->
+                                key = { _, it -> "online_${it.url}" },
+                                contentType = { _, it -> "trackRow_${it.type.name}" }
+                            ) { index, onlineTrack ->
                                 when (onlineTrack.type) {
                                     com.streamify.app.viewmodel.SearchResultType.ARTIST -> {
                                         Row(

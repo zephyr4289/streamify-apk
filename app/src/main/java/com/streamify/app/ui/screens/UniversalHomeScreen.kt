@@ -18,10 +18,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,39 +46,44 @@ fun UniversalHomeScreen(
             items = shelves,
             key = { it.id } // Stable shelf recomposition key
         ) { shelf ->
-            ShelfSection(
+            ShelfRow(
                 shelf = shelf,
-                onTrackClick = onTrackSelected
+                onTrackSelected = onTrackSelected
             )
         }
     }
 }
 
 @Composable
-private fun ShelfSection(
+private fun ShelfRow(
     shelf: VirtualShelf,
-    onTrackClick: (VirtualShelfTrack) -> Unit
+    onTrackSelected: (VirtualShelfTrack) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp)
+    ) {
         Text(
             text = shelf.title,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
             color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
         )
 
         LazyRow(
+            modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(
                 items = shelf.tracks,
-                key = { it.cadId } // Enables 120 FPS subcomposition skipping during rapid fling
+                key = { it.cadId } // Stable track recomposition key
             ) { track ->
                 ShelfTrackCard(
                     track = track,
-                    onClick = { onTrackClick(track) }
+                    onClick = { onTrackSelected(track) }
                 )
             }
         }
@@ -99,7 +106,7 @@ private fun ShelfTrackCard(
     Column(
         modifier = Modifier
             .width(140.dp)
-            .androidx.compose.ui.graphics.graphicsLayer {
+            .graphicsLayer {
                 shadowElevation = 4f
                 shape = RoundedCornerShape(8.dp)
                 clip = false

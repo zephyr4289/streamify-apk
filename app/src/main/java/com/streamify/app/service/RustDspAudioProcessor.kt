@@ -35,7 +35,7 @@ class RustDspAudioProcessor : AudioProcessor {
     }
 
     override fun configure(inputAudioFormat: AudioFormat): AudioFormat {
-        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT && inputAudioFormat.encoding != C.ENCODING_PCM_32BIT_FLOAT) {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT && inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
             return AudioFormat.NOT_SET
         }
 
@@ -43,7 +43,7 @@ class RustDspAudioProcessor : AudioProcessor {
         this.outputAudioFormat = AudioFormat(
             inputAudioFormat.sampleRate,
             inputAudioFormat.channelCount,
-            C.ENCODING_PCM_32BIT_FLOAT
+            C.ENCODING_PCM_FLOAT
         )
         return if (isActive) this.outputAudioFormat else AudioFormat.NOT_SET
     }

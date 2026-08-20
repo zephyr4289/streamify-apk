@@ -79,17 +79,13 @@ class SpotifyAuthManager(private val context: Context) {
             codeChallenge = challenge
         )
 
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        }
         try {
-            androidx.browser.customtabs.CustomTabsIntent.Builder()
-                .setShowTitle(true)
-                .build()
-                .launchUrl(context, uri)
-        } catch (e: Exception) {
-            // Fallback to standard browser intent
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-            }
             context.startActivity(intent)
+        } catch (e: Exception) {
+            // Log or ignore
         }
     }
 

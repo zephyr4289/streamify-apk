@@ -6,7 +6,6 @@ import com.streamify.app.data.NativeBridge
 object LyricsEngine {
     private var lyricMapPtr: Long = 0L
 
-    @Immutable
     var lyricLines: List<String> = emptyList()
         private set
 
