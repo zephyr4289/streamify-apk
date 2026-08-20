@@ -338,6 +338,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
                 // Real-Time Cloud Telemetry Sync
                 val currentTrackObj = _playerState.value.currentTrack
+                val prevTrackId = lastPlayedTrackId
                 if (currentTrackObj != null && posSec >= 10) {
                     viewModelScope.launch(Dispatchers.IO) {
                         try {
@@ -347,22 +348,30 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                 put("track_id", cloudId)
                                 put("track_title", currentTrackObj.title)
                                 put("track_artist", currentTrackObj.artist)
-                                put("duration_played_sec", posSec)
+                                put("duration_sec", posSec.toLong())
                                 put("completion_ratio", ratio.toDouble())
                                 put("hour_of_day", currentHour)
                                 put("action_type", if (wasSkipped && ratio < 0.85f) "SKIP" else "PLAY")
                             }
-                            com.streamify.app.data.remote.SupabaseClient.logEngagementTelemetry(eventJson)
+                            com.streamify.app.data.remote.SupabaseClient.ingestTelemetryBatch(listOf(eventJson))
                         } catch (e: Exception) {
                             // Non-blocking telemetry failure
                         }
                     }
                 }
 
-                if (wasSkipped && ratio < 0.85f) {
-                    repository.logSkipEvent(lastPlayedTrackId!!, newTrackId, currentHour)
-                } else {
-                    repository.logPlayEvent(lastPlayedTrackId!!, newTrackId, currentHour)
+                if (prevTrackId != null) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            if (wasSkipped && ratio < 0.85f) {
+                                repository.logSkipEvent(prevTrackId, newTrackId)
+                            } else {
+                                repository.logPlayEvent(prevTrackId, newTrackId)
+                            }
+                        } catch (e: Exception) {
+                            // Non-blocking
+                        }
+                    }
                 }
             }
             lastPlayedTrackId = newTrackId

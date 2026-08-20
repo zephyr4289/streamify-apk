@@ -77,14 +77,19 @@ object FeedBootstrapManager {
     }.flowOn(Dispatchers.IO)
 
     private fun Track.toVirtualShelfTrack(origin: String): VirtualShelfTrack {
+        val computedCadId = try {
+            NativeBridge.nativeGenerateCadId(this.title, this.artist, this.durationSec)
+        } catch (e: Throwable) {
+            "cad_${this.id}"
+        }
         return VirtualShelfTrack(
-            cadId = if (this.cadId.isNotBlank()) this.cadId else "cad_${this.id}",
+            cadId = if (computedCadId.isNotBlank()) computedCadId else "cad_${this.id}",
             title = this.title,
             artist = this.artist,
             artworkUrl = this.coverArtPath ?: "",
             durationSec = this.durationSec,
             isrc = this.isrc,
-            ytmVideoId = if (this.url.startsWith("http")) null else this.url,
+            ytmVideoId = this.ytmVideoId ?: if (this.filepath.startsWith("http")) null else this.filepath,
             isLiked = this.isLiked,
             platformOrigin = origin
         )

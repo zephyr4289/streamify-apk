@@ -50,6 +50,7 @@ fun UserProfileScreen(
     var editGenre by remember(user) { mutableStateOf(user?.favoriteGenre ?: "All") }
     var isSaving by remember { mutableStateOf(false) }
     var isSigningIn by remember { mutableStateOf(false) }
+    var showConnectSheet by remember { mutableStateOf(false) }
 
     // Dynamic Musical Chronotype Calculation based on local device time & real library BPM
     val chronotype = remember(stats) {
@@ -365,7 +366,6 @@ fun UserProfileScreen(
         }
 
         // Connected Accounts Card
-        var showConnectSheet by remember { mutableStateOf(false) }
         val isSpotifyConn by com.streamify.app.data.remote.SpotifyAuthManager.isSpotifyConnectedFlow.collectAsState()
         val isYtConn by com.streamify.app.data.remote.SpotifyAuthManager.isYtConnectedFlow.collectAsState()
 

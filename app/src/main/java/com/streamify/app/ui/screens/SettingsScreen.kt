@@ -1153,6 +1153,8 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
+
         // Connect Accounts Modal Bottom Sheet
         com.streamify.app.ui.components.ConnectAccountsSheet(
             isOpen = showConnectAccountsSheet,
