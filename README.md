@@ -1841,7 +1841,7 @@ $$v_{\text{speed}}[n] = 1.0 + \left(K_P \cdot e[n] + K_I \sum_{k=0}^n e[k]\right
 
 ---
 
-### 📊 3. Full Engineering Roadmap Status (All 8 Phases Complete)
+### 📊 3. Full Engineering Roadmap Status (All Phases Complete)
 
 | Phase | Description | Status | Architecture Layer |
 | :--- | :--- | :---: | :--- |
@@ -1853,6 +1853,8 @@ $$v_{\text{speed}}[n] = 1.0 + \left(K_P \cdot e[n] + K_I \sum_{k=0}^n e[k]\right
 | **Phase 6** | 120 FPS Jetpack Compose UI, 6-DOF RK4 Dynamic Tokens & AM-OLED Canvas | **✅ Complete** | Jetpack Compose & Native ODE |
 | **Phase 7** | Byzantine Mesh Consensus, IEEE 1588 PTP Jam Sync & Macrobenchmarks | **✅ Complete** | Edge Mesh & Validation Suite |
 | **Phase 8** | Operational Glue, Cargo-NDK Toolchain, R8 Keep Rules & CI Automation | **✅ Complete** | CI/CD & Production Toolchain |
+| **Phase 9** | Connected Accounts Hub (Spotify PKCE, Last.fm Scrobbler, Google 2FA WebView) | **✅ Complete** | Multi-Platform Identity & Auth |
+| **Phase 9.1** | Profile Selection Continuum, Seamless Account Switcher & PIN Security | **✅ Complete** | Multi-Profile Architecture |
 
 ---
 
@@ -1900,10 +1902,108 @@ To safely deploy cutting-edge features on the `streamify-yt-spt` flagship branch
 
 ---
 
-### 🎚️ 3. Anti-Jitter Seekbar & Optimistic Scrubbing Architecture
-* **IPC Polling Grace Lock**: Suppresses stale 200ms `MediaController` position polling updates for 800ms post-seek, preventing the notorious "rubber-banding" position jitter while ExoPlayer buffers to the target keyframe.
-* **Dual Gesture Routing**: Uses `detectTapGestures` + `detectDragGestures` with `rememberUpdatedState` across a 44dp interactive touch target for 100% responsive tap-to-seek and drag-to-scrub.
-* **Duration Fallback Guarantee**: Falls back gracefully to `track.durationSec * 1000L` if `playerState.duration` is pending, eliminating `0f` progress bar lockouts.
+## 🔐 20. Phase 9 & 9.1: Multi-Platform Connected Accounts, Google 2FA WebView & Profile Continuum
+
+```mermaid
+graph TD
+    subgraph Multi_Auth_Hub ["Connected Accounts Engine"]
+        UserNav["Settings -> Connected Accounts"] --> AccountsScreen["ConnectedAccountsScreen.kt"]
+        AccountsScreen --> SpotifyCard["Spotify OAuth 2.0 PKCE\n(com.streamify.app://auth/callback/spotify)"]
+        AccountsScreen --> LastfmCard["Last.fm Scrobbler API\n(MD5 Auth Signature)"]
+        AccountsScreen --> GoogleCard["Google / YouTube Music Account\n(Custom UA Gated WebView)"]
+        
+        GoogleCard --> WebViewAuth["GoogleAuthWebViewDialog.kt\n(Intercept SAPISID, SSID, HSID, LOGIN_INFO)"]
+        WebViewAuth --> EncryptedStorage["EncryptedSharedPreferences Storage\n(Zero-Plaintext Invariant)"]
+        SpotifyCard --> DeepLinkHandler["MainActivity Deep Link Intent Receiver\n(Exchange Code for Bearer Token)"]
+    end
+
+    subgraph Profile_Continuum ["Multi-Profile Continuum Engine"]
+        SwitchAction["Switch Profile Trigger"] --> ProfileDialog["ProfileSelectionDialog.kt"]
+        ProfileDialog --> PINVerify["PIN Hash Verification\n(streamify_salt_{user}_{pin})"]
+        PINVerify --> SessionSwap["NativeBridge.swapUserSession(newUserId)"]
+        SessionSwap --> RefreshUI["Dynamic State Re-Hydration\n(Liked Songs, History, Vector Profile)"]
+    end
+```
+
+### 🔑 1. Three-Tier Account Connection Architecture
+1. **Spotify OAuth 2.0 PKCE Flow**:
+   - Implements zero-secret Proof Key for Code Exchange (RFC 7636).
+   - Generates high-entropy cryptographic `code_verifier` and SHA-256 `code_challenge`.
+   - Deep-link redirection handled by `MainActivity` via intent filter `com.streamify.app://auth/callback/spotify`.
+2. **Last.fm Scrobbler Integration**:
+   - Direct Web-Service session token acquisition with MD5 parameter hashing.
+   - Real-time scrobble submission upon 50% track completion or 4 minutes of playback.
+3. **Google & YouTube Account Gated WebView**:
+   - Custom User-Agent spoofing (`Pixel 8 Pro Chrome/120.0.0.0`) bypassing embedded browser restrictions.
+   - Full support for Google 2-Step Verification (SMS, Google Authenticator TOTP, Security Keys).
+   - Real-time cookie interception extracting `SAPISID`, `SSID`, `HSID`, `LOGIN_INFO`, and `VISITOR_INFO1_LIVE` into hardware-backed Keystore `EncryptedSharedPreferences`.
+
+---
+
+## 🛠️ 21. Advanced Playback Stability, Video Identity & Architectural Leak Elimination
+
+```mermaid
+graph TD
+    subgraph Seek_Reconciliation ["4-Layer Anti-Jitter Scrubber (Soln 1)"]
+        UserDrag["User Scrub / Drag Gesture"] --> ScrubState["isScrubbing = true\n(Decoupled Scrubber State)"]
+        ScrubState --> SeekTrigger["seekToPosition(targetMs)"]
+        SeekTrigger --> GraceLock["800ms IPC Grace Lock\n(Suppresses Stale 200ms Polling Ticks)"]
+        GraceLock --> ForwardingPlayer["ForwardingPlayer.seekTo(targetMs)\n(Guaranteed Command Routing)"]
+    end
+
+    subgraph Video_Identity ["Absolute Video Identity Pipeline (Soln 2)"]
+        TrackSearch["Play Search Result (Lyrics / Cover / Remix)"] --> RetainYtmId["Preserve origin ytmVideoId = videoId"]
+        RetainYtmId --> StreamResolver["YouTubeStreamResolver.resolveTrackStream()"]
+        StreamResolver --> ThumbnailFallback["extractIdFromThumbnail(coverArtPath)\n(vi_webp / i.ytimg.com parser)"]
+        ThumbnailFallback --> AspectRatioAnim["Dynamic Aspect Ratio Morph (1:1 -> 16:9)"]
+        AspectRatioAnim --> HardwareSurface["Hardware Video PlayerView Overlay"]
+    end
+
+    subgraph Buffering_Perception ["4-Tier Buffering State Machine (Soln 3)"]
+        TapPlay["User Taps Play"] --> BufferingTrue["isBuffering = true (0ms Visual Feedback)"]
+        BufferingTrue --> HeroPulse["Hero Artwork Breathing Pulse\n(.graphicsLayer scale 0.98-1.00 & alpha)"]
+        BufferingTrue --> ButtonSpinner["AnimatedContent CircularProgressIndicator\n(64dp / 54dp / 20dp / 18dp)"]
+        ButtonSpinner --> StateReady["ExoPlayer STATE_READY -> isBuffering = false"]
+    end
+
+    subgraph Leak_Elimination ["7-Point Lifecycle Leak Elimination (Soln 4)"]
+        ServiceDestroy["PlaybackService.onDestroy()"] --> CleanAudio["AudioDeviceManager.release()\n(AtomicBoolean Idempotent Unregister)"]
+        ServiceDestroy --> CleanEq["EqualizerManager.release()\n(AudioEffect Native AudioFlinger Teardown)"]
+        ServiceDestroy --> CleanPreBuffer["PredictivePreBufferManager.release()\n(SupervisorJob & Listener Detach)"]
+        ViewModelClear["PlayerViewModel.onCleared()"] --> CleanContext["App Context Binding & playerListener Removal"]
+        SocketFailure["Supabase Realtime Failure"] --> CleanWS["socketLock Mutex & WebSocket.cancel() Teardown"]
+        PausedState["Playback Paused"] --> FreezeClock["LyricPlaybackController Extrapolation Freeze"]
+        DspWorker["OnlineTrackProcessor Worker"] --> TimeoutGuard["5000ms Hard Buffer Wait Timeout Guard"]
+    end
+```
+
+### 🎯 1. 4-Layer Anti-Jitter Scrubber Architecture (Soln 1)
+* **Decoupled Scrubbing State**: Decouples touch interaction (`isScrubbing`, `scrubbingProgress`) from periodic ExoPlayer IPC updates.
+* **800ms Position Grace Lock**: Blocks stale 200ms `MediaController` position ticks for 800ms post-seek, preventing the notorious position "snap-back" while ExoPlayer buffers to the target I-frame.
+* **Command Routing Invariance**: `ForwardingPlayer` explicitly declares and delegates `COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM` and `COMMAND_SEEK_TO_MEDIA_ITEM`.
+
+### 🎬 2. Absolute Video Identity & Dynamic Aspect Ratio Morphing (Soln 2)
+* **Zero Canonical Identity Loss**: Guarantees non-official music videos, acoustic versions, and lyric videos retain their true origin `ytmVideoId` throughout repository registration and DB hydration.
+* **Triple-Tier Video ID Extractor**: Employs URL parsing, `YT_ID_REGEX`, and `extractIdFromThumbnail` (`vi_webp` / `i.ytimg.com`) to prevent falling back to unrelated official music videos.
+* **Smooth Hardware Morphing**: Seamlessly animates between a 1:1 Album Artwork square and a 16:9 Hardware-Accelerated Video Surface with sub-frame crossfade.
+
+### ⏳ 3. 4-Tier Visual Buffering State Machine & Perception Latency Elimination (Soln 3)
+* **0ms Latency State Model**: Instantly flips `PlayerState.isBuffering` to `true` upon track selection, computing `PlaybackButtonState` (`BUFFERING`, `PLAYING`, `PAUSED`).
+* **Hero Artwork Breathing Pulse**: Applies hardware-accelerated `.graphicsLayer` alpha + scale oscillations to the artwork container while loading.
+* **4-Tier Action Spinners**: Morphing `AnimatedContent` displays `CircularProgressIndicator` across:
+  1. Full Player Portrait Primary Button (64dp, 2.8dp stroke).
+  2. Full Player Landscape Primary Button (54dp, 2.5dp stroke).
+  3. Floating MiniPlayer Action Button (20dp, 2.0dp stroke).
+  4. Track List & Queue Row Artwork Overlays (18dp, 2.0dp stroke).
+
+### 🛡️ 4. 7-Point Architectural Lifecycle & Memory Leak Elimination (Soln 4)
+1. **`PlaybackService` Context Unregister**: Uses `AtomicBoolean` in `AudioDeviceManager` to safely unregister broadcast receivers from `context.applicationContext` in `onDestroy()`.
+2. **`EqualizerManager` AudioEffect Teardown**: Explicitly disables (`enabled = false`) and releases all 4 native `AudioEffect` handles (`Equalizer`, `BassBoost`, `Virtualizer`, `LoudnessEnhancer`) to prevent exceeding Android OS `AudioFlinger` device session limits.
+3. **`PredictivePreBufferManager` Coroutine Lifecycle**: Binds lookahead prefetching to a `SupervisorJob()`, explicitly removing player listeners and cancelling all background jobs on shutdown.
+4. **`PlayerViewModel` Activity Leak Isolation**: Binds `SessionToken` and `MediaController.Builder` exclusively to Application Context and removes `playerListener` inside `onCleared()`.
+5. **`SupabaseClient` WebSocket Lock & FD Teardown**: Uses `socketLock` mutex to close, cancel, and nullify failing WebSocket connections before triggering auto-reconnect.
+6. **`LyricPlaybackController` Paused Drift Freeze**: Halts frame clock accumulation when paused, locking `interpolatedPosMs` strictly to `lastObservedTargetMs + userOffsetMs`.
+7. **`OnlineTrackProcessor` Safety Timeout Guard**: Enforces a strict 5000ms safety timeout on buffer wait loops with `isActive` coroutine checks to prevent single-core DSP worker stalls.
 
 ---
 
