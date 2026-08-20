@@ -70,9 +70,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var preResolvingTrackKey: String? = null
     private var lookaheadJob: Job? = null
     private var playJob: Job? = null
-    private var hydrateJob: Job? = null
     private val processedTitleHashes = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var playbackStartTimeMs: Long = 0L
 
     fun getController(): MediaController? = controller
 
@@ -553,9 +553,19 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             preResolvingTrackKey = trackKey
             viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    val resolved = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack).getOrNull()
-                    if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                        val warmTrack = nextTrack.copy(filepath = resolved.streamUrl)
+                    val nativeUrl = try {
+                        val vidId = nextTrack.ytmVideoId ?: if (nextTrack.filepath.startsWith("yt_") || (nextTrack.filepath.length == 11 && !nextTrack.filepath.contains("/"))) nextTrack.filepath.removePrefix("yt_") else null
+                        NativeBridge.resolveCdnUrl(vidId, nextTrack.isrc, nextTrack.title, nextTrack.artist)
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    val finalUrl = if (!nativeUrl.isNullOrBlank()) nativeUrl else {
+                        com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack).getOrNull()?.streamUrl
+                    }
+
+                    if (!finalUrl.isNullOrBlank()) {
+                        val warmTrack = nextTrack.copy(filepath = finalUrl)
                         withContext(Dispatchers.Main) {
                             val currentQ = _playerState.value.queue
                             if (currentIndex + 1 < currentQ.size && (currentQ[currentIndex + 1].id == nextTrack.id || currentQ[currentIndex + 1].title == nextTrack.title)) {
@@ -918,6 +928,22 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 val curState = _playerState.value
                 val queue = curState.queue
                 if (queue.isEmpty()) return@launch
+
+                // ⚡ Fast Skip Guard (<10s dwell time): Trigger emergency comfort track anchor
+                if (isUserSkip && curState.currentTrack != null) {
+                    val dwellTime = System.currentTimeMillis() - playbackStartTimeMs
+                    if (dwellTime in 1..9999L) {
+                        val comfortTrack = withContext(Dispatchers.IO) {
+                            repository.getEmergencyComfortTrack()
+                        }
+                        if (comfortTrack != null && comfortTrack.id != curState.currentTrack?.id) {
+                            android.util.Log.d("PlayerViewModel", "⚡ Fast-skip (<10s) detected! Triggering comfort anchor: ${comfortTrack.title}")
+                            playTrackInternal(comfortTrack, 0, listOf(comfortTrack) + queue.filter { it.id != comfortTrack.id })
+                            return@launch
+                        }
+                    }
+                }
+
                 val currentIndex = curState.currentIndex
                 val isAutoplayEnabled = curState.isAutoPlayEnabled
                 val isRepeatActive = curState.isRepeatActive
@@ -987,6 +1013,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             isPlaying = true,
             isBuffering = true
         )
+        playbackStartTimeMs = System.currentTimeMillis()
 
         // 0. SMART OFFLINE VAULT GATE (0ms instant local playback if pre-cached)
         val vaulted = com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
@@ -1001,12 +1028,25 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             trackToPlay
         } else {
             withContext(Dispatchers.IO) {
-                val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(trackToPlay)
-                val resolved = res.getOrNull()
-                if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                    trackToPlay.copy(filepath = resolved.streamUrl)
+                // Tier 1: Native Rust Tokio JIT Stream Resolver
+                val nativeUrl = try {
+                    val vidId = trackToPlay.ytmVideoId ?: if (trackToPlay.filepath.startsWith("yt_") || (trackToPlay.filepath.length == 11 && !trackToPlay.filepath.contains("/"))) trackToPlay.filepath.removePrefix("yt_") else null
+                    NativeBridge.resolveCdnUrl(vidId, trackToPlay.isrc, trackToPlay.title, trackToPlay.artist)
+                } catch (e: Exception) {
+                    null
+                }
+
+                if (!nativeUrl.isNullOrBlank()) {
+                    trackToPlay.copy(filepath = nativeUrl)
                 } else {
-                    trackToPlay
+                    // Fallback to Kotlin multi-client cascade
+                    val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(trackToPlay)
+                    val resolved = res.getOrNull()
+                    if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                        trackToPlay.copy(filepath = resolved.streamUrl)
+                    } else {
+                        trackToPlay
+                    }
                 }
             }
         }
@@ -1094,10 +1134,21 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
 
             try {
-                val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack)
-                val resolved = res.getOrNull()
-                if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                    val warmTrack = nextTrack.copy(filepath = resolved.streamUrl)
+                // Tier 1: Try Native Rust Tokio JIT Stream Resolver
+                val nativeUrl = try {
+                    val vidId = nextTrack.ytmVideoId ?: if (nextTrack.filepath.startsWith("yt_") || (nextTrack.filepath.length == 11 && !nextTrack.filepath.contains("/"))) nextTrack.filepath.removePrefix("yt_") else null
+                    NativeBridge.resolveCdnUrl(vidId, nextTrack.isrc, nextTrack.title, nextTrack.artist)
+                } catch (e: Exception) {
+                    null
+                }
+
+                val finalUrl = if (!nativeUrl.isNullOrBlank()) nativeUrl else {
+                    val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack)
+                    res.getOrNull()?.streamUrl
+                }
+
+                if (!finalUrl.isNullOrBlank()) {
+                    val warmTrack = nextTrack.copy(filepath = finalUrl)
                     val lookaheadItem = buildMediaItem(warmTrack)
                     withContext(Dispatchers.Main) {
                         controller?.let { ctrl ->

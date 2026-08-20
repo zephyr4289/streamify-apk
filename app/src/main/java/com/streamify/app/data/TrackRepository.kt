@@ -423,6 +423,15 @@ object TrackRepository {
         )
     }
 
+    suspend fun getEmergencyComfortTrack(): Track? = withContext(Dispatchers.IO) {
+        val liked = getLikedTracks(1)
+        if (liked.isNotEmpty()) {
+            liked.shuffled().firstOrNull()
+        } else {
+            getTopPlayedTracks(10).shuffled().firstOrNull()
+        }
+    }
+
     fun hardResetState() {
         _allTracks.value = emptyList()
         _likedTracks.value = emptyList()

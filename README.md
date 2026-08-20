@@ -1464,6 +1464,81 @@ LIMIT 5;
 
 ---
 
+## 🌐 13. Phase 2: JIT Stream Resolution, Tokio Async Runtime & 50/50 Adaptive Queue Engine
+
+```mermaid
+graph TD
+    subgraph UI_Media3 ["Jetpack Compose & Media3 Layer"]
+        UserAction["User Taps / Auto-Next"] --> PlayerVM["PlayerViewModel.kt"]
+        PlayerVM --> CheckDwell{"Dwell Time < 10s?"}
+        CheckDwell -- Yes (Fast Skip) --> ComfortAnchor["Emergency Comfort Track Anchor\n(High Affinity Liked Pool)"]
+        CheckDwell -- No --> Window["Sliding 2-Track Window\n(Slot N + Slot N+1)"]
+        Window --> JNI["NativeBridge.resolveCdnUrl()"]
+    end
+
+    subgraph Rust_Core ["Rust High-Performance Tokio Host"]
+        JNI --> TokioRuntime["Tokio Multi-Threaded Runtime\n(2 Dedicated Worker Threads)"]
+        TokioRuntime --> Cascade{"3-Tier Resolution Cascade"}
+        
+        Cascade -- Tier 1: Direct Hit --> DirectID["Direct Video ID Request\n(<10ms CDN Hit)"]
+        Cascade -- Tier 2: ISRC Search --> ISRCLookup["isrc:<CODE> Exact Match\n(Zero Token Ambiguity)"]
+        Cascade -- Tier 3: Fuzzy Search --> FuzzySearch["Fuzzy Title + Artist Query\n(Token-Sort Levenshtein)"]
+        
+        DirectID --> Innertube["Innertube Player API (ANDROID_MUSIC / VR)"]
+        ISRCLookup --> Innertube
+        FuzzySearch --> Innertube
+        
+        Innertube --> FormatFilter["Audio Adaptive Format Prioritizer\n(MIME audio/webm, audio/mp4)"]
+        FormatFilter --> CDNUrl["Playable GoogleVideo CDN URL"]
+    end
+
+    subgraph Queue_Optimizer ["50/50 Dual-Core Adaptive Queue Engine"]
+        Candidates["Candidate Pool"] --> QueueOpt["QueueOptimizer::score_and_rank()"]
+        QueueOpt --> ScoringFormula["Composite Score Formula:\n0.50*Spotify + 0.50*YouTube - Satiation + Harmonic Bonus"]
+        ScoringFormula --> CamelotBonus["Camelot Adjacent Wheel Bonus\n(8B -> 8B, 8A, 9B, 7B)"]
+        ScoringFormula --> Satiation["Exponential Satiation Decay\n(tau = 3.5h / 12,600s)"]
+        CamelotBonus --> RankedQueue["Curated 50/50 Hybrid Queue"]
+    end
+
+    CDNUrl --> ExoPlayer["ExoPlayer Audio Sink"]
+    ComfortAnchor --> PlayerVM
+    RankedQueue --> Window
+```
+
+### ⚡ 1. Asynchronous Tokio Runtime Host (`resolver.rs`)
+To eliminate Android UI and Binder thread blocking during upstream HTTP requests, the Rust engine boots a global multi-threaded Tokio runtime via `OnceLock<Runtime>` with 2 dedicated worker threads and an optimized `reqwest::Client` connection pool:
+* **Worker Thread Count**: 2 dedicated pinned OS threads (`rt-multi-thread`).
+* **Connection Pooling**: Maximum 10 idle connections per host, TCP nodelay enabled.
+* **C-FFI Safety Guarantee**: `resolve_track_cdn` wraps execution in `std::panic::catch_unwind`, guaranteeing safe `out_buf` UTF-8 byte copying with zero JVM panics.
+
+### 🎯 2. 3-Tier JIT Resolution Cascade
+1. **Tier 1 (Direct Video ID Hit)**: Direct `<10ms` hit against Android Music (`clientVersion: 6.42.52`) and Android VR fallback endpoints.
+2. **Tier 2 (ISRC Master Code Search)**: Executes `isrc:<CODE>` search on Innertube to locate the exact master audio track without title noise.
+3. **Tier 3 (Fuzzy Query Match)**: Token-sort Levenshtein query search combining cleaned title and artist with adaptive format ranking prioritizing `audio/webm` and `audio/mp4` streams.
+
+### 🧮 3. 50/50 Dual-Core Queue Scoring Matrix (`queue_optimizer.rs`)
+
+The composite queue optimizer ranks candidates by blending Spotify recommendation affinity and YouTube novelty discovery with exponential time decay and musical harmony:
+
+$$\text{Score}_{\text{composite}}(c) = 0.50 \cdot V_{\text{spotify}}(c) + 0.50 \cdot N_{\text{yt}}(c) - P_{\text{satiation}}(\Delta t) + H_{\text{camelot}}(K_{\text{active}}, K_c)$$
+
+#### A. Exponential Satiation Penalty ($\tau = 3.5\text{ hours} = 12,600\text{s}$):
+$$P_{\text{satiation}}(\Delta t) = \exp\left(-\frac{t_{\text{now}} - t_{\text{last\_played}}}{12600.0}\right) \times 0.40$$
+
+#### B. Camelot Harmonic Neighbor Wheel Bonus:
+$$H_{\text{camelot}}(K_1, K_2) = \begin{cases}
+0.08 & \text{Exact Key Match (e.g. } 8\text{B} \to 8\text{B}\text{)} \\
+0.04 & \text{Adjacent Harmonic Neighbor (e.g. } 8\text{B} \to 8\text{A}, 9\text{B}, 7\text{B}, 12\text{B} \leftrightarrow 1\text{B}\text{)} \\
+0.00 & \text{Dissonant / Incompatible Key}
+\end{cases}$$
+
+### 🛡️ 4. Fast-Skip Dwell Tracker & Emergency Comfort Anchor
+* **Trigger Threshold**: When a user skips an active track after listening for less than $10\text{ seconds}$ ($\text{dwellTime} \in [1\text{ms}, 9999\text{ms}]$), the system identifies acoustic distress.
+* **Autonomous Fallback**: Immediately intercepts the queue, fetches a high-affinity verified favorite from `repository.getEmergencyComfortTrack()`, and smoothly transitions without playback stalling.
+
+---
+
 ## 📜 License
 Streamify APK is licensed under the [MIT License](LICENSE).
+
 
