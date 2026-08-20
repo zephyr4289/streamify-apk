@@ -352,7 +352,11 @@ class MainActivity : ComponentActivity() {
                                 onNext = { playerViewModel.skipNext() },
                                 onPrevious = { playerViewModel.skipPrevious() },
                                 onSeek = { f ->
-                                    playerViewModel.seekTo((f * playerState.duration).toLong())
+                                    val dur = if (playerState.duration > 0) playerState.duration else ((playerState.currentTrack?.durationSec ?: 0) * 1000L)
+                                    if (dur > 0) {
+                                        val targetMs = (f * dur).toLong().coerceIn(0L, dur)
+                                        playerViewModel.seekTo(targetMs)
+                                    }
                                 },
                                 onShuffleToggle = { playerViewModel.toggleShuffle() },
                                 onRepeatToggle = { playerViewModel.toggleRepeat() },
