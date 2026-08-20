@@ -14,6 +14,7 @@ class RustDspAudioProcessor : AudioProcessor {
     private var outputAudioFormat: AudioFormat = AudioFormat.NOT_SET
     private var inputBuffer: ByteBuffer = EMPTY_BUFFER
     private var outputBuffer: ByteBuffer = EMPTY_BUFFER
+    private var normalizerPtr: Long = 0L
     private var isInputEnded: Boolean = false
 
     // Direct native buffers for zero-copy FFI
@@ -23,6 +24,11 @@ class RustDspAudioProcessor : AudioProcessor {
     init {
         statePtr = try {
             NativeBridge.nativeInitDsp()
+        } catch (e: Throwable) {
+            0L
+        }
+        normalizerPtr = try {
+            NativeBridge.nativeInitNormalizer(0.25f)
         } catch (e: Throwable) {
             0L
         }
@@ -80,6 +86,13 @@ class RustDspAudioProcessor : AudioProcessor {
         }
 
         if (result == 0) {
+            if (normalizerPtr != 0L) {
+                try {
+                    NativeBridge.nativeApplyNormalization(normalizerPtr, nativeOutputBuffer, numFrames)
+                } catch (e: Throwable) {
+                    // Ignore
+                }
+            }
             nativeOutputBuffer.position(0)
             nativeOutputBuffer.limit(numFrames * channelCount * 4)
             outputBuffer = nativeOutputBuffer

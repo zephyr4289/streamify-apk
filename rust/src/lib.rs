@@ -17,6 +17,7 @@ pub mod json;
 pub mod lyrics;
 pub mod markov;
 pub mod neuro_queue;
+pub mod normalizer;
 pub mod playlist_parser;
 pub mod ptp;
 pub mod queue_engine;

@@ -718,4 +718,52 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFlushDat
     crate::governor::flush_database_wal(c_db.as_ptr())
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeInitNormalizer(
+    _env: JNIEnv,
+    _class: JClass,
+    target_rms: jfloat,
+) -> jlong {
+    crate::normalizer::init_normalizer(target_rms) as jlong
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFreeNormalizer(
+    _env: JNIEnv,
+    _class: JClass,
+    state_ptr: jlong,
+) {
+    if state_ptr != 0 {
+        crate::normalizer::free_normalizer(state_ptr as *mut crate::normalizer::NormalizerState);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeApplyNormalization(
+    mut env: JNIEnv,
+    _class: JClass,
+    state_ptr: jlong,
+    pcm_buffer: jni::objects::JObject,
+    num_frames: jint,
+) -> jint {
+    if state_ptr == 0 || num_frames <= 0 {
+        return -1;
+    }
+
+    let pcm_ptr = match env.get_direct_buffer_address(&pcm_buffer) {
+        Ok(p) => p as *mut f32,
+        Err(_) => return -10,
+    };
+
+    if pcm_ptr.is_null() {
+        return -10;
+    }
+
+    crate::normalizer::apply_normalization(
+        state_ptr as *mut crate::normalizer::NormalizerState,
+        pcm_ptr,
+        num_frames as usize,
+    )
+}
+
 

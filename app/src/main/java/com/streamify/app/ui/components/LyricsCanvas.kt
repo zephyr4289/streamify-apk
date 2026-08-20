@@ -50,8 +50,9 @@ fun LyricsCanvas(
     LaunchedEffect(lyrics) {
         while (true) {
             withFrameNanos {
-                val currentMs = progressProvider()
-                val newIndex = LyricsEngine.getActiveIndex(currentMs)
+                val rawMs = progressProvider()
+                val latencyCompensatedMs = (rawMs - com.streamify.app.service.LatencyProbe.estimatedLatencyMs).coerceAtLeast(0L)
+                val newIndex = LyricsEngine.getActiveIndex(latencyCompensatedMs)
 
                 if (newIndex != activeIndexState.intValue) {
                     activeIndexState.intValue = newIndex

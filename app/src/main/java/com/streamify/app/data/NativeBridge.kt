@@ -441,6 +441,17 @@ object NativeBridge {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 8: REAL-TIME RMS VOLUME NORMALIZER
+    // ═══════════════════════════════════════════════════════════════
+    external fun nativeInitNormalizer(targetRms: Float): Long
+    external fun nativeFreeNormalizer(statePtr: Long)
+    external fun nativeApplyNormalization(
+        statePtr: Long,
+        pcmBuffer: java.nio.ByteBuffer,
+        numFrames: Int
+    ): Int
+
     // 1MB pre-allocated DirectByteBuffer for virtual shelf binary streaming (~500 tracks)
     private val shelfBuffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
 
