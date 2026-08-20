@@ -47,7 +47,7 @@ object AudioDeviceManager {
         }
     }
 
-    private var isReceiverRegistered = false
+    private val isRegistered = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private val audioReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -63,8 +63,9 @@ object AudioDeviceManager {
     }
 
     fun init(context: Context) {
-        updateCurrentDevice(context)
-        if (!isReceiverRegistered) {
+        val appContext = context.applicationContext
+        updateCurrentDevice(appContext)
+        if (isRegistered.compareAndSet(false, true)) {
             try {
                 val filter = IntentFilter().apply {
                     addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
@@ -72,10 +73,20 @@ object AudioDeviceManager {
                     addAction("android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED")
                     addAction("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED")
                 }
-                context.registerReceiver(audioReceiver, filter)
-                isReceiverRegistered = true
+                appContext.registerReceiver(audioReceiver, filter)
             } catch (e: Exception) {
+                isRegistered.set(false)
                 e.printStackTrace()
+            }
+        }
+    }
+
+    fun release(context: Context?) {
+        if (isRegistered.compareAndSet(true, false)) {
+            try {
+                context?.applicationContext?.unregisterReceiver(audioReceiver)
+            } catch (e: Exception) {
+                // Receiver was not registered or already removed
             }
         }
     }

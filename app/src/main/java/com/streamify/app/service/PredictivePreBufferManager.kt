@@ -12,27 +12,32 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 class PredictivePreBufferManager(
     private val player: Player,
     private val simpleCache: SimpleCache
 ) : Player.Listener {
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val job = SupervisorJob()
+    private val scope = CoroutineScope(Dispatchers.IO + job)
+    private val isReleased = AtomicBoolean(false)
     private var preBufferJob: Job? = null
     private var monitorJob: Job? = null
     private var lastPreBufferedMediaId: String? = null
 
     init {
+        player.addListener(this)
         startPlaybackMonitor()
     }
 
     private fun startPlaybackMonitor() {
         monitorJob?.cancel()
         monitorJob = scope.launch {
-            while (isActive) {
+            while (isActive && !isReleased.get()) {
                 try {
                     checkAndPreBufferNext()
                 } catch (e: Exception) {
@@ -145,7 +150,15 @@ class PredictivePreBufferManager(
     }
 
     fun release() {
-        monitorJob?.cancel()
-        preBufferJob?.cancel()
+        if (isReleased.compareAndSet(false, true)) {
+            try {
+                player.removeListener(this)
+            } catch (e: Exception) {
+                // Ignore detachment error if player is already torn down
+            }
+            monitorJob?.cancel()
+            preBufferJob?.cancel()
+            job.cancel()
+        }
     }
 }

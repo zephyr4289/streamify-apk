@@ -38,6 +38,7 @@ fun LyricsScreen(
     track: Track? = null,
     lyrics: List<LyricsLine>,
     currentPositionMs: Long,
+    isPlaying: Boolean = true,
     dominantColor: Color = BgBase,
     onSeek: (Long) -> Unit,
     onClose: (() -> Unit)? = null
@@ -51,8 +52,9 @@ fun LyricsScreen(
     // 1. 120 FPS Sub-Frame Continuous Frame-Clock Controller
     val lyricController = remember { LyricPlaybackController() }
 
-    LaunchedEffect(currentPositionMs) {
+    LaunchedEffect(currentPositionMs, isPlaying) {
         lyricController.targetPositionMs = currentPositionMs
+        lyricController.isPlaying = isPlaying
     }
 
     LaunchedEffect(Unit) {

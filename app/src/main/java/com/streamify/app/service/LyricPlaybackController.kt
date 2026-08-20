@@ -10,7 +10,7 @@ class LyricPlaybackController {
 
     var targetPositionMs by mutableStateOf(0L)
     var userOffsetMs by mutableStateOf(0L)
-    var isPlaying by mutableStateOf(true)
+    var isPlaying by mutableStateOf(false)
     var interpolatedPosMs by mutableStateOf(0L)
         private set
 
@@ -45,9 +45,14 @@ class LyricPlaybackController {
                     lastTargetTimeNanos = frameTimeNanos
                 }
 
+                if (!isPlaying) {
+                    interpolatedPosMs = (lastObservedTargetMs + userOffsetMs).coerceAtLeast(0L)
+                    return@withFrameNanos
+                }
+
                 // Extrapolate real-time clock advancement between 200ms ExoPlayer updates
-                val elapsedSinceTargetMs = if (isPlaying && lastTargetTimeNanos > 0L) {
-                    ((frameTimeNanos - lastTargetTimeNanos) / 1_000_000.0).coerceIn(0.0, 500.0)
+                val elapsedSinceTargetMs = if (lastTargetTimeNanos > 0L) {
+                    ((frameTimeNanos - lastTargetTimeNanos) / 1_000_000.0).coerceIn(0.0, 250.0)
                 } else 0.0
 
                 val exactTarget = (lastObservedTargetMs.toDouble() + elapsedSinceTargetMs + userOffsetMs.toDouble()).toLong()

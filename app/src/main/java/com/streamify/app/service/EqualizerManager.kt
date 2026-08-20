@@ -72,8 +72,10 @@ object EqualizerManager {
         initSession(audioSessionId)
     }
 
+    @Synchronized
     fun initSession(audioSessionId: Int) {
         release()
+        if (audioSessionId <= 0) return
         try {
             equalizer = Equalizer(0, audioSessionId)
             bassBoost = BassBoost(0, audioSessionId)
@@ -187,11 +189,17 @@ object EqualizerManager {
         try { virtualizer?.setStrength(strength) } catch (e: Exception) {}
     }
 
+    @Synchronized
     fun release() {
-        equalizer?.release()
-        bassBoost?.release()
-        virtualizer?.release()
-        loudnessEnhancer?.release()
+        val effects = listOf(equalizer, bassBoost, virtualizer, loudnessEnhancer)
+        effects.forEach { effect ->
+            runCatching {
+                if (effect?.enabled == true) {
+                    effect.enabled = false
+                }
+                effect?.release()
+            }
+        }
         equalizer = null
         bassBoost = null
         virtualizer = null

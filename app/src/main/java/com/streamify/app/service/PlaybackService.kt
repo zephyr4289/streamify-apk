@@ -282,6 +282,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        AudioDeviceManager.release(this)
+        EqualizerManager.release()
         preBufferManager?.release()
         preBufferManager = null
         mediaSession?.run {

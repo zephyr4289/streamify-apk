@@ -691,32 +691,45 @@ object SupabaseClient {
     }
 
     // ========================================================================
-    // PILLAR 2: REAL-TIME WEBSOCKET CDC & CURSOR DELTA RECONCILIATION
+    // 16. SUPABASE REALTIME V1 WEBSOCKET CDC (Change Data Capture)
     // ========================================================================
     private var realtimeWebSocket: WebSocket? = null
+    private val socketLock = Any()
     private var heartbeatJob: Job? = null
     private val syncScope = CoroutineScope(Dispatchers.IO)
     private var lastSyncWatermarkMs: Long = System.currentTimeMillis()
     private val _isRealtimeConnected = MutableStateFlow(false)
     val isRealtimeConnected: StateFlow<Boolean> = _isRealtimeConnected.asStateFlow()
 
+    private fun disconnectRealtimeInternal() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+        realtimeWebSocket?.let { socket ->
+            try { socket.close(1000, "Clean termination") } catch (e: Exception) {}
+            try { socket.cancel() } catch (e: Exception) {}
+        }
+        realtimeWebSocket = null
+        _isRealtimeConnected.value = false
+    }
+
     fun startRealtimeSync(userId: String) {
-        if (_isRealtimeConnected.value && realtimeWebSocket != null) return
-        val wsUrl = BuildConfig.SUPABASE_URL
-            .replace("https://", "wss://")
-            .replace("http://", "ws://") + "/realtime/v1/websocket?apikey=${BuildConfig.SUPABASE_ANON_KEY}&vsn=1.0.0"
+        synchronized(socketLock) {
+            disconnectRealtimeInternal()
+            val wsUrl = BuildConfig.SUPABASE_URL
+                .replace("https://", "wss://")
+                .replace("http://", "ws://") + "/realtime/v1/websocket?apikey=${BuildConfig.SUPABASE_ANON_KEY}&vsn=1.0.0"
 
-        val request = Request.Builder()
-            .url(wsUrl)
-            .build()
+            val request = Request.Builder()
+                .url(wsUrl)
+                .build()
 
-        realtimeWebSocket = NetworkEngine.client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                _isRealtimeConnected.value = true
-                android.util.Log.i("SupabaseRealtime", "Connected to Supabase Realtime WebSocket")
+            realtimeWebSocket = NetworkEngine.client.newWebSocket(request, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    _isRealtimeConnected.value = true
+                    android.util.Log.i("SupabaseRealtime", "Connected to Supabase Realtime WebSocket")
 
-                // 1. Join user_likes channel
-                val joinLikesMsg = JSONObject().apply {
+                    // 1. Join user_likes channel
+                    val joinLikesMsg = JSONObject().apply {
                     put("topic", "realtime:public:user_likes")
                     put("event", "phx_join")
                     put("payload", JSONObject().apply {
@@ -879,13 +892,22 @@ object SupabaseClient {
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                _isRealtimeConnected.value = false
-                heartbeatJob?.cancel()
+                synchronized(socketLock) {
+                    if (realtimeWebSocket === webSocket) {
+                        _isRealtimeConnected.value = false
+                        heartbeatJob?.cancel()
+                        heartbeatJob = null
+                        realtimeWebSocket = null
+                    }
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                _isRealtimeConnected.value = false
-                heartbeatJob?.cancel()
+                synchronized(socketLock) {
+                    if (realtimeWebSocket === webSocket) {
+                        disconnectRealtimeInternal()
+                    }
+                }
                 // Auto-reconnect with 3s backoff
                 syncScope.launch {
                     delay(3000L)
@@ -896,13 +918,13 @@ object SupabaseClient {
                 }
             }
         })
+        }
     }
 
     fun stopRealtimeSync() {
-        heartbeatJob?.cancel()
-        realtimeWebSocket?.close(1000, "User logout / paused")
-        realtimeWebSocket = null
-        _isRealtimeConnected.value = false
+        synchronized(socketLock) {
+            disconnectRealtimeInternal()
+        }
     }
 
     private fun handleIncomingCdcEvent(table: String, eventType: String, record: JSONObject) {

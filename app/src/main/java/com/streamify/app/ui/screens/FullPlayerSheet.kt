@@ -509,6 +509,7 @@ fun FullPlayerSheet(
                                 LandscapeLyricsPane(
                                     track = track,
                                     currentPositionMs = currentPositionMs,
+                                    isPlaying = isPlaying,
                                     onSeek = { posMs ->
                                         if (durationMs > 0) onSeek(posMs.toFloat() / durationMs.toFloat())
                                     }
@@ -937,6 +938,7 @@ private fun LandscapeQueuePane(
 private fun LandscapeLyricsPane(
     track: Track,
     currentPositionMs: Long,
+    isPlaying: Boolean = true,
     onSeek: (Long) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -1053,8 +1055,9 @@ private fun LandscapeLyricsPane(
         } else {
             val listState = rememberLazyListState()
 
-            LaunchedEffect(currentPositionMs) {
+            LaunchedEffect(currentPositionMs, isPlaying) {
                 lyricController.targetPositionMs = currentPositionMs
+                lyricController.isPlaying = isPlaying
             }
 
             LaunchedEffect(Unit) {
