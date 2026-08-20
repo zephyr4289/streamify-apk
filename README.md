@@ -1672,8 +1672,57 @@ $$\Delta\tau^* = \arg\max_{\tau} R_{xy}[\tau] \times 10\text{ms}$$
 
 ---
 
+## 🎧 16. Phase 5: Zero-Copy Media3 AudioSink DSP Pipeline, Equal-Power Crossfade & PTP Micro-Resampler
+
+```mermaid
+graph TD
+    subgraph ExoPlayer_AudioSink ["ExoPlayer / Media3 AudioSink Signal Path"]
+        ExoAudio["32-Bit Float PCM Stream\n(setEnableAudioFloatOutput = true)"] --> P1["1. MeshPcmAudioProcessor\n(Direct Pointer Tap to Native C++20 DSP)"]
+        P1 --> P2["2. CrossfadeAudioProcessor\n(256-Entry Trigonometric Equal-Power LUT)"]
+        P2 --> P3["3. SyncAudioProcessor\n(PTP Micro-Resampling: 0.995x - 1.005x)"]
+        P3 --> AudioTrackHAL["Physical AudioTrack HAL Output\n(Hardware DAC / USB / Bluetooth A2DP)"]
+    end
+
+    subgraph Native_C20_DSP ["C++20 In-Place DSP Core"]
+        P1 --> DirectMem["Zero-Copy Direct ByteBuffer"]
+        DirectMem --> Limiter["SoftKneeLimiter (True-Peak Limiting)"]
+        Limiter --> LUFS["LufsNormalizer (Integrated BS.1770-4)"]
+        LUFS --> GainTelemetry["Live Normalization Gain Telemetry"]
+    end
+
+    subgraph Hardware_Guardian ["AudioDeviceManager & DAC Latency Guard"]
+        AudioTrackHAL --> AudioTimestampAPI["AudioTrack.getTimestamp(AudioTimestamp)\n(Microsecond Accurate DAC Timing)"]
+        AudioTimestampAPI --> DelayComp["Bluetooth A2DP Transport Delay Compensation\n(140ms Offset for Synchronized UI)"]
+        HeadsetPlug["Headset Disconnect / Becoming Noisy"] --> PauseAction["Instant Auto-Pause Guardian\n(Prevents Loud Speaker Bursts)"]
+    end
+```
+
+### 🎚️ 1. 256-Entry Equal-Power Trigonometric Crossfader
+Replaces standard linear crossfading (which drops total perceived power by $-3\text{ dB}$ at the center point) with a constant-power trigonometric transfer function:
+
+$$g_{\text{out}}(t) = \cos\left(\frac{\pi}{2} \cdot \frac{n}{N-1}\right), \quad g_{\text{in}}(t) = \sin\left(\frac{\pi}{2} \cdot \frac{n}{N-1}\right)$$
+$$g_{\text{out}}(t)^2 + g_{\text{in}}(t)^2 = \cos^2\left(\frac{\pi}{2} t\right) + \sin^2\left(\frac{\pi}{2} t\right) \equiv 1.0 \quad (\text{0 dB Power Loss})$$
+
+---
+
+### ⏱️ 2. PTP Sub-Millisecond Phase-Locked Micro-Resampling
+Performs dynamic phase adjustments without audible pitch modification or resampling comb filters:
+
+$$\text{RateModifier} = 1.0 + \frac{\Delta\tau_{\text{PTP}}}{5000.0}, \quad \text{RateModifier} \in [0.995, 1.005]$$
+
+---
+
+### 🛡️ 3. Hardware DAC AudioTimestamp Latency Extraction
+Eliminates physical transport latency desynchronization between Bluetooth A2DP headsets and on-screen lyric sweep shaders:
+
+$$\text{Latency}_{\text{DAC}} = \frac{t_{\text{system\_nano}} - t_{\text{timestamp\_nano}}}{1,000,000} \text{ [ms]}$$
+$$\text{AcousticPosition} = \max\left(0, t_{\text{playhead}} - \text{Latency}_{\text{DAC}}\right)$$
+
+---
+
 ## 📜 License
 Streamify APK is licensed under the [MIT License](LICENSE).
+
 
 
 

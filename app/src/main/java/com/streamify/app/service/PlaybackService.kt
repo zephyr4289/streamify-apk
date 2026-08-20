@@ -16,6 +16,8 @@ import kotlinx.coroutines.withContext
 class PlaybackService : MediaSessionService() {
     companion object {
         val syncAudioProcessor: SyncAudioProcessor = SyncAudioProcessor()
+        val meshAudioProcessor: MeshPcmAudioProcessor = MeshPcmAudioProcessor()
+        val crossfadeAudioProcessor: CrossfadeAudioProcessor = CrossfadeAudioProcessor()
         val isBuffering = kotlinx.coroutines.flow.MutableStateFlow(false)
         @Volatile var onSeekNextListener: (() -> Unit)? = null
         @Volatile var onSeekPrevListener: (() -> Unit)? = null
@@ -28,6 +30,7 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         DolbySpatialManager.init(this)
+        AudioDeviceManager.init(this)
 
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
@@ -37,9 +40,11 @@ class PlaybackService : MediaSessionService() {
             ): androidx.media3.exoplayer.audio.AudioSink? {
                 return DefaultAudioSink.Builder(context)
                     .setEnableFloatOutput(true)
-                    .setAudioProcessors(arrayOf(CrossfadeAudioProcessor(), syncAudioProcessor, MeshPcmAudioProcessor()))
+                    .setAudioProcessors(arrayOf(meshAudioProcessor, crossfadeAudioProcessor, syncAudioProcessor))
                     .build()
             }
+        }.apply {
+            setEnableAudioFloatOutput(true)
         }
 
         val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
@@ -74,6 +79,12 @@ class PlaybackService : MediaSessionService() {
         
         player = exoPlayer
         exoPlayer.setSkipSilenceEnabled(true)
+
+        AudioDeviceManager.onHeadsetDisconnectedListener = {
+            if (exoPlayer.isPlaying) {
+                exoPlayer.pause()
+            }
+        }
         
         preBufferManager = PredictivePreBufferManager(exoPlayer, audioCache)
         exoPlayer.addListener(preBufferManager!!)

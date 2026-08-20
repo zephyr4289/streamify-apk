@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.AudioTimestamp
+import android.media.AudioTrack
 import android.os.Build
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +33,9 @@ object AudioDeviceManager {
     private val _currentDevice = MutableStateFlow(AudioOutputDevice("Phone Speaker", isSpeaker = true))
     val currentDevice: StateFlow<AudioOutputDevice> = _currentDevice.asStateFlow()
 
+    private val audioTimestamp = AudioTimestamp()
+    var onHeadsetDisconnectedListener: (() -> Unit)? = null
+
     fun getCurrentDeviceType(): AudioDeviceType {
         val dev = _currentDevice.value
         val nameLower = dev.name.lowercase()
@@ -46,6 +51,10 @@ object AudioDeviceManager {
 
     private val audioReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action
+            if (action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                onHeadsetDisconnectedListener?.invoke()
+            }
             context?.let { 
                 updateCurrentDevice(it)
                 autoRoutePreset(it)
@@ -123,6 +132,35 @@ object AudioDeviceManager {
             name = "This Phone",
             isSpeaker = true
         )
+    }
+
+    /**
+     * Extracts exact hardware latency in milliseconds from the physical DAC / Bluetooth pipeline via AudioTimestamp.
+     */
+    fun computePhysicalOutputLatencyMs(context: Context, audioTrack: AudioTrack?): Long {
+        if (audioTrack != null && audioTrack.state == AudioTrack.STATE_INITIALIZED) {
+            if (audioTrack.getTimestamp(audioTimestamp)) {
+                val nanoTime = audioTimestamp.nanoTime
+                val systemNanoTime = System.nanoTime()
+                val dacLatencyNs = (systemNanoTime - nanoTime)
+                val dacLatencyMs = dacLatencyNs / 1_000_000L
+                if (dacLatencyMs in 0L..500L) {
+                    return dacLatencyMs
+                }
+            }
+        }
+
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return 25L
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            val isBluetoothA2dp = devices.any {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
+            }
+            return if (isBluetoothA2dp) 140L else 20L
+        }
+        return 20L
     }
 
     fun openSystemAudioSettings(context: Context) {

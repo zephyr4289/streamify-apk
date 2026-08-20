@@ -1,77 +1,62 @@
 package com.streamify.app.service
 
+import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.AudioProcessor.AudioFormat
-import androidx.media3.common.audio.AudioProcessor.EMPTY_BUFFER
-import com.streamify.app.data.EdgeMeshRepository
+import androidx.media3.common.audio.BaseAudioProcessor
+import com.streamify.app.data.NativeBridge
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-class MeshPcmAudioProcessor : AudioProcessor {
-    private var isActive = true
-    private var inputAudioFormat = AudioFormat.NOT_SET
-    private var buffer: ByteBuffer = EMPTY_BUFFER
-    private var outputBuffer: ByteBuffer = EMPTY_BUFFER
-    private var isEnding = false
+class MeshPcmAudioProcessor : BaseAudioProcessor() {
 
-    override fun configure(inputAudioFormat: AudioFormat): AudioFormat {
-        this.inputAudioFormat = inputAudioFormat
-        this.isActive = inputAudioFormat != AudioFormat.NOT_SET
+    private var directProcessingBuffer: ByteBuffer? = null
+    private var lastComputedGain: Float = 1.0f
+
+    override fun onConfigure(inputAudioFormat: AudioFormat): AudioFormat {
+        // Enforce 32-bit Float or 16-bit PCM configuration
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT &&
+            inputAudioFormat.encoding != C.ENCODING_PCM_16BIT
+        ) {
+            return AudioFormat.NOT_SET
+        }
         return inputAudioFormat
     }
 
-    override fun isActive(): Boolean = isActive
-
     override fun queueInput(inputBuffer: ByteBuffer) {
-        val size = inputBuffer.remaining()
-        if (size == 0) return
+        val remainingBytes = inputBuffer.remaining()
+        if (remainingBytes == 0) return
 
-        // 1. Pass read-only slice to Edge Mesh Ingestion Engine (Zero-Allocation)
-        try {
-            EdgeMeshRepository.feedPcmChunk(
-                inputBuffer = inputBuffer.asReadOnlyBuffer(),
-                byteCount = size,
-                sampleRate = if (inputAudioFormat.sampleRate > 0) inputAudioFormat.sampleRate else 44100,
-                channelCount = if (inputAudioFormat.channelCount > 0) inputAudioFormat.channelCount else 2,
-                encoding = inputAudioFormat.encoding
-            )
-        } catch (e: Exception) {
-            // Non-fatal tap exception
-        }
-
-        // 2. Pass-through buffer to output for downstream AudioTrack playback (Zero Allocation)
-        if (buffer.capacity() < size) {
-            buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder())
+        // 1. Ensure pre-allocated DirectByteBuffer has sufficient capacity (Zero heap GC)
+        var buffer = directProcessingBuffer
+        if (buffer == null || buffer.capacity() < remainingBytes) {
+            buffer = ByteBuffer.allocateDirect(remainingBytes).order(ByteOrder.nativeOrder())
+            directProcessingBuffer = buffer
         } else {
             buffer.clear()
         }
 
-        buffer.put(inputBuffer)
+        // 2. Fast copy into direct memory segment
+        val inputDuplicate = inputBuffer.duplicate()
+        buffer.put(inputDuplicate)
         buffer.flip()
-        outputBuffer = buffer
+
+        // 3. Dispatch to Native C++20 DSP (Loudness normalizer + True-peak limiter)
+        val floatCount = remainingBytes / 4
+        if (inputAudioFormat.encoding == C.ENCODING_PCM_FLOAT) {
+            lastComputedGain = NativeBridge.processLivePcmTap(buffer, floatCount)
+        }
+
+        // 4. Pass audio through to downstream sinks without stalling playback pipeline
+        val outputBuffer = replaceOutputBuffer(remainingBytes)
+        outputBuffer.put(inputBuffer)
+        outputBuffer.flip()
     }
 
-    override fun queueEndOfStream() {
-        isEnding = true
-    }
+    fun getLastComputedNormalizationGain(): Float = lastComputedGain
 
-    override fun getOutput(): ByteBuffer {
-        val out = outputBuffer
-        outputBuffer = EMPTY_BUFFER
-        return out
-    }
-
-    override fun isEnded(): Boolean = isEnding && outputBuffer === EMPTY_BUFFER
-
-    override fun flush() {
-        outputBuffer = EMPTY_BUFFER
-        isEnding = false
-    }
-
-    override fun reset() {
-        flush()
-        buffer = EMPTY_BUFFER
-        inputAudioFormat = AudioFormat.NOT_SET
-        isActive = false
+    override fun onReset() {
+        directProcessingBuffer = null
+        lastComputedGain = 1.0f
     }
 }
