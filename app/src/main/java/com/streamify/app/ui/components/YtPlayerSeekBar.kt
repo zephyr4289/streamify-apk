@@ -35,9 +35,27 @@ fun YtPlayerSeekBar(
 ) {
     val scope = rememberCoroutineScope()
     var isDragging by remember { mutableStateOf(false) }
-    var dragProgress by remember { mutableFloatStateOf(0f) }
-    val currentProgress = if (isDragging) dragProgress else progress.coerceIn(0f, 1f)
+    var dragPositionMs by remember { mutableLongStateOf(0L) }
+    var latchedPositionMs by remember { mutableStateOf<Long?>(null) }
     val currentOnSeek by rememberUpdatedState(onSeek)
+
+    // Clear UI latch when external playback position converges near the target
+    LaunchedEffect(currentPositionMs) {
+        latchedPositionMs?.let { latched ->
+            if (kotlin.math.abs(currentPositionMs - latched) < 400L) {
+                latchedPositionMs = null
+            }
+        }
+    }
+
+    val totalDuration = if (durationMs > 0L) durationMs else 1000L
+    val displayPosition = when {
+        isDragging -> dragPositionMs
+        latchedPositionMs != null -> latchedPositionMs!!
+        else -> currentPositionMs
+    }
+
+    val currentProgress = (displayPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
 
     // Hardware-Accelerated Animatable Thumb Physics
     val thumbScale = remember { Animatable(1f) }
@@ -75,9 +93,11 @@ fun YtPlayerSeekBar(
                             }
                         },
                         onTap = { offset ->
-                            val target = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            val targetFrac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            val targetMs = (targetFrac * totalDuration).toLong()
+                            latchedPositionMs = targetMs
                             com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
-                            currentOnSeek(target)
+                            currentOnSeek(targetFrac)
                         }
                     )
                 }
@@ -85,7 +105,9 @@ fun YtPlayerSeekBar(
                     detectDragGestures(
                         onDragStart = { offset ->
                             isDragging = true
-                            dragProgress = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            val startFrac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            dragPositionMs = (startFrac * totalDuration).toLong()
+                            latchedPositionMs = dragPositionMs
                             com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
                             scope.launch {
                                 thumbScale.animateTo(
@@ -99,18 +121,22 @@ fun YtPlayerSeekBar(
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            val newProgress = (dragProgress + (dragAmount.x / size.width.toFloat())).coerceIn(0f, 1f)
-                            val prevStep = (dragProgress * 30).toInt()
-                            val newStep = (newProgress * 30).toInt()
+                            val curFrac = (dragPositionMs.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                            val newFrac = (curFrac + (dragAmount.x / size.width.toFloat())).coerceIn(0f, 1f)
+                            val prevStep = (curFrac * 30).toInt()
+                            val newStep = (newFrac * 30).toInt()
                             if (prevStep != newStep) {
                                 com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
                             }
-                            dragProgress = newProgress
+                            dragPositionMs = (newFrac * totalDuration).toLong()
+                            latchedPositionMs = dragPositionMs
                         },
                         onDragEnd = {
-                            val finalTarget = dragProgress
+                            val finalTargetMs = dragPositionMs
+                            val finalFrac = (finalTargetMs.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                            latchedPositionMs = finalTargetMs
                             isDragging = false
-                            currentOnSeek(finalTarget)
+                            currentOnSeek(finalFrac)
                             scope.launch {
                                 thumbScale.animateTo(
                                     targetValue = 1f,
@@ -123,6 +149,7 @@ fun YtPlayerSeekBar(
                         },
                         onDragCancel = {
                             isDragging = false
+                            latchedPositionMs = null
                             scope.launch {
                                 thumbScale.animateTo(
                                     targetValue = 1f,
@@ -191,11 +218,8 @@ fun YtPlayerSeekBar(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val totalDuration = if (durationMs > 0) durationMs else 1000L
-            val currentPos = if (isDragging) (dragProgress * totalDuration).toLong() else currentPositionMs
-
             Text(
-                text = DurationFormatter.formatMs(currentPos),
+                text = DurationFormatter.formatMs(displayPosition),
                 style = LocalAppTypography.current.seekbarTime,
                 color = TextSecondary
             )

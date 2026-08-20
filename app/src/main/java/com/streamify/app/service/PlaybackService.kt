@@ -47,9 +47,12 @@ class PlaybackService : MediaSessionService() {
             setEnableAudioFloatOutput(true)
         }
 
-        val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
-            com.streamify.app.data.network.NetworkEngine.exoPlayerClient
-        ).setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(15000)
+            .setAllowCrossProtocolRedirects(true)
+            .setKeepPostFor302Redirects(true)
 
         // Progressive 250MB Audio LRU Cache (Zero-latency seeking & offline replaying)
         val audioCache = AudioCacheManager.getCache(this)
@@ -186,19 +189,27 @@ class PlaybackService : MediaSessionService() {
         val forwardingPlayer = object : androidx.media3.common.ForwardingPlayer(exoPlayer) {
             override fun getAvailableCommands(): androidx.media3.common.Player.Commands {
                 return super.getAvailableCommands().buildUpon()
-                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
-                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_MEDIA_ITEM)
                     .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                     .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_BACK)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_FORWARD)
                     .build()
             }
 
             override fun isCommandAvailable(command: Int): Boolean {
                 return when (command) {
+                    androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                    androidx.media3.common.Player.COMMAND_SEEK_TO_MEDIA_ITEM,
                     androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT,
                     androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS,
                     androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                    androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> true
+                    androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                    androidx.media3.common.Player.COMMAND_SEEK_BACK,
+                    androidx.media3.common.Player.COMMAND_SEEK_FORWARD -> true
                     else -> super.isCommandAvailable(command)
                 }
             }
@@ -241,14 +252,19 @@ class PlaybackService : MediaSessionService() {
                 session: MediaSession,
                 controller: MediaSession.ControllerInfo
             ): MediaSession.ConnectionResult {
-                val customCommands = session.player.availableCommands.buildUpon()
-                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
-                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
+                val availablePlayerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_MEDIA_ITEM)
                     .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                     .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_BACK)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_FORWARD)
                     .build()
+
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                    .setAvailablePlayerCommands(customCommands)
+                    .setAvailablePlayerCommands(availablePlayerCommands)
                     .build()
             }
         }

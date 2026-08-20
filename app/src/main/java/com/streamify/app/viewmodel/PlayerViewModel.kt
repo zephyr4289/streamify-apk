@@ -71,8 +71,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var lookaheadJob: Job? = null
     private var playJob: Job? = null
     private var hydrateJob: Job? = null
-    private var lastSeekTimestampMs: Long = 0L
-    private var lastSeekTargetPosMs: Long = 0L
+    private var pendingSeekTargetMs: Long? = null
+    private var isOptimisticSeeking: Boolean = false
     private val processedTitleHashes = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
     private var playbackStartTimeMs: Long = 0L
@@ -467,6 +467,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 newPosition: Player.PositionInfo,
                 reason: Int
             ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                    // Hardware confirmed seek completion
+                    pendingSeekTargetMs = null
+                    isOptimisticSeeking = false
+                    _playerState.value = _playerState.value.copy(currentPosition = newPosition.positionMs)
+                }
+
                 if (_playerState.value.isAutoPlayEnabled) {
                     val currentIdx = _playerState.value.currentIndex
                     val currentQueue = _playerState.value.queue
@@ -500,6 +507,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                pendingSeekTargetMs = null
+                isOptimisticSeeking = false
                 val currentT = _playerState.value.currentTrack
                 if (currentT != null) {
                     viewModelScope.launch(Dispatchers.IO) {
@@ -667,8 +676,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
                 controller?.let { ctrl ->
                     val now = System.currentTimeMillis()
-                    val isSeekingGrace = (now - lastSeekTimestampMs) < 800L
-
                     val curState = _playerState.value
                     val playerDuration = if (ctrl.duration > 0) ctrl.duration else 0L
                     val currentTrack = curState.currentTrack
@@ -679,27 +686,30 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         currentTrack.copy(durationSec = (finalDuration / 1000).toInt())
                     } else currentTrack
 
-                    val ctrlPos = ctrl.currentPosition.coerceAtLeast(0L)
-                    val newPos = if (isSeekingGrace && kotlin.math.abs(ctrlPos - lastSeekTargetPosMs) > 1500L) {
-                        // Suppress stale pre-seek position during MediaController IPC transition
-                        lastSeekTargetPosMs
+                    if (!isOptimisticSeeking) {
+                        val ctrlPos = ctrl.currentPosition.coerceAtLeast(0L)
+                        if (curState.currentPosition != ctrlPos || curState.duration != finalDuration || curState.currentTrack !== updatedTrack) {
+                            _playerState.value = curState.copy(
+                                currentPosition = ctrlPos,
+                                duration = finalDuration,
+                                currentTrack = updatedTrack
+                            )
+                        }
                     } else {
-                        ctrlPos
-                    }
-
-                    if (curState.currentPosition != newPos || curState.duration != finalDuration || curState.currentTrack !== updatedTrack) {
-                        _playerState.value = curState.copy(
-                            currentPosition = newPos,
-                            duration = finalDuration,
-                            currentTrack = updatedTrack
-                        )
+                        // Safety fallback: Unlatch optimistic seek if engine caught up within 250ms threshold
+                        pendingSeekTargetMs?.let { target ->
+                            if (kotlin.math.abs(ctrl.currentPosition - target) < 250L) {
+                                isOptimisticSeeking = false
+                                pendingSeekTargetMs = null
+                            }
+                        }
                     }
 
                     // 500ms High-Resolution Jam Lockstep Heartbeat Broadcast (<15ms WebSocket transport)
                     if (curState.isPlaying && com.streamify.app.data.remote.SupabaseClient.activeJam.value != null && !isApplyingJamSync) {
                         if (now - lastJamHeartbeatMs >= 500L) {
                             lastJamHeartbeatMs = now
-                            broadcastJamAction("TICK", track = curState.currentTrack, positionMs = newPos, isPlaying = true)
+                            broadcastJamAction("TICK", track = curState.currentTrack, positionMs = _playerState.value.currentPosition, isPlaying = true)
                         }
                     }
                 }
@@ -726,9 +736,23 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         return false
     }
 
+    private fun sanitizeStreamUri(rawUrl: String): android.net.Uri {
+        if (!rawUrl.contains("range=") && !rawUrl.contains("rn=")) {
+            return android.net.Uri.parse(rawUrl)
+        }
+        val uri = android.net.Uri.parse(rawUrl)
+        val cleanBuilder = uri.buildUpon().clearQuery()
+        uri.queryParameterNames
+            .filterNot { it.equals("range", ignoreCase = true) || it.equals("rn", ignoreCase = true) }
+            .forEach { key ->
+                cleanBuilder.appendQueryParameter(key, uri.getQueryParameter(key))
+            }
+        return cleanBuilder.build()
+    }
+
     private fun buildMediaItem(t: Track): MediaItem {
         val uri = if (t.filepath.startsWith("http://") || t.filepath.startsWith("https://")) {
-            android.net.Uri.parse(t.filepath)
+            sanitizeStreamUri(t.filepath)
         } else if (t.filepath.startsWith("file://")) {
             android.net.Uri.parse(t.filepath)
         } else if (t.filepath.isNotBlank() && !t.filepath.startsWith("online://") && !t.filepath.startsWith("ytsearch:")) {
@@ -1228,15 +1252,18 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun seekTo(positionMs: Long) {
+        val ctrl = controller ?: return
         val currentT = _playerState.value.currentTrack
         val maxDurationMs = if (_playerState.value.duration > 0) _playerState.value.duration else ((currentT?.durationSec ?: 0) * 1000L)
         val validPos = if (maxDurationMs > 0) positionMs.coerceIn(0L, maxDurationMs) else positionMs.coerceAtLeast(0L)
         
-        lastSeekTimestampMs = System.currentTimeMillis()
-        lastSeekTargetPosMs = validPos
-
-        controller?.seekTo(validPos)
+        // 1. Enter optimistic seeking state to prevent poller snapback
+        isOptimisticSeeking = true
+        pendingSeekTargetMs = validPos
         _playerState.value = _playerState.value.copy(currentPosition = validPos)
+
+        // 2. Dispatch IPC seek command to ExoPlayer
+        ctrl.seekTo(validPos)
         broadcastJamAction("SEEK", positionMs = validPos)
         
         if (currentT != null && currentT.id > 0) {
