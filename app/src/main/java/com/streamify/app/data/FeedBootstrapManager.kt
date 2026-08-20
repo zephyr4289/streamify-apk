@@ -18,7 +18,14 @@ object FeedBootstrapManager {
 
         when (mode) {
             AppMode.SPOTIFY -> {
-                // Spotify Vibe Shelves: Daily Mixes 1-3 & Vibe Selections
+                // Spotify Vibe Shelves: Ingested Native Tracks + Daily Mixes 1-3
+                val dbPath = context.getDatabasePath("streamify_universal.db").absolutePath
+                val nativeTracks = NativeBridge.fetchVirtualShelf(dbPath)
+
+                if (nativeTracks.isNotEmpty()) {
+                    shelves.add(VirtualShelf("spt_native_lib", "Your Spotify Taste", "Ingested from your connected profile", null, nativeTracks.take(20)))
+                }
+
                 if (allTracks.isNotEmpty()) {
                     val dailyMix1 = allTracks.take(8).map { it.toVirtualShelfTrack("SPOTIFY") }
                     val dailyMix2 = allTracks.drop(8).take(8).map { it.toVirtualShelfTrack("SPOTIFY") }

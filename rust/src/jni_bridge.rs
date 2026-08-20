@@ -52,6 +52,58 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeGenerate
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeIngestSpotifyTracks(
+    mut env: JNIEnv,
+    _class: JClass,
+    db_path: JString,
+    json_payload: JString,
+) -> jint {
+    let db_str: String = match env.get_string(&db_path) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let json_str: String = match env.get_string(&json_payload) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+
+    let repo = match crate::repository::TrackRepository::new(&db_str) {
+        Ok(r) => r,
+        Err(_) => return -1,
+    };
+    repo.batch_upsert_spotify_tracks(&json_str)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFetchVirtualShelf(
+    mut env: JNIEnv,
+    _class: JClass,
+    db_path: JString,
+    out_buffer: jni::objects::JObject,
+) -> jint {
+    let db_str: String = match env.get_string(&db_path) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+
+    let buf_ptr = match env.get_direct_buffer_address(&out_buffer) {
+        Ok(ptr) => ptr,
+        Err(_) => return -10,
+    };
+    let capacity = env.get_direct_buffer_capacity(&out_buffer).unwrap_or(0);
+
+    if buf_ptr.is_null() || capacity < 4 {
+        return -10;
+    }
+
+    let repo = match crate::repository::TrackRepository::new(&db_str) {
+        Ok(r) => r,
+        Err(_) => return -1,
+    };
+    repo.fetch_virtual_shelf_to_buffer(buf_ptr, capacity)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveTrackCdn(
     mut env: JNIEnv,
     _class: JClass,

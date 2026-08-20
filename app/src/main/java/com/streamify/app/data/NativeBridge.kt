@@ -170,6 +170,69 @@ object NativeBridge {
 
     external fun nativeGenerateCadId(title: String, artist: String, durationSec: Int): String
 
+    // 1MB pre-allocated DirectByteBuffer for virtual shelf binary streaming (~500 tracks)
+    private val shelfBuffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
+
+    private external fun nativeIngestSpotifyTracks(dbPath: String, jsonPayload: String): Int
+    private external fun nativeFetchVirtualShelf(dbPath: String, outBuffer: java.nio.ByteBuffer): Int
+
+    fun ingestSpotifyTracks(dbPath: String, jsonPayload: String): Boolean {
+        return try {
+            nativeIngestSpotifyTracks(dbPath, jsonPayload) >= 0
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    fun fetchVirtualShelf(dbPath: String): List<com.streamify.app.ui.models.VirtualShelfTrack> {
+        val result = synchronized(shelfBuffer) {
+            try {
+                shelfBuffer.clear()
+                val written = nativeFetchVirtualShelf(dbPath, shelfBuffer)
+                if (written < 0) return emptyList()
+
+                shelfBuffer.position(0)
+                shelfBuffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                val trackCount = shelfBuffer.int
+                val tracks = ArrayList<com.streamify.app.ui.models.VirtualShelfTrack>(trackCount.coerceAtLeast(0))
+
+                for (i in 0 until trackCount) {
+                    val cadId = readBinaryString(shelfBuffer)
+                    val title = readBinaryString(shelfBuffer)
+                    val artist = readBinaryString(shelfBuffer)
+                    val artworkUrl = readBinaryString(shelfBuffer)
+
+                    tracks.add(
+                        com.streamify.app.ui.models.VirtualShelfTrack(
+                            cadId = cadId,
+                            title = title,
+                            artist = artist,
+                            artworkUrl = artworkUrl,
+                            durationSec = 0,
+                            isrc = null,
+                            ytmVideoId = null,
+                            isLiked = false,
+                            platformOrigin = "SPOTIFY"
+                        )
+                    )
+                }
+                tracks
+            } catch (e: Throwable) {
+                emptyList()
+            }
+        }
+        return result
+    }
+
+    private fun readBinaryString(buf: java.nio.ByteBuffer): String {
+        if (buf.remaining() < 4) return ""
+        val len = buf.int
+        if (len <= 0 || buf.remaining() < len) return ""
+        val bytes = ByteArray(len)
+        buf.get(bytes, 0, len)
+        return String(bytes, Charsets.UTF_8)
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // CORE C++ ENGINE JNI BINDINGS
     // ═══════════════════════════════════════════════════════════════
