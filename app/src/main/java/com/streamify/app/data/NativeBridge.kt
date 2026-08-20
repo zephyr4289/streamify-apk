@@ -137,31 +137,20 @@ object NativeBridge {
     // PHASE 1: SAPISID AUTH & CANONICAL AUDIO DESCRIPTOR (CAD)
     // ═══════════════════════════════════════════════════════════════
     fun getSapisidHash(sapisid: String, origin: String = "https://music.youtube.com"): String? {
-        val sapisidBytes = sapisid.toByteArray(Charsets.UTF_8)
-        val originBytes = origin.toByteArray(Charsets.UTF_8)
-        val outBuffer = ByteArray(256)
-        val written = try {
-            nativeGenerateSapisidHash(
-                sapisidBytes, sapisidBytes.size,
-                originBytes, originBytes.size,
-                outBuffer, outBuffer.size
-            )
-        } catch (e: UnsatisfiedLinkError) {
-            -1
+        if (sapisid.isBlank()) return null
+        return try {
+            nativeGenerateSapisidHash(sapisid.trim(), origin.trim())
+        } catch (e: Throwable) {
+            null
         }
-        return if (written > 0) String(outBuffer, 0, written, Charsets.UTF_8) else null
     }
 
     external fun nativeGenerateCadId(title: String, artist: String, durationSec: Int): String
 
     private external fun nativeGenerateSapisidHash(
-        sapisidBytes: ByteArray,
-        sapisidLen: Int,
-        originBytes: ByteArray,
-        originLen: Int,
-        outBuf: ByteArray,
-        outBufLen: Int
-    ): Int
+        sapisid: String,
+        origin: String
+    ): String?
 
     // ═══════════════════════════════════════════════════════════════
     // CORE C++ ENGINE JNI BINDINGS

@@ -11,8 +11,8 @@ pub unsafe extern "C" fn generate_sapisid_hash(
     out_buf_len: usize,
 ) -> i32 {
     let result = std::panic::catch_unwind(|| {
-        if sapisid_ptr.is_null() || origin_ptr.is_null() || out_buf.is_null() {
-            return -1;
+        if sapisid_ptr.is_null() || origin_ptr.is_null() || out_buf.is_null() || sapisid_len == 0 {
+            return -2;
         }
         let sapisid = std::slice::from_raw_parts(sapisid_ptr, sapisid_len);
         let origin = std::slice::from_raw_parts(origin_ptr, origin_len);

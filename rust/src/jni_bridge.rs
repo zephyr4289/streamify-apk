@@ -9,33 +9,36 @@ use crate::resolver::resolve_track_cdn;
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeGenerateSapisidHash(
     mut env: JNIEnv,
     _class: JClass,
-    sapisid_bytes: JByteArray,
-    sapisid_len: jint,
-    origin_bytes: JByteArray,
-    origin_len: jint,
-    out_buf: JByteArray,
-    out_buf_len: jint,
-) -> jint {
-    let sapisid_elements = match env.get_array_elements(&sapisid_bytes, jni::objects::ReleaseMode::NoCopyBack) {
-        Ok(elems) => elems,
-        Err(_) => return -2,
+    sapisid: JString,
+    origin: JString,
+) -> jstring {
+    let sapisid_str: String = match env.get_string(&sapisid) {
+        Ok(s) => s.into(),
+        Err(_) => return std::ptr::null_mut(),
     };
-    let origin_elements = match env.get_array_elements(&origin_bytes, jni::objects::ReleaseMode::NoCopyBack) {
-        Ok(elems) => elems,
-        Err(_) => return -2,
+    let origin_str: String = match env.get_string(&origin) {
+        Ok(s) => s.into(),
+        Err(_) => return std::ptr::null_mut(),
     };
-    let mut out_elements = match env.get_array_elements(&out_buf, jni::objects::ReleaseMode::CopyBack) {
-        Ok(elems) => elems,
-        Err(_) => return -2,
-    };
-    generate_sapisid_hash(
-        sapisid_elements.as_ptr() as *const u8,
-        sapisid_len as usize,
-        origin_elements.as_ptr() as *const u8,
-        origin_len as usize,
-        out_elements.as_mut_ptr() as *mut u8,
-        out_buf_len as usize,
-    ) as jint
+
+    let mut out_buffer = [0u8; 512];
+    let written = generate_sapisid_hash(
+        sapisid_str.as_ptr(),
+        sapisid_str.len(),
+        origin_str.as_ptr(),
+        origin_str.len(),
+        out_buffer.as_mut_ptr(),
+        out_buffer.len(),
+    );
+
+    if written > 0 {
+        if let Ok(hash_str) = std::str::from_utf8(&out_buffer[..written as usize]) {
+            if let Ok(jstr) = env.new_string(hash_str) {
+                return jstr.into_raw();
+            }
+        }
+    }
+    std::ptr::null_mut()
 }
 
 #[no_mangle]

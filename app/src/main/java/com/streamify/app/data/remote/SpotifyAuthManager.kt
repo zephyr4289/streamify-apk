@@ -20,8 +20,8 @@ import java.security.SecureRandom
 class SpotifyAuthManager(private val context: Context) {
 
     companion object {
-        const val DEFAULT_SPOTIFY_CLIENT_ID = "6f8a49c2d1ef4177894a4c4e976db57f" // Streamify Public PKCE Client
-        const val DEFAULT_REDIRECT_URI = "streamify://callback"
+        const val DEFAULT_SPOTIFY_CLIENT_ID = SpotifyConfig.CLIENT_ID
+        const val DEFAULT_REDIRECT_URI = SpotifyConfig.REDIRECT_URI
 
         private val _spotifyConnectedState = MutableStateFlow(false)
         val isSpotifyConnectedFlow: StateFlow<Boolean> = _spotifyConnectedState.asStateFlow()

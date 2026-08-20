@@ -3,6 +3,8 @@ package com.streamify.app.ui.components
 import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -10,18 +12,20 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.streamify.app.data.remote.SpotifyAuthManager
 import com.streamify.app.data.remote.YtSessionExtractor
-import com.streamify.app.ui.theme.StreamifyColors
 
 @Composable
 fun YtLoginDialog(
@@ -36,16 +40,18 @@ fun YtLoginDialog(
     val extractor = remember { YtSessionExtractor(context) }
     val authManager = remember { SpotifyAuthManager(context) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isSecuringSession by remember { mutableStateOf(false) }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!isSecuringSession) onDismiss()
+        },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false
         )
     ) {
-        BackHandler {
+        BackHandler(enabled = !isSecuringSession) {
             if (webViewInstance?.canGoBack() == true) {
                 webViewInstance?.goBack()
             } else {
@@ -56,7 +62,7 @@ fun YtLoginDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .background(Color(0xFF0A0A0C))
         ) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -70,6 +76,7 @@ fun YtLoginDialog(
                         extractor.launchAuthSession(
                             webView = this,
                             onSuccess = { header, cookies ->
+                                isSecuringSession = true
                                 authManager.saveYtSession(header, cookies)
                                 onAuthSuccess(header, cookies)
                                 onDismiss()
@@ -86,19 +93,49 @@ fun YtLoginDialog(
                 }
             )
 
-            // Dismiss / Close Button
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(16.dp)
+            // Securing Session Transition Overlay
+            AnimatedVisibility(
+                visible = isSecuringSession,
+                enter = fadeIn(),
+                modifier = Modifier.fillMaxSize()
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close Login",
-                    tint = Color.White
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF0A0A0C)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            color = Color(0xFFFF0000),
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Securing YouTube Session...",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            // Dismiss / Close Button
+            if (!isSecuringSession) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Login",
+                        tint = Color.White
+                    )
+                }
             }
         }
     }
