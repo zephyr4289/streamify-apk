@@ -395,6 +395,20 @@ object NativeBridge {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 6: ZERO-LATENCY ENCRYPTED CACHE & 120 FPS LYRICS ENGINE
+    // ═══════════════════════════════════════════════════════════════
+    external fun nativeParseLrc(lrcText: String): Long
+    external fun nativeGetLyricIndex(mapPtr: Long, currentTimeMs: Long): Int
+    external fun nativeFreeLyricMap(mapPtr: Long)
+    external fun nativeCryptCacheChunk(
+        inputBuf: ByteArray,
+        outputBuf: ByteArray,
+        len: Int,
+        keyBuf: ByteArray,
+        offset: Long
+    ): Int
+
     // 1MB pre-allocated DirectByteBuffer for virtual shelf binary streaming (~500 tracks)
     private val shelfBuffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
 

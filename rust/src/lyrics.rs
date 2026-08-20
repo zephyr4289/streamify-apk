@@ -206,3 +206,82 @@ impl LyricCompiler {
         SlyrCompiler::compile(&raw_lines, 0)
     }
 }
+
+#[repr(C)]
+pub struct LyricMap {
+    pub lines: Vec<(u64, String)>, // Sorted by time_ms
+}
+
+impl LyricMap {
+    pub fn new(lines: Vec<(u64, String)>) -> Self {
+        Self { lines }
+    }
+
+    #[inline(always)]
+    pub fn get_active_index(&self, current_time_ms: u64) -> usize {
+        if self.lines.is_empty() {
+            return 0;
+        }
+        match self.lines.binary_search_by_key(&current_time_ms, |(t, _)| *t) {
+            Ok(idx) => idx,
+            Err(idx) => {
+                if idx == 0 { 0 } else { idx - 1 }
+            }
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn parse_lrc_file(lrc_ptr: *const std::os::raw::c_char, lrc_len: usize) -> *mut LyricMap {
+    if lrc_ptr.is_null() || lrc_len == 0 {
+        return Box::into_raw(Box::new(LyricMap::new(Vec::new())));
+    }
+
+    let lrc_slice = std::slice::from_raw_parts(lrc_ptr as *const u8, lrc_len);
+    let lrc_str = std::str::from_utf8(lrc_slice).unwrap_or("");
+
+    let mut lines = Vec::new();
+    let re_line = regex::Regex::new(r"^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$").ok();
+
+    for line in lrc_str.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("[ti:") || trimmed.starts_with("[ar:") || trimmed.starts_with("[al:") {
+            continue;
+        }
+        if let Some(ref re) = re_line {
+            if let Some(caps) = re.captures(trimmed) {
+                let m: u64 = caps[1].parse().unwrap_or(0);
+                let s: u64 = caps[2].parse().unwrap_or(0);
+                let ms: u64 = if caps[3].len() == 2 {
+                    caps[3].parse::<u64>().unwrap_or(0) * 10
+                } else {
+                    caps[3].parse().unwrap_or(0)
+                };
+                let time_ms = (m * 60 + s) * 1000 + ms;
+                let text = caps[4].trim().to_string();
+                if !text.is_empty() {
+                    lines.push((time_ms, text));
+                }
+            }
+        }
+    }
+
+    lines.sort_by_key(|k| k.0);
+    Box::into_raw(Box::new(LyricMap::new(lines)))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn get_lyric_index(map_ptr: *mut LyricMap, current_time_ms: u64) -> i32 {
+    if map_ptr.is_null() {
+        return -1;
+    }
+    let map = &*map_ptr;
+    map.get_active_index(current_time_ms) as i32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn free_lyric_map(map_ptr: *mut LyricMap) {
+    if !map_ptr.is_null() {
+        let _ = Box::from_raw(map_ptr);
+    }
+}

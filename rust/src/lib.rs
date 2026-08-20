@@ -3,6 +3,7 @@ pub mod aligner;
 pub mod audio_dsp;
 pub mod auth;
 pub mod backup;
+pub mod cache;
 pub mod consensus;
 pub mod crossfade;
 pub mod crypto;

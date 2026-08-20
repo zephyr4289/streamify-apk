@@ -604,4 +604,81 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeShutdown
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeParseLrc(
+    mut env: JNIEnv,
+    _class: JClass,
+    lrc_text: JString,
+) -> jlong {
+    if lrc_text.is_null() {
+        return 0;
+    }
+    let lrc_str: String = match env.get_string(&lrc_text) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+    let bytes = lrc_str.as_bytes();
+    crate::lyrics::parse_lrc_file(bytes.as_ptr() as *const std::os::raw::c_char, bytes.len()) as jlong
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeGetLyricIndex(
+    _env: JNIEnv,
+    _class: JClass,
+    map_ptr: jlong,
+    current_time_ms: jlong,
+) -> jint {
+    if map_ptr == 0 {
+        return -1;
+    }
+    crate::lyrics::get_lyric_index(map_ptr as *mut crate::lyrics::LyricMap, current_time_ms as u64)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFreeLyricMap(
+    _env: JNIEnv,
+    _class: JClass,
+    map_ptr: jlong,
+) {
+    if map_ptr != 0 {
+        crate::lyrics::free_lyric_map(map_ptr as *mut crate::lyrics::LyricMap);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeCryptCacheChunk(
+    mut env: JNIEnv,
+    _class: JClass,
+    input_buf: JByteArray,
+    output_buf: JByteArray,
+    len: jint,
+    key_buf: JByteArray,
+    offset: jlong,
+) -> jint {
+    if len <= 0 {
+        return -1;
+    }
+    let input_elements = match env.get_array_elements(&input_buf, jni::objects::ReleaseMode::NoCopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+    let mut output_elements = match env.get_array_elements(&output_buf, jni::objects::ReleaseMode::CopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+    let key_elements = match env.get_array_elements(&key_buf, jni::objects::ReleaseMode::NoCopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+
+    crate::cache::crypt_audio_chunk(
+        input_elements.as_ptr() as *const u8,
+        output_elements.as_mut_ptr() as *mut u8,
+        len as usize,
+        key_elements.as_ptr() as *const u8,
+        key_elements.len(),
+        offset as u64,
+    )
+}
+
 
