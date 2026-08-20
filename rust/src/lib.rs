@@ -11,6 +11,7 @@ pub mod crypto;
 pub mod downloader;
 pub mod dsp;
 pub mod ffi;
+pub mod governor;
 pub mod jni_bridge;
 pub mod json;
 pub mod lyrics;

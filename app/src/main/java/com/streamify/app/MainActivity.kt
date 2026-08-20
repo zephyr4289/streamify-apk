@@ -421,6 +421,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            com.streamify.app.service.ThermalGovernorManager.handleLowMemory(this)
+        }
+    }
+
     override fun onDestroy() {
         try {
             val dbPath = getDatabasePath("streamify_universal.db").absolutePath

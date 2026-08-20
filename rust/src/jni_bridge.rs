@@ -681,4 +681,41 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeCryptCac
     )
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeUpdateThermalStatus(
+    _env: JNIEnv,
+    _class: JClass,
+    status: jint,
+) -> jint {
+    crate::governor::update_thermal_status(status)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeGetThermalStatus(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jint {
+    crate::governor::get_thermal_status()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFlushDatabaseWal(
+    mut env: JNIEnv,
+    _class: JClass,
+    db_path: JString,
+) -> jint {
+    if db_path.is_null() {
+        return -1;
+    }
+    let db_str: String = match env.get_string(&db_path) {
+        Ok(s) => s.into(),
+        Err(_) => return -1,
+    };
+    let c_db = match std::ffi::CString::new(db_str) {
+        Ok(c) => c,
+        Err(_) => return -1,
+    };
+    crate::governor::flush_database_wal(c_db.as_ptr())
+}
+
 

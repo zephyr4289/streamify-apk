@@ -409,6 +409,38 @@ object NativeBridge {
         offset: Long
     ): Int
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 7: ADAPTIVE THERMAL GOVERNOR & OS LIFECYCLE RESILIENCY
+    // ═══════════════════════════════════════════════════════════════
+    private external fun nativeUpdateThermalStatus(status: Int): Int
+    private external fun nativeGetThermalStatus(): Int
+    private external fun nativeFlushDatabaseWal(dbPath: String): Int
+
+    fun updateThermalStatus(status: Int): Int {
+        return try {
+            nativeUpdateThermalStatus(status)
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
+    fun getThermalStatus(): Int {
+        return try {
+            nativeGetThermalStatus()
+        } catch (e: Throwable) {
+            0
+        }
+    }
+
+    fun flushDatabaseWal(dbPath: String): Int {
+        if (dbPath.isBlank()) return -1
+        return try {
+            nativeFlushDatabaseWal(dbPath.trim())
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
     // 1MB pre-allocated DirectByteBuffer for virtual shelf binary streaming (~500 tracks)
     private val shelfBuffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
 

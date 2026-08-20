@@ -107,7 +107,20 @@ class StreamifyApp : Application(), ImageLoaderFactory {
             // Non-blocking
         }
 
+        try {
+            com.streamify.app.service.ThermalGovernorManager.init(this)
+        } catch (e: Throwable) {
+            // Non-blocking
+        }
+
         createNotificationChannels()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            com.streamify.app.service.ThermalGovernorManager.handleLowMemory(this)
+        }
     }
 
     private fun createNotificationChannels() {
