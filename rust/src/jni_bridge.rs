@@ -766,4 +766,30 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeApplyNor
     )
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeSubmitSeekRequest(
+    _env: JNIEnv,
+    _class: JClass,
+    position_ms: jlong,
+) -> jint {
+    crate::seek_guard::submit_seek_request(position_ms as i64)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeConsumePendingSeek(
+    _env: JNIEnv,
+    _class: JClass,
+    debounce_ms: jlong,
+) -> jlong {
+    crate::seek_guard::consume_pending_seek(debounce_ms as i64)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResetSeekGuard(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    crate::seek_guard::reset_seek_guard();
+}
+
 

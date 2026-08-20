@@ -91,6 +91,7 @@ class PlaybackService : MediaSessionService() {
         }
         
         dynamicQueueManager = DynamicQueueManager(this, exoPlayer)
+        seekDebounceManager = SeekDebounceManager(exoPlayer).apply { start() }
         preBufferManager = PredictivePreBufferManager(exoPlayer, audioCache)
         exoPlayer.addListener(preBufferManager!!)
 
@@ -279,6 +280,7 @@ class PlaybackService : MediaSessionService() {
 
     private var preBufferManager: PredictivePreBufferManager? = null
     private var dynamicQueueManager: DynamicQueueManager? = null
+    private var seekDebounceManager: SeekDebounceManager? = null
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
@@ -287,6 +289,8 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         AudioDeviceManager.release(this)
         EqualizerManager.release()
+        seekDebounceManager?.release()
+        seekDebounceManager = null
         dynamicQueueManager?.release()
         dynamicQueueManager = null
         preBufferManager?.release()

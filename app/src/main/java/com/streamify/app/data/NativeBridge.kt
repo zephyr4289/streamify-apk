@@ -452,6 +452,37 @@ object NativeBridge {
         numFrames: Int
     ): Int
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 9: LOCK-FREE ATOMIC SEEK DEBOUNCER
+    // ═══════════════════════════════════════════════════════════════
+    private external fun nativeSubmitSeekRequest(positionMs: Long): Int
+    private external fun nativeConsumePendingSeek(debounceMs: Long): Long
+    private external fun nativeResetSeekGuard()
+
+    fun submitSeekRequest(positionMs: Long): Int {
+        return try {
+            nativeSubmitSeekRequest(positionMs)
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
+    fun consumePendingSeek(debounceMs: Long = 150L): Long {
+        return try {
+            nativeConsumePendingSeek(debounceMs)
+        } catch (e: Throwable) {
+            -1L
+        }
+    }
+
+    fun resetSeekGuard() {
+        try {
+            nativeResetSeekGuard()
+        } catch (e: Throwable) {
+            // Ignore
+        }
+    }
+
     // 1MB pre-allocated DirectByteBuffer for virtual shelf binary streaming (~500 tracks)
     private val shelfBuffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
 

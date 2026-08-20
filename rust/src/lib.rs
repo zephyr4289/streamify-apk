@@ -25,6 +25,7 @@ pub mod queue_optimizer;
 pub mod radio_scorer;
 pub mod repository;
 pub mod resolver;
+pub mod seek_guard;
 pub mod spotify_ingest;
 
 pub mod search;
