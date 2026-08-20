@@ -1893,6 +1893,20 @@ $$\Delta t_{\text{budget}} \le 2500\text{ms} \implies \begin{cases} \text{CDN St
 
 ---
 
+### 🐥 2. Isolated Canary Release Channel & Update Manager Safety
+To safely deploy cutting-edge features on the `streamify-yt-spt` flagship branch without affecting existing production users:
+* **CI/CD Canary Tagging**: GitHub Actions compiles and publishes experimental builds under `canary-build-${{ env.EFFECTIVE_BUILD }}` (`prerelease: true`, `make_latest: false`).
+* **Update Isolation Gatekeeper**: `StreamifyUpdateManager` filters out all prerelease and `canary-*` tags during in-app update checks, ensuring production users only receive stable main-branch releases.
+
+---
+
+### 🎚️ 3. Anti-Jitter Seekbar & Optimistic Scrubbing Architecture
+* **IPC Polling Grace Lock**: Suppresses stale 200ms `MediaController` position polling updates for 800ms post-seek, preventing the notorious "rubber-banding" position jitter while ExoPlayer buffers to the target keyframe.
+* **Dual Gesture Routing**: Uses `detectTapGestures` + `detectDragGestures` with `rememberUpdatedState` across a 44dp interactive touch target for 100% responsive tap-to-seek and drag-to-scrub.
+* **Duration Fallback Guarantee**: Falls back gracefully to `track.durationSec * 1000L` if `playerState.duration` is pending, eliminating `0f` progress bar lockouts.
+
+---
+
 ## 📜 License
 Streamify APK is licensed under the [MIT License](LICENSE).
 
