@@ -140,6 +140,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Create Canary Release
+        if: success() && github.ref == 'refs/heads/streamify-yt-spt'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: canary-build-${{ env.EFFECTIVE_BUILD }}
+          name: Streamify Canary ${{ env.EFFECTIVE_BUILD }} (Flagship Test)
+          prerelease: true
+          make_latest: "false"
+          files: streamify.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Update Latest Release
         if: success() && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2

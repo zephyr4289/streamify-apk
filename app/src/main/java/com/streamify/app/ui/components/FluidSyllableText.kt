@@ -77,3 +77,36 @@ fun FluidSyllableText(
         }
     }
 }
+
+@Composable
+fun FluidSyllableText(
+    text: String,
+    lineStartMs: Long,
+    lineEndMs: Long,
+    currentPlaybackMs: Long,
+    isActive: Boolean,
+    isPast: Boolean,
+    onClick: () -> Unit = {},
+    modifier: Modifier = Modifier,
+    baseColor: Color = Color(0x66FFFFFF),
+    highlightColor: Color = Color(0xFFFFFFFF)
+) {
+    val duration = (lineEndMs - lineStartMs).coerceAtLeast(1L)
+    val progress = if (isActive) {
+        ((currentPlaybackMs - lineStartMs).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+    } else if (isPast) {
+        1f
+    } else {
+        0f
+    }
+
+    FluidSyllableText(
+        text = text,
+        progressFraction = progress,
+        isActiveLine = isActive,
+        baseColor = if (isPast) Color(0xAAFFFFFF) else baseColor,
+        highlightColor = highlightColor,
+        modifier = modifier.androidx.compose.foundation.clickable { onClick() }
+    )
+}
+

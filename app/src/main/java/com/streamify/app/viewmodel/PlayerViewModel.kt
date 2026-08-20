@@ -70,6 +70,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var preResolvingTrackKey: String? = null
     private var lookaheadJob: Job? = null
     private var playJob: Job? = null
+    private var hydrateJob: Job? = null
     private val processedTitleHashes = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
     private var playbackStartTimeMs: Long = 0L

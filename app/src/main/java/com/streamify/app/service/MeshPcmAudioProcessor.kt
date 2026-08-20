@@ -28,23 +28,25 @@ class MeshPcmAudioProcessor : BaseAudioProcessor() {
         if (remainingBytes == 0) return
 
         // 1. Ensure pre-allocated DirectByteBuffer has sufficient capacity (Zero heap GC)
-        var buffer = directProcessingBuffer
-        if (buffer == null || buffer.capacity() < remainingBytes) {
-            buffer = ByteBuffer.allocateDirect(remainingBytes).order(ByteOrder.nativeOrder())
-            directProcessingBuffer = buffer
+        val curBuf = directProcessingBuffer
+        val directBuf = if (curBuf == null || curBuf.capacity() < remainingBytes) {
+            ByteBuffer.allocateDirect(remainingBytes).order(ByteOrder.nativeOrder()).also {
+                directProcessingBuffer = it
+            }
         } else {
-            buffer.clear()
+            curBuf.clear()
+            curBuf
         }
 
         // 2. Fast copy into direct memory segment
         val inputDuplicate = inputBuffer.duplicate()
-        buffer.put(inputDuplicate)
-        buffer.flip()
+        directBuf.put(inputDuplicate)
+        directBuf.flip()
 
         // 3. Dispatch to Native C++20 DSP (Loudness normalizer + True-peak limiter)
         val floatCount = remainingBytes / 4
         if (inputAudioFormat.encoding == C.ENCODING_PCM_FLOAT) {
-            lastComputedGain = NativeBridge.processLivePcmTap(buffer, floatCount)
+            lastComputedGain = NativeBridge.processLivePcmTap(directBuf, floatCount)
         }
 
         // 4. Pass audio through to downstream sinks without stalling playback pipeline

@@ -229,6 +229,7 @@ object NativeBridge {
     const val EVENT_SCRUB_SEEK = 2
     const val EVENT_LYRICS_DWELL = 3
     const val EVENT_VOLUME_CHANGE = 4
+    const val EVENT_PLAY_TRANSITION = 5
     external fun pushTelemetryEvent(type: Int, trackId: Long, value: Float)
 
     external fun getMarkovProbability(fromTrackId: Int, toTrackId: Int): Float
@@ -284,7 +285,6 @@ object NativeBridge {
         dt: Float
     )
 
-    external fun pinToLittleCores()
     external fun analyzePcmAcousticDNA(
         directBuffer: java.nio.ByteBuffer,
         byteCount: Int,
