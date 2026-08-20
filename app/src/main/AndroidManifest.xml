@@ -28,7 +28,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Spotify PKCE OAuth Redirect Catch (streamify://callback?code=...) -->
+            <!-- Spotify PKCE OAuth Redirect Catch (streamify://callback and streamify://spotify-auth) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -36,6 +36,14 @@
                 <data
                     android:scheme="streamify"
                     android:host="callback" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="streamify"
+                    android:host="spotify-auth" />
             </intent-filter>
         </activity>
 

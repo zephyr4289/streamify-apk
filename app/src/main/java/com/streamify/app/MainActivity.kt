@@ -61,21 +61,23 @@ class MainActivity : ComponentActivity() {
 
     private fun handleSpotifyCallback(intent: android.content.Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme == "streamify" && uri.host == "callback") {
+        if (uri.scheme == "streamify" && (uri.host == "callback" || uri.host == "spotify-auth")) {
             val authCode = uri.getQueryParameter("code")
             val error = uri.getQueryParameter("error")
             if (!authCode.isNullOrEmpty()) {
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
                     val spotifyAuth = com.streamify.app.data.remote.SpotifyAuthManager(this@MainActivity)
-                    val result = spotifyAuth.exchangeCodeForTokens(authCode)
-                    if (result.isSuccess) {
-                        android.widget.Toast.makeText(this@MainActivity, "Spotify connected successfully! 🎵", android.widget.Toast.LENGTH_SHORT).show()
-                    } else {
-                        android.widget.Toast.makeText(this@MainActivity, "Spotify connection: ${result.exceptionOrNull()?.message}", android.widget.Toast.LENGTH_LONG).show()
+                    val dbPath = getDatabasePath("streamify_universal.db").absolutePath
+                    spotifyAuth.handleAuthCallback(authCode, dbPath) { count ->
+                        if (count >= 0) {
+                            android.widget.Toast.makeText(this@MainActivity, "Spotify connected! Synced $count tracks into your taste profile 🎵", android.widget.Toast.SHORT).show()
+                        } else {
+                            android.widget.Toast.makeText(this@MainActivity, "Spotify connected successfully! 🎵", android.widget.Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             } else if (!error.isNullOrEmpty()) {
-                android.widget.Toast.makeText(this, "Spotify auth cancelled: $error", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(this, "Spotify auth note: $error", android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }

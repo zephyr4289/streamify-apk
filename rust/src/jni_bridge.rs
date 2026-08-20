@@ -182,6 +182,104 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveT
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_spotifyExchangePkce(
+    mut env: JNIEnv,
+    _class: JClass,
+    code: JString,
+    verifier: JString,
+    redirect_uri: JString,
+    client_id: JString,
+    out_access: JByteArray,
+    out_refresh: JByteArray,
+) -> jint {
+    let code_str: String = match env.get_string(&code) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let verifier_str: String = match env.get_string(&verifier) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let redirect_str: String = match env.get_string(&redirect_uri) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let client_id_str: String = if client_id.is_null() {
+        "37b8d4f407764d8dbda2f94356e792c3".to_string()
+    } else {
+        env.get_string(&client_id).map(|s| s.into()).unwrap_or_else(|_| "37b8d4f407764d8dbda2f94356e792c3".to_string())
+    };
+
+    let mut access_elements = match env.get_array_elements(&out_access, jni::objects::ReleaseMode::CopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+    let mut refresh_elements = match env.get_array_elements(&out_refresh, jni::objects::ReleaseMode::CopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+
+    let c_code = match std::ffi::CString::new(code_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+    let c_verifier = match std::ffi::CString::new(verifier_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+    let c_redirect = match std::ffi::CString::new(redirect_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+    let c_client_id = match std::ffi::CString::new(client_id_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+
+    crate::spotify_ingest::spotify_exchange_pkce(
+        c_code.as_ptr(),
+        c_verifier.as_ptr(),
+        c_redirect.as_ptr(),
+        c_client_id.as_ptr(),
+        access_elements.as_mut_ptr() as *mut u8,
+        access_elements.len(),
+        refresh_elements.as_mut_ptr() as *mut u8,
+        refresh_elements.len(),
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_spotifyIngestLibrary(
+    mut env: JNIEnv,
+    _class: JClass,
+    db_path: JString,
+    access_token: JString,
+) -> jint {
+    let db_str: String = match env.get_string(&db_path) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let token_str: String = match env.get_string(&access_token) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+
+    let c_db = match std::ffi::CString::new(db_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+    let c_token = match std::ffi::CString::new(token_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+
+    crate::spotify_ingest::spotify_ingest_library(
+        c_db.as_ptr(),
+        c_token.as_ptr(),
+    )
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveTrackCdn(
     mut env: JNIEnv,
     _class: JClass,

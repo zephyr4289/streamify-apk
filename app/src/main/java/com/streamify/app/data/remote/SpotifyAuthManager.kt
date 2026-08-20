@@ -68,6 +68,75 @@ class SpotifyAuthManager(private val context: Context) {
 
     fun getCodeVerifier(): String? = securePrefs.getString("code_verifier", null)
 
+    fun launchCustomTabsAuth(context: Context) {
+        val verifier = generateCodeVerifier()
+        val challenge = generateCodeChallenge(verifier)
+        saveCodeVerifier(verifier)
+
+        val uri = buildAuthorizationUri(
+            clientId = DEFAULT_SPOTIFY_CLIENT_ID,
+            redirectUri = DEFAULT_REDIRECT_URI,
+            codeChallenge = challenge
+        )
+
+        try {
+            androidx.browser.customtabs.CustomTabsIntent.Builder()
+                .setShowTitle(true)
+                .build()
+                .launchUrl(context, uri)
+        } catch (e: Exception) {
+            // Fallback to standard browser intent
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        }
+    }
+
+    suspend fun handleAuthCallback(
+        code: String,
+        dbPath: String,
+        onSyncComplete: (Int) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        val verifier = getCodeVerifier() ?: ""
+        val tokens = com.streamify.app.data.NativeBridge.exchangeSpotifyPkce(
+            code = code,
+            verifier = verifier,
+            redirectUri = DEFAULT_REDIRECT_URI,
+            clientId = DEFAULT_SPOTIFY_CLIENT_ID
+        )
+
+        if (tokens != null) {
+            saveAccessToken(tokens.first, 3600L)
+            if (tokens.second.isNotBlank()) {
+                saveRefreshToken(tokens.second)
+            }
+            _spotifyConnectedState.value = true
+
+            // Trigger Rust high-performance multi-page library ingestion directly into SQLite
+            val ingestedCount = com.streamify.app.data.NativeBridge.ingestSpotifyLibraryNative(dbPath, tokens.first)
+            withContext(Dispatchers.Main) {
+                onSyncComplete(ingestedCount)
+            }
+        } else {
+            // Fallback to Kotlin token exchange
+            val fallbackRes = exchangeCodeForTokens(code, DEFAULT_SPOTIFY_CLIENT_ID, DEFAULT_REDIRECT_URI)
+            if (fallbackRes.isSuccess) {
+                val token = getAccessToken() ?: ""
+                val count = if (token.isNotBlank()) {
+                    com.streamify.app.data.NativeBridge.ingestSpotifyLibraryNative(dbPath, token)
+                } else 0
+                withContext(Dispatchers.Main) {
+                    onSyncComplete(count)
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    onSyncComplete(-1)
+                }
+            }
+        }
+    }
+
     fun buildAuthUri(
         clientId: String = DEFAULT_SPOTIFY_CLIENT_ID,
         redirectUri: String = DEFAULT_REDIRECT_URI,

@@ -244,6 +244,70 @@ object NativeBridge {
 
     external fun nativeGenerateCadId(title: String, artist: String, durationSec: Int): String
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 3: SPOTIFY PKCE AUTH & NATIVE LIBRARY INGESTION
+    // ═══════════════════════════════════════════════════════════════
+    private val accessTokenBuffer = ByteArray(512)
+    private val refreshTokenBuffer = ByteArray(512)
+
+    private external fun spotifyExchangePkce(
+        code: String,
+        verifier: String,
+        redirectUri: String,
+        clientId: String,
+        outAccess: ByteArray,
+        outRefresh: ByteArray
+    ): Int
+
+    private external fun spotifyIngestLibrary(
+        dbPath: String,
+        accessToken: String
+    ): Int
+
+    fun exchangeSpotifyPkce(
+        code: String,
+        verifier: String,
+        redirectUri: String,
+        clientId: String
+    ): Pair<String, String>? {
+        synchronized(accessTokenBuffer) {
+            accessTokenBuffer.fill(0)
+            refreshTokenBuffer.fill(0)
+            val result = try {
+                spotifyExchangePkce(
+                    code.trim(),
+                    verifier.trim(),
+                    redirectUri.trim(),
+                    clientId.trim(),
+                    accessTokenBuffer,
+                    refreshTokenBuffer
+                )
+            } catch (e: Throwable) {
+                -3
+            }
+
+            if (result == 0) {
+                val access = String(accessTokenBuffer, Charsets.UTF_8).trimEnd('\u0000').trim()
+                val refresh = String(refreshTokenBuffer, Charsets.UTF_8).trimEnd('\u0000').trim()
+                if (access.isNotBlank()) {
+                    return Pair(access, refresh)
+                }
+            }
+            return null
+        }
+    }
+
+    suspend fun ingestSpotifyLibraryNative(
+        dbPath: String,
+        accessToken: String
+    ): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            spotifyIngestLibrary(dbPath.trim(), accessToken.trim())
+        } catch (e: Throwable) {
+            -3
+        }
+    }
+
     // 1MB pre-allocated DirectByteBuffer for virtual shelf binary streaming (~500 tracks)
     private val shelfBuffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
 
