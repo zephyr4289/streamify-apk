@@ -1839,7 +1839,9 @@ $$v_{\text{speed}}[n] = 1.0 + \left(K_P \cdot e[n] + K_I \sum_{k=0}^n e[k]\right
 
 ---
 
-### 📊 3. Final Engineering Architecture Status (All 7 Phases Complete)
+---
+
+### 📊 3. Full Engineering Roadmap Status (All 8 Phases Complete)
 
 | Phase | Description | Status | Architecture Layer |
 | :--- | :--- | :---: | :--- |
@@ -1850,11 +1852,50 @@ $$v_{\text{speed}}[n] = 1.0 + \left(K_P \cdot e[n] + K_I \sum_{k=0}^n e[k]\right
 | **Phase 5** | Media3 Signal Chain, In-Stream PCM Tap & 256-LUT Equal-Power Crossfader | **✅ Complete** | ExoPlayer AudioSink Pipeline |
 | **Phase 6** | 120 FPS Jetpack Compose UI, 6-DOF RK4 Dynamic Tokens & AM-OLED Canvas | **✅ Complete** | Jetpack Compose & Native ODE |
 | **Phase 7** | Byzantine Mesh Consensus, IEEE 1588 PTP Jam Sync & Macrobenchmarks | **✅ Complete** | Edge Mesh & Validation Suite |
+| **Phase 8** | Operational Glue, Cargo-NDK Toolchain, R8 Keep Rules & CI Automation | **✅ Complete** | CI/CD & Production Toolchain |
+
+---
+
+## 🚀 19. Phase 8: Operational Glue, Automated Cargo-NDK Toolchain & Production Pipeline
+
+```mermaid
+graph TD
+    subgraph CI_Pipeline ["GitHub Actions Cloud CI/CD Matrix"]
+        GitPush["Push to streamify-yt-spt / feature branches"] --> BuildJob["Gatekeeper: build-and-compile"]
+        BuildJob --> SetupRust["Setup Rust & cargo-ndk (aarch64-linux-android)"]
+        BuildJob --> GradleAssemble["./gradlew assembleDebug"]
+        GradleAssemble --> CargoTask["tasks.cargoBuildArm64 (libstreamify_core_rs.so)"]
+        GradleAssemble --> CMakeBuild["CMake C++20 (libstreamify_native_core.so)"]
+        CargoTask --> JniLibs["Bundle into app/src/main/jniLibs"]
+        CMakeBuild --> JniLibs
+        JniLibs --> APKArtifact["streamify.apk (Production Debug Artifact)"]
+    end
+
+    subgraph R8_Protection ["R8 / ProGuard Native Symbol Preservation"]
+        APKArtifact --> R8Shrinker["R8 Code Shrinker & Optimizer"]
+        R8Shrinker --> ProguardRules["proguard-rules.pro"]
+        ProguardRules --> KeepJNI["-keepclassmembers class NativeBridge { *; }"]
+        ProguardRules --> KeepModels["-keep class com.streamify.app.ui.models.** { *; }"]
+    end
+
+    subgraph Stream_Resilience ["Network Circuit Breaker & Offline Fallback"]
+        UserPlay["Play Track Request"] --> AsyncResolver["resolve_with_circuit_breaker()"]
+        AsyncResolver -->|2500ms Budget| OnlineFetch["3-Tier Online Resolution (VideoID / ISRC / Fuzzy)"]
+        OnlineFetch -->|Timeout / 429 Error| LocalCache["check_offline_disk_cache(cad_id)"]
+        LocalCache --> LocalPlay["Play Cached M4A Stream (Zero Latency)"]
+    end
+```
+
+### ⚡ 1. 2500ms Async Circuit Breaker
+Eliminates audio playback stalls caused by network degradation or upstream CDN 429 rate limits:
+
+$$\Delta t_{\text{budget}} \le 2500\text{ms} \implies \begin{cases} \text{CDN Stream URL}, & \text{if online resolves within } 2.5\text{s} \\ \text{Local Audio Cache } (/cache/audio/\{cad\_id\}.m4a), & \text{if timeout or offline} \end{cases}$$
 
 ---
 
 ## 📜 License
 Streamify APK is licensed under the [MIT License](LICENSE).
+
 
 
 

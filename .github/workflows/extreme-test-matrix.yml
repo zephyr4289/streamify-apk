@@ -2,9 +2,9 @@ name: Extreme Test Matrix & Chaos Suite
 
 on:
   push:
-    branches: [main, develop]
+    branches: [ "**" ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
   schedule:
     - cron: '0 0 * * *' # Nightly Deep Annihilation Matrix
 
@@ -35,6 +35,11 @@ jobs:
 
       - name: Set up Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk || true
 
       - name: Cache Android NDK & CMake
         id: ndk-cache

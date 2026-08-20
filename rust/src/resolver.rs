@@ -71,6 +71,39 @@ pub async fn execute_resolution(
     fetch_innertube_cdn(client, &fallback_id).await
 }
 
+pub async fn resolve_with_circuit_breaker(
+    cad_id: &str,
+    video_id: Option<&str>,
+    isrc: Option<&str>,
+    title: &str,
+    artist: &str,
+) -> Result<String, String> {
+    // 1. Attempt online resolution with a hard 2500ms timeout budget
+    let online_attempt = tokio::time::timeout(
+        std::time::Duration::from_millis(2500),
+        execute_resolution(video_id, isrc, title, artist),
+    )
+    .await;
+
+    match online_attempt {
+        Ok(Ok(cdn_url)) => Ok(cdn_url),
+        _ => {
+            // 2. Circuit Breaker tripped: Fallback to local audio cache path if available
+            check_offline_disk_cache(cad_id)
+                .ok_or_else(|| "Playback unavailable: Device offline and track un-cached".to_string())
+        }
+    }
+}
+
+pub fn check_offline_disk_cache(cad_id: &str) -> Option<String> {
+    let path = format!("/data/data/com.streamify.app/cache/audio/{}.m4a", cad_id);
+    if std::path::Path::new(&path).exists() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
 pub async fn search_innertube(client: &Client, query: &str) -> Result<String, ()> {
     let url = "https://music.youtube.com/youtubei/v1/search";
     let body = serde_json::json!({

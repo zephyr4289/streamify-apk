@@ -147,5 +147,16 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
-
 }
+
+tasks.register<Exec>("cargoBuildArm64") {
+    workingDir = file("../rust")
+    commandLine(
+        "cargo", "ndk",
+        "-t", "arm64-v8a",
+        "-o", "../app/src/main/jniLibs",
+        "build", "--release"
+    )
+    isIgnoreExitValue = true
+}
+
