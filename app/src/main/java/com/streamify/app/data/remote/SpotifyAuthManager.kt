@@ -192,13 +192,25 @@ class SpotifyAuthManager(private val context: Context) {
         return securePrefs.getString("access_token", null)
     }
 
+    fun saveSpDcSession(accessToken: String, spDc: String, expiresInSec: Long = 3600) {
+        val expiryMs = System.currentTimeMillis() + (expiresInSec * 1000)
+        securePrefs.edit()
+            .putString("access_token", accessToken)
+            .putString("sp_dc_cookie", spDc)
+            .putLong("token_expiry", expiryMs)
+            .apply()
+        _spotifyConnectedState.value = true
+    }
+
+    fun getSpDc(): String? = securePrefs.getString("sp_dc_cookie", null)
+
     fun clearTokens() {
         securePrefs.edit().clear().apply()
         _spotifyConnectedState.value = false
         _ytConnectedState.value = false
     }
 
-    fun isConnected(): Boolean = !getRefreshToken().isNullOrEmpty()
+    fun isConnected(): Boolean = !getRefreshToken().isNullOrEmpty() || !getSpDc().isNullOrEmpty()
 
     // --- YouTube Music Session Management ---
 

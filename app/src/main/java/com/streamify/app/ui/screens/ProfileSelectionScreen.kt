@@ -44,6 +44,7 @@ fun ProfileSelectionScreen(
 ) {
     val context = LocalContext.current
     val spotifyAuth = remember { SpotifyAuthManager(context) }
+    var showSpotifyAuthDialog by remember { mutableStateOf(false) }
     var showYtAuthDialog by remember { mutableStateOf(false) }
     var isVisible by remember { mutableStateOf(false) }
 
@@ -79,19 +80,18 @@ fun ProfileSelectionScreen(
                         text = "ONBOARDING CONTINUUM",
                         color = StreamifyColors.Primary,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 1.sp
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.5.sp
                     )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Choose Your Continuum",
+                    text = "Choose Your Experience",
                     color = Color.White,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = (-0.5).sp,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
 
@@ -115,20 +115,7 @@ fun ProfileSelectionScreen(
                     brandColor = Color(0xFF1DB954),
                     badgeText = "VIBE ENGINE",
                     iconVector = Icons.Default.PlayArrow,
-                    onClick = {
-                        val verifier = spotifyAuth.generateCodeVerifier()
-                        val challenge = spotifyAuth.generateCodeChallenge(verifier)
-                        spotifyAuth.saveCodeVerifier(verifier)
-
-                        val authUri = spotifyAuth.buildAuthUri(
-                            clientId = SpotifyAuthManager.DEFAULT_SPOTIFY_CLIENT_ID,
-                            redirectUri = SpotifyAuthManager.DEFAULT_REDIRECT_URI,
-                            codeChallenge = challenge
-                        )
-                        context.startActivity(Intent(Intent.ACTION_VIEW, authUri))
-                        AppMode.setAppMode(context, AppMode.SPOTIFY)
-                        onProfileConfigured(AppMode.SPOTIFY)
-                    }
+                    onClick = { showSpotifyAuthDialog = true }
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -160,6 +147,21 @@ fun ProfileSelectionScreen(
             }
         }
     }
+
+    // Spotify Sandboxed In-App Login Modal
+    com.streamify.app.ui.components.SpotifyLoginDialog(
+        isOpen = showSpotifyAuthDialog,
+        onDismiss = { showSpotifyAuthDialog = false },
+        onAuthSuccess = { token, spDc ->
+            showSpotifyAuthDialog = false
+            AppMode.setAppMode(context, AppMode.SPOTIFY)
+            onProfileConfigured(AppMode.SPOTIFY)
+            Toast.makeText(context, "Spotify continuum configured! 🎵", Toast.LENGTH_SHORT).show()
+        },
+        onError = { err ->
+            Toast.makeText(context, "Spotify login note: $err", Toast.LENGTH_SHORT).show()
+        }
+    )
 
     // Google 2FA Sandboxed WebView Login Modal
     YtLoginDialog(

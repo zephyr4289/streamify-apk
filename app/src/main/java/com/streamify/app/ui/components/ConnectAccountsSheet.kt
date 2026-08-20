@@ -37,6 +37,7 @@ fun ConnectAccountsSheet(
     if (!isOpen) return
 
     val context = LocalContext.current
+    var showSpotifyDialog by remember { mutableStateOf(false) }
     var showYtDialog by remember { mutableStateOf(false) }
     val spotifyAuth = remember { SpotifyAuthManager(context) }
     val isSpotifyConnected by SpotifyAuthManager.isSpotifyConnectedFlow.collectAsState()
@@ -141,18 +142,7 @@ fun ConnectAccountsSheet(
                         }
                     } else {
                         Button(
-                            onClick = {
-                                val verifier = spotifyAuth.generateCodeVerifier()
-                                val challenge = spotifyAuth.generateCodeChallenge(verifier)
-                                spotifyAuth.saveCodeVerifier(verifier)
-
-                                val authUri = spotifyAuth.buildAuthUri(
-                                    clientId = SpotifyAuthManager.DEFAULT_SPOTIFY_CLIENT_ID,
-                                    redirectUri = SpotifyAuthManager.DEFAULT_REDIRECT_URI,
-                                    codeChallenge = challenge
-                                )
-                                context.startActivity(Intent(Intent.ACTION_VIEW, authUri))
-                            },
+                            onClick = { showSpotifyDialog = true },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
@@ -237,6 +227,20 @@ fun ConnectAccountsSheet(
             }
         }
     }
+
+    // Spotify In-App Login Dialog
+    SpotifyLoginDialog(
+        isOpen = showSpotifyDialog,
+        onDismiss = { showSpotifyDialog = false },
+        onAuthSuccess = { token, spDc ->
+            showSpotifyDialog = false
+            onSpotifyConnected()
+            Toast.makeText(context, "Spotify connected successfully! 🎵", Toast.LENGTH_SHORT).show()
+        },
+        onError = { err ->
+            Toast.makeText(context, "Spotify login note: $err", Toast.LENGTH_SHORT).show()
+        }
+    )
 
     // Google WebView Login Dialog
     YtLoginDialog(
