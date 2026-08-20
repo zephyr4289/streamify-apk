@@ -100,6 +100,80 @@ object NativeBridge {
     // ═══════════════════════════════════════════════════════════════
     // PHASE 2: JIT STREAM RESOLVER & CDN EXTRACTION
     // ═══════════════════════════════════════════════════════════════
+    private const val VIDEO_ID_BUFFER_SIZE = 16
+    private val videoIdBuffer = ByteArray(VIDEO_ID_BUFFER_SIZE)
+
+    private external fun nativeResolveTrack(
+        dbPath: String,
+        cadId: String,
+        isrc: String?,
+        title: String,
+        artist: String,
+        authHeader: String,
+        outBuffer: ByteArray
+    ): Int
+
+    suspend fun resolveTrack(
+        dbPath: String,
+        track: com.streamify.app.ui.models.VirtualShelfTrack,
+        authHeader: String = ""
+    ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        synchronized(videoIdBuffer) {
+            videoIdBuffer.fill(0)
+            val result = try {
+                nativeResolveTrack(
+                    dbPath,
+                    track.cadId,
+                    track.isrc,
+                    track.title,
+                    track.artist,
+                    authHeader,
+                    videoIdBuffer
+                )
+            } catch (e: Throwable) {
+                -3
+            }
+
+            if (result > 0) {
+                String(videoIdBuffer, 0, result, Charsets.UTF_8)
+            } else {
+                null
+            }
+        }
+    }
+
+    suspend fun resolveTrack(
+        dbPath: String,
+        cadId: String,
+        isrc: String?,
+        title: String,
+        artist: String,
+        authHeader: String = ""
+    ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        synchronized(videoIdBuffer) {
+            videoIdBuffer.fill(0)
+            val result = try {
+                nativeResolveTrack(
+                    dbPath,
+                    cadId,
+                    isrc,
+                    title,
+                    artist,
+                    authHeader,
+                    videoIdBuffer
+                )
+            } catch (e: Throwable) {
+                -3
+            }
+
+            if (result > 0) {
+                String(videoIdBuffer, 0, result, Charsets.UTF_8)
+            } else {
+                null
+            }
+        }
+    }
+
     fun resolveCdnUrl(
         videoId: String?,
         isrc: String?,

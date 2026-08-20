@@ -583,19 +583,29 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             preResolvingTrackKey = trackKey
             viewModelScope.launch(Dispatchers.IO) {
                 try {
+                    val dbPath = appContext?.getDatabasePath("streamify_universal.db")?.absolutePath ?: ""
+                    val cadId = try {
+                        NativeBridge.nativeGenerateCadId(nextTrack.title, nextTrack.artist, nextTrack.durationSec)
+                    } catch (e: Exception) { "" }
+
+                    var vidId = nextTrack.ytmVideoId ?: if (nextTrack.filepath.startsWith("yt_") || (nextTrack.filepath.length == 11 && !nextTrack.filepath.contains("/"))) nextTrack.filepath.removePrefix("yt_") else null
+                    if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
+                        val authHeader = appContext?.let { com.streamify.app.data.remote.SpotifyAuthManager(it).getYtAuthHeader() } ?: ""
+                        vidId = NativeBridge.resolveTrack(dbPath, cadId, nextTrack.isrc, nextTrack.title, nextTrack.artist, authHeader)
+                    }
+
                     val nativeUrl = try {
-                        val vidId = nextTrack.ytmVideoId ?: if (nextTrack.filepath.startsWith("yt_") || (nextTrack.filepath.length == 11 && !nextTrack.filepath.contains("/"))) nextTrack.filepath.removePrefix("yt_") else null
                         NativeBridge.resolveCdnUrl(vidId, nextTrack.isrc, nextTrack.title, nextTrack.artist)
                     } catch (e: Exception) {
                         null
                     }
 
                     val finalUrl = if (!nativeUrl.isNullOrBlank()) nativeUrl else {
-                        com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack).getOrNull()?.streamUrl
+                        com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(if (vidId != null) nextTrack.copy(ytmVideoId = vidId) else nextTrack).getOrNull()?.streamUrl
                     }
 
                     if (!finalUrl.isNullOrBlank()) {
-                        val warmTrack = nextTrack.copy(filepath = finalUrl)
+                        val warmTrack = nextTrack.copy(filepath = finalUrl, ytmVideoId = vidId ?: nextTrack.ytmVideoId)
                         withContext(Dispatchers.Main) {
                             val currentQ = _playerState.value.queue
                             if (currentIndex + 1 < currentQ.size && (currentQ[currentIndex + 1].id == nextTrack.id || currentQ[currentIndex + 1].title == nextTrack.title)) {
@@ -1083,22 +1093,32 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             trackToPlay
         } else {
             withContext(Dispatchers.IO) {
+                val dbPath = appContext?.getDatabasePath("streamify_universal.db")?.absolutePath ?: ""
+                val cadId = try {
+                    NativeBridge.nativeGenerateCadId(trackToPlay.title, trackToPlay.artist, trackToPlay.durationSec)
+                } catch (e: Exception) { "" }
+
+                var vidId = trackToPlay.ytmVideoId ?: if (trackToPlay.filepath.startsWith("yt_") || (trackToPlay.filepath.length == 11 && !trackToPlay.filepath.contains("/"))) trackToPlay.filepath.removePrefix("yt_") else null
+                if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
+                    val authHeader = appContext?.let { com.streamify.app.data.remote.SpotifyAuthManager(it).getYtAuthHeader() } ?: ""
+                    vidId = NativeBridge.resolveTrack(dbPath, cadId, trackToPlay.isrc, trackToPlay.title, trackToPlay.artist, authHeader)
+                }
+
                 // Tier 1: Native Rust Tokio JIT Stream Resolver
                 val nativeUrl = try {
-                    val vidId = trackToPlay.ytmVideoId ?: if (trackToPlay.filepath.startsWith("yt_") || (trackToPlay.filepath.length == 11 && !trackToPlay.filepath.contains("/"))) trackToPlay.filepath.removePrefix("yt_") else null
                     NativeBridge.resolveCdnUrl(vidId, trackToPlay.isrc, trackToPlay.title, trackToPlay.artist)
                 } catch (e: Exception) {
                     null
                 }
 
                 if (!nativeUrl.isNullOrBlank()) {
-                    trackToPlay.copy(filepath = nativeUrl)
+                    trackToPlay.copy(filepath = nativeUrl, ytmVideoId = vidId ?: trackToPlay.ytmVideoId)
                 } else {
                     // Fallback to Kotlin multi-client cascade
-                    val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(trackToPlay)
+                    val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(if (vidId != null) trackToPlay.copy(ytmVideoId = vidId) else trackToPlay)
                     val resolved = res.getOrNull()
                     if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                        trackToPlay.copy(filepath = resolved.streamUrl)
+                        trackToPlay.copy(filepath = resolved.streamUrl, ytmVideoId = vidId ?: trackToPlay.ytmVideoId)
                     } else {
                         trackToPlay
                     }

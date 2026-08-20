@@ -104,6 +104,84 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFetchVir
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveTrack(
+    mut env: JNIEnv,
+    _class: JClass,
+    db_path: JString,
+    cad_id: JString,
+    isrc: JString,
+    title: JString,
+    artist: JString,
+    auth_header: JString,
+    out_buffer: JByteArray,
+) -> jint {
+    let db_str: String = match env.get_string(&db_path) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let cad_str: String = match env.get_string(&cad_id) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let isrc_str: Option<String> = if isrc.is_null() {
+        None
+    } else {
+        env.get_string(&isrc).ok().map(|s| s.into())
+    };
+    let title_str: String = match env.get_string(&title) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let artist_str: String = match env.get_string(&artist) {
+        Ok(s) => s.into(),
+        Err(_) => return -10,
+    };
+    let auth_str: String = if auth_header.is_null() {
+        "".to_string()
+    } else {
+        env.get_string(&auth_header).map(|s| s.into()).unwrap_or_default()
+    };
+
+    let mut out_elements = match env.get_array_elements(&out_buffer, jni::objects::ReleaseMode::CopyBack) {
+        Ok(e) => e,
+        Err(_) => return -10,
+    };
+
+    let c_db = match std::ffi::CString::new(db_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+    let c_cad = match std::ffi::CString::new(cad_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+    let c_isrc = isrc_str.and_then(|s| std::ffi::CString::new(s).ok());
+    let c_title = match std::ffi::CString::new(title_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+    let c_artist = match std::ffi::CString::new(artist_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+    let c_auth = match std::ffi::CString::new(auth_str) {
+        Ok(c) => c,
+        Err(_) => return -10,
+    };
+
+    crate::resolver::resolve_track_cdn(
+        c_db.as_ptr(),
+        c_cad.as_ptr(),
+        c_isrc.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+        c_title.as_ptr(),
+        c_artist.as_ptr(),
+        c_auth.as_ptr(),
+        out_elements.as_mut_ptr() as *mut u8,
+        out_elements.len(),
+    )
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveTrackCdn(
     mut env: JNIEnv,
     _class: JClass,

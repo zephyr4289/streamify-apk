@@ -1,8 +1,10 @@
-use crate::json::{InnertubeParser, ParsedCandidate, ResolvedStreamFormat};
 use reqwest::Client;
 use serde_json::Value;
+use std::ffi::CStr;
+use std::panic::catch_unwind;
 use std::sync::OnceLock;
 use tokio::runtime::Runtime;
+use rusqlite::Connection;
 
 static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 static TOKIO_RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -21,6 +23,7 @@ pub fn get_client() -> &'static Client {
     HTTP_CLIENT.get_or_init(|| {
         Client::builder()
             .user_agent("Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36")
+            .pool_idle_timeout(Some(std::time::Duration::from_secs(30)))
             .pool_max_idle_per_host(10)
             .tcp_nodelay(true)
             .build()
@@ -28,131 +31,187 @@ pub fn get_client() -> &'static Client {
     })
 }
 
-/// 3-Tier JIT Stream Resolution:
-/// 1. Direct Video ID Hit (<10ms)
-/// 2. ISRC Master Recording Search (`isrc:<CODE>`)
-/// 3. Token-Sort Fuzzy Query Search (`title + " " + artist`)
+/// The FFI entry point. Blocks the calling thread until resolution completes.
+/// Returns the length of the videoId written to out_buf, or negative error code.
+#[no_mangle]
+pub unsafe extern "C" fn resolve_track_cdn(
+    db_path_ptr: *const std::os::raw::c_char,
+    cad_id_ptr: *const std::os::raw::c_char,
+    isrc_ptr: *const std::os::raw::c_char,
+    title_ptr: *const std::os::raw::c_char,
+    artist_ptr: *const std::os::raw::c_char,
+    auth_header_ptr: *const std::os::raw::c_char,
+    out_buf: *mut u8,
+    out_buf_len: usize,
+) -> i32 {
+    let result = catch_unwind(|| {
+        if db_path_ptr.is_null() || cad_id_ptr.is_null() || title_ptr.is_null() || artist_ptr.is_null() || out_buf.is_null() {
+            return -1;
+        }
+
+        let db_path = CStr::from_ptr(db_path_ptr).to_str().unwrap_or("");
+        let cad_id = CStr::from_ptr(cad_id_ptr).to_str().unwrap_or("");
+        let title = CStr::from_ptr(title_ptr).to_str().unwrap_or("");
+        let artist = CStr::from_ptr(artist_ptr).to_str().unwrap_or("");
+        let auth_header = if auth_header_ptr.is_null() {
+            ""
+        } else {
+            CStr::from_ptr(auth_header_ptr).to_str().unwrap_or("")
+        };
+
+        let isrc = if isrc_ptr.is_null() {
+            None
+        } else {
+            CStr::from_ptr(isrc_ptr).to_str().ok().filter(|s| !s.is_empty())
+        };
+
+        let rt = get_runtime();
+
+        rt.block_on(async {
+            match execute_resolution(db_path, cad_id, isrc, title, artist, auth_header).await {
+                Ok(video_id) => {
+                    let bytes = video_id.as_bytes();
+                    if bytes.len() > out_buf_len {
+                        return -2;
+                    }
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len());
+                    bytes.len() as i32
+                }
+                Err(_) => -4,
+            }
+        })
+    });
+
+    result.unwrap_or(-3)
+}
+
+/// The 3-tier async resolution logic
 pub async fn execute_resolution(
-    video_id: Option<&str>,
+    db_path: &str,
+    cad_id: &str,
     isrc: Option<&str>,
     title: &str,
     artist: &str,
-) -> Result<String, String> {
-    let client = get_client();
-
-    // 1. Direct Video ID Hit
-    if let Some(id) = video_id {
-        let clean_id = id.trim();
-        if !clean_id.is_empty() {
-            if let Ok(cdn_url) = fetch_innertube_cdn(client, clean_id).await {
-                return Ok(cdn_url);
-            }
+    auth_header: &str,
+) -> Result<String, ()> {
+    // TIER 1: Check Local SQLite Cache (Zero network cost)
+    if !db_path.is_empty() && !cad_id.is_empty() {
+        if let Some(video_id) = check_local_cache(db_path, cad_id) {
+            return Ok(video_id);
         }
     }
 
-    // 2. ISRC Query Match
+    // TIER 2: Innertube ISRC Exact Match
     if let Some(isrc_code) = isrc {
         let clean_isrc = isrc_code.trim();
         if !clean_isrc.is_empty() {
-            if let Ok(matched_id) = search_innertube(client, &format!("isrc:{}", clean_isrc)).await {
-                if let Ok(cdn_url) = fetch_innertube_cdn(client, &matched_id).await {
-                    return Ok(cdn_url);
+            let query = format!("isrc:{}", clean_isrc);
+            if let Some(video_id) = innertube_search(&query, auth_header).await {
+                if !db_path.is_empty() && !cad_id.is_empty() {
+                    bind_video_id_to_db(db_path, cad_id, &video_id);
                 }
+                return Ok(video_id);
             }
         }
     }
 
-    // 3. Fuzzy Query Match (Title + Artist)
-    let query = format!("{} {}", title.trim(), artist.trim());
-    let fallback_id = search_innertube(client, &query)
-        .await
-        .map_err(|_| "Failed fuzzy resolution".to_string())?;
-
-    fetch_innertube_cdn(client, &fallback_id).await
-}
-
-pub async fn resolve_with_circuit_breaker(
-    cad_id: &str,
-    video_id: Option<&str>,
-    isrc: Option<&str>,
-    title: &str,
-    artist: &str,
-) -> Result<String, String> {
-    // 1. Attempt online resolution with a hard 2500ms timeout budget
-    let online_attempt = tokio::time::timeout(
-        std::time::Duration::from_millis(2500),
-        execute_resolution(video_id, isrc, title, artist),
-    )
-    .await;
-
-    match online_attempt {
-        Ok(Ok(cdn_url)) => Ok(cdn_url),
-        _ => {
-            // 2. Circuit Breaker tripped: Fallback to local audio cache path if available
-            check_offline_disk_cache(cad_id)
-                .ok_or_else(|| "Playback unavailable: Device offline and track un-cached".to_string())
+    // TIER 3: Fuzzy Match (Title + Artist)
+    let query = format!("{} - {}", title.trim(), artist.trim());
+    if let Some(video_id) = innertube_search(&query, auth_header).await {
+        if !db_path.is_empty() && !cad_id.is_empty() {
+            bind_video_id_to_db(db_path, cad_id, &video_id);
         }
+        return Ok(video_id);
     }
+
+    Err(())
 }
 
-pub fn check_offline_disk_cache(cad_id: &str) -> Option<String> {
-    let path = format!("/data/data/com.streamify.app/cache/audio/{}.m4a", cad_id);
-    if std::path::Path::new(&path).exists() {
-        Some(path)
-    } else {
-        None
-    }
-}
+/// Queries YouTube Music Innertube API
+pub async fn innertube_search(query: &str, auth_header: &str) -> Option<String> {
+    let client = get_client();
+    let url = "https://music.youtube.com/youtubei/v1/search?alt=json&key=AIzaSyC9XL3ZjWddXya6X74uM32vM1tl8R0kC8";
 
-pub async fn search_innertube(client: &Client, query: &str) -> Result<String, ()> {
-    let url = "https://music.youtube.com/youtubei/v1/search";
-    let body = serde_json::json!({
+    let payload = serde_json::json!({
         "context": {
             "client": {
-                "clientName": "ANDROID_MUSIC",
-                "clientVersion": "6.42.52",
+                "clientName": "WEB_REMIX",
+                "clientVersion": "1.20240401.01.00",
                 "hl": "en",
                 "gl": "US"
             }
         },
-        "query": query,
-        "params": "Eg-KAQwIABAAGAAgACgAMABqChAEEAMQBBAFEAo%3D" // Filter: Songs
+        "query": query
     });
 
-    let res = client
-        .post(url)
+    let mut req = client.post(url)
         .header("Content-Type", "application/json")
-        .header("X-YouTube-Client-Name", "21")
-        .header("X-YouTube-Client-Version", "6.42.52")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|_| ())?;
+        .header("Origin", "https://music.youtube.com")
+        .header("Referer", "https://music.youtube.com/");
 
-    let json: Value = res.json().await.map_err(|_| ())?;
+    if !auth_header.is_empty() {
+        let auth_val = if auth_header.starts_with("SAPISIDHASH ") {
+            auth_header.to_string()
+        } else {
+            format!("SAPISIDHASH {}", auth_header)
+        };
+        req = req.header("Authorization", auth_val);
+    }
 
-    // Try primary path
+    let response = req.json(&payload).send().await.ok()?;
+    let json: Value = response.json().await.ok()?;
+
+    // 1. Try direct tabbed search results
     if let Some(id) = json
         .pointer("/contents/tabbedSearchResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicShelfRenderer/contents/0/musicResponsiveListItemRenderer/playlistItemData/videoId")
         .and_then(|v| v.as_str())
     {
-        return Ok(id.to_string());
+        return Some(id.to_string());
     }
 
-    // Try alternate search result pathways
-    if let Some(sections) = json.pointer("/contents/tabbedSearchResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents").and_then(|v| v.as_array()) {
+    // 2. Try alternate section list structures
+    if let Some(sections) = json
+        .pointer("/contents/tabbedSearchResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents")
+        .and_then(|v| v.as_array())
+    {
         for section in sections {
-            if let Some(items) = section.pointer("/musicShelfRenderer/contents").or_else(|| section.pointer("/musicCardShelfRenderer/contents")).and_then(|v| v.as_array()) {
+            if let Some(items) = section
+                .pointer("/musicShelfRenderer/contents")
+                .or_else(|| section.pointer("/musicCardShelfRenderer/contents"))
+                .and_then(|v| v.as_array())
+            {
                 for item in items {
-                    if let Some(id) = item.pointer("/musicResponsiveListItemRenderer/playlistItemData/videoId").or_else(|| item.pointer("/musicResponsiveListItemRenderer/navigationEndpoint/watchEndpoint/videoId")).and_then(|v| v.as_str()) {
-                        return Ok(id.to_string());
+                    if let Some(id) = item
+                        .pointer("/musicResponsiveListItemRenderer/playlistItemData/videoId")
+                        .or_else(|| item.pointer("/musicResponsiveListItemRenderer/navigationEndpoint/watchEndpoint/videoId"))
+                        .or_else(|| item.pointer("/musicResponsiveListItemRenderer/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId"))
+                        .and_then(|v| v.as_str())
+                    {
+                        return Some(id.to_string());
                     }
                 }
             }
         }
     }
 
-    Err(())
+    None
+}
+
+// --- SQLite Cache Helpers ---
+fn check_local_cache(db_path: &str, cad_id: &str) -> Option<String> {
+    let conn = Connection::open(db_path).ok()?;
+    let mut stmt = conn.prepare("SELECT ytm_video_id FROM universal_tracks WHERE cad_id = ?1").ok()?;
+    let result = stmt.query_map([cad_id], |row| row.get::<_, String>(0)).ok()?.next()?.ok();
+    result.filter(|s| !s.is_empty())
+}
+
+fn bind_video_id_to_db(db_path: &str, cad_id: &str, video_id: &str) {
+    if let Ok(conn) = Connection::open(db_path) {
+        let _ = conn.execute(
+            "UPDATE universal_tracks SET ytm_video_id = ?1 WHERE cad_id = ?2",
+            rusqlite::params![video_id, cad_id],
+        );
+    }
 }
 
 pub async fn fetch_innertube_cdn(client: &Client, video_id: &str) -> Result<String, String> {
