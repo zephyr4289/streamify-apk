@@ -28,11 +28,21 @@ import coil.compose.AsyncImage
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.theme.*
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.graphics.StrokeCap
+import com.streamify.app.viewmodel.PlaybackButtonState
+
 @Composable
 fun MiniPlayerBar(
     track: Track?,
     isPlaying: Boolean,
     progress: Float,
+    isBuffering: Boolean = false,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -43,6 +53,12 @@ fun MiniPlayerBar(
     modifier: Modifier = Modifier
 ) {
     if (track == null) return
+
+    val buttonState = when {
+        isBuffering -> PlaybackButtonState.BUFFERING
+        isPlaying -> PlaybackButtonState.PLAYING
+        else -> PlaybackButtonState.PAUSED
+    }
 
     var isAbsorbing by remember { mutableStateOf(false) }
     if (tokenController != null) {
@@ -177,12 +193,40 @@ fun MiniPlayerBar(
 
                 // Play / Pause Action
                 IconButton(onClick = onPlayPause) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = TextMain,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        AnimatedContent(
+                            targetState = buttonState,
+                            transitionSpec = { fadeIn(tween(120)) togetherWith fadeOut(tween(120)) },
+                            label = "MiniPlayerPlayPauseAnimatedContent"
+                        ) { state ->
+                            when (state) {
+                                PlaybackButtonState.BUFFERING -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        color = TextMain,
+                                        strokeWidth = 2.dp,
+                                        strokeCap = StrokeCap.Round
+                                    )
+                                }
+                                PlaybackButtonState.PLAYING -> {
+                                    Icon(
+                                        imageVector = Icons.Filled.Pause,
+                                        contentDescription = "Pause",
+                                        tint = TextMain,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                                PlaybackButtonState.PAUSED -> {
+                                    Icon(
+                                        imageVector = Icons.Filled.PlayArrow,
+                                        contentDescription = "Play",
+                                        tint = TextMain,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Skip Next Action

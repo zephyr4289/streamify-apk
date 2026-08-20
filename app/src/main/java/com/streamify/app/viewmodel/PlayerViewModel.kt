@@ -30,6 +30,12 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class PlaybackButtonState {
+    BUFFERING,
+    PLAYING,
+    PAUSED
+}
+
 data class PlayerState(
     val currentTrack: Track? = null,
     val queue: List<Track> = emptyList(),
@@ -44,7 +50,14 @@ data class PlayerState(
     val sleepTimerEndTrack: Boolean = false,
     val isAutoPlayEnabled: Boolean = true,
     val isVideoMode: Boolean = false
-)
+) {
+    val buttonState: PlaybackButtonState
+        get() = when {
+            isBuffering -> PlaybackButtonState.BUFFERING
+            isPlaying -> PlaybackButtonState.PLAYING
+            else -> PlaybackButtonState.PAUSED
+        }
+}
 
 class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
     private val _playerState = MutableStateFlow(PlayerState())
@@ -1104,9 +1117,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     ctrl.prepare()
                     ctrl.play()
                 }
+                val isCtrlBuffering = controller?.let { it.playbackState == androidx.media3.common.Player.STATE_BUFFERING || it.playbackState == androidx.media3.common.Player.STATE_IDLE } ?: true
                 _playerState.value = _playerState.value.copy(
                     currentTrack = resolvedTrack,
-                    isBuffering = false
+                    isBuffering = isCtrlBuffering
                 )
             }
 

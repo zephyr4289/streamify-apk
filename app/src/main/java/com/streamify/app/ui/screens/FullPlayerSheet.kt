@@ -74,6 +74,7 @@ fun FullPlayerSheet(
     track: Track?,
     isPlaying: Boolean,
     progress: Float,
+    isBuffering: Boolean = false,
     isShuffleActive: Boolean,
     isRepeatActive: Boolean,
     dominantColor: Color,
@@ -112,6 +113,23 @@ fun FullPlayerSheet(
         ),
         label = "HeroAspectRatioAnimation"
     )
+
+    val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "HeroBufferingPulse")
+    val heroPulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 0.55f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(durationMillis = 750, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+        ),
+        label = "HeroPulseAlpha"
+    )
+
+    val playbackButtonState = when {
+        isBuffering -> com.streamify.app.viewmodel.PlaybackButtonState.BUFFERING
+        isPlaying -> com.streamify.app.viewmodel.PlaybackButtonState.PLAYING
+        else -> com.streamify.app.viewmodel.PlaybackButtonState.PAUSED
+    }
 
     var showCommentsSheet by remember { mutableStateOf(false) }
     val communityViewModel: CommunityViewModel = viewModel()
@@ -217,7 +235,14 @@ fun FullPlayerSheet(
                             .fillMaxWidth(0.92f)
                             .aspectRatio(animatedAspectRatio)
                             .clip(LocalAppShapes.current.thumbnailLarge)
-                            .background(androidx.compose.ui.graphics.Color.Black),
+                            .background(androidx.compose.ui.graphics.Color.Black)
+                            .graphicsLayer {
+                                if (isBuffering && !isVideoMode) {
+                                    alpha = heroPulseAlpha
+                                    scaleX = 0.98f + (heroPulseAlpha * 0.02f)
+                                    scaleY = 0.98f + (heroPulseAlpha * 0.02f)
+                                }
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Crossfade(
@@ -355,12 +380,38 @@ fun FullPlayerSheet(
                             contentAlignment = Alignment.Center
                         ) {
                             IconButton(onClick = onPlayPause) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = "PlayPause",
-                                    tint = TextOnActiveChip,
-                                    modifier = Modifier.size(28.dp)
-                                )
+                                AnimatedContent(
+                                    targetState = playbackButtonState,
+                                    transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(140)) },
+                                    label = "LandscapePlayPauseAnimatedContent"
+                                ) { state ->
+                                    when (state) {
+                                        com.streamify.app.viewmodel.PlaybackButtonState.BUFFERING -> {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp),
+                                                color = TextOnActiveChip,
+                                                strokeWidth = 2.5.dp,
+                                                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                                            )
+                                        }
+                                        com.streamify.app.viewmodel.PlaybackButtonState.PLAYING -> {
+                                            Icon(
+                                                imageVector = Icons.Filled.Pause,
+                                                contentDescription = "PlayPause",
+                                                tint = TextOnActiveChip,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                        com.streamify.app.viewmodel.PlaybackButtonState.PAUSED -> {
+                                            Icon(
+                                                imageVector = Icons.Filled.PlayArrow,
+                                                contentDescription = "PlayPause",
+                                                tint = TextOnActiveChip,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -539,7 +590,14 @@ fun FullPlayerSheet(
                         .padding(horizontal = 24.dp)
                         .aspectRatio(animatedAspectRatio)
                         .clip(LocalAppShapes.current.thumbnailLarge)
-                        .background(androidx.compose.ui.graphics.Color.Black),
+                        .background(androidx.compose.ui.graphics.Color.Black)
+                        .graphicsLayer {
+                            if (isBuffering && !isVideoMode) {
+                                alpha = heroPulseAlpha
+                                scaleX = 0.98f + (heroPulseAlpha * 0.02f)
+                                scaleY = 0.98f + (heroPulseAlpha * 0.02f)
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Crossfade(
@@ -690,12 +748,38 @@ fun FullPlayerSheet(
                             com.streamify.app.util.StreamifyHapticEngine.playbackPulse()
                             onPlayPause()
                         }) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = "PlayPause",
-                                tint = TextOnActiveChip,
-                                modifier = Modifier.size(34.dp)
-                            )
+                            AnimatedContent(
+                                targetState = playbackButtonState,
+                                transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(140)) },
+                                label = "PortraitPlayPauseAnimatedContent"
+                            ) { state ->
+                                when (state) {
+                                    com.streamify.app.viewmodel.PlaybackButtonState.BUFFERING -> {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(28.dp),
+                                            color = TextOnActiveChip,
+                                            strokeWidth = 2.8.dp,
+                                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                                        )
+                                    }
+                                    com.streamify.app.viewmodel.PlaybackButtonState.PLAYING -> {
+                                        Icon(
+                                            imageVector = Icons.Filled.Pause,
+                                            contentDescription = "PlayPause",
+                                            tint = TextOnActiveChip,
+                                            modifier = Modifier.size(34.dp)
+                                        )
+                                    }
+                                    com.streamify.app.viewmodel.PlaybackButtonState.PAUSED -> {
+                                        Icon(
+                                            imageVector = Icons.Filled.PlayArrow,
+                                            contentDescription = "PlayPause",
+                                            tint = TextOnActiveChip,
+                                            modifier = Modifier.size(34.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 

@@ -27,11 +27,16 @@ import com.streamify.app.ui.animations.cardPressEffect
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.graphics.StrokeCap
+import com.streamify.app.viewmodel.PlaybackButtonState
+
 @Composable
 fun PlayerControls(
     isPlaying: Boolean,
     isShuffleActive: Boolean,
     isRepeatActive: Boolean,
+    isBuffering: Boolean = false,
     onPlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -40,6 +45,11 @@ fun PlayerControls(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
+    val buttonState = when {
+        isBuffering -> PlaybackButtonState.BUFFERING
+        isPlaying -> PlaybackButtonState.PLAYING
+        else -> PlaybackButtonState.PAUSED
+    }
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -95,15 +105,35 @@ fun PlayerControls(
             contentAlignment = Alignment.Center
         ) {
             androidx.compose.animation.AnimatedContent(
-                targetState = isPlaying,
+                targetState = buttonState,
                 label = "play_pause_icon"
-            ) { playing ->
-                Icon(
-                    imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (playing) "Pause" else "Play",
-                    tint = StreamifyColors.BgBase,
-                    modifier = Modifier.size(32.dp)
-                )
+            ) { state ->
+                when (state) {
+                    PlaybackButtonState.BUFFERING -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            color = StreamifyColors.BgBase,
+                            strokeWidth = 2.5.dp,
+                            strokeCap = StrokeCap.Round
+                        )
+                    }
+                    PlaybackButtonState.PLAYING -> {
+                        Icon(
+                            imageVector = Icons.Filled.Pause,
+                            contentDescription = "Pause",
+                            tint = StreamifyColors.BgBase,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    PlaybackButtonState.PAUSED -> {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Play",
+                            tint = StreamifyColors.BgBase,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                }
             }
         }
 
