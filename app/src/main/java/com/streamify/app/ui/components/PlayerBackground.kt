@@ -21,9 +21,48 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import com.streamify.app.ui.models.AmbientPalette
 import com.streamify.app.ui.theme.StreamifyColors
 import kotlin.math.cos
 import kotlin.math.sin
+
+@Composable
+fun PlayerBackground(
+    palette: AmbientPalette,
+    modifier: Modifier = Modifier
+) {
+    val animatedDominant by animateColorAsState(
+        targetValue = palette.dominantColor,
+        animationSpec = tween(durationMillis = 800),
+        label = "dominantColorAnim"
+    )
+    val animatedDarkMuted by animateColorAsState(
+        targetValue = palette.darkMutedColor,
+        animationSpec = tween(durationMillis = 800),
+        label = "darkMutedColorAnim"
+    )
+
+    androidx.compose.foundation.Canvas(modifier = modifier.fillMaxSize()) {
+        // AM-OLED Fluid Mesh: 70% deep black base with radial atmospheric glow
+        drawRect(color = Color(0xFF050505))
+
+        val radialGlow = Brush.radialGradient(
+            colors = listOf(
+                animatedDominant.copy(alpha = 0.45f),
+                animatedDarkMuted.copy(alpha = 0.20f),
+                Color.Transparent
+            ),
+            center = Offset(size.width * 0.5f, size.height * 0.35f),
+            radius = size.width * 0.85f
+        )
+
+        drawCircle(
+            brush = radialGlow,
+            radius = size.width * 0.85f,
+            center = Offset(size.width * 0.5f, size.height * 0.35f)
+        )
+    }
+}
 
 @Composable
 fun PlayerBackground(

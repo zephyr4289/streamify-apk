@@ -268,6 +268,14 @@ object NativeBridge {
     external fun getZhipuKey(index: Int): String
     external fun nukeLocalDatabase(): Boolean
 
+    fun stepAirDropPhysics(stateArray: FloatArray, targetX: Float, targetY: Float, dt: Float) {
+        require(stateArray.size >= 13) { "State vector must contain at least 13 floats" }
+        val dx = targetX - stateArray[0]
+        val dy = targetY - stateArray[1]
+        val initialDist = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(1.0f)
+        stepAirDropPhysics(stateArray, targetX, targetY, initialDist, dt)
+    }
+
     external fun stepAirDropPhysics(
         inOutBuffer: FloatArray,
         targetX: Float,

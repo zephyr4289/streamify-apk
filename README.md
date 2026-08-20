@@ -1720,8 +1720,79 @@ $$\text{AcousticPosition} = \max\left(0, t_{\text{playhead}} - \text{Latency}_{\
 
 ---
 
+## 📱 17. Phase 6: 120 FPS Jetpack Compose Architecture, GPU Text Sweeping & 6-DOF RK4 Physics Flight
+
+```mermaid
+graph TD
+    subgraph UI_Scheduler ["Android 120 FPS Frame Loop (VSYNC)"]
+        Frame["withFrameNanos { dt }"] --> RK4_Call["NativeBridge.stepAirDropPhysics(state, target, dt)"]
+        Frame --> SyllableAnim["Active SLYR Syllable Progress Timeline"]
+    end
+
+    subgraph Native_ODE ["Native C++20 Runge-Kutta 4th-Order Aerodynamic Solver"]
+        RK4_Call --> SpringDynamics["Spring Attraction (k=24.0, c=9.5)"]
+        SpringDynamics --> LiftForce["Orthogonal Parabolic Aerodynamic Lift"]
+        LiftForce --> RK4_Step["k1, k2, k3, k4 Integration Step"]
+        RK4_Step --> StrainTensor["Lagrangian Strain Tensor\n(lambda_parallel * lambda_perp = 1.0)"]
+    end
+
+    subgraph Compose_Canvas ["GPU Offscreen Layer Rendering (0-Byte Per Frame GC)"]
+        StrainTensor --> TokenOverlay["QuantumSonicTokenOverlay (Squash & Stretch Token)"]
+        SyllableAnim --> FluidText["FluidSyllableText (CompositingStrategy.Offscreen + clipRect)"]
+        AmbientColors["AmbientPalette (Dominant + Dark Muted)"] --> AMOLEDFallback["PlayerBackground (AM-OLED Fluid Mesh Glow)"]
+    end
+
+    subgraph Feed_Virtualization ["Virtual Shelf Recycling Engine"]
+        UniversalData["Spotify Daily Mixes + YTM Supermixes"] --> Shelves["UniversalHomeScreen (LazyColumn + LazyRow)"]
+        Shelves --> StableKey["Stable Key Recomposition Skipping (key = { it.cadId })"]
+    end
+```
+
+### 🚀 1. 6-DOF Runge-Kutta 4th-Order Aerodynamic Trajectory
+Simulates realistic aerodynamic drag and organic parabolic lift forces via 4th-order Runge-Kutta numeric integration in native assembly:
+
+$$\mathbf{k}_1 = \mathbf{f}(t, \mathbf{y})$$
+$$\mathbf{k}_2 = \mathbf{f}\left(t + \frac{h}{2}, \mathbf{y} + \frac{h}{2}\mathbf{k}_1\right)$$
+$$\mathbf{k}_3 = \mathbf{f}\left(t + \frac{h}{2}, \mathbf{y} + \frac{h}{2}\mathbf{k}_2\right)$$
+$$\mathbf{k}_4 = \mathbf{f}(t + h, \mathbf{y} + h\mathbf{k}_3)$$
+$$\mathbf{y}_{n+1} = \mathbf{y}_n + \frac{h}{6}(\mathbf{k}_1 + 2\mathbf{k}_2 + 2\mathbf{k}_3 + \mathbf{k}_4)$$
+
+#### Lagrangian Incompressible Strain Tensor (Volume Conservation):
+$$\lambda_\parallel = 1.0 + 0.25 \tanh\left(\frac{\|\mathbf{v}\|}{800}\right), \quad \lambda_\perp = \frac{1.0}{\lambda_\parallel} \implies \lambda_\parallel \cdot \lambda_\perp \equiv 1.0$$
+
+---
+
+### 🎨 2. GPU-Accelerated Text Sweep (`FluidSyllableText`)
+Renders high-frequency syllable highlights in an isolated GPU texture layer using `CompositingStrategy.Offscreen` and pre-allocated `Paint` instances:
+
+$$\text{SweepWidth} = \text{TextWidth} \times \text{clamp}(\text{ProgressFraction}, 0.0, 1.0)$$
+$$\text{drawContext.canvas.nativeCanvas.drawText() with Zero Heap GC allocations}$$
+
+---
+
+### ⚡ 3. Zero-GC `@Immutable` Snapshot Models & Node Recycling
+Guarantees subcomposition skipping and 120 FPS frame stability during rapid list flings:
+
+```kotlin
+@Immutable
+data class VirtualShelfTrack(
+    val cadId: String,
+    val title: String,
+    val artist: String,
+    val artworkUrl: String,
+    val durationSec: Int,
+    val isrc: String? = null,
+    val ytmVideoId: String? = null,
+    val isLiked: Boolean = false,
+    val platformOrigin: String = "UNIFIED"
+)
+```
+
+---
+
 ## 📜 License
 Streamify APK is licensed under the [MIT License](LICENSE).
+
 
 
 
