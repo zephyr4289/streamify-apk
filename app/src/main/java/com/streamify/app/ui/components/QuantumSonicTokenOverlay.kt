@@ -73,7 +73,6 @@ fun QuantumSonicTokenOverlay(
                 .height(60.dp)
                 .graphicsLayer {
                     // 120 FPS GPU RenderNode Phase (Zero Tree Recomposition, Zero Layout Phase)
-                    val tick = controller.frameTick
                     val xClamped = (controller.posX - (cardWidthPx / 2f))
                         .coerceIn(8f, (screenWidthPx - cardWidthPx - 8f).coerceAtLeast(8f))
                     val yClamped = (controller.posY - (cardHeightPx / 2f)).coerceAtLeast(0f)
@@ -98,7 +97,6 @@ fun QuantumSonicTokenOverlay(
             AirDropFluidCard(
                 title = controller.trackTitle,
                 artist = controller.trackArtist,
-                statusText = controller.telemetryStatus,
                 artUrl = controller.trackArt,
                 isFlying = controller.stage == TokenStage.FLYING
             )
@@ -110,11 +108,9 @@ fun QuantumSonicTokenOverlay(
 private fun AirDropFluidCard(
     title: String,
     artist: String,
-    statusText: String,
     artUrl: String?,
     isFlying: Boolean
 ) {
-    // Pre-calculated luminescence aura sweep
     val auraBrush = remember(isFlying) {
         Brush.sweepGradient(
             listOf(
@@ -167,7 +163,7 @@ private fun AirDropFluidCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = statusText,
+                        text = if (isFlying) "Connecting..." else "Ready",
                         style = LocalAppTypography.current.caption.copy(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
@@ -197,8 +193,13 @@ fun ImpactBloomCanvas(
     controller: QuantumSonicTokenController,
     modifier: Modifier = Modifier
 ) {
+    val nativePaint = remember {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+        }
+    }
+
     Canvas(modifier = modifier.fillMaxSize()) {
-        val tick = controller.frameTick
         val p = controller.impactProgress
         if (p <= 0f || p >= 1f) return@Canvas
 
@@ -223,21 +224,25 @@ fun ImpactBloomCanvas(
             center = safeCenter
         )
 
-        // 3. Batched 3D Fluid Splash Particles
+        // 3. Batched 3D Fluid Splash Particles using native Canvas (Zero Compose Paint allocations)
         val buf = controller.particleBuffer
-        for (i in 0 until controller.particleCount) {
-            val base = i * 6
-            val alpha = buf[base + 5]
-            if (alpha > 0.01f) {
-                val px = buf[base + 0]
-                val py = buf[base + 1]
-                val r = buf[base + 4] * (1f - (p * 0.4f))
-                val col = if (i % 2 == 0) Primary.copy(alpha = alpha) else ActiveControl.copy(alpha = alpha)
-                drawCircle(
-                    color = col,
-                    radius = r,
-                    center = Offset(px, py)
-                )
+        val primaryArgb = Primary.toArgb()
+        val activeArgb = ActiveControl.toArgb()
+        val pCount = controller.particleCount
+
+        drawContext.canvas.nativeCanvas.let { canvas ->
+            for (i in 0 until pCount) {
+                val base = i * 6
+                val alpha = buf[base + 5]
+                if (alpha > 0.01f) {
+                    val px = buf[base + 0]
+                    val py = buf[base + 1]
+                    val r = buf[base + 4] * (1f - (p * 0.4f))
+                    val baseCol = if (i % 2 == 0) primaryArgb else activeArgb
+                    nativePaint.color = baseCol
+                    nativePaint.alpha = (alpha * 255).toInt().coerceIn(0, 255)
+                    canvas.drawCircle(px, py, r, nativePaint)
+                }
             }
         }
     }

@@ -888,4 +888,65 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeCommitTr
     )
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_stepAirDropPhysics(
+    mut env: JNIEnv,
+    _class: JClass,
+    in_out_buffer: jni::objects::JFloatArray,
+    target_x: jfloat,
+    target_y: jfloat,
+    initial_dist: jfloat,
+    dt: jfloat,
+) {
+    let len = match env.get_array_length(&in_out_buffer) {
+        Ok(l) => l as usize,
+        Err(_) => return,
+    };
+    if len < 14 {
+        return;
+    }
+
+    let mut elements = match env.get_array_elements(&in_out_buffer, jni::objects::ReleaseMode::CopyBack) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let mut state = crate::airdrop::AirdropState {
+        pos: [elements[0], elements[1], elements[2]],
+        vel: [elements[3], elements[4], elements[5]],
+        stretch_parallel: elements[6],
+        stretch_perp: elements[7],
+        rotation_rad: elements[8],
+        pitch_deg: elements[9],
+        roll_deg: elements[10],
+        impact_progress: elements[11],
+        is_docked: elements[12] > 0.5,
+        is_ready_to_dock: elements[13] > 0.5,
+        ..Default::default()
+    };
+
+    crate::airdrop::AirdropPhysicsEngine::step(
+        &mut state,
+        target_x,
+        target_y,
+        initial_dist,
+        dt,
+        128,
+    );
+
+    elements[0] = state.pos[0];
+    elements[1] = state.pos[1];
+    elements[2] = state.pos[2];
+    elements[3] = state.vel[0];
+    elements[4] = state.vel[1];
+    elements[5] = state.vel[2];
+    elements[6] = state.stretch_parallel;
+    elements[7] = state.stretch_perp;
+    elements[8] = state.rotation_rad;
+    elements[9] = state.pitch_deg;
+    elements[10] = state.roll_deg;
+    elements[11] = state.impact_progress;
+    elements[12] = if state.is_docked { 1.0 } else { 0.0 };
+}
+
 

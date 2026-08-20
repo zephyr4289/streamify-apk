@@ -503,20 +503,15 @@ fun SearchScreen(
                                             source = "online"
                                         )
 
-                                        var itemPosition by remember { mutableStateOf(Offset.Zero) }
-
                                         YtQueueTrackItem(
                                             track = trackModel,
                                             isPlaying = isResolving || (currentTrack?.filepath == onlineTrack.url),
                                             showDragHandle = false,
-                                            modifier = Modifier.onGloballyPositioned { coordinates ->
-                                                val pos = coordinates.positionInWindow()
-                                                itemPosition = Offset(pos.x + (coordinates.size.width / 2f), pos.y)
-                                            },
                                             onClick = {
                                                 val dockPos = dockPositionState.value
-                                                val origin = if (itemPosition != Offset.Zero) itemPosition else Offset(200f, 300f)
-                                                val target = if (dockPos != Offset.Zero) dockPos else Offset(200f, 800f)
+                                                val approxY = (180f + (index * 64f)).coerceIn(150f, 950f)
+                                                val origin = Offset(200f, approxY)
+                                                val target = if (dockPos != Offset.Zero) dockPos else Offset(200f, 850f)
                                                 quantumController.triggerFlight(
                                                     tapOrigin = origin,
                                                     dockDestination = target,
