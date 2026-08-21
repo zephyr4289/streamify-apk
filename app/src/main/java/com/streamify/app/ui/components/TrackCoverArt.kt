@@ -58,12 +58,6 @@ fun TrackCoverArt(
                 .crossfade(true)
                 .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                 .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                .apply {
-                    if (vid != null && primary.contains("maxresdefault.jpg")) {
-                        error("https://i.ytimg.com/vi/$vid/hq720.jpg")
-                        fallback("https://i.ytimg.com/vi/$vid/sddefault.jpg")
-                    }
-                }
                 .build()
         }
     }

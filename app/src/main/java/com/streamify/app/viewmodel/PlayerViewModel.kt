@@ -400,11 +400,12 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             if (playingTrack != null && playingTrack.lyricsPath.isNullOrBlank()) {
                 viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
+                        val vid = playingTrack.ytmVideoId ?: if (playingTrack.filepath.startsWith("yt_") || (playingTrack.filepath.length == 11 && !playingTrack.filepath.contains("/"))) playingTrack.filepath.removePrefix("yt_") else playingTrack.id.toString()
                         val lyricsText = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(
                             title = playingTrack.title,
                             artist = playingTrack.artist,
                             durationSec = playingTrack.durationSec,
-                            videoId = playingTrack.id
+                            videoId = vid
                         ) ?: ""
 
                         if (lyricsText.isNotBlank() && (lyricsText.contains("[") || lyricsText.length > 20)) {

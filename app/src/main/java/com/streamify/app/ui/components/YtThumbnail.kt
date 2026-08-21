@@ -60,12 +60,6 @@ fun YtThumbnail(
                 .crossfade(true)
                 .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                 .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                .apply {
-                    if (resolvedVideoId != null && displayUrl.contains("maxresdefault.jpg")) {
-                        error("https://i.ytimg.com/vi/$resolvedVideoId/hq720.jpg")
-                        fallback("https://i.ytimg.com/vi/$resolvedVideoId/sddefault.jpg")
-                    }
-                }
                 .build()
         }
     }

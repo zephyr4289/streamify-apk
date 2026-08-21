@@ -16,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,6 +24,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -608,7 +611,7 @@ fun FullPlayerSheet(
                                     com.streamify.app.util.StreamifyHapticEngine.magneticQueueGrab()
                                     onLyricsClick?.invoke()
                                 },
-                                onDoubleTap = { offset ->
+                                onDoubleTap = { offset: Offset ->
                                     val isRightSide = offset.x > (size.width / 2f)
                                     val seekDeltaMs = if (isRightSide) 10_000L else -10_000L
                                     com.streamify.app.util.StreamifyHapticEngine.scrubberTick()

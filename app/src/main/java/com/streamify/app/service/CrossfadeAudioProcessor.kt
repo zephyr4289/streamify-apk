@@ -36,7 +36,7 @@ class CrossfadeAudioProcessor : BaseAudioProcessor() {
     }
 
     fun startCrossfade(durationMs: Long = 2500L) {
-        this.crossfadeDurationMs = durationMs
+        this.currentCrossfadeDurationMs = durationMs
         val sampleRate = inputAudioFormat.sampleRate.takeIf { it > 0 } ?: 44100
         this.totalCrossfadeFrames = (sampleRate * (durationMs / 1000f)).toLong()
         this.currentFrameCount = 0L

@@ -36,6 +36,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.graphics.StrokeCap
 import com.streamify.app.viewmodel.PlaybackButtonState
+import kotlinx.coroutines.launch
 
 @Composable
 fun MiniPlayerBar(

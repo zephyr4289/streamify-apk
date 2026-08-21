@@ -101,9 +101,11 @@ object StreamifyHapticEngine {
     fun scrubberTick() = vibrate(scrubberTick)
     fun heartbeatFlutter() = vibrate(heartbeatFlutter)
     fun tokenImpact() = vibrate(tokenImpact)
+    fun tokenImpactDetent() = vibrate(tokenImpact ?: magneticDetent)
     fun magneticDetent() = vibrate(magneticDetent)
     fun playbackPulse() = vibrate(playbackPulse)
     fun queueGrab() = vibrate(queueGrab)
+    fun magneticQueueGrab() = vibrate(queueGrab)
 
     private var thresholdCrossed = false
     fun evaluatePull(progress: Float) {

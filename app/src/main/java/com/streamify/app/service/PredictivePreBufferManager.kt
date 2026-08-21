@@ -36,7 +36,7 @@ class PredictivePreBufferManager(
                         track.filepath
                     } else {
                         val vid = track.ytmVideoId ?: YouTubeStreamResolver.extractVideoId(track.filepath)
-                        vid?.let { YouTubeStreamResolver.resolveStreamingUrl(it) }
+                        if (vid != null) YouTubeStreamResolver.resolveStreamUrl(vid)?.streamUrl else null
                     } ?: return@launch
 
                     val uri = Uri.parse(streamUrl)
@@ -76,6 +76,11 @@ class PredictivePreBufferManager(
     fun cancelAll() {
         activePreCacheJobs.values.forEach { it.cancel() }
         activePreCacheJobs.clear()
+    }
+
+    fun release() {
+        cancelAll()
+        scope.cancel()
     }
 
     fun release() {

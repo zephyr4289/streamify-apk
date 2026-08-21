@@ -92,8 +92,7 @@ class PlaybackService : MediaSessionService() {
         
         dynamicQueueManager = DynamicQueueManager(this, exoPlayer)
         seekDebounceManager = SeekDebounceManager(exoPlayer).apply { start() }
-        preBufferManager = PredictivePreBufferManager(exoPlayer, audioCache)
-        exoPlayer.addListener(preBufferManager!!)
+        preBufferManager = PredictivePreBufferManager(this)
 
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
             private var lastPlayStartMs: Long = 0L
