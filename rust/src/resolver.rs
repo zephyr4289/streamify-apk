@@ -85,6 +85,16 @@ pub unsafe extern "C" fn resolve_track_cdn(
     result.unwrap_or(-3)
 }
 
+/// One parsed search result from the Innertube shelf, carrying enough metadata
+/// to prove the candidate is the SAME SONG before its videoId is trusted.
+#[derive(Clone, Debug)]
+pub struct SearchCandidate {
+    pub video_id: String,
+    pub title: String,
+    pub artist: String,
+    pub duration_sec: u32,
+}
+
 /// The 3-tier async resolution logic
 pub async fn execute_resolution(
     db_path: &str,
@@ -94,6 +104,10 @@ pub async fn execute_resolution(
     artist: &str,
     auth_header: &str,
 ) -> Result<String, ()> {
+    // Self-heal legacy databases (re-key old DefaultHasher CAD-IDs onto the
+    // canonical FNV scheme) before trusting any cached lookup.
+    crate::repository::ensure_db_migrated(db_path);
+
     // TIER 1: Check Local SQLite Cache (Zero network cost)
     if !db_path.is_empty() && !cad_id.is_empty() {
         if let Some(video_id) = check_local_cache(db_path, cad_id) {
@@ -101,34 +115,53 @@ pub async fn execute_resolution(
         }
     }
 
-    // TIER 2: Innertube ISRC Exact Match
+    // TIER 2: Innertube ISRC Exact Match (authoritative catalog query)
     if let Some(isrc_code) = isrc {
         let clean_isrc = isrc_code.trim();
         if !clean_isrc.is_empty() {
             let query = format!("isrc:{}", clean_isrc);
-            if let Some(video_id) = innertube_search(&query, auth_header).await {
+            if let Some(candidate) = innertube_search_candidates(&query, auth_header)
+                .await
+                .into_iter()
+                .find(|c| is_valid_video_id(&c.video_id))
+            {
                 if !db_path.is_empty() && !cad_id.is_empty() {
-                    bind_video_id_to_db(db_path, cad_id, &video_id);
+                    bind_video_id_to_db(
+                        db_path,
+                        cad_id,
+                        title,
+                        artist,
+                        &candidate.video_id.clone(),
+                    );
                 }
-                return Ok(video_id);
+                return Ok(candidate.video_id);
             }
         }
     }
 
-    // TIER 3: Fuzzy Match (Title + Artist)
+    // TIER 3: Verified Fuzzy Match (Title + Artist).
+    // Every candidate must prove same-song identity before its videoId is
+    // accepted or persisted. Blind first-result acceptance is forbidden.
     let query = format!("{} - {}", title.trim(), artist.trim());
-    if let Some(video_id) = innertube_search(&query, auth_header).await {
-        if !db_path.is_empty() && !cad_id.is_empty() {
-            bind_video_id_to_db(db_path, cad_id, &video_id);
+    let candidates = innertube_search_candidates(&query, auth_header).await;
+    for candidate in candidates {
+        if !is_valid_video_id(&candidate.video_id) {
+            continue;
         }
-        return Ok(video_id);
+        if titles_match(title, &candidate.title) && artists_match(artist, &candidate.artist) {
+            if !db_path.is_empty() && !cad_id.is_empty() {
+                bind_video_id_to_db(db_path, cad_id, title, artist, &candidate.video_id);
+            }
+            return Ok(candidate.video_id);
+        }
     }
 
     Err(())
 }
 
-/// Queries YouTube Music Innertube API
-pub async fn innertube_search(query: &str, auth_header: &str) -> Option<String> {
+/// Queries YouTube Music Innertube API and parses every shelf result into a
+/// verified-able SearchCandidate (videoId + title + artist + duration).
+pub async fn innertube_search_candidates(query: &str, auth_header: &str) -> Vec<SearchCandidate> {
     let client = get_client();
     let url = "https://music.youtube.com/youtubei/v1/search?alt=json&key=AIzaSyC9XL3ZjWddXya6X74uM32vM1tl8R0kC8";
 
@@ -158,43 +191,220 @@ pub async fn innertube_search(query: &str, auth_header: &str) -> Option<String> 
         req = req.header("Authorization", auth_val);
     }
 
-    let response = req.json(&payload).send().await.ok()?;
-    let json: Value = response.json().await.ok()?;
+    let response = match req.json(&payload).send().await {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    let json: Value = match response.json().await {
+        Ok(j) => j,
+        Err(_) => return Vec::new(),
+    };
 
-    // 1. Try direct tabbed search results
-    if let Some(id) = json
-        .pointer("/contents/tabbedSearchResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicShelfRenderer/contents/0/musicResponsiveListItemRenderer/playlistItemData/videoId")
-        .and_then(|v| v.as_str())
-    {
-        return Some(id.to_string());
-    }
+    parse_search_candidates(&json)
+}
 
-    // 2. Try alternate section list structures
-    if let Some(sections) = json
-        .pointer("/contents/tabbedSearchResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents")
-        .and_then(|v| v.as_array())
-    {
-        for section in sections {
-            if let Some(items) = section
-                .pointer("/musicShelfRenderer/contents")
-                .or_else(|| section.pointer("/musicCardShelfRenderer/contents"))
-                .and_then(|v| v.as_array())
-            {
-                for item in items {
-                    if let Some(id) = item
-                        .pointer("/musicResponsiveListItemRenderer/playlistItemData/videoId")
-                        .or_else(|| item.pointer("/musicResponsiveListItemRenderer/navigationEndpoint/watchEndpoint/videoId"))
-                        .or_else(|| item.pointer("/musicResponsiveListItemRenderer/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId"))
-                        .and_then(|v| v.as_str())
-                    {
-                        return Some(id.to_string());
-                    }
+fn is_valid_video_id(video_id: &str) -> bool {
+    video_id.len() == 11
+        && video_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// Recursively collects every musicResponsiveListItemRenderer object in the tree.
+fn collect_list_item_renderers(node: &Value, out: &mut Vec<&Value>) {
+    match node {
+        Value::Object(map) => {
+            for (key, value) in map {
+                if key == "musicResponsiveListItemRenderer" {
+                    out.push(value);
                 }
+                collect_list_item_renderers(value, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_list_item_renderers(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Joins all text runs of a flex/fixed column cell into one string.
+fn column_text(cell: &Value) -> String {
+    let mut out = String::new();
+    let default_runs = Value::Null;
+    let runs = cell
+        .pointer("/text/runs")
+        .and_then(Value::as_array)
+        .unwrap_or(&default_runs);
+    for run in runs {
+        if let Some(text) = run.get("text").and_then(Value::as_str) {
+            out.push_str(text);
+        }
+    }
+    out
+}
+
+fn parse_duration_token(token: &str) -> Option<u32> {
+    let t = token.trim();
+    let parts: Vec<&str> = t.split(':').collect();
+    if parts.len() < 2 || parts.len() > 3 {
+        return None;
+    }
+    let mut total: u32 = 0;
+    for p in &parts {
+        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) || p.len() > 2 {
+            return None;
+        }
+        total = total.saturating_mul(60).saturating_add(p.parse::<u32>().ok()?);
+    }
+    if total == 0 { None } else { Some(total) }
+}
+
+fn extract_duration_sec(haystacks: &[&str]) -> Option<u32> {
+    let mut last: Option<u32> = None;
+    for hay in haystacks {
+        for token in hay.split(|c: char| c == '•' || c.is_whitespace() || c == '[' || c == ']') {
+            if let Some(sec) = parse_duration_token(token) {
+                last = Some(sec);
             }
         }
     }
+    last
+}
 
-    None
+fn parse_search_candidates(json: &Value) -> Vec<SearchCandidate> {
+    let mut renderers: Vec<&Value> = Vec::new();
+    collect_list_item_renderers(json, &mut renderers);
+
+    let mut candidates = Vec::with_capacity(renderers.len());
+    let mut seen_ids = std::collections::HashSet::new();
+
+    for renderer in renderers {
+        let video_id = renderer
+            .pointer("/playlistItemData/videoId")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                renderer
+                    .pointer("/navigationEndpoint/watchEndpoint/videoId")
+                    .and_then(Value::as_str)
+            })
+            .or_else(|| {
+                renderer
+                    .pointer("/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId")
+                    .and_then(Value::as_str)
+            });
+        let video_id = match video_id {
+            Some(v) => v.to_string(),
+            None => continue,
+        };
+        if !seen_ids.insert(video_id.clone()) {
+            continue;
+        }
+
+        // Title = first flex column; artist/subtitle/duration from the rest.
+        let mut columns: Vec<String> = Vec::new();
+        if let Some(flex_columns) = renderer
+            .pointer("/flexColumns")
+            .and_then(Value::as_array)
+        {
+            for col in flex_columns {
+                if let Some(cell) = col.get("musicResponsiveListItemFlexCellRenderer") {
+                    columns.push(column_text(cell));
+                }
+            }
+        }
+        let title = columns.first().cloned().unwrap_or_default();
+
+        let mut fixed_parts: Vec<String> = Vec::new();
+        if let Some(fixed_columns) = renderer
+            .pointer("/fixedColumns")
+            .and_then(Value::as_array)
+        {
+            for col in fixed_columns {
+                if let Some(cell) = col.get("musicResponsiveListItemFixedColumnRenderer") {
+                    fixed_parts.push(column_text(cell));
+                }
+            }
+        }
+
+        // Artist: second flex column when present (songs shelf), else first
+        // bullet-separated token of the combined subtitle text.
+        let subtitle_tail: String = columns
+            .iter()
+            .skip(1)
+            .cloned()
+            .collect::<Vec<String>>()
+            .join(" • ");
+        let combined_subtitle = if !fixed_parts.is_empty() {
+            format!("{} • {}", subtitle_tail, fixed_parts.join(" • "))
+        } else {
+            subtitle_tail
+        };
+        let artist = combined_subtitle
+            .split('•')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        let duration_sec =
+            extract_duration_sec(&[combined_subtitle.as_str(), fixed_parts.join(" ").as_str()])
+                .unwrap_or(0);
+
+        candidates.push(SearchCandidate {
+            video_id,
+            title,
+            artist,
+            duration_sec,
+        });
+    }
+
+    candidates
+}
+
+// --- Identity verification gate (same-song proof before acceptance) ---
+
+fn clean_identity_text(input: &str) -> String {
+    let lowered = input.to_lowercase();
+    let filtered: String = lowered
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || c.is_whitespace())
+        .collect();
+    filtered.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+fn strip_artist_noise(artist: &str) -> String {
+    clean_identity_text(
+        &artist
+            .to_lowercase()
+            .replace("- topic", "")
+            .replace("vevo", "")
+            .replace(" - official", ""),
+    )
+}
+
+fn titles_match(query_title: &str, candidate_title: &str) -> bool {
+    let q = clean_identity_text(query_title);
+    let c = clean_identity_text(candidate_title);
+    if q.is_empty() || c.is_empty() {
+        return false;
+    }
+    if q == c {
+        return true;
+    }
+    strsim::jaro_winkler(&q, &c) >= 0.72
+}
+
+fn artists_match(query_artist: &str, candidate_artist: &str) -> bool {
+    let q = strip_artist_noise(query_artist);
+    let c = strip_artist_noise(candidate_artist);
+    if q.is_empty() {
+        return true;
+    }
+    if c.is_empty() {
+        return false;
+    }
+    q == c || c.contains(&q) || q.contains(&c)
 }
 
 // --- SQLite Cache Helpers ---
@@ -205,11 +415,19 @@ fn check_local_cache(db_path: &str, cad_id: &str) -> Option<String> {
     result.filter(|s| !s.is_empty())
 }
 
-fn bind_video_id_to_db(db_path: &str, cad_id: &str, video_id: &str) {
+/// Persists a verified videoId binding. Upsert semantics: the legacy code ran a
+/// bare UPDATE that silently matched 0 rows whenever the CAD-ID row did not yet
+/// exist — meaning correct resolutions were never cached and every play re-ran
+/// the fuzzy lottery. Now the row is created on first binding.
+fn bind_video_id_to_db(db_path: &str, cad_id: &str, title: &str, artist: &str, video_id: &str) {
     if let Ok(conn) = Connection::open(db_path) {
+        let _ = conn.pragma_update(None, "journal_mode", "WAL");
         let _ = conn.execute(
-            "UPDATE universal_tracks SET ytm_video_id = ?1 WHERE cad_id = ?2",
-            rusqlite::params![video_id, cad_id],
+            "INSERT INTO universal_tracks (cad_id, title, artist, duration_sec, ytm_video_id, source_platform)
+             VALUES (?1, ?2, ?3, 0, ?4, 'resolver')
+             ON CONFLICT(cad_id) DO UPDATE SET
+                ytm_video_id = COALESCE(NULLIF(universal_tracks.ytm_video_id, ''), excluded.ytm_video_id)",
+            rusqlite::params![cad_id, title, artist, video_id],
         );
     }
 }
