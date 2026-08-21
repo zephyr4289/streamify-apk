@@ -106,23 +106,22 @@ object YouTubeStreamResolver {
 
 
     fun sanitizeCoverUrl(rawUrl: String?, videoId: String?): String? {
+        val effectiveVid = videoId ?: extractVideoId(rawUrl ?: "")
         if (rawUrl.isNullOrBlank()) {
-            return videoId?.let { "https://i.ytimg.com/vi/$it/sddefault.jpg" }
+            return effectiveVid?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" }
         }
         val trimmed = rawUrl.trim()
         return when {
             trimmed.contains("mzstatic.com") -> trimmed.replace(Regex("\\d+x\\d+bb"), "1400x1400bb")
             trimmed.contains("googleusercontent.com") || trimmed.contains("ggpht.com") -> {
-                if (trimmed.contains("=")) {
-                    trimmed.replace(Regex("=w\\d+-h\\d+.*"), "=w800-h800-l90-rj").replace(Regex("=s\\d+.*"), "=s800")
-                } else {
-                    "$trimmed=w800-h800-l90-rj"
-                }
+                val cleanBase = trimmed.substringBefore("=")
+                "$cleanBase=w1200-h1200-l90-rj"
             }
-            trimmed.contains("googlevideo.com") -> videoId?.let { "https://i.ytimg.com/vi/$it/sddefault.jpg" }
-            trimmed.contains("ytimg.com") -> {
-                if (trimmed.endsWith("/default.jpg") || trimmed.endsWith("/mqdefault.jpg")) {
-                    trimmed.replace(Regex("/(m?q)?default\\.jpg"), "/hqdefault.jpg")
+            trimmed.contains("googlevideo.com") -> effectiveVid?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" }
+            trimmed.contains("ytimg.com") || trimmed.contains("vi_webp") -> {
+                val vid = Regex("(?<=/vi/|/vi_webp/)[a-zA-Z0-9_-]{11}").find(trimmed)?.value ?: effectiveVid
+                if (vid != null) {
+                    "https://i.ytimg.com/vi/$vid/maxresdefault.jpg"
                 } else {
                     trimmed
                 }
@@ -143,7 +142,8 @@ object YouTubeStreamResolver {
         artist: String
     ): ThumbnailDescriptor {
         val sanitizedPrimary = sanitizeCoverUrl(rawUrl, videoId)
-        val secondaryUrl = videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+        val vid = videoId ?: extractVideoId(rawUrl ?: "")
+        val secondaryUrl = vid?.let { "https://i.ytimg.com/vi/$it/hq720.jpg" }
         val proceduralSeed = (title.trim().lowercase() + artist.trim().lowercase()).hashCode()
 
         return ThumbnailDescriptor(

@@ -50,6 +50,26 @@ fun YtThumbnail(
         }
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val imageRequest = remember(displayUrl, resolvedVideoId) {
+        if (displayUrl.isNullOrBlank()) null
+        else {
+            coil.request.ImageRequest.Builder(context)
+                .data(displayUrl)
+                .crossfade(true)
+                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                .apply {
+                    if (resolvedVideoId != null && displayUrl.contains("maxresdefault.jpg")) {
+                        error("https://i.ytimg.com/vi/$resolvedVideoId/hq720.jpg")
+                        fallback("https://i.ytimg.com/vi/$resolvedVideoId/sddefault.jpg")
+                    }
+                }
+                .build()
+        }
+    }
+
     Surface(
         color = BgCard,
         shape = shape,
@@ -58,16 +78,17 @@ fun YtThumbnail(
             .clip(shape)
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (!displayUrl.isNullOrBlank()) {
+            if (imageRequest != null) {
                 SubcomposeAsyncImage(
-                    model = displayUrl,
+                    model = imageRequest,
                     contentDescription = title.ifBlank { null },
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(shape),
                     error = {
-                        val fallback = resolvedVideoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+                        val fallback = resolvedVideoId?.let { "https://i.ytimg.com/vi/$it/sddefault.jpg" }
+                            ?: resolvedVideoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
                         if (!fallback.isNullOrBlank() && fallback != displayUrl) {
                             SubcomposeAsyncImage(
                                 model = fallback,
@@ -91,7 +112,6 @@ fun YtThumbnail(
                                 }
                             )
                         } else {
-
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()

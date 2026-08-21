@@ -43,6 +43,28 @@ fun TrackCoverArt(
         )
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val imageRequest = remember(descriptor.primary, descriptor.secondary) {
+        val primary = descriptor.primary
+        if (primary.isNullOrBlank()) null
+        else {
+            val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(primary)
+            coil.request.ImageRequest.Builder(context)
+                .data(primary)
+                .crossfade(true)
+                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                .apply {
+                    if (vid != null && primary.contains("maxresdefault.jpg")) {
+                        error("https://i.ytimg.com/vi/$vid/hq720.jpg")
+                        fallback("https://i.ytimg.com/vi/$vid/sddefault.jpg")
+                    }
+                }
+                .build()
+        }
+    }
+
     val fallbackColors = remember(descriptor.fallbackColorSeed) {
         val seed = descriptor.fallbackColorSeed
         val hue1 = kotlin.math.abs(seed % 360).toFloat()
@@ -58,9 +80,9 @@ fun TrackCoverArt(
             .clip(shape)
             .background(Brush.linearGradient(fallbackColors))
     ) {
-        if (!descriptor.primary.isNullOrBlank()) {
+        if (imageRequest != null) {
             SubcomposeAsyncImage(
-                model = descriptor.primary,
+                model = imageRequest,
                 contentDescription = "$title cover",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
