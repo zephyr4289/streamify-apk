@@ -235,21 +235,34 @@ object YouTubeStreamResolver {
 
             if (cleanQuery.isNotBlank()) {
                 val searchMatches = YouTubeMusicSearchApi.search(cleanQuery, maxResults = 5)
+
+                // Same-recording proof: a candidate may only be pinned when its
+                // title, artist AND duration agree with the requested track.
+                fun isVerifiedMatch(match: com.streamify.app.viewmodel.OnlineSearchResult): Boolean {
+                    return extractVideoId(match.url) != null &&
+                            com.streamify.app.data.FuzzyTitleMatcher.isSameRecording(
+                                track.title, track.artist, track.durationSec,
+                                match.title, match.uploader, match.duration
+                            )
+                }
                 // Strict Official Audio Filter: Exclude user covers, live recordings, slowed, and remixes
+                val isNoiseFreeTitle = { title: String ->
+                    !title.contains("live", ignoreCase = true) &&
+                            !title.contains("cover", ignoreCase = true) &&
+                            !title.contains("remix", ignoreCase = true) &&
+                            !title.contains("slowed", ignoreCase = true) &&
+                            !title.contains("sped up", ignoreCase = true)
+                }
+
                 val topMatch = searchMatches.firstOrNull { match ->
                     val isOfficial = match.uploader.contains(track.artist, ignoreCase = true) || match.uploader.contains("Topic", ignoreCase = true)
-                    val isCleanTitle = !match.title.contains("live", ignoreCase = true) &&
-                                       !match.title.contains("cover", ignoreCase = true) &&
-                                       !match.title.contains("remix", ignoreCase = true) &&
-                                       !match.title.contains("slowed", ignoreCase = true) &&
-                                       !match.title.contains("sped up", ignoreCase = true)
-                    isOfficial && isCleanTitle && com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(track.title, track.artist, match.title, match.uploader)
+                    isOfficial && isNoiseFreeTitle(match.title) && isVerifiedMatch(match)
                 } ?: searchMatches.firstOrNull { match ->
-                    val isCleanTitle = !match.title.contains("live", ignoreCase = true) &&
-                                       !match.title.contains("cover", ignoreCase = true) &&
-                                       !match.title.contains("remix", ignoreCase = true)
-                    isCleanTitle && com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(track.title, track.artist, match.title, match.uploader)
-                } ?: searchMatches.firstOrNull()
+                    isNoiseFreeTitle(match.title) && isVerifiedMatch(match)
+                }
+                // NOTE: the previous unconditional `?: searchMatches.firstOrNull()`
+                // blind fallback was removed — an unverified candidate must never be
+                // pinned as this track's canonical video identity.
 
                 if (topMatch != null) {
                     videoId = extractVideoId(topMatch.url)
@@ -293,12 +306,17 @@ object YouTubeStreamResolver {
             return@withContext Result.success(nativeResolved)
         }
 
-        // 4. Tier 2: Query YouTube Music Search Match and retry
+        // 4. Tier 2: Query YouTube Music Search Match and retry (identity-verified).
         try {
             val fallbackSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 3)
             for (candidate in fallbackSearch) {
                 val candVideoId = extractVideoId(candidate.url, candidate.thumbnail)
-                if (candVideoId != null && candVideoId != videoId) {
+                if (candVideoId != null && candVideoId != videoId &&
+                    com.streamify.app.data.FuzzyTitleMatcher.isSameRecording(
+                        track.title, track.artist, track.durationSec,
+                        candidate.title, candidate.uploader, candidate.duration
+                    )
+                ) {
                     val retryResolved = raceClientEndpoints(candVideoId)
                     if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
                         StreamEdgeCache.putStream(candVideoId, retryResolved)
@@ -580,8 +598,8 @@ object YouTubeStreamResolver {
         val videoId = if (!directId.isNullOrBlank() && YT_ID_REGEX.matches(directId)) {
             directId
         } else {
-            CanonicalSeedResolver.resolveToCanonicalId(track)
-        }
+            CanonicalSeedResolver.resolveToCanonicalId(track).takeIf { it.matches(YT_ID_REGEX) }
+        } ?: return@withContext null
 
         // 1. Zero-RTT Edge Cache Check
         val cached = StreamEdgeCache.getVideoStream(videoId)

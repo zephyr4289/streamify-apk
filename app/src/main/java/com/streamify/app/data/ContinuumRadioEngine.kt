@@ -97,6 +97,11 @@ object ContinuumRadioEngine {
     suspend fun startRadio(seedTrack: Track): List<Track> = withContext(Dispatchers.IO) {
         clearRadio()
         val vId = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(seedTrack)
+        if (vId.length != 11) {
+            // No verified canonical seed → refuse to build a radio around an
+            // arbitrary/different recording.
+            return@withContext emptyList()
+        }
         playedVideoIds.add(vId)
         val seedHash = FuzzyTitleMatcher.extractRootHash(seedTrack.title)
         if (seedHash != 0L) playedRootHashes.add(seedHash)

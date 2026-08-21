@@ -11,8 +11,15 @@ object CanonicalSeedResolver {
     private val VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 
     /**
-     * Resolves any seed track (local MP3, cloud track, or online stream) into a guaranteed
-     * canonical 11-character YouTube Music Video ID in <50ms.
+     * Resolves any seed track (local MP3, cloud track, or online stream) into a
+     * canonical 11-character YouTube Music Video ID.
+     *
+     * IDENTITY GATE: a search result is only accepted when it proves same-song
+     * identity (title + artist + duration). The legacy behavior — pinning the
+     * FIRST search hit regardless of what song it actually was — permanently
+     * wrote wrong videos into canonical storage and is removed. When no verified
+     * match exists this returns "" so callers keep their un-pinned fallback path
+     * instead of poisoning the database with a different recording.
      */
     suspend fun resolveToCanonicalId(track: Track): String = withContext(Dispatchers.IO) {
         // 1. Direct validation if ytmVideoId, filepath or cover contains valid 11-char Video ID
@@ -28,14 +35,22 @@ object CanonicalSeedResolver {
             seedCache.get(cacheKey)?.let { return@withContext it }
         }
 
-        // 3. Fast Metadata Match via Sub-50ms Innertube Query
+        // 3. Verified Metadata Match via Sub-50ms Innertube Query
         val query = "${track.title} ${track.artist}".trim()
         if (query.isNotBlank()) {
             try {
-                val results = YouTubeMusicSearchApi.search(query, maxResults = 5)
+                val results = YouTubeMusicSearchApi.search(query, maxResults = 8)
                 val topMatch = results.firstOrNull { item ->
                     val vId = YouTubeStreamResolver.extractVideoId(item.url)
-                    vId != null && vId.matches(VIDEO_ID_REGEX)
+                    vId != null && vId.matches(VIDEO_ID_REGEX) &&
+                            com.streamify.app.data.FuzzyTitleMatcher.isSameRecording(
+                                track.title,
+                                track.artist,
+                                track.durationSec,
+                                item.title,
+                                item.uploader,
+                                item.duration
+                            )
                 }
                 if (topMatch != null) {
                     val resolvedId = YouTubeStreamResolver.extractVideoId(topMatch.url)!!
@@ -49,11 +64,8 @@ object CanonicalSeedResolver {
             }
         }
 
-        // 4. Deterministic Fallback Anchor (Never return arbitrary local string like "42")
-        val fallbackId = "dQw4w9WgXcQ"
-        synchronized(seedCache) {
-            seedCache.put(cacheKey, fallbackId)
-        }
-        fallbackId
+        // 4. No verified match → refuse to pin an arbitrary/different recording.
+        // Callers treat non-11-char results as "stay un-pinned".
+        ""
     }
 }

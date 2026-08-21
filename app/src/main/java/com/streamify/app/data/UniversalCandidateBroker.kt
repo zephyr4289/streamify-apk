@@ -29,12 +29,16 @@ object UniversalCandidateBroker {
         _isFetching.value = true
         try {
             // 1. Resolve Canonical 11-char YouTube Music Video ID in <50ms
+            // ("" when no verified seed exists → cloud/local channels still fan out,
+            //  but the Innertube radio channel must not fire with a bogus seed)
             val canonicalId = CanonicalSeedResolver.resolveToCanonicalId(seedTrack)
 
             // 2. 3-Way Parallel Coroutine Fan-Out
+            // Innertube channel requires a verified seed; skip (don't guess) when blank.
             val innertubeDeferred = async(Dispatchers.IO) {
                 try {
-                    ContinuumRadioEngine.fetchRawRadioTracks(canonicalId, seedTrack)
+                    if (canonicalId.isBlank()) emptyList()
+                    else ContinuumRadioEngine.fetchRawRadioTracks(canonicalId, seedTrack)
                 } catch (e: Exception) {
                     emptyList()
                 }

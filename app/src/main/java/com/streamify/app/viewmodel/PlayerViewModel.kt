@@ -311,7 +311,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     val curState = _playerState.value
                     val activeTrack = curState.currentTrack
                     val expectedTrack = curState.queue.getOrNull(curState.currentIndex)
-                    if (activeTrack != null && expectedTrack != null && (activeTrack.id == expectedTrack.id || activeTrack.title == expectedTrack.title)) {
+                    if (activeTrack != null && expectedTrack != null && (activeTrack.id == expectedTrack.id || (activeTrack.title == expectedTrack.title && activeTrack.artist == expectedTrack.artist))) {
                         // Already aligned with current queue index, ignore secondary playlist mutation event
                     } else {
                         updateCurrentTrackFromMediaItem(mediaItem)
@@ -866,7 +866,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
         }
         val targetIndex = hydratedQueue.indexOfFirst {
-            (it.id != 0 && it.id == hydratedTrack.id) || (it.filepath.isNotBlank() && it.filepath == hydratedTrack.filepath) || it.title == hydratedTrack.title
+            // Identity-safe matching: a bare title collision must never hijack the
+            // queue slot of a different song (different artists, covers, remixes).
+            (it.id != 0 && it.id == hydratedTrack.id) ||
+                (it.filepath.isNotBlank() && it.filepath == hydratedTrack.filepath) ||
+                (it.title == hydratedTrack.title && it.artist == hydratedTrack.artist)
         }.takeIf { it >= 0 } ?: 0
 
         // 1. Immediately update UI state and pause old track for instantaneous tactile response

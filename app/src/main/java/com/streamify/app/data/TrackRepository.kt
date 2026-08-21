@@ -100,11 +100,16 @@ object TrackRepository {
     fun hydrateTrack(track: Track): Track {
         val liked = isTrackLiked(track)
         val matchedInDb = if (track.id <= 0) {
-            _allTracks.value.find { 
+            _allTracks.value.find {
                 it.id > 0 && (
-                    it.filepath == track.filepath || 
+                    it.filepath == track.filepath ||
                     (it.ytmVideoId != null && track.ytmVideoId != null && it.ytmVideoId == track.ytmVideoId) ||
-                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
+                    (
+                        com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist) &&
+                        // Artist gate: title-only fuzzy matching used to merge
+                        // different artists' same-titled songs into one identity.
+                        com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(it.artist, track.artist)
+                    )
                 )
             }
         } else {

@@ -56,6 +56,72 @@ object FuzzyTitleMatcher {
     }
 
     /**
+     * Cleans artist strings for identity comparison: drops distribution noise
+     * ("- Topic", "VEVO", "Official") and punctuation.
+     */
+    fun cleanArtistForMatch(artist: String): String {
+        return artist.lowercase()
+            .replace("- topic", "")
+            .replace("vevo", "")
+            .replace(" - official", "")
+            .split(CLEAN_REGEX)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+    }
+
+    /**
+     * Same-song TITLE gate: cleaned equality fast-path, then bounded similarity.
+     * Used by stream resolvers to prove a search candidate refers to this song
+     * BEFORE its videoId/stream may be trusted or persisted.
+     */
+    fun titlesMatch(aTitle: String, bTitle: String): Boolean {
+        val a = aTitle.trim().lowercase()
+        val b = bTitle.trim().lowercase()
+        if (a.isEmpty() || b.isEmpty()) return false
+        if (a == b) return true
+        return calculateSimilarity(a, b) >= 0.72
+    }
+
+    /**
+     * Same-song ARTIST gate: substring-tolerant match after noise stripping.
+     * An empty query artist never rejects; an empty candidate artist does.
+     */
+    fun artistsMatch(aArtist: String, bArtist: String): Boolean {
+        val a = cleanArtistForMatch(aArtist)
+        val b = cleanArtistForMatch(bArtist)
+        if (a.isEmpty()) return true
+        if (b.isEmpty()) return false
+        return a == b || a.contains(b) || b.contains(a)
+    }
+
+    /**
+     * Duration gate (±tolerance seconds). Unknown durations on either side never reject.
+     */
+    fun durationMatches(secA: Int, secB: Int, toleranceSec: Int = 15): Boolean {
+        if (secA <= 0 || secB <= 0) return true
+        return kotlin.math.abs(secA - secB) <= toleranceSec
+    }
+
+    /**
+     * Full same-recording proof: title + artist + optional duration agreement.
+     * This is the gate every CDN/videoId resolution path must pass before it may
+     * bind, pin, cache or play a resolved candidate.
+     */
+    fun isSameRecording(
+        titleA: String,
+        artistA: String,
+        durationSecA: Int,
+        titleB: String,
+        artistB: String,
+        durationSecB: Int,
+        durationToleranceSec: Int = 15
+    ): Boolean {
+        return titlesMatch(titleA, titleB) &&
+                artistsMatch(artistA, artistB) &&
+                durationMatches(durationSecA, durationSecB, durationToleranceSec)
+    }
+
+    /**
      * Checks if two tracks are duplicate variations of the same underlying song.
      */
     fun isSameSongVariation(titleA: String, artistA: String, titleB: String, artistB: String): Boolean {
