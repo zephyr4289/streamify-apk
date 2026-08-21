@@ -1,6 +1,4 @@
 use rusqlite::{params, Connection};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::panic::catch_unwind;
 
 #[derive(serde::Deserialize)]
@@ -20,55 +18,68 @@ pub struct TrackRepository {
     conn: Connection,
 }
 
+/// Canonical schema for universal_tracks, shared by TrackRepository::new and
+/// ensure_db_migrated so read-only paths can bootstrap the table safely.
+pub const UNIVERSAL_TRACKS_DDL: &str =
+    "CREATE TABLE IF NOT EXISTS universal_tracks (
+        cad_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        artist TEXT NOT NULL,
+        duration_sec INTEGER NOT NULL,
+        artwork_url TEXT,
+        isrc_code TEXT,
+        spotify_id TEXT,
+        ytm_video_id TEXT,
+        source_platform TEXT NOT NULL,
+        is_liked INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_isrc ON universal_tracks(isrc_code);
+    CREATE INDEX IF NOT EXISTS idx_spotify ON universal_tracks(spotify_id);
+    CREATE INDEX IF NOT EXISTS idx_ytm ON universal_tracks(ytm_video_id);";
+
+/// PRAGMA user_version gate for the CAD-ID re-key migration.
+/// v1 = legacy mixed hash schemes (Rust DefaultHasher / C++ FNV divergence).
+/// v2 = single canonical FNV-1a scheme shared by every layer.
+const REKEY_SCHEMA_VERSION: i32 = 2;
+
 impl TrackRepository {
     pub fn new(path: &str) -> Result<Self, rusqlite::Error> {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS universal_tracks (
-                cad_id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                artist TEXT NOT NULL,
-                duration_sec INTEGER NOT NULL,
-                artwork_url TEXT,
-                isrc_code TEXT,
-                spotify_id TEXT,
-                ytm_video_id TEXT,
-                source_platform TEXT NOT NULL,
-                is_liked INTEGER DEFAULT 0
-            );
-            CREATE INDEX IF NOT EXISTS idx_isrc ON universal_tracks(isrc_code);
-            CREATE INDEX IF NOT EXISTS idx_spotify ON universal_tracks(spotify_id);
-            CREATE INDEX IF NOT EXISTS idx_ytm ON universal_tracks(ytm_video_id);"
-        )?;
+        conn.execute_batch(UNIVERSAL_TRACKS_DDL)?;
+        ensure_cad_rekey(&conn);
         Ok(TrackRepository { conn })
     }
 
     /// Generates a Duration-Aware Canonical Hash (CAD-ID).
     /// Prevents "Starboy (Kygo Remix)" from colliding with "Starboy (Original)".
+    ///
+    /// SINGLE SOURCE OF TRUTH for cross-layer identity. This is a bit-exact port of
+    /// the C++ implementation (nativeGenerateCadId in jni_bridge.cc): FNV-1a 64-bit
+    /// over ASCII-byte-filtered lowercase title ('(' preserved), ASCII-filtered
+    /// artist, then the little-endian u32 duration bucket (seconds / 3).
+    /// Every layer (Kotlin fallback, Rust ingest, C++ JNI) must agree on this value.
     #[inline(always)]
     pub fn generate_cad_id(title: &str, artist: &str, duration_sec: u32) -> String {
-        let mut hasher = DefaultHasher::new();
+        const FNV_OFFSET: u64 = 14695981039346656037;
+        const FNV_PRIME: u64 = 1099511628211;
 
-        // Normalize title: lowercase, keep alphanumeric & parentheses (for remix tags)
-        let clean_title = title
-            .to_lowercase()
-            .replace(|c: char| !c.is_alphanumeric() && c != '(', "");
-
-        // Normalize artist: lowercase, strictly alphanumeric
-        let clean_artist = artist
-            .to_lowercase()
-            .replace(|c: char| !c.is_alphanumeric(), "");
-
-        clean_title.hash(&mut hasher);
-        clean_artist.hash(&mut hasher);
-
-        // Bucket duration by 3 seconds to absorb cross-platform master discrepancies
-        let duration_bucket = duration_sec / 3;
-        duration_bucket.hash(&mut hasher);
-
-        format!("{:016x}", hasher.finish())
+        let mut hash: u64 = FNV_OFFSET;
+        for &b in normalize_cad_field(title, true) {
+            hash ^= b as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        for &b in normalize_cad_field(artist, false) {
+            hash ^= b as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        let bucket: u32 = if duration_sec > 0 { duration_sec / 3 } else { 0 };
+        for i in 0..4 {
+            hash ^= ((bucket >> (i * 8)) & 0xFF) as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        format!("{:016x}", hash)
     }
 
     /// Batch upserts tracks in a single transaction.
@@ -199,6 +210,129 @@ impl TrackRepository {
         });
 
         result.unwrap_or(-3)
+    }
+}
+
+/// Byte-exact mirror of the C++ normalization in nativeGenerateCadId:
+/// iterates UTF-8 BYTES, keeps ASCII alphanumerics (plus '(' for titles when
+/// allow_paren), lowercases ASCII letters, drops everything else (all non-ASCII).
+fn normalize_cad_field(input: &str, allow_paren: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    for &b in input.as_bytes() {
+        let keep = b.is_ascii_alphanumeric() || (allow_paren && b == b'(');
+        if keep {
+            out.push(b.to_ascii_lowercase());
+        }
+    }
+    out
+}
+
+/// One-time migration: re-keys universal_tracks rows that were written with the
+/// legacy Rust DefaultHasher CAD-ID scheme onto the canonical FNV-1a scheme.
+/// Guarded by PRAGMA user_version so it executes at most once per database file.
+pub fn ensure_cad_rekey(conn: &Connection) {
+    let current_version: i32 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap_or(REKEY_SCHEMA_VERSION);
+    if current_version >= REKEY_SCHEMA_VERSION {
+        return;
+    }
+
+    if conn.execute_batch("BEGIN IMMEDIATE;").is_err() {
+        return;
+    }
+
+    let migrated = (|| -> Result<bool, rusqlite::Error> {
+        let mut stmt = conn.prepare(
+            "SELECT cad_id, title, artist, duration_sec FROM universal_tracks",
+        )?;
+        let rows: Vec<(String, String, String, i64)> = stmt
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(stmt);
+
+        // Compute the canonical id for every row; collapse intra-batch duplicates,
+        // keeping the first occurrence of each target key.
+        let mut seen_new_ids = std::collections::HashSet::new();
+        let mut plan: Vec<(String, String)> = Vec::with_capacity(rows.len());
+        for (old_id, title, artist, duration_sec) in &rows {
+            let new_id = TrackRepository::generate_cad_id(
+                title,
+                artist,
+                (*duration_sec).clamp(0, u32::MAX as i64) as u32,
+            );
+            if new_id == *old_id || !seen_new_ids.insert(new_id.clone()) {
+                continue;
+            }
+            plan.push((old_id.clone(), new_id));
+        }
+
+        for (old_id, new_id) in plan {
+            // Target key already occupied by a different row → merge into it.
+            let occupied: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM universal_tracks WHERE cad_id = ?1)",
+                    [&new_id],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map(|v| v != 0)
+                .unwrap_or(false);
+
+            if occupied {
+                let _ = conn.execute(
+                    "UPDATE universal_tracks SET
+                        ytm_video_id = COALESCE(NULLIF(ytm_video_id, ''), (SELECT ytm_video_id FROM universal_tracks WHERE cad_id = ?2)),
+                        isrc_code    = COALESCE(isrc_code,    (SELECT isrc_code    FROM universal_tracks WHERE cad_id = ?2)),
+                        spotify_id    = COALESCE(spotify_id,    (SELECT spotify_id    FROM universal_tracks WHERE cad_id = ?2)),
+                        artwork_url  = COALESCE(artwork_url,  (SELECT artwork_url  FROM universal_tracks WHERE cad_id = ?2))
+                     WHERE cad_id = ?1",
+                    params![new_id, old_id],
+                );
+                let _ = conn.execute(
+                    "DELETE FROM universal_tracks WHERE cad_id = ?1",
+                    [&old_id],
+                );
+            } else {
+                let _ = conn.execute(
+                    "UPDATE universal_tracks SET cad_id = ?1 WHERE cad_id = ?2",
+                    params![new_id, old_id],
+                );
+            }
+        }
+
+        Ok(true)
+    })();
+
+    match migrated {
+        Ok(true) => {
+            let _ = conn.execute_batch("COMMIT;");
+            let _ = conn.execute_batch(&format!(
+                "PRAGMA user_version = {};",
+                REKEY_SCHEMA_VERSION
+            ));
+        }
+        _ => {
+            // Roll back and leave user_version untouched so the migration retries
+            // on the next open instead of half-committing a corrupt re-key.
+            let _ = conn.execute_batch("ROLLBACK;");
+        }
+    }
+}
+
+/// Bootstrap helper for read-only entry points (e.g. the stream resolver): opens
+/// the database, guarantees the schema exists, and applies pending migrations.
+pub fn ensure_db_migrated(db_path: &str) {
+    if db_path.is_empty() {
+        return;
+    }
+    if let Ok(conn) = Connection::open(db_path) {
+        let _ = conn.pragma_update(None, "journal_mode", "WAL");
+        if conn.execute_batch(UNIVERSAL_TRACKS_DDL).is_ok() {
+            ensure_cad_rekey(&conn);
+        }
     }
 }
 

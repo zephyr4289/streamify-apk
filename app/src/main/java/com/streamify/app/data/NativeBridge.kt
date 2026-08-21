@@ -250,17 +250,44 @@ object NativeBridge {
         }
     }
 
+    /**
+     * Pure-Kotlin mirror of the canonical CAD-ID scheme, used only when the native
+     * library fails to load. MUST stay byte-identical to:
+     *  - C++: nativeGenerateCadId (native/jni/jni_bridge.cc)
+     *  - Rust: TrackRepository::generate_cad_id (rust/src/repository.rs)
+     * Algorithm: FNV-1a 64-bit over ASCII-byte-filtered lowercase title ('(' kept),
+     * ASCII-filtered artist, then the little-endian u32 duration bucket (/3).
+     */
     private fun fallbackGenerateCadId(title: String, artist: String, durationSec: Int): String {
-        val cleanTitle = title.lowercase().filter { it.isLetterOrDigit() || it == '(' }
-        val cleanArtist = artist.lowercase().filter { it.isLetterOrDigit() }
-        val durationBucket = durationSec / 3
-        val combined = "$cleanTitle|$cleanArtist|$durationBucket"
-        return try {
-            val digest = java.security.MessageDigest.getInstance("SHA-256").digest(combined.toByteArray(Charsets.UTF_8))
-            digest.take(8).joinToString("") { "%02x".format(it) }
-        } catch (e: Throwable) {
-            "cad_${cleanTitle.hashCode().toString(16)}_${cleanArtist.hashCode().toString(16)}"
+        val offset = 14695981039346656037UL
+        val prime = 1099511628211UL
+
+        fun normalize(source: String, keepParen: Boolean): List<Int> {
+            val bytes = mutableListOf<Int>()
+            for (raw in source) {
+                if (raw.code in 0..127) {
+                    val c = raw.lowercaseChar()
+                    val isAlnum = c in 'a'..'z' || c in '0'..'9'
+                    if (isAlnum || (keepParen && c == '(')) {
+                        bytes.add(c.code)
+                    }
+                }
+            }
+            return bytes
         }
+
+        var hash = offset
+        for (b in normalize(title, keepParen = true)) {
+            hash = (hash xor b.toULong()) * prime
+        }
+        for (b in normalize(artist, keepParen = false)) {
+            hash = (hash xor b.toULong()) * prime
+        }
+        val bucket = if (durationSec > 0) durationSec / 3 else 0
+        for (i in 0 until 4) {
+            hash = (hash xor ((bucket shr (i * 8)) and 0xFF).toULong()) * prime
+        }
+        return hash.toString(16).padStart(16, '0')
     }
 
     external fun nativeGenerateCadId(title: String, artist: String, durationSec: Int): String
