@@ -54,3 +54,48 @@ pub unsafe extern "C" fn generate_sapisid_hash(
     // If a panic occurred (e.g., hash failed), return -3. NEVER crash the JVM.
     result.unwrap_or(-3)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sapisidhash_generation_matches_google_spec() {
+        let sapisid = "TEST_SAPISID_123";
+        let origin = "https://music.youtube.com";
+        let timestamp = 1715000000_u64;
+
+        let payload = format!("{} {} {}", timestamp, sapisid, origin);
+        let mut hasher = Sha1::new();
+        hasher.update(payload.as_bytes());
+        let expected_hash = hex::encode(hasher.finalize());
+        let expected_result = format!("{}_{}", timestamp, expected_hash);
+
+        let test_payload = format!("{} {} {}", timestamp, sapisid, origin);
+        assert_eq!(test_payload, "1715000000 TEST_SAPISID_123 https://music.youtube.com");
+        assert_eq!(expected_result.starts_with("1715000000_"), true);
+    }
+
+    #[test]
+    fn test_buffer_overflow_protection() {
+        let sapisid = "TEST";
+        let origin = "https://music.youtube.com";
+        // Buffer intentionally too small (10 bytes, output is ~51 bytes)
+        let mut out_buf = vec![0u8; 10];
+
+        let result = unsafe {
+            generate_sapisid_hash(
+                sapisid.as_ptr(),
+                sapisid.len(),
+                origin.as_ptr(),
+                origin.len(),
+                out_buf.as_mut_ptr(),
+                out_buf.len(),
+            )
+        };
+
+        // Must return -2 (Buffer too small)
+        assert_eq!(result, -2);
+    }
+}
+

@@ -46,3 +46,11 @@ Cargo.lock
 # Scratch Plans
 nano/
 
+# Testing & Diagnostics
+test-build.log
+test-log.md
+test-results/
+test_results/
+reports/
+*.log
+!docs/*.md
