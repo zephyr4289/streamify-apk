@@ -112,17 +112,6 @@ fun PrismaticSplashScreen(
             .graphicsLayer {
                 val progress = timeline.value
 
-                // 3. Hardware Shader Acceleration (0% CPU Usage)
-                if (runtimeShader != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    runtimeShader.setFloatUniform("uResolution", size.width, size.height)
-                    runtimeShader.setFloatUniform("uTime", progress * 4.4f)
-                    runtimeShader.setFloatUniform("uProgress", progress)
-                    runtimeShader.setFloatUniform("uTouch", touchPos.x, touchPos.y)
-                    renderEffect = RenderEffect
-                        .createRuntimeShaderEffect(runtimeShader, "uContent")
-                        .asComposeRenderEffect()
-                }
-
                 // 4. Spatial Hero Glide at Exit Phase (Morphs toward Top-Left App Bar)
                 if (progress >= 0.85f) {
                     val exitFraction = ((progress - 0.85f) / 0.15f).coerceIn(0f, 1f)
@@ -140,11 +129,24 @@ fun PrismaticSplashScreen(
     ) {
         val p = timeline.value
 
-        // Fallback / Hybrid 2D Canvas for Typography and Pre-Android 13 Prismatic FX
+        // High-Performance AGSL Shader (Android 13+) with Fallback 2D Canvas
         Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
             val height = size.height
             val center = Offset(width / 2f, height / 2f)
+
+            // 1. Hardware AGSL Shader Layer
+            if (runtimeShader != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                try {
+                    runtimeShader.setFloatUniform("uResolution", width, height)
+                    runtimeShader.setFloatUniform("uTime", p * 4.4f)
+                    runtimeShader.setFloatUniform("uProgress", p)
+                    runtimeShader.setFloatUniform("uTouch", touchPos.x, touchPos.y)
+                    drawRect(brush = ShaderBrush(runtimeShader))
+                } catch (e: Throwable) {
+                    // Fail-safe: absorb and continue with 2D Canvas
+                }
+            }
 
             val p1End = 0.350f
             val p2End = 0.650f
