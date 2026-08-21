@@ -42,6 +42,12 @@ fun SpotifyLoginDialog(
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var isSecuringSession by remember { mutableStateOf(false) }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            extractor.release()
+        }
+    }
+
     Dialog(
         onDismissRequest = {
             if (!isSecuringSession) onDismiss()

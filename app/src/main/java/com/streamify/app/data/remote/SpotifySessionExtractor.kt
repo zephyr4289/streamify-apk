@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class SpotifySessionExtractor(private val context: Context) {
     private val isIntercepted = AtomicBoolean(false)
+    private var pollingJob: Job? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     fun launchAuthSession(
@@ -22,6 +23,8 @@ class SpotifySessionExtractor(private val context: Context) {
         onError: (String) -> Unit
     ) {
         isIntercepted.set(false)
+        release()
+
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
@@ -35,17 +38,23 @@ class SpotifySessionExtractor(private val context: Context) {
 
         fun checkAndHarvestSpDc() {
             if (isIntercepted.get()) return
+            cookieManager.flush()
 
             val openCookies = cookieManager.getCookie("https://open.spotify.com").orEmpty()
             val baseCookies = cookieManager.getCookie("https://accounts.spotify.com").orEmpty()
+            val dotCookies = cookieManager.getCookie("https://.spotify.com").orEmpty()
             val domainCookies = cookieManager.getCookie("https://spotify.com").orEmpty()
-            val aggregated = "$openCookies; $baseCookies; $domainCookies"
+            val aggregated = listOf(openCookies, baseCookies, dotCookies, domainCookies)
+                .filter { it.isNotBlank() }
+                .joinToString("; ")
 
             val spDc = extractCookie(aggregated, "sp_dc")
 
             if (!spDc.isNullOrBlank() && isIntercepted.compareAndSet(false, true)) {
+                release()
                 try {
                     webView.stopLoading()
+                    webView.loadUrl("about:blank")
                 } catch (e: Exception) {
                     // Ignore
                 }
@@ -64,6 +73,15 @@ class SpotifySessionExtractor(private val context: Context) {
             }
         }
 
+        // 1. Start continuous 800ms SPA Cookie Polling Daemon
+        pollingJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive && !isIntercepted.get()) {
+                delay(800)
+                checkAndHarvestSpDc()
+            }
+        }
+
+        // 2. Attach lifecycle listeners for standard page transitions
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
@@ -82,6 +100,11 @@ class SpotifySessionExtractor(private val context: Context) {
         }
 
         webView.loadUrl("https://accounts.spotify.com/en/login?continue=https%3A%2F%2Fopen.spotify.com%2F")
+    }
+
+    fun release() {
+        pollingJob?.cancel()
+        pollingJob = null
     }
 
     suspend fun fetchWebAccessToken(spDc: String): Result<String> = withContext(Dispatchers.IO) {

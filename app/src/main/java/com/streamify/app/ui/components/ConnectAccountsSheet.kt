@@ -143,7 +143,7 @@ fun ConnectAccountsSheet(
                     } else {
                         Button(
                             onClick = {
-                                spotifyAuth.launchCustomTabsAuth(context)
+                                showSpotifyDialog = true
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
                             shape = RoundedCornerShape(12.dp),
