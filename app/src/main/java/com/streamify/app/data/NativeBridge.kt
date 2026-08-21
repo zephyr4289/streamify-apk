@@ -193,7 +193,7 @@ object NativeBridge {
                 artistBytes, artistBytes.size,
                 outBuffer, outBuffer.size
             )
-        } catch (e: UnsatisfiedLinkError) {
+        } catch (e: Throwable) {
             -1
         }
         return if (written > 0) String(outBuffer, 0, written, Charsets.UTF_8) else null

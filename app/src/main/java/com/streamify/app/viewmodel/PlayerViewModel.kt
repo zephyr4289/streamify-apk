@@ -765,17 +765,26 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     private fun sanitizeStreamUri(rawUrl: String): android.net.Uri {
-        if (!rawUrl.contains("range=") && !rawUrl.contains("rn=")) {
-            return android.net.Uri.parse(rawUrl)
-        }
-        val uri = android.net.Uri.parse(rawUrl)
-        val cleanBuilder = uri.buildUpon().clearQuery()
-        uri.queryParameterNames
-            .filterNot { it.equals("range", ignoreCase = true) || it.equals("rn", ignoreCase = true) }
-            .forEach { key ->
-                cleanBuilder.appendQueryParameter(key, uri.getQueryParameter(key))
+        return try {
+            if (!rawUrl.contains("range=") && !rawUrl.contains("rn=")) {
+                android.net.Uri.parse(rawUrl)
+            } else {
+                val uri = android.net.Uri.parse(rawUrl)
+                val cleanBuilder = uri.buildUpon().clearQuery()
+                uri.queryParameterNames
+                    ?.filterNot { it.equals("range", ignoreCase = true) || it.equals("rn", ignoreCase = true) }
+                    ?.forEach { key ->
+                        cleanBuilder.appendQueryParameter(key, uri.getQueryParameter(key))
+                    }
+                cleanBuilder.build()
             }
-        return cleanBuilder.build()
+        } catch (e: Throwable) {
+            try {
+                android.net.Uri.parse(rawUrl)
+            } catch (ex: Throwable) {
+                android.net.Uri.EMPTY
+            }
+        }
     }
 
     private fun buildMediaItem(t: Track): MediaItem {
@@ -1122,10 +1131,14 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         if (isPlayable) {
             val mediaItem = buildMediaItem(resolvedTrack)
             withContext(Dispatchers.Main) {
-                controller?.let { ctrl ->
-                    ctrl.setMediaItem(mediaItem, 0L)
-                    ctrl.prepare()
-                    ctrl.play()
+                try {
+                    controller?.let { ctrl ->
+                        ctrl.setMediaItem(mediaItem, 0L)
+                        ctrl.prepare()
+                        ctrl.play()
+                    }
+                } catch (e: Throwable) {
+                    e.printStackTrace()
                 }
                 val isCtrlBuffering = controller?.let { it.playbackState == androidx.media3.common.Player.STATE_BUFFERING || it.playbackState == androidx.media3.common.Player.STATE_IDLE } ?: true
                 _playerState.value = _playerState.value.copy(

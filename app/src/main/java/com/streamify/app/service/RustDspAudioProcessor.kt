@@ -57,12 +57,13 @@ class RustDspAudioProcessor : AudioProcessor {
 
         val remainingBytes = inputBuffer.remaining()
         val channelCount = inputAudioFormat.channelCount.coerceAtLeast(1)
-        val bytesPerFrame = if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) channelCount * 2 else channelCount * 4
+        val is16Bit = inputAudioFormat.encoding == C.ENCODING_PCM_16BIT
+        val bytesPerFrame = if (is16Bit) channelCount * 2 else channelCount * 4
         val numFrames = remainingBytes / bytesPerFrame
         if (numFrames <= 0) return
 
-        val requiredInputCap = numFrames * channelCount * 2
-        val requiredOutputCap = numFrames * channelCount * 4
+        val requiredInputCap = numFrames * channelCount * 2 // 16-bit PCM for Rust DSP engine
+        val requiredOutputCap = numFrames * channelCount * 4 // 32-bit Float PCM output
 
         if (nativeInputBuffer.capacity() < requiredInputCap) {
             nativeInputBuffer = ByteBuffer.allocateDirect(requiredInputCap * 2).order(ByteOrder.nativeOrder())
@@ -72,10 +73,20 @@ class RustDspAudioProcessor : AudioProcessor {
         }
 
         nativeInputBuffer.clear()
-        val oldLimit = inputBuffer.limit()
-        inputBuffer.limit(inputBuffer.position() + (numFrames * bytesPerFrame))
-        nativeInputBuffer.put(inputBuffer)
-        inputBuffer.limit(oldLimit)
+        if (is16Bit) {
+            val oldLimit = inputBuffer.limit()
+            inputBuffer.limit(inputBuffer.position() + (numFrames * bytesPerFrame))
+            nativeInputBuffer.put(inputBuffer)
+            inputBuffer.limit(oldLimit)
+        } else {
+            // Float to 16-bit integer PCM conversion for Rust DSP engine
+            val sampleCount = numFrames * channelCount
+            for (i in 0 until sampleCount) {
+                val f = inputBuffer.float
+                val s = (f.coerceIn(-1.0f, 1.0f) * 32767.0f).toInt().toShort()
+                nativeInputBuffer.putShort(s)
+            }
+        }
         nativeInputBuffer.flip()
 
         nativeOutputBuffer.clear()

@@ -41,7 +41,7 @@ class PlaybackService : MediaSessionService() {
             ): androidx.media3.exoplayer.audio.AudioSink? {
                 return DefaultAudioSink.Builder(context)
                     .setEnableFloatOutput(true)
-                    .setAudioProcessors(arrayOf(meshAudioProcessor, crossfadeAudioProcessor, syncAudioProcessor, rustDspAudioProcessor))
+                    .setAudioProcessors(arrayOf(rustDspAudioProcessor, meshAudioProcessor, crossfadeAudioProcessor, syncAudioProcessor))
                     .build()
             }
         }.apply {
