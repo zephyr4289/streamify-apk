@@ -13,7 +13,11 @@ import kotlin.math.sin
 @OptIn(UnstableApi::class)
 class CrossfadeAudioProcessor : BaseAudioProcessor() {
 
-    private var crossfadeDurationMs = 2500L
+    companion object {
+        var crossfadeDurationMs: Long = 2500L
+    }
+
+    private var currentCrossfadeDurationMs = 2500L
     private var isCrossfading = false
     private var totalCrossfadeFrames = 0L
     private var currentFrameCount = 0L
