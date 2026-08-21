@@ -128,7 +128,7 @@ fun SearchScreen(
             )
         }
 
-        // Suggestions Rail
+        // Suggestions Rail with 1-Tap Quick-Play Action
         if (query.isNotBlank() && searchSuggestions.isNotEmpty()) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
@@ -145,7 +145,7 @@ fun SearchScreen(
                         }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
@@ -160,6 +160,26 @@ fun SearchScreen(
                                 style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
                                 color = TextMain
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .clickable {
+                                        com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
+                                        query = suggestion
+                                        viewModel.search(suggestion)
+                                        viewModel.updateSuggestions("")
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlayArrow,
+                                    contentDescription = "Quick Play",
+                                    tint = Primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }

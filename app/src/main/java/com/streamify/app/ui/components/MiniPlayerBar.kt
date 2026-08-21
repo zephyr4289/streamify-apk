@@ -89,6 +89,11 @@ fun MiniPlayerBar(
         label = "MiniPlayerRecoilY"
     )
 
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val swipeThresholdPx = with(density) { 75.dp.toPx() }
+    val dragOffsetX = remember { androidx.compose.animation.core.Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
+
     Surface(
         color = BgSurfaceElevated,
         modifier = modifier
@@ -98,6 +103,7 @@ fun MiniPlayerBar(
                 this.alpha = alpha
                 this.scaleX = recoilScaleX
                 this.scaleY = recoilScaleY
+                this.translationX = dragOffsetX.value
             }
     ) {
         Box(
@@ -107,18 +113,33 @@ fun MiniPlayerBar(
                     detectTapGestures(onTap = { onExpand() })
                 }
                 .pointerInput(Unit) {
-                    var totalDrag = 0f
                     detectHorizontalDragGestures(
-                        onDragStart = { totalDrag = 0f },
                         onDragEnd = {
-                            if (totalDrag < -60f) onNext()
-                            else if (totalDrag > 60f) onPrevious()
-                            totalDrag = 0f
+                            coroutineScope.launch {
+                                val offset = dragOffsetX.value
+                                if (offset < -swipeThresholdPx) {
+                                    com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
+                                    onNext()
+                                } else if (offset > swipeThresholdPx) {
+                                    com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
+                                    onPrevious()
+                                }
+                                dragOffsetX.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = androidx.compose.animation.core.spring(
+                                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                        stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+                                    )
+                                )
+                            }
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            coroutineScope.launch {
+                                dragOffsetX.snapTo(dragOffsetX.value + dragAmount * 0.65f)
+                            }
                         }
-                    ) { change, dragAmount ->
-                        change.consume()
-                        totalDrag += dragAmount
-                    }
+                    )
                 }
         ) {
             Row(

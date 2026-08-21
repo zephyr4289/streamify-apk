@@ -587,6 +587,9 @@ fun FullPlayerSheet(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                var seekRippleSide by remember { mutableStateOf<Int?>(null) }
+                val seekRippleScope = rememberCoroutineScope()
+
                 // --- HERO DYNAMIC MORPHING ALBUM ARTWORK / HARDWARE VIDEO SURFACE ---
                 Box(
                     modifier = Modifier
@@ -601,6 +604,25 @@ fun FullPlayerSheet(
                                 scaleX = 0.98f + (heroPulseAlpha * 0.02f)
                                 scaleY = 0.98f + (heroPulseAlpha * 0.02f)
                             }
+                        }
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    com.streamify.app.util.StreamifyHapticEngine.magneticQueueGrab()
+                                    onLyricsClick?.invoke()
+                                },
+                                onDoubleTap = { offset ->
+                                    val isRightSide = offset.x > (size.width / 2f)
+                                    val seekDeltaMs = if (isRightSide) 10_000L else -10_000L
+                                    com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
+                                    playerViewModel.seekRelative(seekDeltaMs)
+                                    seekRippleSide = if (isRightSide) 1 else -1
+                                    seekRippleScope.launch {
+                                        kotlinx.coroutines.delay(650)
+                                        seekRippleSide = null
+                                    }
+                                }
+                            )
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -631,6 +653,36 @@ fun FullPlayerSheet(
                                 modifier = Modifier.fillMaxSize(),
                                 shape = RoundedCornerShape(16.dp)
                             )
+                        }
+                    }
+
+                    if (seekRippleSide != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.42f)),
+                            contentAlignment = if (seekRippleSide == 1) Alignment.CenterEnd else Alignment.CenterStart
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(horizontal = 24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (seekRippleSide == 1) Icons.Filled.FastForward else Icons.Filled.FastRewind,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (seekRippleSide == 1) "+10s" else "-10s",
+                                    style = LocalAppTypography.current.songArtist.copy(
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
                 }

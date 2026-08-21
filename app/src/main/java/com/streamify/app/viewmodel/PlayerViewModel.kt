@@ -1243,6 +1243,15 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         }
                     }
                 }
+
+                appContext?.let { ctx ->
+                    try {
+                        val upcomingSlice = queue.subList(nextIndex, queue.size)
+                        com.streamify.app.service.PredictivePreBufferManager(ctx).preBufferUpcomingTracks(upcomingSlice)
+                    } catch (e: Exception) {
+                        // Non-fatal pre-buffer error
+                    }
+                }
             } catch (e: Exception) {
                 // Non-fatal background lookahead error
             }
@@ -1295,6 +1304,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         scheduler.scheduleAtomicPlayback(track, targetAtomicTimestampMs, startPositionMs) {
             _playerState.value = _playerState.value.copy(isPlaying = true)
         }
+    }
+
+    fun seekRelative(deltaMs: Long) {
+        val currentPos = _playerState.value.currentPosition
+        seekTo(currentPos + deltaMs)
     }
 
     fun seekTo(positionMs: Long) {
