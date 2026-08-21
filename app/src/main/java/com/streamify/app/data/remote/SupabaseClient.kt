@@ -1204,7 +1204,9 @@ object SupabaseClient {
                     val artist = o.optString("artist", "")
                     val cover = o.optString("cover_url", "")
                     val streamUrl = o.optString("stream_url", "")
-                    val duration = o.optInt("duration_sec", 180)
+                    // 0 (not 180): a fabricated duration would poison CAD-ID
+                    // duration-bucket identity for this track across devices.
+                    val duration = o.optInt("duration_sec", 0)
                     val bpm = o.optDouble("bpm", 120.0).toFloat()
                     val key = o.optString("key_signature", "C")
 
@@ -1222,7 +1224,8 @@ object SupabaseClient {
                         bpm = bpm,
                         key = key,
                         lyricsPath = null,
-                        source = "cloud_jam"
+                        source = "cloud_jam",
+                        ytmVideoId = videoId
                     )
                 }
             }
@@ -1252,19 +1255,30 @@ object SupabaseClient {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
+                    val title = o.optString("title")
+                    val artist = o.optString("artist")
+                    val streamUrl = o.optString("stream_url", "")
+                    val coverUrl = o.optString("cover_url").takeIf { it.isNotBlank() }
+
+                    // Identity pinning: extract the videoId NOW so these tracks never
+                    // fall into the unverified fuzzy resolution cascade at play time.
+                    val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(streamUrl, coverUrl)
+
                     recs.add(
                         Track(
                             id = -(o.optString("id").hashCode()),
-                            title = o.optString("title"),
-                            artist = o.optString("artist"),
+                            title = title,
+                            artist = artist,
                             album = o.optString("album", "Cloud Radio"),
-                            durationSec = o.optInt("duration_sec", 180),
+                            durationSec = o.optInt("duration_sec", 0),
                             bpm = o.optDouble("bpm", 120.0).toFloat(),
                             key = o.optString("key_signature", ""),
-                            coverArtPath = o.optString("cover_url").takeIf { it.isNotBlank() },
+                            coverArtPath = coverUrl,
                             lyricsPath = null,
-                            filepath = o.optString("stream_url").ifBlank { "https://www.youtube.com/results?search_query=${URLEncoder.encode(o.optString("title") + " " + o.optString("artist"), "UTF-8")}" },
-                            source = "cloud_radio"
+                            filepath = videoId?.let { "https://www.youtube.com/watch?v=$it" }
+                                ?: com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(streamUrl, title, artist),
+                            source = "cloud_radio",
+                            ytmVideoId = videoId
                         )
                     )
                 }
