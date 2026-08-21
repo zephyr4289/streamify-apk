@@ -181,7 +181,10 @@ fun AppNavGraph(
             androidx.compose.runtime.LaunchedEffect(playerState.currentTrack) {
                 val track = playerState.currentTrack
                 if (track != null) {
-                    lyricsLines = com.streamify.app.data.LyricsCacheManager.getOrFetchLyrics(context, track)
+                    // Cache-only load: PlayerViewModel is the single network fetch owner.
+                    // When it lands lyrics it updates currentTrack, which re-fires this
+                    // effect and hydrates the freshly written file.
+                    lyricsLines = com.streamify.app.data.LyricsCacheManager.getOrFetchLyrics(context, track, allowNetwork = false)
                 } else {
                     lyricsLines = emptyList()
                 }

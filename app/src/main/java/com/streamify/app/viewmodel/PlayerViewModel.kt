@@ -89,6 +89,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var seekTimeoutJob: Job? = null
     private val processedTitleHashes = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private val sessionPlayedTrackIds = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
+    // Dedup guard for lyric fetches: key = "trackId:videoIdOrEmpty" so a retry is only
+    // allowed when the video identity actually improved (e.g. after DB registration).
+    private val lyricsFetchAttempts = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
     private var playbackStartTimeMs: Long = 0L
 
@@ -395,36 +398,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
             lastPlayedTrackId = newTrackId
             
-            // Automatic Dual-Engine Lyrics Scraping & Sync Cache Dispatch
-            val playingTrack = _playerState.value.currentTrack
-            if (playingTrack != null && playingTrack.lyricsPath.isNullOrBlank()) {
-                viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    try {
-                        val vid = playingTrack.ytmVideoId ?: if (playingTrack.filepath.startsWith("yt_") || (playingTrack.filepath.length == 11 && !playingTrack.filepath.contains("/"))) playingTrack.filepath.removePrefix("yt_") else playingTrack.id.toString()
-                        val lyricsText = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(
-                            title = playingTrack.title,
-                            artist = playingTrack.artist,
-                            durationSec = playingTrack.durationSec,
-                            videoId = vid
-                        ) ?: ""
-
-                        if (lyricsText.isNotBlank() && (lyricsText.contains("[") || lyricsText.length > 20)) {
-                            val lyricsDir = java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), ".Streamify/lyrics")
-                            if (!lyricsDir.exists()) lyricsDir.mkdirs()
-                            
-                            val lrcFile = java.io.File(lyricsDir, "${playingTrack.id}.lrc")
-                            lrcFile.writeText(lyricsText)
-                            
-                            withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                val updatedTrack = playingTrack.copy(lyricsPath = lrcFile.absolutePath)
-                                _playerState.value = _playerState.value.copy(currentTrack = updatedTrack)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            }
+            // Automatic Dual-Engine Lyrics Scraping & Sync Cache Dispatch.
+            // PlayerViewModel is the SINGLE lyric network fetch owner: UI surfaces only
+            // read from cache, preventing duplicate races and unverified fuzzy matches.
+            maybeFetchLyricsForTrack(_playerState.value.currentTrack)
             
             // Smart Acoustic EQ Profile auto-adaptation
             val currentPlaying = _playerState.value.currentTrack
@@ -1094,6 +1071,88 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
     }
 
+    /**
+     * Single-owner lyric network fetch. Resolves the strongest available YouTube video
+     * identity and forwards it to the verified LyricsResolver pipeline (exact pinned
+     * video → same-song-gated provider race). Results are persisted to:
+     *  1. The canonical app-private LRU cache (shared by every UI surface), and
+     *  2. A user-accessible .lrc mirror under Downloads/.Streamify/lyrics (best effort).
+     * Attempts are deduplicated per (trackId, videoId): a retry is only permitted when
+     * the resolved video identity improves (e.g. after async DB registration pins it).
+     */
+    private fun maybeFetchLyricsForTrack(playingTrack: Track?) {
+        if (playingTrack == null) return
+        if (!playingTrack.lyricsPath.isNullOrBlank()) return
+
+        val vid = playingTrack.ytmVideoId
+            ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(
+                playingTrack.filepath,
+                playingTrack.coverArtPath
+            )
+
+        val attemptKey = "${playingTrack.id}:${vid ?: ""}"
+        if (!lyricsFetchAttempts.add(attemptKey)) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val lyricsText = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(
+                    title = playingTrack.title,
+                    artist = playingTrack.artist,
+                    durationSec = playingTrack.durationSec,
+                    videoId = vid ?: ""
+                ) ?: ""
+
+                if (lyricsText.isNotBlank() && (lyricsText.contains("[") || lyricsText.length > 40)) {
+                    var storedPath: String? = null
+
+                    // 1. Canonical app-private cache — authoritative source for all UI surfaces
+                    val ctx = appContext
+                    if (ctx != null) {
+                        try {
+                            val cachedFile = com.streamify.app.data.LyricsCacheManager.getCachedLyricsFile(
+                                ctx, playingTrack.title, playingTrack.artist
+                            )
+                            cachedFile.writeText(lyricsText)
+                            storedPath = cachedFile.absolutePath
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+
+                    // 2. Optional external mirror for user-accessible .lrc files
+                    try {
+                        val lyricsDir = java.io.File(
+                            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                            ".Streamify/lyrics"
+                        )
+                        if (!lyricsDir.exists()) lyricsDir.mkdirs()
+                        val lrcFile = java.io.File(lyricsDir, "${playingTrack.id}.lrc")
+                        lrcFile.writeText(lyricsText)
+                        if (storedPath == null) storedPath = lrcFile.absolutePath
+                    } catch (_: Exception) {
+                    }
+
+                    if (storedPath != null) {
+                        withContext(Dispatchers.Main) {
+                            val cur = _playerState.value.currentTrack
+                            if (cur != null && cur.id == playingTrack.id && cur.lyricsPath.isNullOrBlank()) {
+                                _playerState.value = _playerState.value.copy(
+                                    currentTrack = cur.copy(lyricsPath = storedPath)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Nothing usable found: clear the attempt so a later transition can retry
+                    lyricsFetchAttempts.remove(attemptKey)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                lyricsFetchAttempts.remove(attemptKey)
+            }
+        }
+    }
+
     private suspend fun playTrackInternal(track: Track, index: Int, queue: List<Track>) {
         seekTimeoutJob?.cancel()
         isOptimisticSeeking = false
@@ -1199,6 +1258,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                         ytmVideoId = finalVid
                                     )
                                 )
+                                // Exact video identity is now pinned: if the initial lyric
+                                // fetch ran without it, this authorized retry upgrades to
+                                // the perfectly synced ATV timed lyrics for that upload.
+                                maybeFetchLyricsForTrack(_playerState.value.currentTrack)
                             }
                         }
                     }

@@ -1,6 +1,5 @@
 package com.streamify.app.data.network
 
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -14,12 +13,30 @@ import org.json.JSONObject
 import java.net.URLEncoder
 import kotlin.math.roundToLong
 
+/**
+ * Multi-provider synchronized lyrics resolver with a strict same-song identity gate.
+ *
+ * Resolution hierarchy (all network results are verified against the input track
+ * metadata BEFORE being accepted, so a different song's lyrics can never win):
+ *
+ *   Tier 0: YouTube Music ATV timed lyrics for the EXACT pinned videoId
+ *           (0.00s drift — timed to the actual audio being played)
+ *   Tier 1: Parallel verified race:
+ *           1. Musixmatch syllable RichSync (word-by-word karaoke)
+ *           2. YouTube Music ATV timed lyrics (title-verified candidates)
+ *           3. Musixmatch line-level subtitles
+ *           4. LRCLIB synced lyrics (exact + fuzzy, metadata verified)
+ *           5. NetEase synced lyrics (metadata verified)
+ *   Tier 2: Verified plain lyrics → synthesized even-distribution timeline
+ */
 object LyricsResolver {
 
     private const val USER_AGENT_DESKTOP = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     private const val ANDROID_YTM_UA = "com.google.android.apps.youtube.music/7.21.50 (Linux; U; Android 14)"
     private const val YTM_KEY = "AIzaSyC1xlRQImGslL28Q8HqTqD_o-w-r2Q_Z4"
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+    private val VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 
     @Volatile
     private var cachedMxmToken: String? = null
@@ -60,8 +77,54 @@ object LyricsResolver {
         return artist.ifBlank { rawArtist.trim() }
     }
 
+    /** Public sanitizer so every subsystem derives identical cache keys from raw metadata. */
+    fun sanitizeCacheKeyTitle(rawTitle: String): String = cleanTitle(rawTitle).lowercase().trim()
+
+    /** Public sanitizer so every subsystem derives identical cache keys from raw metadata. */
+    fun sanitizeCacheKeyArtist(rawArtist: String): String = cleanArtist(rawArtist).lowercase().trim()
+
+    /** Strict videoId format validation — rejects garbage like numeric DB ids ("42"). */
+    fun isValidVideoId(videoId: String?): Boolean {
+        return !videoId.isNullOrBlank() && VIDEO_ID_REGEX.matches(videoId)
+    }
+
     // =====================================================================
-    // 2. MAIN PARALLEL RACE & ARBITRATION ENTRYPOINT
+    // 2. SAME-SONG IDENTITY VERIFICATION GATE
+    // =====================================================================
+
+    /**
+     * Verifies a candidate track title returned by a provider actually refers to the
+     * requested song. Uses exact cleaned equality first, then bounded fuzzy similarity.
+     */
+    private fun candidateTitleMatches(inputCleanTitle: String, rawCandidateTitle: String?): Boolean {
+        if (rawCandidateTitle.isNullOrBlank()) return false
+        val cand = cleanTitle(rawCandidateTitle).lowercase().trim()
+        val input = inputCleanTitle.lowercase().trim()
+        if (cand.isEmpty() || input.isEmpty()) return false
+        if (cand == input) return true
+
+        val similarity = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(input, cand)
+        return similarity >= 0.72
+    }
+
+    /** Verifies the candidate artist refers to the requested artist (substring tolerant). */
+    private fun candidateArtistMatches(inputCleanArtist: String, rawCandidateArtist: String?): Boolean {
+        if (inputCleanArtist.isBlank()) return true
+        if (rawCandidateArtist.isNullOrBlank()) return false
+        val cand = cleanArtist(rawCandidateArtist).lowercase().trim()
+        val input = inputCleanArtist.lowercase().trim()
+        if (cand.isEmpty() || input.isEmpty()) return true
+        return cand == input || cand.contains(input) || input.contains(cand)
+    }
+
+    /** Duration gate (±15s). Unknown durations on either side never reject. */
+    private fun candidateDurationMatches(inputDurationSec: Int, candidateDurationSec: Long, toleranceSec: Long = 15L): Boolean {
+        if (inputDurationSec <= 0 || candidateDurationSec <= 0) return true
+        return kotlin.math.abs(candidateDurationSec - inputDurationSec.toLong()) <= toleranceSec
+    }
+
+    // =====================================================================
+    // 3. MAIN ENTRYPOINT
     // =====================================================================
     suspend fun fetchSyncedLyrics(
         title: String,
@@ -74,70 +137,87 @@ object LyricsResolver {
 
         if (sanitizedTitle.isBlank()) return@withContext null
 
-        // Parallel Async Race: YouTube Music ATV (0.00s drift) + Musixmatch Syllable + LRCLIB
-        val result = coroutineScope {
-            val ytmDeferred = async {
-                withTimeoutOrNull(3500L) {
-                    fetchYouTubeMusicTimedLyrics(sanitizedTitle, sanitizedArtist, videoId)
-                }
+        // -----------------------------------------------------------------
+        // TIER 0: Exact pinned video identity.
+        // When we KNOW which video is playing, its ATV timed lyrics are the
+        // ground truth (0.00s drift against the exact audio stream in use).
+        // Garbage ids (e.g. numeric DB row ids) are rejected by format check.
+        // -----------------------------------------------------------------
+        if (isValidVideoId(videoId)) {
+            val exactLyrics = withTimeoutOrNull(4500L) { tryExtractYtmTimedLyrics(videoId, null) }
+            if (!exactLyrics.isNullOrBlank() && exactLyrics.contains("[")) {
+                return@withContext exactLyrics
             }
-            val mxmDeferred = async {
-                withTimeoutOrNull(3500L) {
-                    fetchMusixmatchSyllableLyrics(sanitizedTitle, sanitizedArtist)
-                }
-            }
-            val lrcDeferred = async {
-                withTimeoutOrNull(2500L) {
-                    fetchLrclibExact(sanitizedTitle, sanitizedArtist, durationSec)
-                }
-            }
-
-            val mxmRes = mxmDeferred.await()
-            val ytmRes = ytmDeferred.await()
-            val lrcRes = lrcDeferred.await()
-
-            // Hierarchy: 
-            // 1. Musixmatch Syllable RichSync (Word-by-word karaoke)
-            if (!mxmRes.isNullOrBlank() && mxmRes.contains("<")) {
-                return@coroutineScope mxmRes
-            }
-            // 2. YouTube Music TimedLyrics (0.00s Video Sync)
-            if (!ytmRes.isNullOrBlank() && ytmRes.contains("[")) {
-                return@coroutineScope ytmRes
-            }
-            // 3. Musixmatch Line-level
-            if (!mxmRes.isNullOrBlank() && mxmRes.contains("[")) {
-                return@coroutineScope mxmRes
-            }
-            // 4. LRCLIB Exact
-            if (!lrcRes.isNullOrBlank() && lrcRes.contains("[")) {
-                return@coroutineScope lrcRes
-            }
-            // 5. Plain / Fuzzy Fallbacks
-            val fallback = raceFuzzyFallback(sanitizedTitle, sanitizedArtist)
-            if (!fallback.isNullOrBlank()) {
-                if (fallback.contains("[")) return@coroutineScope fallback
-                return@coroutineScope synthesizeSyncedLyricsFromPlain(fallback, durationSec)
-            }
-            return@coroutineScope null
         }
 
-        result
+        // -----------------------------------------------------------------
+        // TIER 1: Parallel verified provider race.
+        // -----------------------------------------------------------------
+        var mxmResult: String? = null
+        var ytmResult: String? = null
+        var lrcSynced: String? = null
+        var lrcPlain: String? = null
+        var netEaseResult: String? = null
+
+        coroutineScope {
+            val mxmDeferred = async {
+                withTimeoutOrNull(3500L) { fetchMusixmatchVerified(sanitizedTitle, sanitizedArtist, durationSec) }
+            }
+            val ytmDeferred = async {
+                withTimeoutOrNull(4000L) { fetchYouTubeMusicTimedLyrics(sanitizedTitle, sanitizedArtist) }
+            }
+            val lrcDeferred = async {
+                withTimeoutOrNull(2500L) { fetchLrclibVerified(sanitizedTitle, sanitizedArtist, durationSec) }
+            }
+            val netEaseDeferred = async {
+                withTimeoutOrNull(3000L) { fetchNetEaseVerified(sanitizedTitle, sanitizedArtist, durationSec) }
+            }
+
+            mxmResult = mxmDeferred.await()
+            ytmResult = ytmDeferred.await()
+            val lrcHit = lrcDeferred.await()
+            lrcSynced = lrcHit?.synced
+            lrcPlain = lrcHit?.plain
+            netEaseResult = netEaseDeferred.await()
+        }
+
+        // Verified hierarchy:
+        // 1. Musixmatch Syllable RichSync (Word-by-word karaoke)
+        if (!mxmResult.isNullOrBlank() && mxmResult!!.contains("<")) {
+            return@withContext mxmResult
+        }
+        // 2. YouTube Music TimedLyrics (line-level, 0.00s video sync)
+        if (!ytmResult.isNullOrBlank() && ytmResult!!.contains("[")) {
+            return@withContext ytmResult
+        }
+        // 3. Musixmatch Line-level subtitles
+        if (!mxmResult.isNullOrBlank() && mxmResult!!.contains("[")) {
+            return@withContext mxmResult
+        }
+        // 4. LRCLIB synced
+        if (!lrcSynced.isNullOrBlank() && lrcSynced!!.contains("[")) {
+            return@withContext lrcSynced
+        }
+        // 5. NetEase synced
+        if (!netEaseResult.isNullOrBlank() && netEaseResult!!.contains("[")) {
+            return@withContext netEaseResult
+        }
+        // 6. Plain text fallback → synthesize an evenly distributed synced timeline
+        if (!lrcPlain.isNullOrBlank() && lrcPlain!!.length > 20) {
+            return@withContext synthesizeSyncedLyricsFromPlain(lrcPlain!!, durationSec)
+        }
+
+        return@withContext null
     }
 
     // =====================================================================
-    // 3. YOUTUBE MUSIC CANONICAL ATV SWEEP ENGINE (PLAN 23 / 24)
+    // 4. YOUTUBE MUSIC CANONICAL ATV SWEEP ENGINE (PLAN 23 / 24)
     // =====================================================================
-    private fun fetchYouTubeMusicTimedLyrics(title: String, artist: String, fallbackVid: String = ""): String? {
+    private fun fetchYouTubeMusicTimedLyrics(title: String, artist: String): String? {
         try {
             val candidates = resolveTopAtvCandidates(title, artist)
-            val candidateList = candidates.toMutableList()
-            if (fallbackVid.isNotBlank() && !candidateList.contains(fallbackVid)) {
-                candidateList.add(fallbackVid)
-            }
-
-            for (vid in candidateList) {
-                val timedLrc = tryExtractYtmTimedLyrics(vid)
+            for (vid in candidates) {
+                val timedLrc = tryExtractYtmTimedLyrics(vid, title)
                 if (!timedLrc.isNullOrBlank()) {
                     return timedLrc
                 }
@@ -232,9 +312,17 @@ object LyricsResolver {
         return ids.take(3)
     }
 
-    private fun tryExtractYtmTimedLyrics(videoId: String): String? {
+    /**
+     * Extracts YTM timed lyrics for one video.
+     *
+     * @param expectedTitle when non-null, the video's header title (parsed from the
+     *        /next response) must match this title before lyrics are accepted.
+     *        When null (Tier 0 exact-video mode) the video identity is already
+     *        trusted and verification is skipped.
+     */
+    private fun tryExtractYtmTimedLyrics(videoId: String, expectedTitle: String?): String? {
         try {
-            // Step 1: /next to resolve MPLYt_ browseId
+            // Step 1: /next to resolve MPLYt_ browseId (+ optional title cross-check)
             val nextUrl = "https://music.youtube.com/youtubei/v1/next?key=$YTM_KEY&prettyPrint=false"
             val nextPayload = JSONObject().apply {
                 put("context", JSONObject().apply {
@@ -263,6 +351,17 @@ object LyricsResolver {
                 if (!resp.isSuccessful) return null
                 val body = resp.body?.string() ?: return null
                 val json = JSONObject(body)
+
+                // Same-song guard: reject videos whose on-screen title differs from the query
+                if (expectedTitle != null) {
+                    val headerRenderer = findFirstJsonObject(json, "musicResponsiveHeaderRenderer")
+                    val headerText = headerRenderer
+                        ?.optJSONObject("title")?.optJSONArray("runs")
+                        ?.optJSONObject(0)?.optString("text", "")
+                    if (!headerText.isNullOrBlank() && !candidateTitleMatches(expectedTitle, headerText)) {
+                        return null
+                    }
+                }
 
                 val tabs = json.optJSONObject("contents")
                     ?.optJSONObject("singleColumnMusicWatchNextResultsRenderer")
@@ -336,20 +435,6 @@ object LyricsResolver {
                     val lrcResult = sb.toString().trim()
                     if (lrcResult.isNotBlank()) return lrcResult
                 }
-
-                // Fallback to static text
-                val runs = json.optJSONObject("contents")
-                    ?.optJSONObject("sectionListRenderer")
-                    ?.optJSONArray("contents")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("musicDescriptionShelfRenderer")
-                    ?.optJSONObject("description")
-                    ?.optJSONArray("runs")
-
-                if (runs != null && runs.length() > 0) {
-                    val staticText = runs.optJSONObject(0)?.optString("text", "")
-                    if (!staticText.isNullOrBlank()) return staticText
-                }
             }
         } catch (_: Throwable) {}
         return null
@@ -375,10 +460,29 @@ object LyricsResolver {
         return null
     }
 
+    /** Recursively finds the first JSONObject stored under the given key. */
+    private fun findFirstJsonObject(obj: Any?, key: String): JSONObject? {
+        if (obj is JSONObject) {
+            val direct = obj.optJSONObject(key)
+            if (direct != null) return direct
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val res = findFirstJsonObject(obj.opt(keys.next()), key)
+                if (res != null) return res
+            }
+        } else if (obj is JSONArray) {
+            for (i in 0 until obj.length()) {
+                val res = findFirstJsonObject(obj.opt(i), key)
+                if (res != null) return res
+            }
+        }
+        return null
+    }
+
     // =====================================================================
-    // 4. MUSIXMATCH LEAN MACRO & SYLLABLE ENGINE (PLAN 23 / 24)
+    // 5. MUSIXMATCH VERIFIED ENGINE (PLAN 23 / 24 HARDENED)
     // =====================================================================
-    private fun getMusixmatchToken(): String {
+    private fun getMusixmatchToken(): String? {
         cachedMxmToken?.let { return it }
         try {
             val url = "https://apic-desktop.musixmatch.com/ws/1.1/token.get?app_id=web-desktop-app-v1.0"
@@ -400,96 +504,105 @@ object LyricsResolver {
                 }
             }
         } catch (_: Throwable) {}
-        val fallback = "240228000000000000000000000000"
-        cachedMxmToken = fallback
-        return fallback
+        return null
     }
 
-    private fun fetchMusixmatchSyllableLyrics(title: String, artist: String): String? {
+    /**
+     * Identity-safe Musixmatch pipeline:
+     * 1. track.search returns full metadata WITH each candidate, so every accepted
+     *    track_id is verified (title + artist + duration) BEFORE any lyric download.
+     * 2. RichSync (syllable) preferred, line-level LRC subtitles as fallback.
+     * The legacy unverified blind page_size=1 match has been removed entirely.
+     */
+    private fun fetchMusixmatchVerified(title: String, artist: String, durationSec: Int): String? {
         try {
-            val token = getMusixmatchToken()
+            val token = getMusixmatchToken() ?: return null
             val qTrack = URLEncoder.encode(title, "UTF-8")
             val qArtist = URLEncoder.encode(artist, "UTF-8")
 
-            // Call 1: macro.subtitles.get (Returns RichSync + Subtitle list in 1 roundtrip)
-            val macroUrl = "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get?" +
-                    "format=json&namespace=lyrics_richsynched&subtitle_format=mxm" +
+            val searchUrl = "https://apic-desktop.musixmatch.com/ws/1.1/track.search?" +
+                    "format=json&page_size=10&s_track_rating=desc&f_has_richsync=1" +
                     "&app_id=web-desktop-app-v1.0&usertoken=$token" +
                     "&q_track=$qTrack&q_artist=$qArtist"
 
             val req = Request.Builder()
-                .url(macroUrl)
+                .url(searchUrl)
                 .header("User-Agent", USER_AGENT_DESKTOP)
                 .header("Authority", "apic-desktop.musixmatch.com")
                 .header("Cookie", "x-mxm-token-id=$token")
                 .get()
                 .build()
 
+            var verifiedTrackId = 0L
             NetworkEngine.client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return null
                 val body = resp.body?.string() ?: return null
                 val json = JSONObject(body)
-                val macroCalls = json.optJSONObject("message")?.optJSONObject("body")?.optJSONObject("macro_calls")
+                val trackList = json.optJSONObject("message")?.optJSONObject("body")?.optJSONArray("track_list")
+                    ?: return null
 
-                // 1. Syllable-Level RichSync
-                val richsync = macroCalls?.optJSONObject("track.richsync.get")
-                    ?.optJSONObject("message")
-                    ?.optJSONObject("body")
-                    ?.optJSONObject("richsync")
-                val richsyncBody = richsync?.optString("richsync_body", "")
+                for (i in 0 until trackList.length()) {
+                    val track = trackList.optJSONObject(i)?.optJSONObject("track") ?: continue
+                    val tId = track.optLong("track_id", 0L)
+                    if (tId <= 0L) continue
 
-                if (!richsyncBody.isNullOrBlank()) {
-                    val syllableLrc = convertMxmRichsyncToSyllableLrc(richsyncBody)
-                    if (!syllableLrc.isNullOrBlank()) return syllableLrc
-                }
-
-                // 2. Line-Level Subtitle list fallback
-                val subList = macroCalls?.optJSONObject("track.subtitles.get")
-                    ?.optJSONObject("message")
-                    ?.optJSONObject("body")
-                    ?.optJSONArray("subtitle_list")
-
-                if (subList != null && subList.length() > 0) {
-                    val subBody = subList.optJSONObject(0)?.optJSONObject("subtitle")?.optString("subtitle_body", "")
-                    if (!subBody.isNullOrBlank()) {
-                        if (subBody.startsWith("[") && subBody.contains("]")) return subBody
+                    val okTitle = candidateTitleMatches(title, track.optString("track_name", ""))
+                    val okArtist = candidateArtistMatches(artist, track.optString("artist_name", ""))
+                    val okDuration = candidateDurationMatches(durationSec, track.optLong("track_length", 0L))
+                    if (okTitle && okArtist && okDuration) {
+                        verifiedTrackId = tId
+                        break
                     }
                 }
             }
 
-            // Call 2: Query search fallback if strict matcher missed
-            val qUnified = URLEncoder.encode("$title $artist", "UTF-8")
-            val searchUrl = "https://apic-desktop.musixmatch.com/ws/1.1/track.search?" +
-                    "format=json&page_size=1&s_track_rating=desc&f_has_richsync=1" +
-                    "&app_id=web-desktop-app-v1.0&usertoken=$token&q=$qUnified"
+            if (verifiedTrackId <= 0L) return null
 
-            val sReq = Request.Builder().url(searchUrl).header("User-Agent", USER_AGENT_DESKTOP).get().build()
-            NetworkEngine.client.newCall(sReq).execute().use { sResp ->
-                if (!sResp.isSuccessful) return null
-                val sBody = sResp.body?.string() ?: return null
-                val sJson = JSONObject(sBody)
-                val trackList = sJson.optJSONObject("message")?.optJSONObject("body")?.optJSONArray("track_list")
-                if (trackList != null && trackList.length() > 0) {
-                    val trackId = trackList.optJSONObject(0)?.optJSONObject("track")?.optLong("track_id", 0L) ?: 0L
-                    if (trackId > 0) {
-                        val richUrl = "https://apic-desktop.musixmatch.com/ws/1.1/track.richsync.get?" +
-                                "format=json&subtitle_format=mxm&app_id=web-desktop-app-v1.0&usertoken=$token&track_id=$trackId"
-                        val rReq = Request.Builder().url(richUrl).header("User-Agent", USER_AGENT_DESKTOP).get().build()
-                        NetworkEngine.client.newCall(rReq).execute().use { rResp ->
-                            if (rResp.isSuccessful) {
-                                val rBody = rResp.body?.string() ?: ""
-                                val rJson = JSONObject(rBody)
-                                val rawRich = rJson.optJSONObject("message")?.optJSONObject("body")?.optJSONObject("richsync")?.optString("richsync_body", "")
-                                if (!rawRich.isNullOrBlank()) {
-                                    return convertMxmRichsyncToSyllableLrc(rawRich)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // 1. Syllable-Level RichSync
+            fetchMusixmatchRichsync(token, verifiedTrackId)?.let { return it }
+
+            // 2. Line-Level subtitle fallback
+            return fetchMusixmatchSubtitles(token, verifiedTrackId)
         } catch (_: Throwable) {}
         return null
+    }
+
+    private fun fetchMusixmatchRichsync(token: String, trackId: Long): String? {
+        return try {
+            val richUrl = "https://apic-desktop.musixmatch.com/ws/1.1/track.richsync.get?" +
+                    "format=json&subtitle_format=mxm&app_id=web-desktop-app-v1.0&usertoken=$token&track_id=$trackId"
+            val req = Request.Builder().url(richUrl).header("User-Agent", USER_AGENT_DESKTOP).get().build()
+            NetworkEngine.client.newCall(req).execute().use { rResp ->
+                if (!rResp.isSuccessful) return@use null
+                val rBody = rResp.body?.string() ?: return@use null
+                val rawRich = JSONObject(rBody)
+                    .optJSONObject("message")?.optJSONObject("body")
+                    ?.optJSONObject("richsync")?.optString("richsync_body", "")
+                if (!rawRich.isNullOrBlank()) convertMxmRichsyncToSyllableLrc(rawRich) else null
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun fetchMusixmatchSubtitles(token: String, trackId: Long): String? {
+        return try {
+            val subUrl = "https://apic-desktop.musixmatch.com/ws/1.1/track.subtitles.get?" +
+                    "format=json&subtitle_format=lrc&app_id=web-desktop-app-v1.0&usertoken=$token&track_id=$trackId"
+            val req = Request.Builder().url(subUrl).header("User-Agent", USER_AGENT_DESKTOP).get().build()
+            NetworkEngine.client.newCall(req).execute().use { sResp ->
+                if (!sResp.isSuccessful) return@use null
+                val sBody = sResp.body?.string() ?: return@use null
+                val subList = JSONObject(sBody)
+                    .optJSONObject("message")?.optJSONObject("body")
+                    ?.optJSONArray("subtitle_list") ?: return@use null
+                if (subList.length() == 0) return@use null
+                val subBody = subList.optJSONObject(0)?.optJSONObject("subtitle")?.optString("subtitle_body", "")
+                if (!subBody.isNullOrBlank() && subBody.contains("[") && subBody.contains("]")) subBody else null
+            }
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     /**
@@ -541,10 +654,18 @@ object LyricsResolver {
     }
 
     // =====================================================================
-    // 5. LRCLIB & NETEASE RESILIENT FALLBACKS
+    // 6. LRCLIB & NETEASE VERIFIED FALLBACKS
     // =====================================================================
-    private fun fetchLrclibExact(title: String, artist: String, durationSec: Int): String? {
+    private class LrcLibHit(val synced: String?, val plain: String?)
+
+    /**
+     * LRCLIB resolver with metadata verification on both endpoints.
+     * /api/get echoes matched trackName/artistName/duration — mismatching responses
+     * are rejected and the verified /api/search pass runs instead.
+     */
+    private fun fetchLrclibVerified(title: String, artist: String, durationSec: Int): LrcLibHit? {
         try {
+            // ---- Pass 1: exact endpoint ----
             var url = "https://lrclib.net/api/get?track_name=${URLEncoder.encode(title, "UTF-8")}&artist_name=${URLEncoder.encode(artist, "UTF-8")}"
             if (durationSec > 0) {
                 url += "&duration=$durationSec"
@@ -557,79 +678,67 @@ object LyricsResolver {
                 .build()
 
             NetworkEngine.client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val body = response.body?.string() ?: return null
-                val json = JSONObject(body)
-                val synced = json.optString("syncedLyrics", "")
-                if (synced.isNotBlank()) return synced
-                val plain = json.optString("plainLyrics", "")
-                if (plain.isNotBlank()) return plain
-            }
-        } catch (_: Exception) {}
-        return null
-    }
-
-    private suspend fun raceFuzzyFallback(title: String, artist: String): String? = coroutineScope {
-        val winnerDeferred = CompletableDeferred<String?>()
-
-        val tasks = listOf(
-            async { fetchLrclibFuzzy(title, artist) },
-            async { fetchNetEase(title, artist) }
-        )
-
-        tasks.forEach { task ->
-            task.invokeOnCompletion {
-                try {
-                    val res = task.getCompleted()
-                    if (!res.isNullOrBlank() && (res.contains("[") || res.length > 20)) {
-                        winnerDeferred.complete(res)
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val json = JSONObject(body)
+                        if (verifyLrclibEntry(json, title, artist, durationSec)) {
+                            val synced = json.optString("syncedLyrics", "")
+                            if (synced.isNotBlank() && synced.contains("[")) return LrcLibHit(synced, null)
+                            val plain = json.optString("plainLyrics", "")
+                            if (plain.isNotBlank() && plain.length > 20) return LrcLibHit(null, plain)
+                        }
                     }
-                } catch (_: Exception) {}
-                if (tasks.all { it.isCompleted } && !winnerDeferred.isCompleted) {
-                    winnerDeferred.complete(null)
                 }
             }
-        }
 
-        val winner = winnerDeferred.await()
-        tasks.forEach { if (!it.isCompleted) it.cancel() }
-        winner
-    }
-
-    private fun fetchLrclibFuzzy(title: String, artist: String): String? {
-        try {
+            // ---- Pass 2: verified search endpoint ----
             val q = URLEncoder.encode("$title $artist", "UTF-8")
-            val url = "https://lrclib.net/api/search?q=$q"
+            val searchUrl = "https://lrclib.net/api/search?q=$q"
 
-            val request = Request.Builder()
-                .url(url)
+            val searchRequest = Request.Builder()
+                .url(searchUrl)
                 .header("User-Agent", USER_AGENT_DESKTOP)
                 .get()
                 .build()
 
-            NetworkEngine.client.newCall(request).execute().use { response ->
+            NetworkEngine.client.newCall(searchRequest).execute().use { response ->
                 if (!response.isSuccessful) return null
                 val body = response.body?.string() ?: return null
                 val array = JSONArray(body)
+
+                var plainBackup: String? = null
                 for (i in 0 until array.length()) {
-                    val item = array.getJSONObject(i)
+                    val item = array.optJSONObject(i) ?: continue
+                    if (!verifyLrclibEntry(item, title, artist, durationSec)) continue
+
                     val synced = item.optString("syncedLyrics", "")
-                    if (synced.isNotBlank()) return synced
-                }
-                for (i in 0 until array.length()) {
-                    val item = array.getJSONObject(i)
+                    if (synced.isNotBlank() && synced.contains("[")) return LrcLibHit(synced, null)
+
                     val plain = item.optString("plainLyrics", "")
-                    if (plain.isNotBlank()) return plain
+                    if (plainBackup.isNullOrBlank() && plain.isNotBlank() && plain.length > 20) {
+                        plainBackup = plain
+                    }
                 }
+                if (plainBackup != null) return LrcLibHit(null, plainBackup)
             }
         } catch (_: Exception) {}
         return null
     }
 
-    private fun fetchNetEase(title: String, artist: String): String? {
+    private fun verifyLrclibEntry(entry: JSONObject, title: String, artist: String, durationSec: Int): Boolean {
+        val okTitle = candidateTitleMatches(title, entry.optString("trackName", ""))
+        val okArtist = candidateArtistMatches(artist, entry.optString("artistName", ""))
+        val okDuration = candidateDurationMatches(durationSec, entry.optLong("duration", 0L))
+        val instrumental = entry.optBoolean("instrumental", false)
+        return okTitle && okArtist && okDuration && !instrumental
+    }
+
+    /** NetEase resolver: verifies name/artist/duration from the search payload before fetching lyrics. */
+    private fun fetchNetEaseVerified(title: String, artist: String, durationSec: Int): String? {
         try {
             val q = URLEncoder.encode("$title $artist", "UTF-8")
-            val searchUrl = "https://music.163.com/api/search/get/web?s=$q&type=1&offset=0&total=true&limit=1"
+            val searchUrl = "https://music.163.com/api/search/get/web?s=$q&type=1&offset=0&total=true&limit=5"
 
             val reqSearch = Request.Builder()
                 .url(searchUrl)
@@ -643,18 +752,29 @@ object LyricsResolver {
                 val body = resp.body?.string() ?: return null
                 val root = JSONObject(body)
                 val songs = root.optJSONObject("result")?.optJSONArray("songs") ?: return null
-                if (songs.length() == 0) return null
-                val songId = songs.getJSONObject(0).optLong("id", 0L)
-                if (songId <= 0) return null
 
-                val lrcUrl = "https://music.163.com/api/song/lyric?os=pc&id=$songId&lv=-1&kv=-1&tv=-1"
-                val reqLrc = Request.Builder().url(lrcUrl).header("User-Agent", USER_AGENT_DESKTOP).get().build()
-                NetworkEngine.client.newCall(reqLrc).execute().use { lrcResp ->
-                    if (!lrcResp.isSuccessful) return null
-                    val lrcBody = lrcResp.body?.string() ?: return null
-                    val lrcJson = JSONObject(lrcBody)
-                    val lrcStr = lrcJson.optJSONObject("lrc")?.optString("lyric", "")
-                    if (!lrcStr.isNullOrBlank() && lrcStr.contains("[")) return lrcStr
+                for (i in 0 until songs.length()) {
+                    val song = songs.optJSONObject(i) ?: continue
+                    val songId = song.optLong("id", 0L)
+                    if (songId <= 0) continue
+
+                    val okTitle = candidateTitleMatches(title, song.optString("name", ""))
+                    val candArtist = song.optJSONArray("artists")?.optJSONObject(0)?.optString("name", "")
+                    val okArtist = candidateArtistMatches(artist, candArtist)
+                    val okDuration = candidateDurationMatches(durationSec, song.optLong("duration", 0L) / 1000L)
+                    if (!okTitle || !okArtist || !okDuration) continue
+
+                    val lrcUrl = "https://music.163.com/api/song/lyric?os=pc&id=$songId&lv=-1&kv=-1&tv=-1"
+                    val reqLrc = Request.Builder().url(lrcUrl).header("User-Agent", USER_AGENT_DESKTOP).get().build()
+                    NetworkEngine.client.newCall(reqLrc).execute().use { lrcResp ->
+                        if (lrcResp.isSuccessful) {
+                            val lrcBody = lrcResp.body?.string()
+                            if (!lrcBody.isNullOrBlank()) {
+                                val lrcStr = JSONObject(lrcBody).optJSONObject("lrc")?.optString("lyric", "")
+                                if (!lrcStr.isNullOrBlank() && lrcStr.contains("[")) return lrcStr
+                            }
+                        }
+                    }
                 }
             }
         } catch (_: Exception) {}
@@ -684,4 +804,3 @@ object LyricsResolver {
         return plainText
     }
 }
-

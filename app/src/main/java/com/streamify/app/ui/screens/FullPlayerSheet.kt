@@ -1053,37 +1053,14 @@ private fun LandscapeLyricsPane(
     var lyricsLines by remember(track.id) { mutableStateOf<List<LyricsLine>>(emptyList()) }
     var isLoading by remember(track.id) { mutableStateOf(true) }
     val lyricController = remember { LyricPlaybackController() }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
-    LaunchedEffect(track.id) {
+    // Cache-only load keyed on lyricsPath too: when PlayerViewModel (the single fetch
+    // owner) lands verified lyrics, this effect re-fires and hydrates them instantly.
+    LaunchedEffect(track.id, track.lyricsPath) {
         isLoading = true
         withContext(Dispatchers.IO) {
-            val loadedLines = mutableListOf<LyricsLine>()
-            // 1. Try local LRC file
-            if (!track.lyricsPath.isNullOrBlank() && File(track.lyricsPath).exists()) {
-                try {
-                    val lrcText = File(track.lyricsPath).readText()
-                    val parsed = LyricsData.parseLrc(lrcText)
-                    if (parsed.lines.isNotEmpty()) {
-                        loadedLines.addAll(parsed.lines)
-                    }
-                } catch (e: Exception) {}
-            }
-
-            // 2. Try online resolver if empty
-            if (loadedLines.isEmpty()) {
-                val fetchedLrc = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(
-                    track.title,
-                    track.artist,
-                    track.durationSec
-                )
-                if (!fetchedLrc.isNullOrBlank()) {
-                    val parsed = LyricsData.parseLrc(fetchedLrc)
-                    if (parsed.lines.isNotEmpty()) {
-                        loadedLines.addAll(parsed.lines)
-                    }
-                }
-            }
-
+            val loadedLines = com.streamify.app.data.LyricsCacheManager.getOrFetchLyrics(context, track, allowNetwork = false)
             withContext(Dispatchers.Main) {
                 lyricsLines = loadedLines
                 isLoading = false
@@ -1094,8 +1071,6 @@ private fun LandscapeLyricsPane(
     val isSynced = remember(lyricsLines) {
         lyricsLines.isNotEmpty() && lyricsLines.any { it.timeMs > 0L }
     }
-    val context = androidx.compose.ui.platform.LocalContext.current
-
 
     val handleSaveOffset: () -> Unit = {
         if (lyricsLines.isNotEmpty() && lyricController.userOffsetMs != 0L) {
