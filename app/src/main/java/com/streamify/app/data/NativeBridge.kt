@@ -242,6 +242,27 @@ object NativeBridge {
         return if (rawHash.startsWith("SAPISIDHASH ")) rawHash else "SAPISIDHASH $rawHash"
     }
 
+    fun generateCadId(title: String, artist: String, durationSec: Int): String {
+        return try {
+            nativeGenerateCadId(title, artist, durationSec)
+        } catch (e: Throwable) {
+            fallbackGenerateCadId(title, artist, durationSec)
+        }
+    }
+
+    private fun fallbackGenerateCadId(title: String, artist: String, durationSec: Int): String {
+        val cleanTitle = title.lowercase().filter { it.isLetterOrDigit() || it == '(' }
+        val cleanArtist = artist.lowercase().filter { it.isLetterOrDigit() }
+        val durationBucket = durationSec / 3
+        val combined = "$cleanTitle|$cleanArtist|$durationBucket"
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256").digest(combined.toByteArray(Charsets.UTF_8))
+            digest.take(8).joinToString("") { "%02x".format(it) }
+        } catch (e: Throwable) {
+            "cad_${cleanTitle.hashCode().toString(16)}_${cleanArtist.hashCode().toString(16)}"
+        }
+    }
+
     external fun nativeGenerateCadId(title: String, artist: String, durationSec: Int): String
 
     // ═══════════════════════════════════════════════════════════════

@@ -584,9 +584,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     val dbPath = appContext?.getDatabasePath("streamify_universal.db")?.absolutePath ?: ""
-                    val cadId = try {
-                        NativeBridge.nativeGenerateCadId(nextTrack.title, nextTrack.artist, nextTrack.durationSec)
-                    } catch (e: Exception) { "" }
+                    val cadId = NativeBridge.generateCadId(nextTrack.title, nextTrack.artist, nextTrack.durationSec)
 
                     var vidId = nextTrack.ytmVideoId ?: if (nextTrack.filepath.startsWith("yt_") || (nextTrack.filepath.length == 11 && !nextTrack.filepath.contains("/"))) nextTrack.filepath.removePrefix("yt_") else null
                     if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
@@ -1088,9 +1086,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         } else {
             withContext(Dispatchers.IO) {
                 val dbPath = appContext?.getDatabasePath("streamify_universal.db")?.absolutePath ?: ""
-                val cadId = try {
-                    NativeBridge.nativeGenerateCadId(trackToPlay.title, trackToPlay.artist, trackToPlay.durationSec)
-                } catch (e: Exception) { "" }
+                val cadId = NativeBridge.generateCadId(trackToPlay.title, trackToPlay.artist, trackToPlay.durationSec)
 
                 var vidId = trackToPlay.ytmVideoId ?: if (trackToPlay.filepath.startsWith("yt_") || (trackToPlay.filepath.length == 11 && !trackToPlay.filepath.contains("/"))) trackToPlay.filepath.removePrefix("yt_") else null
                 if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {

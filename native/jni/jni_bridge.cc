@@ -2,6 +2,8 @@
 #include <string>
 #include <vector>
 #include <ctime>
+#include <cctype>
+#include <cstdio>
 #include "../engine/StreamifyDB.h"
 #include "../engine/TaskOrchestrator.h"
 #include "../engine/TelemetryEngine.h"
@@ -1406,6 +1408,64 @@ Java_com_streamify_app_data_NativeBridge_nativeCalculateDriftOffset(
     env->ReleaseFloatArrayElements(lyric_onsets_array, lyric_ptr, JNI_ABORT);
 
     return static_cast<jint>(drift_ms);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_nativeGenerateCadId(
+    JNIEnv* env,
+    jclass /* clazz */,
+    jstring title,
+    jstring artist,
+    jint durationSec) noexcept {
+    try {
+        const char* titleChars = title ? env->GetStringUTFChars(title, nullptr) : nullptr;
+        const char* artistChars = artist ? env->GetStringUTFChars(artist, nullptr) : nullptr;
+
+        std::string cleanTitle = "";
+        if (titleChars) {
+            for (size_t i = 0; titleChars[i] != '\0'; ++i) {
+                char c = titleChars[i];
+                if (std::isalnum(static_cast<unsigned char>(c)) || c == '(') {
+                    cleanTitle += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                }
+            }
+            env->ReleaseStringUTFChars(title, titleChars);
+        }
+
+        std::string cleanArtist = "";
+        if (artistChars) {
+            for (size_t i = 0; artistChars[i] != '\0'; ++i) {
+                char c = artistChars[i];
+                if (std::isalnum(static_cast<unsigned char>(c))) {
+                    cleanArtist += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                }
+            }
+            env->ReleaseStringUTFChars(artist, artistChars);
+        }
+
+        uint32_t durationBucket = durationSec > 0 ? static_cast<uint32_t>(durationSec / 3) : 0;
+
+        // FNV-1a 64-bit hash
+        uint64_t hash = 14695981039346656037ULL;
+        for (char c : cleanTitle) {
+            hash ^= static_cast<uint8_t>(c);
+            hash *= 1099511628211ULL;
+        }
+        for (char c : cleanArtist) {
+            hash ^= static_cast<uint8_t>(c);
+            hash *= 1099511628211ULL;
+        }
+        for (int i = 0; i < 4; ++i) {
+            hash ^= static_cast<uint8_t>((durationBucket >> (i * 8)) & 0xFF);
+            hash *= 1099511628211ULL;
+        }
+
+        char hexBuf[32];
+        snprintf(hexBuf, sizeof(hexBuf), "%016llx", static_cast<unsigned long long>(hash));
+        return env->NewStringUTF(hexBuf);
+    } catch (...) {
+        return env->NewStringUTF("0000000000000000");
+    }
 }
 
 } // extern "C"
