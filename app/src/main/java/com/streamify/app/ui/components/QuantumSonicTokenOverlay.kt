@@ -72,7 +72,9 @@ fun QuantumSonicTokenOverlay(
                 .width(cardWidthDp)
                 .height(60.dp)
                 .graphicsLayer {
-                    // 120 FPS GPU RenderNode Phase (Zero Tree Recomposition, Zero Layout Phase)
+                    // Subscribe strictly to Draw Phase invalidations via frameTick
+                    val _tick = controller.frameTick
+
                     val xClamped = (controller.posX - (cardWidthPx / 2f))
                         .coerceIn(8f, (screenWidthPx - cardWidthPx - 8f).coerceAtLeast(8f))
                     val yClamped = (controller.posY - (cardHeightPx / 2f)).coerceAtLeast(0f)
@@ -135,11 +137,31 @@ private fun AirDropFluidCard(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            YtThumbnail(
-                url = artUrl,
-                size = 46.dp,
-                cornerRadius = 8.dp
-            )
+            if (!artUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = artUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(BgCard),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.material3.Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = TextTertiary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.width(12.dp))
 
@@ -200,6 +222,7 @@ fun ImpactBloomCanvas(
     }
 
     Canvas(modifier = modifier.fillMaxSize()) {
+        val _tick = controller.frameTick
         val p = controller.impactProgress
         if (p <= 0f || p >= 1f) return@Canvas
 

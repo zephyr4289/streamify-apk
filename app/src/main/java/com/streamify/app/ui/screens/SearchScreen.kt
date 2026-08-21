@@ -504,17 +504,40 @@ fun SearchScreen(
                                             source = "online"
                                         )
 
+                                        var itemWindowPos by remember { mutableStateOf(Offset.Zero) }
+
                                         YtQueueTrackItem(
                                             track = trackModel,
                                             isPlaying = isResolving || (currentTrack?.filepath == onlineTrack.url),
                                             showDragHandle = false,
+                                            modifier = Modifier.onGloballyPositioned { coords ->
+                                                if (coords.isAttached) {
+                                                    itemWindowPos = coords.positionInWindow()
+                                                }
+                                            },
                                             onClick = {
                                                 val dockPos = dockPositionState.value
-                                                val approxY = (180f + (index * 64f)).coerceIn(150f, 950f)
-                                                val origin = Offset(200f, approxY)
-                                                val target = if (dockPos != Offset.Zero) dockPos else Offset(200f, 850f)
+                                                val density = context.resources.displayMetrics.density
+                                                val screenWidthPx = context.resources.displayMetrics.widthPixels.toFloat()
+                                                val screenHeightPx = context.resources.displayMetrics.heightPixels.toFloat()
+
+                                                val tapOrigin = if (itemWindowPos != Offset.Zero) {
+                                                    Offset(
+                                                        x = (itemWindowPos.x + (screenWidthPx * 0.44f)).coerceIn(50f, screenWidthPx - 50f),
+                                                        y = (itemWindowPos.y + (28f * density)).coerceIn(50f, screenHeightPx - 50f)
+                                                    )
+                                                } else {
+                                                    Offset(screenWidthPx / 2f, 300f * density)
+                                                }
+
+                                                val target = if (dockPos != Offset.Zero) {
+                                                    dockPos
+                                                } else {
+                                                    Offset(screenWidthPx / 2f, screenHeightPx - (80f * density))
+                                                }
+
                                                 quantumController.triggerFlight(
-                                                    tapOrigin = origin,
+                                                    tapOrigin = tapOrigin,
                                                     dockDestination = target,
                                                     title = trackModel.title,
                                                     artist = trackModel.artist,

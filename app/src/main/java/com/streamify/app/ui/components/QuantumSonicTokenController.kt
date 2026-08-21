@@ -57,13 +57,13 @@ class QuantumSonicTokenController {
     // 0: x, 1: y, 2: z, 3: vx, 4: vy, 5: vz, 6: stretch_parallel, 7: stretch_perp, 8: rotation_rad, 9: pitch_deg, 10: roll_deg, 11: impact_progress, 12: is_docked, 13: is_ready_to_dock
     private val physicsBuffer = FloatArray(14)
 
-    // Adaptive Fluid Splashing Particles: Scaled dynamically based on hardware capabilities
+    // Adaptive Fluid Splashing Particles: Scaled dynamically based on hardware capabilities (Plan 25)
     val particleCount: Int = when {
-        Runtime.getRuntime().availableProcessors() >= 8 -> 128
-        Runtime.getRuntime().availableProcessors() >= 6 -> 96
-        else -> 48
+        Runtime.getRuntime().availableProcessors() >= 8 -> 64
+        Runtime.getRuntime().availableProcessors() >= 6 -> 48
+        else -> 32
     }
-    val particleBuffer = FloatArray(128 * 6)
+    val particleBuffer = FloatArray(64 * 6)
     private var particlesSpawned = false
 
 
