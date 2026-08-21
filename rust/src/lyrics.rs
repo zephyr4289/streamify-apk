@@ -168,6 +168,96 @@ impl LyricCompiler {
     pub fn compile_to_slyr(lrc_text: &str) -> Vec<u8> {
         let mut raw_lines = Vec::new();
         let re_line = regex::Regex::new(r"^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$").unwrap();
+        let re_word = regex::Regex::new(r"<(\d{2}):(\d{2})\.(\d{2,3})>([^<\[]*)").unwrap();
+
+        for line_str in lrc_text.lines() {
+            let trimmed = line_str.trim();
+            if trimmed.is_empty() || trimmed.starts_with("[ti:") || trimmed.starts_with("[ar:") || trimmed.starts_with("[al:") {
+                continue;
+            }
+            if let Some(caps) = re_line.captures(trimmed) {
+                let m: u32 = caps[1].parse().unwrap_or(0);
+                let s: u32 = caps[2].parse().unwrap_or(0);
+                let ms: u32 = if caps[3].len() == 2 {
+                    caps[3].parse::<u32>().unwrap_or(0) * 10
+                } else {
+                    caps[3].parse().unwrap_or(0)
+                };
+                let start_ms = (m * 60 + s) * 1000 + ms;
+                let raw_content = caps[4].trim();
+
+                if !raw_content.is_empty() {
+                    let mut syllables = Vec::new();
+                    let mut plain_text = String::new();
+
+                    let word_caps: Vec<_> = re_word.captures_iter(raw_content).collect();
+                    if !word_caps.is_empty() {
+                        for i in 0..word_caps.len() {
+                            let wc = &word_caps[i];
+                            let wm: u32 = wc[1].parse().unwrap_or(0);
+                            let ws: u32 = wc[2].parse().unwrap_or(0);
+                            let wms: u32 = if wc[3].len() == 2 {
+                                wc[3].parse::<u32>().unwrap_or(0) * 10
+                            } else {
+                                wc[3].parse().unwrap_or(0)
+                            };
+                            let w_start_ms = (wm * 60 + ws) * 1000 + wms;
+                            let word_str = &wc[4];
+
+                            let char_start = plain_text.chars().count() as u16;
+                            let char_len = word_str.chars().count() as u16;
+                            plain_text.push_str(word_str);
+
+                            let next_start = if i + 1 < word_caps.len() {
+                                let n_wc = &word_caps[i + 1];
+                                let n_wm: u32 = n_wc[1].parse().unwrap_or(0);
+                                let n_ws: u32 = n_wc[2].parse().unwrap_or(0);
+                                let n_wms: u32 = if n_wc[3].len() == 2 {
+                                    n_wc[3].parse::<u32>().unwrap_or(0) * 10
+                                } else {
+                                    n_wc[3].parse().unwrap_or(0)
+                                };
+                                (n_wm * 60 + n_ws) * 1000 + n_wms
+                            } else {
+                                w_start_ms + 3000
+                            };
+
+                            syllables.push((w_start_ms, next_start, char_start, char_len));
+                        }
+                    } else {
+                        plain_text = raw_content.to_string();
+                    }
+
+                    if !plain_text.is_empty() {
+                        let end_ms = start_ms + 3000;
+                        raw_lines.push(RawParsedLine {
+                            start_time_ms: start_ms,
+                            end_time_ms: end_ms,
+                            text: plain_text.trim().to_string(),
+                            syllables,
+                        });
+                    }
+                }
+            }
+        }
+
+        for i in 0..raw_lines.len() {
+            if i + 1 < raw_lines.len() {
+                let next_start = raw_lines[i + 1].start_time_ms;
+                raw_lines[i].end_time_ms = next_start;
+                // Update final syllable end time to match line end time if available
+                if let Some(last_syl) = raw_lines[i].syllables.last_mut() {
+                    last_syl.1 = next_start;
+                }
+            }
+        }
+
+        SlyrCompiler::compile(&raw_lines, 0)
+    }
+
+    pub fn compile_lrc(lrc_text: &str) -> CompiledLyrics {
+        let mut entries = Vec::new();
+        let re_line = regex::Regex::new(r"^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$").unwrap();
 
         for line_str in lrc_text.lines() {
             let trimmed = line_str.trim();
@@ -185,26 +275,37 @@ impl LyricCompiler {
                 let start_ms = (m * 60 + s) * 1000 + ms;
                 let text = caps[4].trim().to_string();
                 if !text.is_empty() {
-                    let end_ms = start_ms + 3000;
-                    raw_lines.push(RawParsedLine {
+                    entries.push(CompiledLyricEntry {
                         start_time_ms: start_ms,
-                        end_time_ms: end_ms,
+                        end_time_ms: start_ms + 3000,
                         text,
-                        syllables: Vec::new(),
                     });
                 }
             }
         }
-
-        for i in 0..raw_lines.len() {
-            if i + 1 < raw_lines.len() {
-                let next_start = raw_lines[i + 1].start_time_ms;
-                raw_lines[i].end_time_ms = next_start;
-            }
-        }
-
-        SlyrCompiler::compile(&raw_lines, 0)
+        CompiledLyrics { entries }
     }
+
+    pub fn find_active_positions(slyr_ptr: *const u8, slyr_len: usize, position_ms: u32) -> Option<(usize, usize)> {
+        if slyr_ptr.is_null() || slyr_len == 0 {
+            return None;
+        }
+        let slice = unsafe { std::slice::from_raw_parts(slyr_ptr, slyr_len) };
+        let line_idx = SlyrCompiler::find_active_line(slice, position_ms)?;
+        Some((line_idx, 0))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledLyricEntry {
+    pub start_time_ms: u32,
+    pub end_time_ms: u32,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledLyrics {
+    pub entries: Vec<CompiledLyricEntry>,
 }
 
 #[repr(C)]

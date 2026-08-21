@@ -384,7 +384,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         val lyricsText = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(
                             title = playingTrack.title,
                             artist = playingTrack.artist,
-                            durationSec = playingTrack.durationSec
+                            durationSec = playingTrack.durationSec,
+                            videoId = playingTrack.id
                         ) ?: ""
 
                         if (lyricsText.isNotBlank() && (lyricsText.contains("[") || lyricsText.length > 20)) {
@@ -986,15 +987,15 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 val queue = curState.queue
                 if (queue.isEmpty()) return@launch
 
-                // ⚡ Fast Skip Guard (<10s dwell time): Trigger emergency comfort track anchor
-                if (isUserSkip && curState.currentTrack != null) {
+                // Fast Skip Guard: Only trigger emergency comfort track if queue is exhausted and no upcoming tracks exist
+                if (isUserSkip && curState.currentTrack != null && curState.currentIndex + 1 >= queue.size && !curState.isAutoPlayEnabled) {
                     val dwellTime = System.currentTimeMillis() - playbackStartTimeMs
                     if (dwellTime in 1..9999L) {
                         val comfortTrack = withContext(Dispatchers.IO) {
                             repository.getEmergencyComfortTrack()
                         }
                         if (comfortTrack != null && comfortTrack.id != curState.currentTrack?.id) {
-                            android.util.Log.d("PlayerViewModel", "⚡ Fast-skip (<10s) detected! Triggering comfort anchor: ${comfortTrack.title}")
+                            android.util.Log.d("PlayerViewModel", "⚡ Fast-skip (<10s) on exhausted queue! Triggering comfort anchor: ${comfortTrack.title}")
                             playTrackInternal(comfortTrack, 0, listOf(comfortTrack) + queue.filter { it.id != comfortTrack.id })
                             return@launch
                         }
