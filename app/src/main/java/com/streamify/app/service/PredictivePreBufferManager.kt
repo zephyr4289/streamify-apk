@@ -82,9 +82,4 @@ class PredictivePreBufferManager(
         cancelAll()
         scope.cancel()
     }
-
-    fun release() {
-        cancelAll()
-        scope.cancel()
-    }
 }
