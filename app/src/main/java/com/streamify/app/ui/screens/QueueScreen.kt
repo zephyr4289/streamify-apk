@@ -174,7 +174,9 @@ fun QueueScreen(
                             val targetIndex = (index + (draggedItemOffset / itemHeightPx).toInt())
                                 .coerceIn(0, upNext.size - 1)
                             if (targetIndex != index) {
-                                playerViewModel.reorderQueue(index, targetIndex)
+                                val absFrom = currentIndex + 1 + index
+                                val absTo = currentIndex + 1 + targetIndex
+                                playerViewModel.reorderQueue(absFrom, absTo)
                                 draggedItemIndex = targetIndex
                                 draggedItemOffset = 0f
                                 com.streamify.app.util.StreamifyHapticEngine.magneticDetent()

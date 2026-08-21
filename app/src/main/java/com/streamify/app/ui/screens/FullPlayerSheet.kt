@@ -500,6 +500,7 @@ fun FullPlayerSheet(
                             LandscapePlayerTab.UP_NEXT -> {
                                 LandscapeQueuePane(
                                     queue = playerState.queue,
+                                    currentIndex = playerState.currentIndex,
                                     currentTrack = playerState.currentTrack,
                                     isPlaying = playerState.isPlaying,
                                     onTrackClick = { clickedTrack ->
@@ -848,13 +849,27 @@ fun FullPlayerSheet(
 @Composable
 private fun LandscapeQueuePane(
     queue: List<Track>,
+    currentIndex: Int,
     currentTrack: Track?,
     isPlaying: Boolean,
     onTrackClick: (Track) -> Unit
 ) {
     val listState = rememberLazyListState()
-    val upNext = remember(queue, currentTrack) {
-        if (currentTrack != null) queue.filter { it.id != currentTrack.id } else queue
+
+    val playedHistory = remember(queue, currentIndex) {
+        if (currentIndex > 0 && queue.isNotEmpty()) {
+            queue.subList(0, currentIndex.coerceAtMost(queue.size))
+        } else {
+            emptyList()
+        }
+    }
+
+    val upNext = remember(queue, currentIndex) {
+        if (currentIndex >= 0 && currentIndex + 1 < queue.size) {
+            queue.subList(currentIndex + 1, queue.size)
+        } else {
+            emptyList()
+        }
     }
 
     LazyColumn(
@@ -862,6 +877,42 @@ private fun LandscapeQueuePane(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 4.dp)
     ) {
+        // 1. PLAYED (History)
+        if (playedHistory.isNotEmpty()) {
+            item(key = "hdr_history") {
+                Text(
+                    text = "HISTORY (${playedHistory.size})",
+                    style = LocalAppTypography.current.songArtist.copy(
+                        fontSize = 11.sp,
+                        letterSpacing = 0.5.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = TextTertiary.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                )
+            }
+
+            items(
+                items = playedHistory,
+                key = { "hist_${it.id}_${it.filepath.hashCode()}" }
+            ) { itemTrack ->
+                YtQueueTrackItem(
+                    track = itemTrack,
+                    isPlaying = false,
+                    dragOffset = 0f,
+                    showDragHandle = false,
+                    modifier = Modifier.graphicsLayer { alpha = 0.55f },
+                    onClick = { onTrackClick(itemTrack) },
+                    onMoreClick = { /* Options */ }
+                )
+            }
+
+            item(key = "sp_divider_hist") {
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+        }
+
+        // 2. NOW PLAYING
         if (currentTrack != null) {
             item(key = "hdr_playing") {
                 Text(
@@ -876,7 +927,7 @@ private fun LandscapeQueuePane(
                 )
             }
 
-            item(key = "active_${currentTrack.id}") {
+            item(key = "active_${currentTrack.id}_${currentTrack.filepath.hashCode()}") {
                 YtQueueTrackItem(
                     track = currentTrack,
                     isPlaying = isPlaying,
@@ -892,10 +943,11 @@ private fun LandscapeQueuePane(
             }
         }
 
+        // 3. UP NEXT (Strictly upcoming unplayed tracks)
         if (upNext.isNotEmpty()) {
             item(key = "hdr_upnext") {
                 Text(
-                    text = "UP NEXT",
+                    text = "UP NEXT (${upNext.size})",
                     style = LocalAppTypography.current.songArtist.copy(
                         fontSize = 11.sp,
                         letterSpacing = 0.5.sp,
@@ -906,7 +958,10 @@ private fun LandscapeQueuePane(
                 )
             }
 
-            items(upNext, key = { it.id }) { itemTrack ->
+            items(
+                items = upNext,
+                key = { "upnext_${it.id}_${it.filepath.hashCode()}" }
+            ) { itemTrack ->
                 YtQueueTrackItem(
                     track = itemTrack,
                     isPlaying = false,

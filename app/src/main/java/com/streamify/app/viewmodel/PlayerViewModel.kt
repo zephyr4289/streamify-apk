@@ -87,6 +87,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var pendingSeekTargetMs: Long? = null
     private var isOptimisticSeeking: Boolean = false
     private val processedTitleHashes = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+    private val sessionPlayedTrackIds = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
     private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
     private var playbackStartTimeMs: Long = 0L
 
@@ -888,11 +889,15 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         // 2. Tracked Single Job - cancel previous resolution jobs to prevent race conditions
         playJob?.cancel()
         playJob = viewModelScope.launch {
-            // Reset per-session hash deduplication set and prime with current queue to allow fresh continuum discovery
-            processedTitleHashes.clear()
+            // Register track and prime hash deduplication set without clearing history
+            sessionPlayedTrackIds.add(hydratedTrack.id)
+            val playedH = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(hydratedTrack.title)
+            if (playedH != 0L) processedTitleHashes.add(playedH)
+
             for (t in hydratedQueue) {
                 val h = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(t.title)
                 if (h != 0L) processedTitleHashes.add(h)
+                if (t.id != 0) sessionPlayedTrackIds.add(t.id)
             }
 
             com.streamify.app.data.NeuroQueueManager.onTrackStarted(hydratedTrack)
@@ -922,13 +927,14 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 )
 
                 if (radioTracks.isNotEmpty()) {
-                    // O(1) Root Hash Deduplication: Skip heavy comparison for already processed songs
+                    // O(1) Root Hash & Session History Deduplication: Skip already played songs
                     val uniqueCandidates = radioTracks.filter { candidate ->
                         val hash = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(candidate.title)
-                        if (hash == 0L || processedTitleHashes.contains(hash)) {
+                        if (hash == 0L || processedTitleHashes.contains(hash) || sessionPlayedTrackIds.contains(candidate.id)) {
                             false
                         } else {
                             processedTitleHashes.add(hash)
+                            if (candidate.id != 0) sessionPlayedTrackIds.add(candidate.id)
                             true
                         }
                     }
@@ -1417,11 +1423,20 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun removeFromQueue(trackId: Int) {
-        val currentQueue = _playerState.value.queue.toMutableList()
+        val curState = _playerState.value
+        val currentQueue = curState.queue.toMutableList()
         val index = currentQueue.indexOfFirst { it.id == trackId }
         if (index != -1) {
             currentQueue.removeAt(index)
-            _playerState.value = _playerState.value.copy(queue = currentQueue)
+            val newCurrentIndex = when {
+                index < curState.currentIndex -> curState.currentIndex - 1
+                index == curState.currentIndex -> curState.currentIndex.coerceAtMost(currentQueue.size - 1)
+                else -> curState.currentIndex
+            }
+            _playerState.value = curState.copy(
+                queue = currentQueue,
+                currentIndex = newCurrentIndex.coerceAtLeast(0)
+            )
             try {
                 controller?.removeMediaItem(index)
             } catch (e: Exception) {
@@ -1431,11 +1446,22 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun reorderQueue(fromIndex: Int, toIndex: Int) {
-        val currentQueue = _playerState.value.queue.toMutableList()
+        val curState = _playerState.value
+        val currentQueue = curState.queue.toMutableList()
         if (fromIndex in currentQueue.indices && toIndex in currentQueue.indices && fromIndex != toIndex) {
             val item = currentQueue.removeAt(fromIndex)
             currentQueue.add(toIndex, item)
-            _playerState.value = _playerState.value.copy(queue = currentQueue)
+            val oldCurrent = curState.currentIndex
+            val newCurrentIndex = when {
+                oldCurrent == fromIndex -> toIndex
+                fromIndex < oldCurrent && toIndex >= oldCurrent -> oldCurrent - 1
+                fromIndex > oldCurrent && toIndex <= oldCurrent -> oldCurrent + 1
+                else -> oldCurrent
+            }
+            _playerState.value = curState.copy(
+                queue = currentQueue,
+                currentIndex = newCurrentIndex
+            )
             try {
                 controller?.moveMediaItem(fromIndex, toIndex)
             } catch (e: Exception) {
