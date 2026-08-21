@@ -86,6 +86,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var hydrateJob: Job? = null
     private var pendingSeekTargetMs: Long? = null
     private var isOptimisticSeeking: Boolean = false
+    private var seekTimeoutJob: Job? = null
     private val processedTitleHashes = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
     private val sessionPlayedTrackIds = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
     private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -269,6 +270,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     _playerState.value = _playerState.value.copy(isBuffering = true)
                 }
                 Player.STATE_READY -> {
+                    isOptimisticSeeking = false
+                    pendingSeekTargetMs = null
+                    seekTimeoutJob?.cancel()
                     _playerState.value = _playerState.value.copy(isBuffering = false)
                 }
                 else -> {}
@@ -291,10 +295,24 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            seekTimeoutJob?.cancel()
+            isOptimisticSeeking = false
+            pendingSeekTargetMs = null
+
             when (reason) {
-                Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> {
-                    // Pre-buffered follower in physical timeline slot 1 transitioned automatically
+                Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
+                Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> {
                     handleAutomaticTimelineTransition()
+                }
+                Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> {
+                    val curState = _playerState.value
+                    val activeTrack = curState.currentTrack
+                    val expectedTrack = curState.queue.getOrNull(curState.currentIndex)
+                    if (activeTrack != null && expectedTrack != null && (activeTrack.id == expectedTrack.id || activeTrack.title == expectedTrack.title)) {
+                        // Already aligned with current queue index, ignore secondary playlist mutation event
+                    } else {
+                        updateCurrentTrackFromMediaItem(mediaItem)
+                    }
                 }
                 else -> {
                     updateCurrentTrackFromMediaItem(mediaItem)
@@ -962,6 +980,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
 
     private fun handleAutomaticTimelineTransition() {
+        seekTimeoutJob?.cancel()
+        isOptimisticSeeking = false
+        pendingSeekTargetMs = null
+
         val curState = _playerState.value
         val queue = curState.queue
         val nextIndex = curState.currentIndex + 1
@@ -970,8 +992,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             _playerState.value = _playerState.value.copy(
                 currentTrack = activeTrack,
                 currentIndex = nextIndex,
+                currentPosition = 0L,
                 isPlaying = true,
-                isBuffering = false
+                isBuffering = false,
+                isVideoMode = false
             )
             controller?.let { ctrl ->
                 if (ctrl.mediaItemCount > 1) {
@@ -1070,12 +1094,18 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     private suspend fun playTrackInternal(track: Track, index: Int, queue: List<Track>) {
+        seekTimeoutJob?.cancel()
+        isOptimisticSeeking = false
+        pendingSeekTargetMs = null
+
         _playerState.value = _playerState.value.copy(
             currentTrack = track,
             currentIndex = index,
+            currentPosition = 0L,
             queue = queue,
             isPlaying = true,
-            isBuffering = true
+            isBuffering = true,
+            isVideoMode = false
         )
         playbackStartTimeMs = System.currentTimeMillis()
 
@@ -1321,6 +1351,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         isOptimisticSeeking = true
         pendingSeekTargetMs = validPos
         _playerState.value = _playerState.value.copy(currentPosition = validPos)
+
+        seekTimeoutJob?.cancel()
+        seekTimeoutJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(1200)
+            isOptimisticSeeking = false
+            pendingSeekTargetMs = null
+        }
 
         // 2. Dispatch IPC seek command to ExoPlayer
         ctrl.seekTo(validPos)

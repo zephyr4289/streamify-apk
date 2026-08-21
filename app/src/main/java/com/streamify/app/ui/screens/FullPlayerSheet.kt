@@ -231,11 +231,14 @@ fun FullPlayerSheet(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // Dynamic Morphing Aspect Ratio Hero Surface (Artwork or Hardware Video)
+                    val hasVideoStream = remember(track.id, track.filepath, isVideoMode) {
+                        track.filepath.endsWith(".mp4") || track.filepath.contains("mime=video") || (track.ytmVideoId != null && isVideoMode)
+                    }
+
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.92f)
-                            .aspectRatio(animatedAspectRatio)
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
                             .clip(LocalAppShapes.current.thumbnailLarge)
                             .background(androidx.compose.ui.graphics.Color.Black)
                             .graphicsLayer {
@@ -247,37 +250,31 @@ fun FullPlayerSheet(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Crossfade(
-                            targetState = isVideoMode,
-                            label = "MediaSurfaceCrossfadeLandscape"
-                        ) { isVideo ->
-                            if (isVideo && playerViewModel.getController() != null) {
-                                AndroidView(
-                                    factory = { ctx ->
-                                        PlayerView(ctx).apply {
-                                            player = playerViewModel.getController()
-                                            useController = false
-                                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                                        }
-                                    },
-                                    update = { view ->
-                                        view.player = playerViewModel.getController()
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                TrackCoverArt(
-                                    coverArtPath = track.coverArtPath,
-                                    title = track.title,
-                                    artist = track.artist,
-                                    modifier = Modifier.fillMaxSize(),
-                                    shape = RoundedCornerShape(16.dp)
-                                )
-                            }
+                        TrackCoverArt(
+                            coverArtPath = track.coverArtPath,
+                            title = track.title,
+                            artist = track.artist,
+                            modifier = Modifier.fillMaxSize(),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+
+                        if (isVideoMode && hasVideoStream && playerViewModel.getController() != null) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    PlayerView(ctx).apply {
+                                        player = playerViewModel.getController()
+                                        useController = false
+                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                                    }
+                                },
+                                update = { view ->
+                                    view.player = playerViewModel.getController()
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
                     }
-
 
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -626,34 +623,33 @@ fun FullPlayerSheet(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Crossfade(
-                        targetState = isVideoMode,
-                        label = "MediaSurfaceCrossfadePortrait"
-                    ) { isVideo ->
-                        if (isVideo && playerViewModel.getController() != null) {
-                            AndroidView(
-                                factory = { ctx ->
-                                    PlayerView(ctx).apply {
-                                        player = playerViewModel.getController()
-                                        useController = false
-                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                                    }
-                                },
-                                update = { view ->
-                                    view.player = playerViewModel.getController()
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            TrackCoverArt(
-                                coverArtPath = track.coverArtPath,
-                                title = track.title,
-                                artist = track.artist,
-                                modifier = Modifier.fillMaxSize(),
-                                shape = RoundedCornerShape(16.dp)
-                            )
-                        }
+                    val hasVideoStream = remember(track.id, track.filepath, isVideoMode) {
+                        track.filepath.endsWith(".mp4") || track.filepath.contains("mime=video") || (track.ytmVideoId != null && isVideoMode)
+                    }
+
+                    TrackCoverArt(
+                        coverArtPath = track.coverArtPath,
+                        title = track.title,
+                        artist = track.artist,
+                        modifier = Modifier.fillMaxSize(),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+
+                    if (isVideoMode && hasVideoStream && playerViewModel.getController() != null) {
+                        AndroidView(
+                            factory = { ctx ->
+                                PlayerView(ctx).apply {
+                                    player = playerViewModel.getController()
+                                    useController = false
+                                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                                }
+                            },
+                            update = { view ->
+                                view.player = playerViewModel.getController()
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
 
                     if (seekRippleSide != null) {

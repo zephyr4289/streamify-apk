@@ -45,13 +45,16 @@ fun TrackCoverArt(
 
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    val imageRequest = remember(descriptor.primary, descriptor.secondary) {
+    val imageRequest = remember(descriptor.primary, descriptor.secondary, title, artist) {
         val primary = descriptor.primary
         if (primary.isNullOrBlank()) null
         else {
             val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(primary)
+            val cacheKey = "${primary}_${title.hashCode()}_${artist.hashCode()}"
             coil.request.ImageRequest.Builder(context)
                 .data(primary)
+                .memoryCacheKey(cacheKey)
+                .diskCacheKey(cacheKey)
                 .crossfade(true)
                 .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                 .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
