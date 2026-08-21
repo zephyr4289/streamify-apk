@@ -15,8 +15,9 @@ object CanonicalSeedResolver {
      * canonical 11-character YouTube Music Video ID in <50ms.
      */
     suspend fun resolveToCanonicalId(track: Track): String = withContext(Dispatchers.IO) {
-        // 1. Direct validation if filepath or cover contains valid 11-char Video ID
-        val directId = YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+        // 1. Direct validation if ytmVideoId, filepath or cover contains valid 11-char Video ID
+        val directId = track.ytmVideoId?.takeIf { it.matches(VIDEO_ID_REGEX) }
+            ?: YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
         if (!directId.isNullOrBlank() && directId.matches(VIDEO_ID_REGEX)) {
             return@withContext directId
         }

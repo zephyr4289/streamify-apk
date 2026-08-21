@@ -67,9 +67,8 @@ fun AppNavGraph(
                 playerViewModel = playerViewModel,
                 communityViewModel = communityViewModel,
                 dominantColor = dominantColor,
-                onTrackClick = { track, allTracks ->
-                    val queue = if (allTracks.isNotEmpty()) allTracks else listOf(track)
-                    playerViewModel.playTrack(track, queue, autoHydrateRadio = true)
+                onTrackClick = { track, _ ->
+                    playerViewModel.playTrack(track, listOf(track), autoHydrateRadio = true)
                 },
                 onSearchClick = {
                     navController.navigate("search")

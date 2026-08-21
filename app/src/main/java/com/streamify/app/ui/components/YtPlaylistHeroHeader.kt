@@ -8,6 +8,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
@@ -37,6 +39,8 @@ fun YtPlaylistHeroHeader(
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
     onExportM3u: (() -> Unit)? = null,
+    isRadioDiscoveryMode: Boolean = false,
+    onToggleRadioDiscoveryMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // Extreme GPU Parallax: Scale and translate based on scroll without layout passes
@@ -154,6 +158,41 @@ fun YtPlaylistHeroHeader(
                             modifier = Modifier.size(20.dp)
                         )
                     }
+                }
+            }
+        }
+
+        // 2-Mode Toggle: Online Radio Discovery vs Play from Playlist
+        if (onToggleRadioDiscoveryMode != null) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = if (isRadioDiscoveryMode) Primary.copy(alpha = 0.2f) else BgSurfaceElevated,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (isRadioDiscoveryMode) Primary else BorderChip
+                ),
+                modifier = Modifier.clickable(onClick = onToggleRadioDiscoveryMode)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (isRadioDiscoveryMode) Icons.Filled.Radio else Icons.Filled.QueueMusic,
+                        contentDescription = null,
+                        tint = if (isRadioDiscoveryMode) Primary else TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isRadioDiscoveryMode) "Mode: Online Radio Discovery" else "Mode: Play from Playlist",
+                        style = LocalAppTypography.current.chipText.copy(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = if (isRadioDiscoveryMode) Primary else TextMain
+                    )
                 }
             }
         }

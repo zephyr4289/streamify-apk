@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -89,6 +90,7 @@ fun AlbumScreen(
     val displayTitle = headerTitle ?: albumName
     val currentTrack by playerViewModel.currentTrack.collectAsState()
     val contextMenuController = LocalContextMenuController.current
+    var isRadioDiscoveryMode by rememberSaveable { mutableStateOf(false) }
     var showOptionsMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf(displayTitle) }
@@ -272,15 +274,25 @@ fun AlbumScreen(
                     subtitle = displaySubtitle,
                     artworkUrl = firstTrack?.coverArtPath,
                     scrollOffset = scrollOffset,
+                    isRadioDiscoveryMode = isRadioDiscoveryMode,
+                    onToggleRadioDiscoveryMode = { isRadioDiscoveryMode = !isRadioDiscoveryMode },
                     onPlay = {
                         if (albumTracks.isNotEmpty()) {
-                            onTrackClick(albumTracks.first(), albumTracks)
+                            if (isRadioDiscoveryMode) {
+                                playerViewModel.playTrack(albumTracks.first(), listOf(albumTracks.first()), autoHydrateRadio = true)
+                            } else {
+                                onTrackClick(albumTracks.first(), albumTracks)
+                            }
                         }
                     },
                     onShuffle = {
                         if (albumTracks.isNotEmpty()) {
                             val shuffled = albumTracks.shuffled()
-                            onTrackClick(shuffled.first(), shuffled)
+                            if (isRadioDiscoveryMode) {
+                                playerViewModel.playTrack(shuffled.first(), listOf(shuffled.first()), autoHydrateRadio = true)
+                            } else {
+                                onTrackClick(shuffled.first(), shuffled)
+                            }
                         }
                     },
                     onExportM3u = {
@@ -304,7 +316,13 @@ fun AlbumScreen(
                     track = track,
                     isPlaying = currentTrack?.id == track.id,
                     showDragHandle = false,
-                    onClick = { onTrackClick(track, albumTracks) },
+                    onClick = {
+                        if (isRadioDiscoveryMode) {
+                            playerViewModel.playTrack(track, listOf(track), autoHydrateRadio = true)
+                        } else {
+                            onTrackClick(track, albumTracks)
+                        }
+                    },
                     onMoreClick = {
                         contextMenuController.show(
                             track = track,
