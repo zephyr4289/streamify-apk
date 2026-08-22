@@ -342,8 +342,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             
             val currentT = _playerState.value.currentTrack
             val newTrackId = mediaItem?.mediaId?.removePrefix("trk_")?.toIntOrNull() ?: currentT?.id?.takeIf { it > 0 }
-            if (currentT != null) {
-                com.streamify.app.data.YtStatsTelemetryEngine.recordTrackPlay(currentT)
+            if (currentT != null && newTrackId != null) {
                 viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
                         val registered = repository.registerStreamedTrack(currentT, appContext)
@@ -696,25 +695,12 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private fun startPollingPosition() {
         positionPollingJob?.cancel()
         positionPollingJob = viewModelScope.launch {
-            var lastTickMs = System.currentTimeMillis()
-            var accumulatedPlaySec = 0L
             var lastJamHeartbeatMs = 0L
             while (true) {
                 val now = System.currentTimeMillis()
-                val elapsedSec = (now - lastTickMs) / 1000L
-                if (elapsedSec >= 1L) {
-                    lastTickMs = now
-                    if (_playerState.value.isPlaying) {
-                        accumulatedPlaySec += elapsedSec.coerceIn(1L, 5L)
-                        if (accumulatedPlaySec >= 10L) {
-                            com.streamify.app.data.YtStatsTelemetryEngine.recordListeningSeconds(accumulatedPlaySec)
-                            accumulatedPlaySec = 0L
-                        }
-                    } else if (accumulatedPlaySec > 0L) {
-                        com.streamify.app.data.YtStatsTelemetryEngine.recordListeningSeconds(accumulatedPlaySec)
-                        accumulatedPlaySec = 0L
-                    }
-                }
+                // STATS OVERHAUL: this poller NO LONGER accumulates listening
+                // seconds — PlaybackService's ExoPlayer listener is the single
+                // authoritative writer (double-counting eliminated at source).
 
                 controller?.let { ctrl ->
                     val now = System.currentTimeMillis()

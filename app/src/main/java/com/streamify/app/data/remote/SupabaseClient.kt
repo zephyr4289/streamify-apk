@@ -588,6 +588,80 @@ object SupabaseClient {
         }
     }
 
+    // ========================================================================
+    // JAM-STYLE STATS TRANSPORT v2 — monotonic aggregates + per-track deltas
+    // ========================================================================
+
+    /**
+     * Server-side GREATEST() upsert: a device can never regress cloud truth.
+     * Returns false when the migration isn't applied yet (caller falls back).
+     */
+    suspend fun rpcUpsertTelemetryMonotonic(seconds: Long, plays: Int, topTrack: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (currentUser.value == null) return@withContext false
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/upsert_user_telemetry")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+            }
+            val body = JSONObject().apply {
+                put("p_listening_seconds", seconds)
+                put("p_total_plays", plays)
+                put("p_top_track", topTrack)
+            }
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            conn.responseCode in 200..299
+        } catch (e: Exception) { false }
+    }
+
+    /** Atomic per-track delta increment (concurrent-device safe). */
+    suspend fun rpcIncrementUserTrackPlay(
+        trackSig: String,
+        playsDelta: Int,
+        secondsDelta: Long,
+        snapshot: JSONObject?
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (currentUser.value == null) return@withContext false
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/increment_user_track_play")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+            }
+            val body = JSONObject().apply {
+                put("p_track_sig", trackSig)
+                put("p_plays_delta", playsDelta)
+                put("p_seconds_delta", secondsDelta)
+                put("p_snapshot", snapshot ?: JSONObject())
+            }
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            conn.responseCode in 200..299
+        } catch (e: Exception) { false }
+    }
+
+    /** Pull-side rebuild source for cross-device Wrapped. */
+    suspend fun fetchUserTrackPlays(limit: Int = 50): Result<JSONArray> = withContext(Dispatchers.IO) {
+        try {
+            val user = currentUser.value ?: return@withContext Result.failure(Exception("Not logged in"))
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_track_plays?user_id=eq.${user.id}&order=plays.desc&limit=$limit")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                Result.success(JSONArray(resp))
+            } else Result.failure(Exception("track plays fetch: ${conn.responseCode}"))
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
     fun signOut() {
         _accessToken.value = null
         _currentUser.value = null
@@ -1092,74 +1166,35 @@ object SupabaseClient {
         val user = _currentUser.value ?: return@withContext false
         if (events.isEmpty()) return@withContext true
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_history")
+            // STATS OVERHAUL: raw play events land in user_play_events (sig-based,
+            // no FK) so streamed/local tracks never violate constraints. Aggregate
+            // monotonicity is owned by upsert_user_telemetry — not patched here.
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_play_events")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 doOutput = true
                 setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
                 setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
                 setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Prefer", "return=minimal")
             }
 
             val body = JSONArray()
-            var totalDurationDelta = 0L
             for (evt in events) {
-                val dur = evt.optLong("duration_sec", 0L)
-                totalDurationDelta += dur
-                val item = JSONObject().apply {
+                body.put(JSONObject().apply {
                     put("user_id", user.id)
-                    put("track_id", evt.optString("track_id", ""))
-                    put("duration_played_sec", dur)
+                    put("track_sig", evt.optString("track_sig",
+                        evt.optString("track_id", "").lowercase()))
+                    put("track_title", evt.optString("track_title", ""))
+                    put("track_artist", evt.optString("track_artist", ""))
+                    put("duration_played_sec", evt.optLong("duration_sec", 0L).toInt())
                     put("completion_ratio", evt.optDouble("completion_ratio", 1.0))
                     put("hour_of_day", evt.optInt("hour_of_day", 12))
-                }
-                body.put(item)
+                })
             }
 
             conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            val ok = conn.responseCode in 200..299
-
-            if (ok && totalDurationDelta > 0) {
-                val cur = _currentUser.value
-                if (cur != null) {
-                    val newSec = cur.listeningSeconds + totalDurationDelta
-                    val newPlays = cur.totalPlays + events.count { it.optDouble("completion_ratio", 0.0) >= 0.5 }
-                    val topTrackTitle = cur.topTrack
-
-                    _currentUser.value = cur.copy(
-                        listeningSeconds = newSec,
-                        totalPlays = newPlays
-                    )
-
-                    // Patch Supabase profiles table atomically
-                    try {
-                        val patchUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}")
-                        val patchConn = (patchUrl.openConnection() as HttpURLConnection).apply {
-                            requestMethod = "PATCH"
-                            doOutput = true
-                            setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                            setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                            setRequestProperty("Content-Type", "application/json")
-                            setRequestProperty("Prefer", "return=minimal")
-                        }
-                        val nowIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
-                            timeZone = java.util.TimeZone.getTimeZone("UTC")
-                        }.format(java.util.Date())
-
-                        val patchBody = JSONObject().apply {
-                            put("listening_seconds", newSec)
-                            put("total_plays", newPlays)
-                            if (topTrackTitle.isNotBlank()) put("top_track", topTrackTitle)
-                            put("last_active_at", nowIso)
-                        }
-                        patchConn.outputStream.use { it.write(patchBody.toString().toByteArray()) }
-                        patchConn.responseCode
-                    } catch (e: Exception) {
-                        // Silent fallback
-                    }
-                }
-            }
-            ok
+            conn.responseCode in 200..299
         } catch (e: Exception) {
             false
         }

@@ -96,6 +96,8 @@ class PlaybackService : MediaSessionService() {
 
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
             private var lastPlayStartMs: Long = 0L
+            private var lastCountedMediaId: String? = null
+            private var lastCountedAtMs: Long = 0L
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 val now = System.currentTimeMillis()
@@ -125,7 +127,16 @@ class PlaybackService : MediaSessionService() {
                     val artist = mediaItem.mediaMetadata.artist?.toString() ?: ""
                     val cover = mediaItem.mediaMetadata.artworkUri?.toString() ?: ""
                     val path = mediaItem.localConfiguration?.uri?.toString() ?: ""
-                    if (title.isNotBlank()) {
+                    // STATS OVERHAUL: this listener is the SINGLE writer for
+                    // listening seconds AND play counts. Real listen length is
+                    // passed so sub-10s blips never inflate Top Songs, and
+                    // same-track re-preparations (CDN 403 renewal) are deduped.
+                    val nowMs = System.currentTimeMillis()
+                    val isRenewalReplay = mediaItem.mediaId == lastCountedMediaId &&
+                            (nowMs - lastCountedAtMs) < 1500L
+                    if (title.isNotBlank() && !isRenewalReplay) {
+                        lastCountedMediaId = mediaItem.mediaId
+                        lastCountedAtMs = nowMs
                         val track = com.streamify.app.data.models.Track(
                             id = mediaItem.mediaId.toIntOrNull() ?: 0,
                             title = title,
@@ -133,7 +144,10 @@ class PlaybackService : MediaSessionService() {
                             filepath = path,
                             coverArtPath = cover
                         )
-                        com.streamify.app.data.YtStatsTelemetryEngine.recordTrackPlay(track)
+                        val listenedForThisPlay =
+                            ((nowMs - (lastPlayStartMs.takeIf { it > 0 } ?: nowMs)) / 1000L)
+                                .coerceIn(0L, 3600L)
+                        com.streamify.app.data.YtStatsTelemetryEngine.recordTrackPlay(track, listenedForThisPlay)
                     }
                 }
             }
