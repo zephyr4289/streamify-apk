@@ -80,6 +80,44 @@ data class ListeningSession(
     val participantIds: List<String> = emptyList()
 )
 
+// ============================================================================
+// JAM IDENTITY CODEC — lossless track identity across the wire.
+// ytmVideoId/isrc MUST travel with every payload so guests never fall into
+// blind fuzzy resolution (the root of historical wrong-song jams).
+// ============================================================================
+fun jamTrackToJson(track: Track, addedBy: String = ""): JSONObject = JSONObject().apply {
+    put("id", track.id)
+    put("title", track.title)
+    put("artist", track.artist)
+    put("album", track.album)
+    put("filepath", track.filepath)
+    put("coverArtPath", track.coverArtPath ?: "")
+    put("durationSec", track.durationSec)
+    track.ytmVideoId?.let { put("ytmVideoId", it) }
+    track.isrc?.let { put("isrc", it) }
+    if (addedBy.isNotBlank()) put("addedBy", addedBy)
+}
+
+fun jamTrackFromJson(o: JSONObject?): Track? {
+    o ?: return null
+    val title = o.optString("title", "")
+    if (title.isBlank()) return null
+    return Track(
+        id = o.optInt("id", -(title.hashCode())),
+        title = title,
+        artist = o.optString("artist", ""),
+        album = o.optString("album", "Streamify Jam"),
+        filepath = o.optString("filepath", ""),
+        coverArtPath = o.optString("coverArtPath", "").ifBlank { null },
+        durationSec = o.optInt("durationSec", 0),
+        bpm = o.optDouble("bpm", 0.0).toFloat(),
+        key = o.optString("key", ""),
+        source = "cloud_jam",
+        isrc = o.optString("isrc", "").ifBlank { null },
+        ytmVideoId = o.optString("ytmVideoId", "").ifBlank { null }
+    )
+}
+
 data class DevicePlaybackSnapshot(
     val deviceId: String,
     val trackId: String,
@@ -1466,14 +1504,7 @@ object SupabaseClient {
             val sessionCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions")
 
-            val trackObj = JSONObject().apply {
-                put("id", track.id)
-                put("title", track.title)
-                put("artist", track.artist)
-                put("filepath", track.filepath)
-                put("coverArtPath", track.coverArtPath ?: "")
-                put("durationSec", track.durationSec)
-            }
+            val trackObj = com.streamify.app.data.remote.jamTrackToJson(track)
 
             val body = JSONObject().apply {
                 put("host_user_id", user.id)
@@ -1484,6 +1515,7 @@ object SupabaseClient {
                 put("is_playing", true)
                 put("host_clock_timestamp", System.currentTimeMillis())
                 put("participant_ids", JSONArray().put(user.id))
+                put("queue_json", JSONArray().put(trackObj))
             }
 
             val (code, resp) = executeAdaptivePostgrestRequest(
@@ -1562,6 +1594,12 @@ object SupabaseClient {
                         } else null
                     }
 
+                    val persistedQueue = o.optJSONArray("queue_json")?.let { qArr ->
+                        (0 until qArr.length()).mapNotNull { jamTrackFromJson(qArr.optJSONObject(it)) }
+                    } ?: emptyList()
+                    val participants = o.optJSONArray("participant_ids")?.let { pArr ->
+                        (0 until pArr.length()).mapNotNull { pArr.optString(it).ifBlank { null } }
+                    } ?: listOf(user.id)
                     val jam = ListeningSession(
                         id = o.optString("id"),
                         sessionCode = o.optString("session_code"),
@@ -1571,7 +1609,8 @@ object SupabaseClient {
                         positionMs = o.optLong("position_ms", 0L),
                         isPlaying = o.optBoolean("is_playing", false),
                         hostClockTimestamp = o.optLong("host_clock_timestamp", System.currentTimeMillis()),
-                        participantIds = listOf(user.id)
+                        queue = persistedQueue,
+                        participantIds = participants
                     )
                     _activeJam.value = jam
                     joinJamRealtimeChannel(sessionCode)
@@ -1604,14 +1643,7 @@ object SupabaseClient {
             val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
 
-            val trackObj = JSONObject().apply {
-                put("id", track.id)
-                put("title", track.title)
-                put("artist", track.artist)
-                put("filepath", track.filepath)
-                put("coverArtPath", track.coverArtPath ?: "")
-                put("durationSec", track.durationSec)
-            }
+            val trackObj = com.streamify.app.data.remote.jamTrackToJson(track)
 
             val body = JSONObject().apply {
                 put("current_track_id", track.id.toString())
@@ -1644,7 +1676,10 @@ object SupabaseClient {
         isPlaying: Boolean,
         hostEpochMs: Long = System.currentTimeMillis(),
         action: String = "TICK",
-        trackJson: JSONObject? = null
+        trackJson: JSONObject? = null,
+        senderId: String = "",
+        epochMs: Long = 0L,
+        extras: JSONObject? = null
     ) {
         val ws = realtimeWebSocket ?: return
         if (!_isRealtimeConnected.value) return
@@ -1659,8 +1694,13 @@ object SupabaseClient {
                 put("is_playing", isPlaying)
                 put("host_epoch_ms", hostEpochMs)
                 put("client_epoch_ms", System.currentTimeMillis())
+                if (senderId.isNotBlank()) put("sender_id", senderId)
+                if (epochMs > 0) put("epoch", epochMs)
                 if (trackJson != null) {
                     put("track_json", trackJson)
+                }
+                if (extras != null) {
+                    extras.keys().forEach { k -> payload.put(k, extras.opt(k)) }
                 }
             }
             val broadcastMsg = JSONObject().apply {
@@ -1731,6 +1771,107 @@ object SupabaseClient {
 
     fun leaveJamSession() {
         _activeJam.value = null
+    }
+
+    // ========================================================================
+    // JAM LOCKSTEP v2 — snapshot & persistence primitives
+    // ========================================================================
+
+    /** Full authoritative state fetch: used on join AND on every reconnect. */
+    suspend fun fetchJamSnapshot(sessionCode: String): Result<ListeningSession> = withContext(Dispatchers.IO) {
+        try {
+            val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                if (arr.length() > 0) {
+                    val o = arr.getJSONObject(0)
+                    val queue = o.optJSONArray("queue_json")?.let { qArr ->
+                        (0 until qArr.length()).mapNotNull { jamTrackFromJson(qArr.optJSONObject(it)) }
+                    } ?: emptyList()
+                    val participants = o.optJSONArray("participant_ids")?.let { pArr ->
+                        (0 until pArr.length()).mapNotNull { pArr.optString(it).ifBlank { null } }
+                    } ?: emptyList()
+                    Result.success(
+                        ListeningSession(
+                            id = o.optString("id"),
+                            sessionCode = o.optString("session_code"),
+                            hostUserId = o.optString("host_user_id"),
+                            currentTrackId = o.optString("current_track_id"),
+                            currentTrackJson = o.optJSONObject("current_track_json"),
+                            positionMs = o.optLong("position_ms", 0L),
+                            isPlaying = o.optBoolean("is_playing", false),
+                            hostClockTimestamp = o.optLong("host_clock_timestamp", System.currentTimeMillis()),
+                            queue = queue,
+                            participantIds = participants
+                        )
+                    )
+                } else Result.failure(Exception("Jam room no longer exists"))
+            } else Result.failure(Exception("Snapshot fetch failed: ${conn.responseCode}"))
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    /** Host-only persistence of the canonical shared queue. */
+    fun patchJamQueueJson(sessionCode: String, queue: List<Track>) {
+        try {
+            val arr = JSONArray()
+            queue.forEach { arr.put(jamTrackToJson(it)) }
+            val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "PATCH"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Prefer", "return=minimal")
+            }
+            conn.outputStream.use { it.write(JSONObject().put("queue_json", arr).toString().toByteArray()) }
+            conn.responseCode
+        } catch (e: Exception) { -1 }
+    }
+
+    /** Best-effort roster persistence (presence channel remains the live truth). */
+    fun patchJamParticipant(sessionCode: String, userId: String, add: Boolean) {
+        try {
+            val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
+            val getUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode&select=participant_ids")
+            val getConn = (getUrl.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+            }
+            val current = mutableListOf<String>()
+            if (getConn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(getConn.inputStream)).use { it.readText() }
+                val arr = JSONArray(resp)
+                if (arr.length() > 0) {
+                    val ids = arr.getJSONObject(0).optJSONArray("participant_ids")
+                    if (ids != null) for (i in 0 until ids.length()) current.add(ids.optString(i))
+                }
+            }
+            val next = (if (add) current + userId else current - userId).distinct()
+            if (next == current) return
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "PATCH"
+                doOutput = true
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Prefer", "return=minimal")
+            }
+            val body = JSONArray().apply { next.forEach { put(it) } }
+            conn.outputStream.use { it.write(JSONObject().put("participant_ids", body).toString().toByteArray()) }
+        } catch (e: Exception) {
+            // Best-effort: presence broadcast remains the live source of truth
+        }
     }
 
     // ========================================================================

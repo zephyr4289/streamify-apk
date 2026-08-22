@@ -59,7 +59,21 @@ data class PlayerState(
         }
 }
 
-class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
+class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel(),
+    com.streamify.app.jam.JamEngine.Bridge {
+
+    // ── JamEngine.Bridge: live-player facade for the Lockstep protocol ──
+    override fun loadTrack(track: Track, positionMs: Long, play: Boolean) {
+        playTrack(track, listOf(track), autoHydrateRadio = false)
+        if (positionMs > 0L) seekTo(positionMs)
+        if (!play) pause()
+    }
+
+    override fun seekTo(positionMs: Long) = this@PlayerViewModel.seekTo(positionMs)
+
+    override fun setPlaying(play: Boolean) {
+        if (play) this@PlayerViewModel.play() else this@PlayerViewModel.pause()
+    }
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
@@ -92,6 +106,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     // Dedup guard for lyric fetches: key = "trackId:videoIdOrEmpty" so a retry is only
     // allowed when the video identity actually improved (e.g. after DB registration).
     private val lyricsFetchAttempts = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    init {
+        com.streamify.app.jam.JamEngine.attachBridge(this)
+    }
     private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
     private var playbackStartTimeMs: Long = 0L
 
@@ -730,10 +748,16 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     }
 
                     // 500ms High-Resolution Jam Lockstep Heartbeat Broadcast (<15ms WebSocket transport)
-                    if (curState.isPlaying && com.streamify.app.data.remote.SupabaseClient.activeJam.value != null && !isApplyingJamSync) {
+                    if (curState.isPlaying && !isApplyingJamSync &&
+                        com.streamify.app.jam.JamEngine.isHost()   // LOCKSTEP: only the host drives the room clock
+                    ) {
                         if (now - lastJamHeartbeatMs >= 500L) {
                             lastJamHeartbeatMs = now
-                            broadcastJamAction("TICK", track = curState.currentTrack, positionMs = _playerState.value.currentPosition, isPlaying = true)
+                            com.streamify.app.jam.JamEngine.heartbeatTick(
+                                track = curState.currentTrack,
+                                positionMs = _playerState.value.currentPosition,
+                                isPlaying = true
+                            )
                         }
                     }
                 }
@@ -833,26 +857,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         isPlaying: Boolean = _playerState.value.isPlaying
     ) {
         if (isApplyingJamSync) return
-        val jam = com.streamify.app.data.remote.SupabaseClient.activeJam.value ?: return
-        val t = track ?: return
-        val trackJson = org.json.JSONObject().apply {
-            put("id", t.id)
-            put("title", t.title)
-            put("artist", t.artist)
-            put("album", t.album)
-            put("filepath", t.filepath)
-            put("coverArtPath", t.coverArtPath ?: "")
-            put("durationSec", t.durationSec)
-        }
-        com.streamify.app.data.remote.SupabaseClient.broadcastJamTick(
-            sessionCode = jam.sessionCode,
-            trackId = t.id.toString(),
-            trackTitle = t.title,
-            trackArtist = t.artist,
-            positionMs = positionMs,
-            isPlaying = isPlaying,
-            action = action,
-            trackJson = trackJson
+        if (com.streamify.app.data.remote.SupabaseClient.activeJam.value == null) return
+        // Lockstep routing: hosts emit authoritative epochs, members emit
+        // policy-checked intents — receiver-side gates enforce authority.
+        com.streamify.app.jam.JamEngine.onLocalPlaybackAction(
+            action = action, track = track, positionMs = positionMs, isPlaying = isPlaying
         )
     }
 
@@ -995,6 +1004,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         viewModelScope.launch {
             try {
                 lookaheadJob?.cancel()
+
+                // JAM LOCKSTEP: room advancement belongs to the host alone.
+                // Host pops the shared queue head; guests deliberately idle —
+                // personal radio must never hijack a live session.
+                if (com.streamify.app.jam.JamEngine.interceptAdvance()) return@launch
                 val curState = _playerState.value
                 val queue = curState.queue
                 if (queue.isEmpty()) return@launch
