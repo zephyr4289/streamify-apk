@@ -1038,8 +1038,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeInitCont
     _class: JClass,
 ) -> jlong {
     catch_unwind(AssertUnwindSafe(|| unsafe { crate::continuum_engine::init_continuum_state() }))
-    .unwrap_or(std::ptr::null_mut())
-        .unwrap_or(0) as jlong
+        .unwrap_or(std::ptr::null_mut()) as jlong
 }
 
 #[no_mangle]
