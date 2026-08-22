@@ -31,6 +31,21 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
          * Null → non-YT/local source → legacy RMS path.
          */
         @Volatile var currentPreGainDb: Float? = null
+
+        /**
+         * PHASE 2 PARAMETRIC EQ: 10 band gains in dB, published by
+         * EqualizerManager. Applied through the Rust StudioEqualizer biquads —
+         * ONLY on 44100 Hz streams, because the native EQ singleton locks its
+         * coefficient design rate at first construction. Non-44100 streams
+         * keep the system Equalizer engine (activeEqEngine == "SYSTEM").
+         */
+        @Volatile var eqBandGainsDb: FloatArray? = null
+
+        /** Which engine owns EQ for the CURRENT stream — set on configure. */
+        @Volatile var activeEqEngine: String = "SYSTEM"
+
+        /** PHASE 2 SAFETY: soft-knee ceiling after every gain stage. */
+        @Volatile var limiterEnabled: Boolean = true
     }
 
     private var statePtr: Long = 0L
@@ -41,6 +56,7 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
     // Direct native buffers for zero-copy FFI (reused across callbacks).
     private var nativeInputBuffer: ByteBuffer = ByteBuffer.allocateDirect(16384).order(ByteOrder.nativeOrder())
     private var nativeOutputBuffer: ByteBuffer = ByteBuffer.allocateDirect(32768).order(ByteOrder.nativeOrder())
+    private var scratchFloats: FloatArray = FloatArray(4096)
 
     init {
         statePtr = try {
@@ -62,6 +78,10 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
             return AudioFormat.NOT_SET
         }
         currentFormat = inputAudioFormat
+        // PHASE 2: route EQ ownership by stream sample rate (native biquad
+        // coefficients are designed at 44.1k).
+        activeEqEngine =
+            if (inputAudioFormat.sampleRate == 44_100) "RUST" else "SYSTEM"
         return AudioFormat(
             inputAudioFormat.sampleRate,
             inputAudioFormat.channelCount,
@@ -98,19 +118,18 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         // FLOAT input never round-trips through i16 anymore (that injected
         // ditherless quantization into a supposedly-float pipeline).
         if (!is16Bit) {
-            val out = replaceOutputBuffer(sampleCount * 4)
             val preGainLin = currentPreGainDb?.let { Math.pow(10.0, it / 20.0).toFloat() }
+            nativeOutputBuffer.clear()
             if (preGainLin != null) {
                 // EXACT PATH: YouTube-told-us gain; RMS engine bypassed.
                 var i = 0
                 while (i < sampleCount) {
                     val v = inputBuffer.float * preGainLin
-                    out.putFloat(if (v > 1f) 1f else if (v < -1f) -1f else v)
+                    nativeOutputBuffer.putFloat(if (v > 1f) 1f else if (v < -1f) -1f else v)
                     i++
                 }
             } else {
                 // LEGACY PATH: identity copy → native RMS normalization.
-                nativeOutputBuffer.clear()
                 while (inputBuffer.hasRemaining()) nativeOutputBuffer.putFloat(inputBuffer.float)
                 nativeOutputBuffer.position(0)
                 nativeOutputBuffer.limit(sampleCount * 4)
@@ -121,8 +140,14 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
                 }
                 nativeOutputBuffer.position(0)
                 nativeOutputBuffer.limit(sampleCount * 4)
-                out.put(nativeOutputBuffer)
             }
+
+            postProcessFloat(nativeOutputBuffer, sampleCount, channelCount)
+
+            val out = replaceOutputBuffer(sampleCount * 4)
+            nativeOutputBuffer.position(0)
+            nativeOutputBuffer.limit(sampleCount * 4)
+            out.put(nativeOutputBuffer)
             out.flip()
             return
         }
@@ -141,6 +166,8 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         }
 
         if (result == 0) {
+            postProcessFloat(nativeOutputBuffer, sampleCount, channelCount)
+
             val out = replaceOutputBuffer(sampleCount * 4)
             nativeOutputBuffer.position(0)
             nativeOutputBuffer.limit(sampleCount * 4)
@@ -151,6 +178,52 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
             // so the sink never starves. Rewind what we consumed from the copy.
             consumeAsFloatFromNativeInput(sampleCount, channelCount)
         }
+    }
+
+    /**
+     * PHASE 2 POST STAGE — applied to EVERY rendered buffer:
+     *   1. Rust parametric EQ when this stream is RUST-owned (44.1 kHz),
+     *      using live gains published from EqualizerManager.
+     *   2. C++ SoftKneeLimiter at −1 dB threshold / 2 dB knee — the always-on
+     *      true-peak safety net that makes loudness pre-gain clip-free.
+     * One reusable scratch array; one bulk copy in/out per buffer.
+     */
+    private fun postProcessFloat(buffer: java.nio.ByteBuffer, sampleCount: Int, channels: Int) {
+        if (sampleCount <= 0) return
+        val gains = eqBandGainsDb
+        val needsEq = activeEqEngine == "RUST" && gains != null && gains.size == 10
+        if (!needsEq && !limiterEnabled) return
+
+        if (scratchFloats.size < sampleCount) scratchFloats = FloatArray(sampleCount * 2)
+        buffer.position(0)
+        buffer.limit(sampleCount * 4)
+        buffer.get(scratchFloats, 0, sampleCount)
+
+        if (needsEq) {
+            runCatching {
+                NativeBridge.rustProcessEqualizerFrame(
+                    pcmFloats = scratchFloats,
+                    channels = channels,
+                    gains = gains
+                )
+            }
+        }
+
+        if (limiterEnabled) {
+            runCatching {
+                NativeBridge.processLimiterFloats(
+                    buffer = scratchFloats,
+                    length = sampleCount,
+                    threshold = -1.0f,
+                    kneeWidth = 2.0f
+                )
+            }
+        }
+
+        buffer.position(0)
+        buffer.put(scratchFloats, 0, sampleCount)
+        buffer.position(0)
+        buffer.limit(sampleCount * 4)
     }
 
     /** Fallback: convert the staged i16 copy in nativeInputBuffer to f32 output. */
