@@ -733,7 +733,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeParseLrc
 ) -> jlong {
     catch_unwind(AssertUnwindSafe(|| {
         if lrc_text.is_null() {
-            return 0jlong;
+            return 0;
         }
         let lrc_str: String = match env.get_string(&lrc_text) {
             Ok(s) => s.into(),
@@ -741,7 +741,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeParseLrc
         };
         let bytes = lrc_str.as_bytes();
         if bytes.is_empty() {
-            return 0jlong;
+            return 0;
         }
         crate::lyrics::parse_lrc_file(bytes.as_ptr() as *const std::os::raw::c_char, bytes.len())
             as jlong

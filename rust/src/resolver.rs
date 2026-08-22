@@ -302,7 +302,7 @@ fn is_valid_video_id(video_id: &str) -> bool {
 }
 
 /// Recursively collects every musicResponsiveListItemRenderer object in the tree.
-fn collect_list_item_renderers(node: &Value, out: &mut Vec<&Value>) {
+fn collect_list_item_renderers<'a>(node: &'a Value, out: &mut Vec<&'a Value>) {
     match node {
         Value::Object(map) => {
             for (key, value) in map {
