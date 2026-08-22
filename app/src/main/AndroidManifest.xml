@@ -38,6 +38,15 @@
                     android:scheme="streamify"
                     android:host="callback" />
             </intent-filter>
+            <!-- Jam invite deep link (streamify://jam/CODE) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="streamify"
+                    android:host="jam" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

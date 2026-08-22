@@ -109,6 +109,9 @@ object JamEngine {
     /** Deep-link invite consumed by the Jam screen on open. */
     @Volatile var pendingInviteCode: String? = null
 
+    /** Non-suspend signal so the shell can auto-navigate into the room. */
+    val inviteNavigationEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
     /** Per-process device nonce: two devices signed into one account stay distinct. */
     val deviceId: String = UUID.randomUUID().toString().take(8)
 

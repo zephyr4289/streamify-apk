@@ -61,6 +61,14 @@ class MainActivity : ComponentActivity() {
 
     private fun handleSpotifyCallback(intent: android.content.Intent?) {
         val uri = intent?.data ?: return
+        if (uri.scheme == "streamify" && uri.host == "jam") {
+            val code = uri.lastPathSegment?.uppercase()?.takeIf { it.length == 6 }
+            if (code != null) {
+                com.streamify.app.jam.JamEngine.pendingInviteCode = code
+                com.streamify.app.jam.JamEngine.inviteNavigationEvents.tryEmit(code)
+            }
+            return
+        }
         if (uri.scheme == "streamify" && (uri.host == "callback" || uri.host == "spotify-auth")) {
             val authCode = uri.getQueryParameter("code")
             val error = uri.getQueryParameter("error")
@@ -111,6 +119,8 @@ class MainActivity : ComponentActivity() {
             }
 
             val authState by AuthManager.authState.collectAsState()
+
+
             LaunchedEffect(authState) {
                 val user = com.streamify.app.data.remote.SupabaseClient.currentUser.value
                 if (user != null) {
@@ -175,6 +185,13 @@ class MainActivity : ComponentActivity() {
                 //   Mini-player  -> everywhere except immersive full-screen routes
                 val topLevelRoutes = remember { setOf("home", "search", "library", "downloads") }
                 val immersiveRoutes = remember { setOf("queue", "lyrics", "jam", "profile_selection") }
+
+                // Jam invite deep links (streamify://jam/CODE) jump straight into the room.
+                LaunchedEffect(Unit) {
+                    com.streamify.app.jam.JamEngine.inviteNavigationEvents.collect {
+                        navController.navigate("jam")
+                    }
+                }
                 var miniDockDismissedForTrack by remember { mutableStateOf<Int?>(null) }
                 LaunchedEffect(playerState.currentTrack?.id) {
                     miniDockDismissedForTrack = null
