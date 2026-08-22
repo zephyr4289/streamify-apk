@@ -985,6 +985,18 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
     }
 
+    /**
+     * HISTORY OVERHAUL: drops every queue entry BEFORE the current index.
+     * Now-playing and Up Next are untouched; indices re-base to zero so the
+     * History section can be wiped without disturbing live playback.
+     */
+    fun clearPlayedHistory() {
+        val cur = _playerState.value
+        if (cur.currentIndex <= 0) return
+        val remaining = cur.queue.drop(cur.currentIndex)
+        _playerState.value = cur.copy(queue = remaining, currentIndex = 0)
+    }
+
     fun advanceQueue(isUserSkip: Boolean = false) {
         if (!isAdvancing.compareAndSet(false, true)) return
         viewModelScope.launch {

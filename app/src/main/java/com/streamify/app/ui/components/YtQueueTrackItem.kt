@@ -37,6 +37,9 @@ fun YtQueueTrackItem(
     onClick: () -> Unit,
     onMoreClick: () -> Unit,
     showDragHandle: Boolean = true,
+    leadingBadge: String? = null,
+    dimmed: Boolean = false,
+    onReplay: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -44,7 +47,10 @@ fun YtQueueTrackItem(
             .fillMaxWidth()
             .height(56.dp)
             // Extreme Performance: GPU translation bypasses Compose layout/measure passes
-            .graphicsLayer { translationY = dragOffset }
+            .graphicsLayer {
+                translationY = dragOffset
+                if (dimmed) alpha = 0.62f
+            }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = {
@@ -55,6 +61,17 @@ fun YtQueueTrackItem(
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (leadingBadge != null) {
+            Text(
+                text = leadingBadge,
+                style = androidx.compose.ui.text.TextStyle(
+                    fontSize = 10.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                ),
+                color = com.streamify.app.ui.theme.TextTertiary,
+                modifier = Modifier.width(30.dp)
+            )
+        }
         // Thumbnail / Equalizer Box
         Box(
             modifier = Modifier

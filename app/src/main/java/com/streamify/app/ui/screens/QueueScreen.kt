@@ -2,6 +2,13 @@ package com.streamify.app.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -41,6 +48,9 @@ fun QueueScreen(
     // 120fps Mathematical Drag Reorder State
     var draggedItemIndex by remember { mutableStateOf<Int?>(null) }
     var draggedItemOffset by remember { mutableStateOf(0f) }
+
+    // HISTORY section state (overhauled played surface)
+    var historyExpanded by remember { mutableStateOf(false) }
     val itemHeightPx = with(LocalDensity.current) { 56.dp.toPx() }
 
     // Distinct Index-Aware Queue Slices
@@ -104,30 +114,74 @@ fun QueueScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 120.dp) // Protective padding for docked player
         ) {
-            // Section 0: Previously Played Tracks
+            // Section 0 · HISTORY — overhauled played surface:
+            // most-recent-first, position badges, dimmed artwork, replay
+            // affordance, collapse/expand, and one-tap clear.
             if (playedTracks.isNotEmpty()) {
-                item(key = "header_played") {
-                    Text(
-                        text = "PLAYED (${playedTracks.size})",
-                        style = LocalAppTypography.current.songArtist.copy(
-                            fontSize = 11.sp,
-                            letterSpacing = 0.5.sp
-                        ),
-                        color = TextTertiary.copy(alpha = 0.6f),
-                        modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 6.dp)
-                    )
+                val history = playedTracks.asReversed()
+                val visibleHistory =
+                    if (historyExpanded || history.size <= 3) history
+                    else history.take(3)
+
+                item(key = "header_history") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "HISTORY (${playedTracks.size})",
+                            style = LocalAppTypography.current.songArtist.copy(
+                                fontSize = 11.sp,
+                                letterSpacing = 0.5.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            ),
+                            color = TextTertiary
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        IconButton(
+                            onClick = {
+                                com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                                playerViewModel.clearPlayedHistory()
+                            },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.DeleteSweep,
+                                contentDescription = "Clear history",
+                                tint = TextTertiary.copy(alpha = 0.8f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { historyExpanded = !historyExpanded },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (historyExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                contentDescription = if (historyExpanded) "Collapse" else "Expand",
+                                tint = TextTertiary.copy(alpha = 0.8f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
 
                 itemsIndexed(
-                    items = playedTracks,
+                    items = visibleHistory,
                     key = { index, track -> "played_${track.id}_${track.filepath.hashCode()}_${index}" },
                     contentType = { _, _ -> "trackRow" }
                 ) { index, track ->
+                    val originalPosition = playedTracks.size - index   // absolute queue slot (#1..)
                     YtQueueTrackItem(
                         track = track,
                         isPlaying = false,
                         dragOffset = 0f,
                         showDragHandle = false,
+                        leadingBadge = "#%02d".format(originalPosition),
+                        dimmed = true,
+                        onReplay = null,   // row tap already replays; keep rows uncluttered
                         onClick = {
                             onTrackClick(track.id)
                             playerViewModel.playTrack(track, queue)
@@ -135,9 +189,27 @@ fun QueueScreen(
                         onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.QUEUE) }
                     )
                 }
+
+                if (history.size > 3 && !historyExpanded) {
+                    item(key = "history_show_all") {
+                        Text(
+                            text = "SHOW ${history.size - 3} EARLIER",
+                            style = LocalAppTypography.current.songArtist.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp
+                            ),
+                            color = Primary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { historyExpanded = true }
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                        )
+                    }
+                }
             }
 
-            // Section A: Now Playing Active Track
+                        // Section A: Now Playing Active Track
             if (nowPlaying != null) {
                 item(key = "header_now_playing") {
                     Text(
