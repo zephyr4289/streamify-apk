@@ -109,3 +109,37 @@ create policy "upe_insert_own" on public.user_play_events
 drop policy if exists "upe_select_own" on public.user_play_events;
 create policy "upe_select_own" on public.user_play_events
     for select using (auth.uid() = user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 4. ADMIN GLOBAL TOP SONGS (cross-user leaderboard, admin-gated)
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.get_admin_top_tracks(p_limit int default 20)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_result jsonb;
+begin
+    if not public.is_admin() then
+        raise exception 'Access denied: Admin privileges required';
+    end if;
+
+    select jsonb_build_object('tracks', coalesce(jsonb_agg(x), '[]'::jsonb))
+    into v_result
+    from (
+        select t.track_sig,
+               sum(t.plays)::int                        as plays,
+               sum(t.listened_seconds)::bigint          as seconds,
+               count(distinct t.user_id)::int           as listeners,
+               (array_agg(t.track_snapshot order by t.plays desc))[1] as snapshot
+        from user_track_plays t
+        group by t.track_sig
+        order by sum(t.plays) desc
+        limit greatest(p_limit, 1)
+    ) x;
+
+    return v_result;
+end;
+$$;

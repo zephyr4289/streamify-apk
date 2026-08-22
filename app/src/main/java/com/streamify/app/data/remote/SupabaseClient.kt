@@ -662,6 +662,35 @@ object SupabaseClient {
         } catch (e: Exception) { Result.failure(e) }
     }
 
+    /**
+     * ADMIN: cross-user Top Songs leaderboard from user_track_plays.
+     * Backed by get_admin_top_tracks() (security definer, is_admin gated).
+     * Returns the raw "tracks" JSON array: {track_sig, plays, seconds,
+     * listeners, snapshot{title,artist,coverArtPath,...}}.
+     */
+    suspend fun fetchAdminTopTracks(limit: Int = 20): Result<JSONArray> = withContext(Dispatchers.IO) {
+        try {
+            val token = getAuthToken()
+            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/get_admin_top_tracks")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+            }
+            conn.outputStream.use {
+                it.write(JSONObject().put("p_limit", limit).toString().toByteArray())
+            }
+            if (conn.responseCode in 200..299) {
+                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val tracks = JSONObject(resp).optJSONArray("tracks") ?: JSONArray()
+                Result.success(tracks)
+            } else {
+                Result.failure(Exception("Top tracks RPC failed: ${conn.responseCode}"))
+            }
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
     fun signOut() {
         _accessToken.value = null
         _currentUser.value = null
@@ -2052,6 +2081,7 @@ object SupabaseClient {
             var totalPlays = 0L
             var dau24h = 0
             var serverStatus = "Operational"
+            var rpcHealthy = false
             var engineMode = "PostgreSQL 15 + pgvector 0.5.1"
 
             try {
@@ -2076,6 +2106,7 @@ object SupabaseClient {
                     dau24h = o.optInt("dau_24h", 0)
                     serverStatus = o.optString("server_status", "Operational")
                     engineMode = o.optString("engine_mode", "PostgreSQL 15 + pgvector 0.5.1")
+                    rpcHealthy = true
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -2156,7 +2187,7 @@ object SupabaseClient {
                 totalPlays = if (totalPlays > 0) totalPlays else users.sumOf { it.totalPlays.toLong() }.coerceAtLeast(localTotalPlays.toLong()),
                 dau24h = dau24h,
                 userList = users,
-                serverStatus = serverStatus,
+                serverStatus = if (rpcHealthy) serverStatus else "RPC ERROR — check is_admin / migration",
                 latencyMs = latency,
                 engineMode = engineMode
             )
