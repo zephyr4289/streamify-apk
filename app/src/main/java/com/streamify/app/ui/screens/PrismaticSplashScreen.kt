@@ -3,6 +3,7 @@ package com.streamify.app.ui.screens
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.os.Build
+import android.provider.Settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -19,6 +20,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,6 +36,18 @@ import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
 
+/**
+ * PRISMATIC GENESIS v2 — Brand-first launch choreography.
+ *
+ * Design contract (professional splash invariants):
+ *  1. The brand lockup (STREAMIFY / DEVELOPED BY SIREEN) is visible for 100%
+ *     of the runtime — it never vanishes behind the visual effects.
+ *  2. Text legibility never depends on a sweeping gradient position: the base
+ *     pass is always solid/bright; the shimmer is a SECOND clipped overlay pass.
+ *  3. The full-screen canvas NEVER flies away on exit. Everything dissolves in
+ *     place while the wordmark performs a gentle upward ascension hand-off,
+ *     revealing the pre-warmed Home screen beneath through an alpha curtain.
+ */
 @Composable
 fun PrismaticSplashScreen(
     onPreWarmComplete: suspend () -> Unit,
@@ -44,6 +58,7 @@ fun PrismaticSplashScreen(
     var touchPos by remember { mutableStateOf(Offset.Zero) }
     val textMeasurer = rememberTextMeasurer()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // 1. Compile AGSL Shader on Android 13+ / RenderNode Fallback
     val runtimeShader = remember {
@@ -56,26 +71,41 @@ fun PrismaticSplashScreen(
         } else null
     }
 
-    // 2. Dual Background Pre-Warming Engine & Multi-Sensory Haptics
+    // 2. Dual Background Pre-Warming Engine & Multi-Sensory Haptic Score
     LaunchedEffect(Unit) {
+        // Accessibility: honor system-wide "remove animations" — skip straight
+        // to the hand-off while STILL running the full pre-warm pipeline.
+        val animatorScale = try {
+            Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+            )
+        } catch (_: Exception) { 1f }
+        val animationsDisabled = animatorScale == 0f
+
         // Haptic Cue 1: Laser Shimmer Ignition
-        StreamifyHapticEngine.scrubberTick()
+        if (!animationsDisabled) StreamifyHapticEngine.scrubberTick()
 
         val hapticJob = scope.launch {
-            // Milestone 2: Singularity Lock Detent at ~1540ms
-            kotlinx.coroutines.delay(1540)
+            if (animationsDisabled) return@launch
+            // Milestone 2: Singularity Ignition detent (~2.1s)
+            kotlinx.coroutines.delay(2100)
             StreamifyHapticEngine.tokenImpactDetent()
 
-            // Milestone 3: Dispersion Flutter Detent at ~2860ms
-            kotlinx.coroutines.delay(1320)
+            // Milestone 3: Prismatic Dispersion flutter (~3.3s)
+            kotlinx.coroutines.delay(1200)
             StreamifyHapticEngine.magneticQueueGrab()
         }
 
         val animJob = async {
-            timeline.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 4400, easing = LinearEasing)
-            )
+            if (animationsDisabled) {
+                timeline.snapTo(1f)
+            } else {
+                timeline.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 4400, easing = LinearEasing)
+                )
+            }
         }
 
         val preWarmJob = async(Dispatchers.IO) {
@@ -110,17 +140,10 @@ fun PrismaticSplashScreen(
                 )
             }
             .graphicsLayer {
-                val progress = timeline.value
-
-                // 4. Spatial Hero Glide at Exit Phase (Morphs toward Top-Left App Bar)
-                if (progress >= 0.85f) {
-                    val exitFraction = ((progress - 0.85f) / 0.15f).coerceIn(0f, 1f)
-                    scaleX = 1f - (exitFraction * 0.65f)
-                    scaleY = 1f - (exitFraction * 0.65f)
-                    translationX = -size.width * 0.38f * exitFraction
-                    translationY = -size.height * 0.42f * exitFraction
-                    alpha = 1f - exitFraction
-                }
+                // ASCENSION EXIT CURTAIN: the whole canvas dissolves IN PLACE
+                // (never translates/scales) revealing Home beneath seamlessly.
+                val curtain = ((timeline.value - 0.86f) / 0.14f).coerceIn(0f, 1f)
+                alpha = 1f - curtain
             }
             .drawBehind {
                 drawRect(color = Color(0xFF07070A)) // True OLED Base
@@ -149,142 +172,7 @@ fun PrismaticSplashScreen(
             }
 
             val p1End = 0.350f
-            val p2End = 0.650f
             val p3End = 0.880f
-            val p4End = 1.000f
-
-            // --- PHASE 1: HARMONIC GENESIS & DOMINATING TYPOGRAPHY ---
-            if (p < p1End) {
-                val p1 = (p / p1End).coerceIn(0f, 1f)
-
-                // Laser-thin horizontal audio frequency ray expanding along the screen
-                drawLine(
-                    color = ActiveControl.copy(alpha = p1 * 0.85f),
-                    start = Offset(center.x - (width / 2f * p1), center.y),
-                    end = Offset(center.x + (width / 2f * p1), center.y),
-                    strokeWidth = 2.5.dp.toPx()
-                )
-
-                // Dominant Center Neon Halo Bloom behind STREAMIFY
-                val glowRadius = (width * 0.42f) * p1
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Primary.copy(alpha = 0.35f * p1),
-                            ActiveControl.copy(alpha = 0.20f * p1),
-                            Color.Transparent
-                        ),
-                        center = Offset(center.x, center.y - 18.dp.toPx()),
-                        radius = glowRadius.coerceAtLeast(1f)
-                    ),
-                    radius = glowRadius.coerceAtLeast(1f),
-                    center = Offset(center.x, center.y - 18.dp.toPx())
-                )
-
-                // Text Reveal: Dominant "S T R E A M I F Y"
-                val streamifyLayout = textMeasurer.measure(
-                    text = AnnotatedString("S T R E A M I F Y"),
-                    style = TextStyle(
-                        color = Color.White,
-                        fontSize = 36.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 8.sp,
-                        fontFamily = StreamifyFontFamily
-                    )
-                )
-                val streamifyOffset = Offset(
-                    center.x - (streamifyLayout.size.width / 2f),
-                    center.y - (streamifyLayout.size.height / 2f) - 18.dp.toPx()
-                )
-
-                val shimmerX = (p1 * width * 1.6f) - (width * 0.3f)
-                drawText(
-                    textLayoutResult = streamifyLayout,
-                    topLeft = streamifyOffset,
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            TextSecondary.copy(alpha = 0.35f),
-                            Color.White,
-                            Primary,
-                            ActiveControl,
-                            Color.White,
-                            TextSecondary.copy(alpha = 0.35f)
-                        ),
-                        startX = shimmerX - 260f,
-                        endX = shimmerX + 260f
-                    )
-                )
-
-                // Kinetic Flying Dominant Subtitle: "DEVELOPED BY SIREEN"
-                val flyProg = ((p1 - 0.18f) / 0.82f).coerceIn(0f, 1f)
-                if (flyProg > 0f) {
-                    val flyEase = 1f - (1f - flyProg).pow(3f)
-                    val flyY = center.y + 22.dp.toPx() + ((1f - flyEase) * 26.dp.toPx())
-                    val flyAlpha = (flyEase * 1.15f).coerceIn(0f, 1f)
-
-                    val sireenAnnotated = buildAnnotatedString {
-                        withStyle(
-                            SpanStyle(
-                                color = Color.White.copy(alpha = flyAlpha * 0.9f),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 4.sp
-                            )
-                        ) {
-                            append("DEVELOPED BY ")
-                        }
-                        withStyle(
-                            SpanStyle(
-                                color = Primary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 5.5.sp
-                            )
-                        ) {
-                            append("S I R E E N")
-                        }
-                    }
-
-                    val sireenLayout = textMeasurer.measure(
-                        text = sireenAnnotated,
-                        style = TextStyle(fontFamily = StreamifyFontFamily)
-                    )
-                    val sireenOffset = Offset(
-                        center.x - (sireenLayout.size.width / 2f),
-                        flyY
-                    )
-
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                Primary.copy(alpha = flyAlpha * 0.45f),
-                                ActiveControl.copy(alpha = flyAlpha * 0.25f),
-                                Color.Transparent
-                            ),
-                            center = Offset(center.x + 35.dp.toPx(), flyY + (sireenLayout.size.height / 2f)),
-                            radius = sireenLayout.size.width * 0.65f
-                        ),
-                        radius = sireenLayout.size.width * 0.65f,
-                        center = Offset(center.x + 35.dp.toPx(), flyY + (sireenLayout.size.height / 2f))
-                    )
-
-                    drawText(
-                        textLayoutResult = sireenLayout,
-                        topLeft = sireenOffset,
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(
-                                Primary.copy(alpha = flyAlpha * 0.8f),
-                                Color.White.copy(alpha = flyAlpha),
-                                Color(0xFFFF2A6D).copy(alpha = flyAlpha),
-                                Color.White.copy(alpha = flyAlpha),
-                                Primary.copy(alpha = flyAlpha * 0.8f)
-                            ),
-                            startX = shimmerX - 200f,
-                            endX = shimmerX + 200f
-                        )
-                    )
-                }
-            }
 
             // Fallback for Pre-Android 13 Devices (Render 2D Prismatic Ribbons)
             if (runtimeShader == null) {
@@ -316,8 +204,8 @@ fun PrismaticSplashScreen(
                     drawPath(path = trianglePath, color = ActiveControl)
                 }
 
-                if (p >= p2End && p < p4End) {
-                    val p3 = ((p - p2End) / (p4End - p2End)).coerceIn(0f, 1f)
+                if (p >= 0.650f && p < 1.000f) {
+                    val p3 = ((p - 0.650f) / (1.000f - 0.650f)).coerceIn(0f, 1f)
                     val dispersionCurve = 1f - (1f - p3).pow(3f)
 
                     val ribbonColors = listOf(
@@ -360,42 +248,195 @@ fun PrismaticSplashScreen(
                     }
                 }
             }
-        }
 
-        // --- DEVELOPED BY SIREEN SIGNATURE BAR ---
-        val alphaProg = timeline.value
-        val sigAlpha = when {
-            alphaProg < 0.25f -> (alphaProg / 0.25f).coerceIn(0f, 1f)
-            alphaProg > 0.85f -> (1f - ((alphaProg - 0.85f) / 0.15f)).coerceIn(0f, 1f)
-            else -> 1f
-        }
+            // =====================================================================
+            // 2. PERSISTENT BRAND LOCKUP — drawn EVERY frame, above all effects.
+            // =====================================================================
+            val exitT = ((p - 0.92f) / 0.08f).coerceIn(0f, 1f)
+            val exitEase = exitT * exitT
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "DEVELOPED BY SIREEN",
-                style = LocalAppTypography.current.songArtist.copy(
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 4.sp
-                ),
-                color = TextMain.copy(alpha = sigAlpha * 0.90f)
+            // Anchor journey: center stage -> upper-third throne (Phase 2 onward)
+            val anchorProg = ((p - 0.35f) / 0.30f).coerceIn(0f, 1f)
+            val anchorEase = 1f - (1f - anchorProg).pow(3f)
+            val ascendDrift = -height * 0.155f * anchorEase
+            val exitLift = -48.dp.toPx() * exitEase
+            val lockupCenterY = center.y - 18.dp.toPx() + ascendDrift + exitLift
+            val lockupScale = 1f + (0.04f * anchorEase)
+
+            val word = "STREAMIFY"
+            val letterSpacingPx = 8.dp.toPx()
+            val wordStyle = TextStyle(
+                color = Color.White,
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = StreamifyFontFamily
             )
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = "120 FPS Acoustic AI Engine",
-                style = LocalAppTypography.current.songArtist.copy(
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 1.5.sp
-                ),
-                color = Primary.copy(alpha = sigAlpha * 0.80f)
-            )
+
+            // Measure every glyph once per frame (TextMeasurer caches layouts).
+            val letterLayouts = word.map { ch ->
+                textMeasurer.measure(AnnotatedString(ch.toString()), wordStyle)
+            }
+            val totalWordWidth = letterLayouts.sumOf { it.size.width } +
+                    (letterSpacingPx * (word.length - 1)).toInt()
+            val wordHeight = letterLayouts.maxOf { it.size.height }
+
+            // Continuous prismatic shimmer band sweeping across the lockup forever.
+            val shimmerX = (((p * 1.35f) % 1f) * (width + 620f)) - 310f
+
+            val underlineYPx = 10.dp.toPx()
+
+            withTransform({
+                scale(lockupScale, lockupScale, pivot = Offset(center.x, lockupCenterY))
+            }) {
+                // --- Wordmark: per-letter genesis reveal (rise + fade-in) ---
+                var cursorX = center.x - (totalWordWidth / 2f)
+                letterLayouts.forEachIndexed { index, layout ->
+                    val li = ((p - 0.06f - (index * 0.038f)) / 0.11f).coerceIn(0f, 1f)
+                    if (li > 0f) {
+                        val ease = 1f - (1f - li).pow(3f)
+                        val riseY = (1f - ease) * 12.dp.toPx()
+                        val topLeft = Offset(cursorX, lockupCenterY - (wordHeight / 2f) + riseY)
+
+                        // BASE PASS: always-legible solid white (never gradient-clamped)
+                        drawText(
+                            textLayoutResult = layout,
+                            topLeft = topLeft,
+                            color = Color.White.copy(alpha = 0.97f * ease)
+                        )
+
+                        // SHIMMER PASS: clipped neon band riding over the base
+                        clipRect(
+                            left = shimmerX - 240f,
+                            top = topLeft.y - 20f,
+                            right = shimmerX + 240f,
+                            bottom = topLeft.y + wordHeight + 20f
+                        ) {
+                            drawText(
+                                textLayoutResult = layout,
+                                topLeft = topLeft,
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color.White,
+                                        Primary,
+                                        ActiveControl,
+                                        Color.White
+                                    ),
+                                    startX = shimmerX - 240f,
+                                    endX = shimmerX + 240f
+                                ),
+                                alpha = ease
+                            )
+                        }
+                    }
+                    cursorX += layout.size.width + letterSpacingPx
+                }
+
+                val wordTop = lockupCenterY - (wordHeight / 2f)
+                val underlineY = wordTop + wordHeight + underlineYPx
+                val halfWord = totalWordWidth / 2f
+
+                // --- Neon Underline: load-progress level indicator ---
+                val sweepT = (p / 0.78f).coerceIn(0f, 1f)
+                val sweepEase = 1f - (1f - sweepT).pow(3f)
+                val underlineWidth = totalWordWidth * sweepEase
+                val breathe = if (sweepT >= 1f) 0.78f + (0.17f * sin(p * PI * 6).toFloat()) else 0.95f
+
+                if (underlineWidth > 2f) {
+                    drawLine(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Primary.copy(alpha = 0.25f),
+                                ActiveControl.copy(alpha = breathe),
+                                Primary.copy(alpha = 0.25f)
+                            ),
+                            startX = center.x - halfWord,
+                            endX = center.x + halfWord
+                        ),
+                        start = Offset(center.x - halfWord, underlineY),
+                        end = Offset(center.x - halfWord + underlineWidth, underlineY),
+                        strokeWidth = 2.2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+
+                    // Leading spark while the level indicator sweeps
+                    if (sweepT < 1f) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(Color.White, ActiveControl.copy(alpha = 0.6f), Color.Transparent),
+                                center = Offset(center.x - halfWord + underlineWidth, underlineY),
+                                radius = 22f
+                            ),
+                            radius = 22f,
+                            center = Offset(center.x - halfWord + underlineWidth, underlineY)
+                        )
+                    }
+                }
+
+                // --- Signature: DEVELOPED BY SIREEN (rises in, NEVER leaves) ---
+                val sireenIn = ((p - 0.16f) / 0.10f).coerceIn(0f, 1f)
+                if (sireenIn > 0f) {
+                    val sireenEase = 1f - (1f - sireenIn).pow(3f)
+                    val sireenRise = (1f - sireenEase) * 10.dp.toPx()
+                    val sireenAnnotated = buildAnnotatedString {
+                        withStyle(
+                            SpanStyle(
+                                color = Color.White.copy(alpha = 0.82f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 4.sp
+                            )
+                        ) {
+                            append("DEVELOPED BY ")
+                        }
+                        withStyle(
+                            SpanStyle(
+                                color = Primary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 5.5.sp
+                            )
+                        ) {
+                            append("SIREEN")
+                        }
+                    }
+                    val sireenLayout = textMeasurer.measure(
+                        text = sireenAnnotated,
+                        style = TextStyle(fontFamily = StreamifyFontFamily)
+                    )
+                    drawText(
+                        textLayoutResult = sireenLayout,
+                        topLeft = Offset(
+                            center.x - (sireenLayout.size.width / 2f),
+                            underlineY + 16.dp.toPx() + sireenRise
+                        ),
+                        alpha = sireenEase
+                    )
+                }
+
+                // --- Capability tagline: one elegant cycle during Dispersion ---
+                val tagAlpha = (((p - 0.60f) / 0.07f).coerceIn(0f, 1f)) *
+                        ((1f - ((p - 0.84f) / 0.06f)).coerceIn(0f, 1f))
+                if (tagAlpha > 0.01f) {
+                    val tagLayout = textMeasurer.measure(
+                        text = AnnotatedString("120 FPS · SPATIAL DSP · NEURAL RADIO"),
+                        style = TextStyle(
+                            color = TextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 2.5.sp,
+                            fontFamily = StreamifyFontFamily
+                        )
+                    )
+                    drawText(
+                        textLayoutResult = tagLayout,
+                        topLeft = Offset(
+                            center.x - (tagLayout.size.width / 2f),
+                            underlineY + 42.dp.toPx()
+                        ),
+                        alpha = tagAlpha
+                    )
+                }
+            }
         }
     }
 }
@@ -413,7 +454,7 @@ private const val SPLASH_AGSL_SHADER = """
     float4 main(float2 fragCoord) {
         float2 uv = (fragCoord - 0.5 * uResolution) / min(uResolution.x, uResolution.y);
         float2 touchOffset = (uTouch - 0.5 * uResolution) / min(uResolution.x, uResolution.y);
-        
+
         // Gravitational lens pull toward touch coordinates
         float touchDist = length(uv - touchOffset);
         uv -= (touchOffset - uv) * 0.08 * exp(-touchDist * 3.0) * smoothstep(0.0, 0.8, uProgress);
