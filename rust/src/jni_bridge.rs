@@ -156,6 +156,8 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveT
     title: JString,
     artist: JString,
     auth_header: JString,
+    cookies_bytes: JByteArray,
+    cookies_len: jint,
     out_buffer: JByteArray,
 ) -> jint {
     catch_unwind(AssertUnwindSafe(|| {
@@ -185,6 +187,13 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveT
         } else {
             env.get_string(&auth_header).map(|s| s.into()).unwrap_or_default()
         };
+        let cookies_actual = env.get_array_length(&cookies_bytes).unwrap_or(0).max(0) as usize;
+        let cookies_len = (cookies_len.max(0) as usize).min(cookies_actual);
+        let cookies_elements =
+            match env.get_array_elements(&cookies_bytes, ReleaseMode::NoCopyBack) {
+                Ok(e) => Some(e),
+                Err(_) => None,
+            };
 
         let out_actual = env.get_array_length(&out_buffer).unwrap_or(0).max(0);
         let mut out_elements =
@@ -222,6 +231,8 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveT
             c_title.as_ptr(),
             c_artist.as_ptr(),
             c_auth.as_ptr(),
+            cookies_elements.as_ref().map_or(std::ptr::null(), |e| e.as_ptr()) as *const u8,
+            cookies_len,
             out_elements.as_mut_ptr() as *mut u8,
             out_actual as usize,
         )
@@ -347,6 +358,10 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveT
     title_len: jint,
     artist_bytes: JByteArray,
     artist_len: jint,
+    auth_bytes: JByteArray,
+    auth_len: jint,
+    cookies_bytes: JByteArray,
+    cookies_len: jint,
     out_buf: JByteArray,
     out_buf_len: jint,
 ) -> jint {
@@ -358,11 +373,15 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveT
         let i_actual = env.get_array_length(&isrc_bytes).unwrap_or(0).max(0);
         let t_actual = env.get_array_length(&title_bytes).unwrap_or(0).max(0);
         let a_actual = env.get_array_length(&artist_bytes).unwrap_or(0).max(0);
+        let h_actual = env.get_array_length(&auth_bytes).unwrap_or(0).max(0);
+        let c_actual = env.get_array_length(&cookies_bytes).unwrap_or(0).max(0);
 
         let vlen = video_id_len.max(0).min(v_actual) as usize;
         let ilen = isrc_len.max(0).min(i_actual) as usize;
         let tlen = title_len.max(0).min(t_actual) as usize;
         let alen = artist_len.max(0).min(a_actual) as usize;
+        let hlen = auth_len.max(0).min(h_actual) as usize;
+        let clen = cookies_len.max(0).min(c_actual) as usize;
 
         if tlen == 0 && alen == 0 && vlen == 0 && ilen == 0 {
             return -2;
@@ -388,6 +407,16 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveT
                 Ok(e) => Some(e),
                 Err(_) => None,
             };
+        let auth_elements =
+            match env.get_array_elements(&auth_bytes, ReleaseMode::NoCopyBack) {
+                Ok(e) => Some(e),
+                Err(_) => None,
+            };
+        let cookies_elements =
+            match env.get_array_elements(&cookies_bytes, ReleaseMode::NoCopyBack) {
+                Ok(e) => Some(e),
+                Err(_) => None,
+            };
         let mut out_elements = match env.get_array_elements(&out_buf, ReleaseMode::CopyBack) {
             Ok(e) => e,
             Err(_) => return -2,
@@ -408,6 +437,10 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveT
             tlen.min(title_elements.as_ref().map_or(0, |e| e.len())),
             artist_elements.as_ref().map_or(std::ptr::null(), |e| e.as_ptr()) as *const u8,
             alen.min(artist_elements.as_ref().map_or(0, |e| e.len())),
+            auth_elements.as_ref().map_or(std::ptr::null(), |e| e.as_ptr()) as *const u8,
+            hlen,
+            cookies_elements.as_ref().map_or(std::ptr::null(), |e| e.as_ptr()) as *const u8,
+            clen,
             out_elements.as_mut_ptr() as *mut u8,
             olen,
         )

@@ -135,6 +135,13 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         }
 
         createNotificationChannels()
+
+        // Authenticated YouTube resolution: expose the harvested session to
+        // the stream resolver (SAPISIDHASH + cookies past the 2026 bot-wall).
+        com.streamify.app.data.network.YouTubeStreamResolver.ytSessionProvider = {
+            val m = com.streamify.app.data.remote.SpotifyAuthManager(this)
+            (m.getYtAuthHeader() ?: "") to (m.getYtRawCookies() ?: "")
+        }
     }
 
     override fun onTrimMemory(level: Int) {

@@ -43,6 +43,8 @@ pub unsafe extern "C" fn resolve_track_cdn(
     title_ptr: *const std::os::raw::c_char,
     artist_ptr: *const std::os::raw::c_char,
     auth_header_ptr: *const std::os::raw::c_char,
+    cookies_ptr: *const u8,
+    cookies_len: usize,
     out_buf: *mut u8,
     out_buf_len: usize,
 ) -> i32 {
@@ -60,6 +62,11 @@ pub unsafe extern "C" fn resolve_track_cdn(
         } else {
             CStr::from_ptr(auth_header_ptr).to_str().unwrap_or("")
         };
+        let cookies = if cookies_ptr.is_null() || cookies_len == 0 {
+            ""
+        } else {
+            std::str::from_utf8(std::slice::from_raw_parts(cookies_ptr, cookies_len)).unwrap_or("")
+        };
 
         let isrc = if isrc_ptr.is_null() {
             None
@@ -70,7 +77,7 @@ pub unsafe extern "C" fn resolve_track_cdn(
         let rt = get_runtime();
 
         rt.block_on(async {
-            match execute_resolution(db_path, cad_id, isrc, title, artist, auth_header).await {
+            match execute_resolution(db_path, cad_id, isrc, title, artist, auth_header, cookies).await {
                 Ok(video_id) => {
                     let bytes = video_id.as_bytes();
                     if bytes.len() > out_buf_len {
@@ -105,6 +112,7 @@ pub async fn execute_resolution(
     title: &str,
     artist: &str,
     auth_header: &str,
+    cookies: &str,
 ) -> Result<String, ()> {
     // Self-heal legacy databases (re-key old DefaultHasher CAD-IDs onto the
     // canonical FNV scheme) before trusting any cached lookup.
@@ -122,10 +130,11 @@ pub async fn execute_resolution(
         let clean_isrc = isrc_code.trim();
         if !clean_isrc.is_empty() {
             let query = format!("isrc:{}", clean_isrc);
-            if let Some(candidate) = innertube_search_candidates(&query, auth_header)
-                .await
-                .into_iter()
-                .find(|c| is_valid_video_id(&c.video_id))
+            if let Some(candidate) =
+                innertube_search_candidates(&query, auth_header, cookies)
+                    .await
+                    .into_iter()
+                    .find(|c| is_valid_video_id(&c.video_id))
             {
                 if !db_path.is_empty() && !cad_id.is_empty() {
                     bind_video_id_to_db(
@@ -145,7 +154,7 @@ pub async fn execute_resolution(
     // Every candidate must prove same-song identity before its videoId is
     // accepted or persisted. Blind first-result acceptance is forbidden.
     let query = format!("{} - {}", title.trim(), artist.trim());
-    let candidates = innertube_search_candidates(&query, auth_header).await;
+    let candidates = innertube_search_candidates(&query, auth_header, cookies).await;
     for candidate in candidates {
         if !is_valid_video_id(&candidate.video_id) {
             continue;
@@ -177,6 +186,10 @@ pub unsafe extern "C" fn resolve_track_cdn_url(
     title_len: usize,
     artist_ptr: *const u8,
     artist_len: usize,
+    auth_ptr: *const u8,
+    auth_len: usize,
+    cookies_ptr: *const u8,
+    cookies_len: usize,
     out_buf: *mut u8,
     out_buf_len: usize,
 ) -> i32 {
@@ -199,6 +212,14 @@ pub unsafe extern "C" fn resolve_track_cdn_url(
             .filter(|s| !s.is_empty());
         let title = read_str(title_ptr, title_len).unwrap_or("");
         let artist = read_str(artist_ptr, artist_len).unwrap_or("");
+        let auth_header = read_str(auth_ptr, auth_len)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("");
+        let cookies = read_str(cookies_ptr, cookies_len)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("");
 
         let rt = get_runtime();
         let resolved_id: Option<String> = rt.block_on(async {
@@ -207,17 +228,18 @@ pub unsafe extern "C" fn resolve_track_cdn_url(
             }
             if let Some(code) = isrc {
                 let query = format!("isrc:{}", code);
-                if let Some(candidate) = innertube_search_candidates(&query, "")
-                    .await
-                    .into_iter()
-                    .find(|c| is_valid_video_id(&c.video_id))
+                if let Some(candidate) =
+                    innertube_search_candidates(&query, auth_header, cookies)
+                        .await
+                        .into_iter()
+                        .find(|c| is_valid_video_id(&c.video_id))
                 {
                     return Some(candidate.video_id);
                 }
             }
             if !title.is_empty() {
                 let query = format!("{} - {}", title.trim(), artist.trim());
-                return innertube_search_candidates(&query, "")
+                return innertube_search_candidates(&query, auth_header, cookies)
                     .await
                     .into_iter()
                     .find(|c| {
@@ -236,7 +258,7 @@ pub unsafe extern "C" fn resolve_track_cdn_url(
         };
 
         let client = get_client();
-        let url = match rt.block_on(fetch_innertube_cdn(client, &vid)) {
+        let url = match rt.block_on(fetch_innertube_cdn(client, &vid, auth_header, cookies)) {
             Ok(u) => u,
             Err(_) => return -4,
         };
@@ -254,7 +276,11 @@ pub unsafe extern "C" fn resolve_track_cdn_url(
 
 /// Queries YouTube Music Innertube API and parses every shelf result into a
 /// verified-able SearchCandidate (videoId + title + artist + duration).
-pub async fn innertube_search_candidates(query: &str, auth_header: &str) -> Vec<SearchCandidate> {
+pub async fn innertube_search_candidates(
+    query: &str,
+    auth_header: &str,
+    cookies: &str,
+) -> Vec<SearchCandidate> {
     let client = get_client();
     let url = "https://music.youtube.com/youtubei/v1/search?alt=json&key=AIzaSyC9XL3ZjWddXya6X74uM32vM1tl8R0kC8";
 
@@ -282,6 +308,9 @@ pub async fn innertube_search_candidates(query: &str, auth_header: &str) -> Vec<
             format!("SAPISIDHASH {}", auth_header)
         };
         req = req.header("Authorization", auth_val);
+    }
+    if !cookies.is_empty() {
+        req = req.header("Cookie", cookies);
     }
 
     let response = match req.json(&payload).send().await {
@@ -395,13 +424,19 @@ fn parse_search_candidates(json: &Value) -> Vec<SearchCandidate> {
         }
 
         // Title = first flex column; artist/subtitle/duration from the rest.
+        // NOTE (2026 shape): the child key is musicResponsiveListItemFlexColumnRenderer
+        // ("Column"), not "...FlexCellRenderer" — parsing the wrong key yielded
+        // candidates with empty titles and broke every identity gate.
         let mut columns: Vec<String> = Vec::new();
         if let Some(flex_columns) = renderer
             .pointer("/flexColumns")
             .and_then(Value::as_array)
         {
             for col in flex_columns {
-                if let Some(cell) = col.get("musicResponsiveListItemFlexCellRenderer") {
+                if let Some(cell) =
+                    col.get("musicResponsiveListItemFlexColumnRenderer")
+                        .or_else(|| col.get("musicResponsiveListItemFlexCellRenderer"))
+                {
                     columns.push(column_text(cell));
                 }
             }
@@ -525,13 +560,65 @@ fn bind_video_id_to_db(db_path: &str, cad_id: &str, title: &str, artist: &str, v
     }
 }
 
-pub async fn fetch_innertube_cdn(client: &Client, video_id: &str) -> Result<String, String> {
+/// Live diagnostic evidence (2026 enforcement): unauthenticated player
+/// requests from every client (ANDROID/IOS/VR/MUSIC/WEB/MWEB/TVEMBED) are
+/// bot-walled ("Sign in to confirm you're not a bot") with ZERO formats.
+/// The ONLY working path is WEB_REMIX **with the user's harvested YouTube
+/// session**: `Authorization: SAPISIDHASH` + `Cookie`. When `auth_header`
+/// and `cookies` are non-empty we go authenticated-WEB_REMIX first and only
+/// then fall through to the legacy client cascade.
+pub async fn fetch_innertube_cdn(
+    client: &Client,
+    video_id: &str,
+    auth_header: &str,
+    cookies: &str,
+) -> Result<String, String> {
     let clean_id = video_id.trim();
     if clean_id.is_empty() {
         return Err("Empty video ID".to_string());
     }
 
-    // 1. Android Music Target
+    let authenticated = !auth_header.trim().is_empty() && !cookies.trim().is_empty();
+
+    // 1. Authenticated WEB_REMIX target — mirrors the user's own browser
+    //    session on music.youtube.com.
+    if authenticated {
+        let url = "https://music.youtube.com/youtubei/v1/player";
+        let body = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "WEB_REMIX",
+                    "clientVersion": "1.20240401.01.00",
+                    "hl": "en",
+                    "gl": "US"
+                }
+            },
+            "videoId": clean_id,
+            "contentCheckOk": true,
+            "racyCheckOk": true
+        });
+
+        if let Ok(res) = client
+            .post(url)
+            .header("Content-Type", "application/json")
+            .header("Authorization", auth_header.trim())
+            .header("X-Origin", "https://music.youtube.com")
+            .header("Referer", "https://music.youtube.com/")
+            .header("Cookie", cookies)
+            .json(&body)
+            .send()
+            .await
+        {
+            if let Ok(json) = res.json::<Value>().await {
+                if let Some(url_str) = extract_best_audio_url(&json) {
+                    return Ok(url_str);
+                }
+            }
+        }
+    }
+
+    // 2. Legacy android-client cascade (kept for completeness; typically
+    //    bot-walled without login).
     let url = "https://music.youtube.com/youtubei/v1/player";
     let body = serde_json::json!({
         "context": {
@@ -688,7 +775,7 @@ impl StreamResolver {
         let rt = get_runtime();
         let client = get_client();
         rt.block_on(async {
-            let cdn_url = fetch_innertube_cdn(client, video_id).await?;
+            let cdn_url = fetch_innertube_cdn(client, video_id, "", "").await?;
             Ok(vec![ResolvedStreamFormat {
                 url: cdn_url,
                 mime_type: "audio/mp4".to_string(),

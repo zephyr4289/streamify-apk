@@ -37,6 +37,28 @@ object YouTubeStreamResolver {
 
     private const val INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
 
+    // AUTHENTICATED RESOLUTION HOOK (2026 bot-wall): set once at app start.
+    // Returns (sapisidhashHeader, rawCookies). When present, both player
+    // executors attach Authorization/Cookie/X-Origin — the only combination
+    // that still returns adaptiveFormats.
+    @Volatile
+    var ytSessionProvider: (() -> Pair<String, String>)? = null
+
+    private fun attachYtSession(builder: Request.Builder) {
+        val session = try { ytSessionProvider?.invoke() } catch (_: Throwable) { null } ?: return
+        val (auth, cookies) = session
+        if (!auth.isNullOrBlank()) {
+            builder.header(
+                "Authorization",
+                if (auth.startsWith("SAPISIDHASH")) auth else "SAPISIDHASH $auth"
+            )
+            builder.header("X-Origin", "https://music.youtube.com")
+        }
+        if (!cookies.isNullOrBlank()) {
+            builder.header("Cookie", cookies)
+        }
+    }
+
     // ── Dynamic signatureTimestamp (STS) ────────────────────────────────
     // A hardcoded STS rots globally the day YouTube bumps its web player —
     // every resolve starts failing at once. We serve the last-known value
@@ -483,6 +505,7 @@ object YouTubeStreamResolver {
                 .header("Accept", "*/*")
                 .header("X-YouTube-Client-Name", config.clientNumber)
                 .header("X-YouTube-Client-Version", config.clientVersion)
+                .also { attachYtSession(it) }
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
 
             if (!config.origin.isNullOrBlank()) {
@@ -800,6 +823,7 @@ object YouTubeStreamResolver {
                 .header("Accept", "*/*")
                 .header("X-YouTube-Client-Name", config.clientNumber)
                 .header("X-YouTube-Client-Version", config.clientVersion)
+                .also { attachYtSession(it) }
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
 
             if (!config.origin.isNullOrBlank()) {

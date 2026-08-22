@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-pub const SLYR_MAGIC: u32 = 0x534C5952; // "SLYR"
+pub const SLYR_MAGIC: u32 = 0x534C5952; // "SLYR" (big-endian reading)
+/// On-disk/pinned magic MUST be the literal ASCII bytes regardless of host
+/// endianness — the u32 constant above serializes LE ("RYLS") via struct cast.
+pub const SLYR_MAGIC_BYTES: [u8; 4] = *b"SLYR";
 pub const SLYR_VERSION: u16 = 1;
 
 #[repr(C, align(16))]
@@ -114,6 +117,10 @@ impl SlyrCompiler {
             buffer.extend_from_slice(syllables_slice);
         }
 
+        // Endianness-safe magic: the struct cast above wrote the u32 in host
+        // order; stamp the canonical ASCII bytes so every consumer sees SLYR.
+        buffer[0..4].copy_from_slice(&SLYR_MAGIC_BYTES);
+
         buffer.extend_from_slice(&text_pool);
         while buffer.len() % 16 != 0 {
             buffer.push(0);
@@ -127,10 +134,10 @@ impl SlyrCompiler {
             return None;
         }
 
-        let header = unsafe { &*(buffer.as_ptr() as *const SlyrHeader) };
-        if header.magic != SLYR_MAGIC {
+        if buffer[0..4] != SLYR_MAGIC_BYTES {
             return None;
         }
+        let header = unsafe { &*(buffer.as_ptr() as *const SlyrHeader) };
 
         let adjusted_time = (playhead_ms as i32 + header.vocal_offset_ms).max(0) as u32;
         let line_offset = std::mem::size_of::<SlyrHeader>();

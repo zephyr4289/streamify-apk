@@ -110,6 +110,8 @@ object NativeBridge {
         title: String,
         artist: String,
         authHeader: String,
+        cookies: ByteArray,
+        cookiesLen: Int,
         outBuffer: ByteArray
     ): Int
 
@@ -128,6 +130,7 @@ object NativeBridge {
                     track.title,
                     track.artist,
                     authHeader,
+                    cookiesBytes, cookiesLen,
                     videoIdBuffer
                 )
             } catch (e: Throwable) {
@@ -148,8 +151,11 @@ object NativeBridge {
         isrc: String?,
         title: String,
         artist: String,
-        authHeader: String = ""
+        authHeader: String = "",
+        cookies: String = ""
     ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val cookiesBytes = cookies.toByteArray(Charsets.UTF_8)
+        val cookiesLen = cookiesBytes.size
         synchronized(videoIdBuffer) {
             videoIdBuffer.fill(0)
             val result = try {
@@ -160,6 +166,7 @@ object NativeBridge {
                     title,
                     artist,
                     authHeader,
+                    cookiesBytes, cookiesLen,
                     videoIdBuffer
                 )
             } catch (e: Throwable) {
@@ -178,12 +185,19 @@ object NativeBridge {
         videoId: String?,
         isrc: String?,
         title: String,
-        artist: String
+        artist: String,
+        authHeader: String = "",
+        cookies: String = ""
     ): String? {
         val videoIdBytes = videoId?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
         val isrcBytes = isrc?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
         val titleBytes = title.toByteArray(Charsets.UTF_8)
         val artistBytes = artist.toByteArray(Charsets.UTF_8)
+        // AUTHENTICATED RESOLUTION (2026 bot-wall): the harvested YouTube
+        // session (SAPISIDHASH + raw cookies) is mandatory for the native
+        // WEB_REMIX player request to return any format.
+        val authBytes = authHeader.toByteArray(Charsets.UTF_8)
+        val cookieBytes = cookies.toByteArray(Charsets.UTF_8)
         val outBuffer = ByteArray(BUFFER_SIZE)
         val written = try {
             nativeResolveTrackCdn(
@@ -191,6 +205,8 @@ object NativeBridge {
                 isrcBytes, isrcBytes.size,
                 titleBytes, titleBytes.size,
                 artistBytes, artistBytes.size,
+                authBytes, authBytes.size,
+                cookieBytes, cookieBytes.size,
                 outBuffer, outBuffer.size
             )
         } catch (e: Throwable) {
@@ -204,6 +220,8 @@ object NativeBridge {
         isrc: ByteArray, isrcLen: Int,
         title: ByteArray, titleLen: Int,
         artist: ByteArray, artistLen: Int,
+        auth: ByteArray, authLen: Int,
+        cookies: ByteArray, cookiesLen: Int,
         outBuf: ByteArray, outBufLen: Int
     ): Int
 
