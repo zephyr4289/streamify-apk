@@ -135,10 +135,12 @@ fun AdminDashboardScreen(
             if (!silent) isLoading = true
             val baseTelem = SupabaseClient.getAdminTelemetry().getOrNull()
             if (baseTelem != null) {
-                // Non-null from here on is a VAL smart cast (stable); a mutated
-                // var captured by forEach would lose it at every call site.
-                var mergedTelem = baseTelem
-                pendingLiveRecords.forEach { mergedTelem = applyProfileRecord(mergedTelem, it) }
+                // fold instead of a closure-mutated var: a var captured by a
+                // changing closure never smart-casts to non-null at call sites.
+                val mergedTelem: com.streamify.app.data.remote.AdminTelemetry =
+                    pendingLiveRecords.fold(baseTelem) { acc, record ->
+                        applyProfileRecord(acc, record)
+                    }
                 pendingLiveRecords = emptyList()
                 telemetry = mergedTelem
             }
