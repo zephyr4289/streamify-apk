@@ -324,7 +324,7 @@ fn collect_list_item_renderers(node: &Value, out: &mut Vec<&Value>) {
 /// Joins all text runs of a flex/fixed column cell into one string.
 fn column_text(cell: &Value) -> String {
     let mut out = String::new();
-    let default_runs = Value::Null;
+    let default_runs = Vec::new();
     let runs = cell
         .pointer("/text/runs")
         .and_then(Value::as_array)
@@ -677,6 +677,8 @@ fn extract_best_audio_url(json: &Value) -> Option<String> {
     None
 }
 
+pub struct StreamResolver;
+
 impl StreamResolver {
     const INNERTUBE_PLAYER_URL: &'static str = "https://www.youtube.com/youtubei/v1/player";
     const INNERTUBE_SEARCH_URL: &'static str = "https://music.youtube.com/youtubei/v1/search";
@@ -722,7 +724,7 @@ impl StreamResolver {
             .into_string()
             .map_err(|e| format!("Failed to read search response: {}", e))?;
 
-        let mut candidates = InnertubeParser::parse_candidates(&text);
+        let mut candidates = crate::json::InnertubeParser::parse_candidates(&text);
         if candidates.len() > limit {
             candidates.truncate(limit);
         }

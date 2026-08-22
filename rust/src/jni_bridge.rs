@@ -127,11 +127,11 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFetchVir
             Err(_) => return -10,
         };
 
-        let buf_ptr = match env.get_direct_buffer_address(&out_buffer) {
+        let buf_ptr = match env.get_direct_buffer_address(&out_buffer).into() {
             Ok(ptr) => ptr,
             Err(_) => return -10,
         };
-        let capacity = env.get_direct_buffer_capacity(&out_buffer).unwrap_or(0);
+        let capacity = env.get_direct_buffer_capacity(&out_buffer).into().unwrap_or(0);
 
         if buf_ptr.is_null() || capacity < 4 {
             return -10;
@@ -552,7 +552,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeInitDsp(
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
-    catch_unwind(AssertUnwindSafe(crate::audio_dsp::init_audio_dsp)).unwrap_or(0) as jlong
+    catch_unwind(AssertUnwindSafe(|| unsafe { crate::audio_dsp::init_audio_dsp() })).unwrap_or(0) as jlong
 }
 
 #[no_mangle]
@@ -587,17 +587,17 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeProcessD
         let frames = num_frames as usize;
         let need_in = frames * 2 * std::mem::size_of::<i16>();
         let need_out = frames * 2 * std::mem::size_of::<f32>();
-        let in_cap = env.get_direct_buffer_capacity(&input_buffer).unwrap_or(0);
-        let out_cap = env.get_direct_buffer_capacity(&output_buffer).unwrap_or(0);
+        let in_cap = env.get_direct_buffer_capacity(&input_buffer).into().unwrap_or(0);
+        let out_cap = env.get_direct_buffer_capacity(&output_buffer).into().unwrap_or(0);
         if in_cap < need_in || out_cap < need_out {
             return -2;
         }
 
-        let input_ptr = match env.get_direct_buffer_address(&input_buffer) {
+        let input_ptr = match env.get_direct_buffer_address(&input_buffer).into() {
             Ok(p) => p as *const i16,
             Err(_) => return -10,
         };
-        let output_ptr = match env.get_direct_buffer_address(&output_buffer) {
+        let output_ptr = match env.get_direct_buffer_address(&output_buffer).into() {
             Ok(p) => p as *mut f32,
             Err(_) => return -10,
         };
@@ -847,7 +847,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeGetTherm
     _env: JNIEnv,
     _class: JClass,
 ) -> jint {
-    catch_unwind(AssertUnwindSafe(crate::governor::get_thermal_status)).unwrap_or(-10)
+    catch_unwind(AssertUnwindSafe(|| unsafe { crate::governor::get_thermal_status() })).unwrap_or(-10)
 }
 
 #[no_mangle]
@@ -882,7 +882,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeInitNorm
     catch_unwind(AssertUnwindSafe(|| {
         crate::normalizer::init_normalizer(target_rms)
     }))
-    .unwrap_or(0) as jlong
+    .unwrap_or(std::ptr::null_mut()) as jlong
 }
 
 #[no_mangle]
@@ -915,12 +915,12 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeApplyNor
 
         // Stereo interleaved f32 in-place: validate against real capacity.
         let need = num_frames as usize * 2 * std::mem::size_of::<f32>();
-        let cap = env.get_direct_buffer_capacity(&pcm_buffer).unwrap_or(0);
+        let cap = env.get_direct_buffer_capacity(&pcm_buffer).into().unwrap_or(0);
         if cap < need {
             return -2;
         }
 
-        let pcm_ptr = match env.get_direct_buffer_address(&pcm_buffer) {
+        let pcm_ptr = match env.get_direct_buffer_address(&pcm_buffer).into() {
             Ok(p) => p as *mut f32,
             Err(_) => return -10,
         };
@@ -958,17 +958,17 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeProcessF
         let frames = num_frames as usize;
         let need_in = frames * 2 * std::mem::size_of::<i16>();
         let need_out = frames * 2 * std::mem::size_of::<f32>();
-        let in_cap = env.get_direct_buffer_capacity(&input_buffer).unwrap_or(0);
-        let out_cap = env.get_direct_buffer_capacity(&output_buffer).unwrap_or(0);
+        let in_cap = env.get_direct_buffer_capacity(&input_buffer).into().unwrap_or(0);
+        let out_cap = env.get_direct_buffer_capacity(&output_buffer).into().unwrap_or(0);
         if in_cap < need_in || out_cap < need_out {
             return -2;
         }
 
-        let input_ptr = match env.get_direct_buffer_address(&input_buffer) {
+        let input_ptr = match env.get_direct_buffer_address(&input_buffer).into() {
             Ok(p) => p as *const i16,
             Err(_) => return -10,
         };
-        let output_ptr = match env.get_direct_buffer_address(&output_buffer) {
+        let output_ptr = match env.get_direct_buffer_address(&output_buffer).into() {
             Ok(p) => p as *mut f32,
             Err(_) => return -10,
         };
@@ -1029,7 +1029,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResetSee
     _env: JNIEnv,
     _class: JClass,
 ) {
-    let _ = catch_unwind(AssertUnwindSafe(crate::seek_guard::reset_seek_guard));
+    let _ = catch_unwind(AssertUnwindSafe(|| unsafe { crate::seek_guard::reset_seek_guard() }));
 }
 
 #[no_mangle]
@@ -1037,7 +1037,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeInitCont
     _env: JNIEnv,
     _class: JClass,
 ) -> jlong {
-    catch_unwind(AssertUnwindSafe(crate::continuum_engine::init_continuum_state))
+    catch_unwind(AssertUnwindSafe(|| unsafe { crate::continuum_engine::init_continuum_state() }))
         .unwrap_or(0) as jlong
 }
 

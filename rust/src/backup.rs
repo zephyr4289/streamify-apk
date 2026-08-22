@@ -95,7 +95,7 @@ impl BackupArchiveEngine {
         }
 
         if start < line.len() {
-            let slice = &line[start..].trim().trim_matches('"');
+            let slice = line[start..].trim().trim_matches('"');
             fields.push(slice);
         }
 

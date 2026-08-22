@@ -1,5 +1,5 @@
 use rusqlite::{params, Connection};
-use std::panic::catch_unwind;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[derive(serde::Deserialize)]
 pub struct RawSpotifyTrack {
@@ -66,11 +66,11 @@ impl TrackRepository {
         const FNV_PRIME: u64 = 1099511628211;
 
         let mut hash: u64 = FNV_OFFSET;
-        for &b in normalize_cad_field(title, true) {
+        for b in normalize_cad_field(title, true) {
             hash ^= b as u64;
             hash = hash.wrapping_mul(FNV_PRIME);
         }
-        for &b in normalize_cad_field(artist, false) {
+        for b in normalize_cad_field(artist, false) {
             hash ^= b as u64;
             hash = hash.wrapping_mul(FNV_PRIME);
         }
@@ -85,7 +85,7 @@ impl TrackRepository {
     /// Batch upserts tracks in a single transaction.
     /// Accepts a JSON payload from Kotlin (1-time network cost, safe parsing).
     pub fn batch_upsert_spotify_tracks(&self, json_payload: &str) -> i32 {
-        let result = catch_unwind(|| {
+        let result = catch_unwind(AssertUnwindSafe(|| {
             let tracks: Vec<RawSpotifyTrack> = match serde_json::from_str(json_payload) {
                 Ok(t) => t,
                 Err(_) => return -1,
@@ -128,7 +128,7 @@ impl TrackRepository {
             } else {
                 -1
             }
-        });
+        }));
 
         result.unwrap_or(-1)
     }
@@ -136,7 +136,7 @@ impl TrackRepository {
     /// Queries the shelf and writes directly to a Kotlin-provided DirectByteBuffer.
     /// ZERO JSON serialization. ZERO Kotlin String allocations in hot path.
     pub fn fetch_virtual_shelf_to_buffer(&self, out_buf: *mut u8, out_buf_len: usize) -> i32 {
-        let result = catch_unwind(|| {
+        let result = catch_unwind(AssertUnwindSafe(|| {
             if out_buf.is_null() || out_buf_len < 4 {
                 return -1;
             }
@@ -207,7 +207,7 @@ impl TrackRepository {
             }
 
             offset as i32
-        });
+        }));
 
         result.unwrap_or(-3)
     }
@@ -345,7 +345,7 @@ pub unsafe extern "C" fn batch_upsert_spotify_tracks(
     db_path: *const std::os::raw::c_char,
     json_payload: *const std::os::raw::c_char,
 ) -> i32 {
-    let result = catch_unwind(|| {
+    let result = catch_unwind(AssertUnwindSafe(|| {
         if db_path.is_null() || json_payload.is_null() {
             return -1;
         }
@@ -364,7 +364,7 @@ pub unsafe extern "C" fn batch_upsert_spotify_tracks(
             Err(_) => return -1,
         };
         repo.batch_upsert_spotify_tracks(json_str)
-    });
+    }));
     result.unwrap_or(-3)
 }
 
@@ -374,7 +374,7 @@ pub unsafe extern "C" fn fetch_virtual_shelf(
     out_buf: *mut u8,
     out_buf_len: usize,
 ) -> i32 {
-    let result = catch_unwind(|| {
+    let result = catch_unwind(AssertUnwindSafe(|| {
         if db_path.is_null() || out_buf.is_null() || out_buf_len < 4 {
             return -1;
         }
@@ -388,6 +388,6 @@ pub unsafe extern "C" fn fetch_virtual_shelf(
             Err(_) => return -1,
         };
         repo.fetch_virtual_shelf_to_buffer(out_buf, out_buf_len)
-    });
+    }));
     result.unwrap_or(-3)
 }
