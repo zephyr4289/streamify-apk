@@ -769,6 +769,15 @@ object NativeBridge {
     // ═══════════════════════════════════════════════════════════════
     external fun rustFuzzyRankCandidates(query: String, candidatesJson: String): String?
     external fun rustCalculateSimilarity(s1: String, s2: String): Float
+
+    /**
+     * PHASE 4 NATIVE ARSENAL: parses an Innertube search/radio response into a
+     * JSON array of ranked candidates in ONE native pass (replaces the
+     * recursive org.json tree-walk, 20-80ms -> ~5ms on little cores).
+     * Input: raw UTF-8 response bytes. Output: JSON array of
+     * {id, title, artist, album, duration_sec, thumbnail_url, score}, or null.
+     */
+    external fun rustParseInnertubeCandidates(jsonBytes: ByteArray): String?
     external fun rustParseYouTubePlaylist(jsonBytes: ByteArray): String?
     external fun rustComputeFftSpectrum(pcmFloats: FloatArray, barCount: Int, outBars: FloatArray): Int
     external fun rustProcessEqualizerFrame(pcmFloats: FloatArray, channels: Int, gains: FloatArray?): Int

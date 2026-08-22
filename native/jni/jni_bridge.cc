@@ -1,6 +1,8 @@
 #include <jni.h>
 #include <algorithm>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <ctime>
 #include <cctype>
@@ -994,9 +996,26 @@ static void* get_rust_core_handle() {
 
 template <typename Func>
 static Func get_rust_symbol(const char* name) {
+    // SYMBOL CACHE: dlsym is a linear walk of the .dynsym table (~µs) and the
+    // audio path / fuzzy loops hit these trampolines thousands of times per
+    // second. Each symbol is resolved exactly once; failed lookups are cached
+    // too (a missing symbol stays missing — get_rust_core_handle's own result
+    // is likewise permanent).
+    static std::mutex cache_mutex;
+    static std::unordered_map<std::string, void*> cache;
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        auto it = cache.find(name);
+        if (it != cache.end()) return reinterpret_cast<Func>(it->second);
+    }
     void* h = get_rust_core_handle();
     if (!h) return nullptr;
-    return reinterpret_cast<Func>(dlsym(h, name));
+    void* sym = dlsym(h, name);
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        cache.emplace(name, sym);
+    }
+    return reinterpret_cast<Func>(sym);
 }
 
 typedef void (*RustFreeStringFn)(char*);
@@ -1020,6 +1039,35 @@ Java_com_streamify_app_data_NativeBridge_rustFuzzyRankCandidates(
 
     env->ReleaseStringUTFChars(query, q);
     env->ReleaseStringUTFChars(candidatesJson, c);
+
+    if (!res) return nullptr;
+    jstring outStr = env->NewStringUTF(res);
+    auto free_fn = get_rust_symbol<RustFreeStringFn>("rust_free_string");
+    if (free_fn) free_fn(res);
+    return outStr;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_streamify_app_data_NativeBridge_rustParseInnertubeCandidates(
+    JNIEnv* env,
+    jobject /* this */,
+    jbyteArray jsonBytes
+) {
+    if (!jsonBytes) return nullptr;
+    jsize len = env->GetArrayLength(jsonBytes);
+    if (len <= 0) return nullptr;
+
+    // Byte-array input (not String): raw UTF-8 crosses once, no modified-UTF8
+    // round trip, and the Rust side takes ptr+len directly.
+    typedef char* (*RustFn)(const unsigned char*, size_t);
+    auto fn = get_rust_symbol<RustFn>("rust_parse_innertube_candidates");
+    if (!fn) return nullptr;
+
+    jbyte* bytes = env->GetByteArrayElements(jsonBytes, nullptr);
+    if (!bytes) return nullptr;
+
+    char* res = fn(reinterpret_cast<const unsigned char*>(bytes), static_cast<size_t>(len));
+    env->ReleaseByteArrayElements(jsonBytes, bytes, JNI_ABORT);
 
     if (!res) return nullptr;
     jstring outStr = env->NewStringUTF(res);
@@ -1371,7 +1419,9 @@ Java_com_streamify_app_data_NativeBridge_rustGenerateNeuroQueue(
 
 static LufsNormalizer g_lufs_normalizer;
 static SoftKneeLimiter g_soft_knee_limiter;
-static VectorStore g_vector_store;
+// NOTE: vector access MUST go through VectorStore::getInstance() — a previous
+// standalone g_vector_store global created a split-brain: embeddings inserted
+// via nativeInsertVector were invisible to searchSimilarTracks (and vice versa).
 
 extern "C" {
 
@@ -1410,7 +1460,7 @@ Java_com_streamify_app_data_NativeBridge_nativeInsertVector(
     if (env->GetArrayLength(embedding_array) < static_cast<jint>(VECTOR_DIM)) return;
     jfloat* elements = env->GetFloatArrayElements(embedding_array, nullptr);
     if (elements) {
-        g_vector_store.insert(static_cast<uint64_t>(track_id), elements);
+        VectorStore::getInstance().insert(static_cast<uint64_t>(track_id), elements);
         env->ReleaseFloatArrayElements(embedding_array, elements, JNI_ABORT);
     }
 }
@@ -1425,7 +1475,7 @@ Java_com_streamify_app_data_NativeBridge_nativeQueryTopK(
     jfloat* elements = env->GetFloatArrayElements(target_embedding_array, nullptr);
     if (!elements) return nullptr;
 
-    auto results = g_vector_store.queryTopK(elements, k);
+    auto results = VectorStore::getInstance().queryTopK(elements, k);
     env->ReleaseFloatArrayElements(target_embedding_array, elements, JNI_ABORT);
 
     jlongArray output = env->NewLongArray(static_cast<jsize>(results.size()));
