@@ -49,16 +49,29 @@ object AudioDeviceManager {
 
     private val isRegistered = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    @Volatile private var routePending = false
+
     private val audioReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action
             if (action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
                 onHeadsetDisconnectedListener?.invoke()
             }
-            context?.let { 
-                updateCurrentDevice(it)
-                autoRoutePreset(it)
-            }
+            // COALESCED ROUTING: BT reconnect wobble + wired plug bounce fire
+            // several broadcasts within milliseconds; each used to run prefs
+            // reads + up to 7 audiofx binder calls ON THE MAIN THREAD. Now one
+            // update per 500ms window.
+            context ?: return
+            if (routePending) return
+            routePending = true
+            mainHandler.postDelayed({
+                routePending = false
+                try {
+                    updateCurrentDevice(context)
+                    autoRoutePreset(context)
+                } catch (_: Exception) { }
+            }, 500)
         }
     }
 

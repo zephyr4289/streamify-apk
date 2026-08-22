@@ -115,7 +115,16 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private val sessionPlayedTrackIds = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
     // Dedup guard for lyric fetches: key = "trackId:videoIdOrEmpty" so a retry is only
     // allowed when the video identity actually improved (e.g. after DB registration).
-    private val lyricsFetchAttempts = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    // Lyrics fetch dedup: key -> last attempt epoch ms. Successes stamp
+    // Long.MAX_VALUE (never retried); failures auto-expire after the negative
+    // TTL so unavailable tracks don't re-hammer every provider on every replay
+    // (the old set-removal-on-failure caused exactly that retry storm).
+    private val lyricsFetchAttempts = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val LYRICS_NEGATIVE_TTL_MS = 10 * 60 * 1000L
+
+    // Error-recovery give-up guard: trackId -> (consecutive failure count,
+    // last failure epoch ms) within the evaluation window.
+    private val recoveryFailures = HashMap<Int, Pair<Int, Long>>()
 
     init {
         com.streamify.app.jam.JamEngine.attachBridge(this)
@@ -272,7 +281,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         override fun onIsPlayingChanged(isPlaying: Boolean) {
 
             _playerState.value = _playerState.value.copy(isPlaying = isPlaying)
-            if (isPlaying) startPollingPosition() else stopPollingPosition()
+            if (isPlaying) {
+                // Playback confirmed healthy: reset the error give-up counter.
+                synchronized(recoveryFailures) { recoveryFailures.clear() }
+                startPollingPosition()
+            } else stopPollingPosition()
             if (!isApplyingJamSync && com.streamify.app.data.remote.SupabaseClient.activeJam.value != null) {
                 broadcastJamAction(if (isPlaying) "PLAY" else "PAUSE", isPlaying = isPlaying)
             }
@@ -543,7 +556,37 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             pendingSeekTargetMs = null
             isOptimisticSeeking = false
             val currentT = _playerState.value.currentTrack
+
+            // ── SINGLE-OWNER CIRCUIT BREAKER ──
+            // If the service just initiated a CDN renewal for this item, it is
+            // already recovering with position preserved — hands off. (The old
+            // dual engine raced: service renewed + kept position while this
+            // listener re-resolved and slammed playback back to 0.)
+            val svc = com.streamify.app.service.PlaybackService
+            if (currentT != null &&
+                System.currentTimeMillis() - svc.lastRenewalAtMs < 3000L &&
+                svc.lastRenewalMediaId != null
+            ) {
+                return
+            }
+
             if (currentT != null) {
+                // Give-up guard: 3 failures on the same track within a minute
+                // means the source is dead — advance instead of looping forever.
+                val now = System.currentTimeMillis()
+                synchronized(recoveryFailures) {
+                    val (count, ts) = recoveryFailures[currentT.id] ?: (0 to 0L)
+                    val windowCount = if (now - ts < 60_000L) count else 0
+                    if (windowCount >= 2) {
+                        recoveryFailures.remove(currentT.id)
+                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                            advanceQueue(isUserSkip = false)
+                        }
+                        return
+                    }
+                    recoveryFailures[currentT.id] = (windowCount + 1) to now
+                }
+
                 viewModelScope.launch(Dispatchers.IO) {
                     try {
                         val resolved = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(currentT)
@@ -1138,7 +1181,12 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             )
 
         val attemptKey = "${playingTrack.id}:${vid ?: ""}"
-        if (!lyricsFetchAttempts.add(attemptKey)) return
+        val lastAttemptMs = lyricsFetchAttempts[attemptKey]
+        if (lastAttemptMs != null) {
+            if (lastAttemptMs == Long.MAX_VALUE) return
+            if (System.currentTimeMillis() - lastAttemptMs < LYRICS_NEGATIVE_TTL_MS) return
+        }
+        lyricsFetchAttempts[attemptKey] = System.currentTimeMillis()
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1180,6 +1228,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     }
 
                     if (storedPath != null) {
+                        // Success: this exact identity is permanently served —
+                        // never re-fetch it again.
+                        lyricsFetchAttempts[attemptKey] = Long.MAX_VALUE
                         withContext(Dispatchers.Main) {
                             val cur = _playerState.value.currentTrack
                             if (cur != null && cur.id == playingTrack.id && cur.lyricsPath.isNullOrBlank()) {
@@ -1190,12 +1241,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         }
                     }
                 } else {
-                    // Nothing usable found: clear the attempt so a later transition can retry
-                    lyricsFetchAttempts.remove(attemptKey)
+                    // Nothing usable found: the failure timestamp stands — this
+                    // exact identity won't be re-fetched until the TTL expires.
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                lyricsFetchAttempts.remove(attemptKey)
             }
         }
     }

@@ -30,6 +30,15 @@ class PlaybackService : MediaSessionService() {
          */
         val streamifyProcessor: StreamifyAudioProcessor = StreamifyAudioProcessor()
 
+        // ── CIRCUIT BREAKER (single-owner error recovery) ──
+        // Set when THIS service initiates a CDN token renewal for the current
+        // item (position-preserving replaceMediaItem). The ViewModel-level
+        // error listener checks these to stay hands-off instead of running its
+        // own re-resolve-and-reset-to-zero path concurrently (the old dual
+        // engine ping-ponged progress resets on flaky CDN URLs).
+        @Volatile var lastRenewalMediaId: String? = null
+        @Volatile var lastRenewalAtMs: Long = 0L
+
         val isBuffering = kotlinx.coroutines.flow.MutableStateFlow(false)
         @Volatile var onSeekNextListener: (() -> Unit)? = null
         @Volatile var onSeekPrevListener: (() -> Unit)? = null
@@ -204,6 +213,11 @@ class PlaybackService : MediaSessionService() {
                     val mediaId = currentItem?.mediaId ?: mediaUri
 
                     if (mediaId.isNotBlank()) {
+                        // Announce ownership BEFORE the async renewal so the
+                        // ViewModel listener defers to this path.
+                        lastRenewalMediaId = mediaId
+                        lastRenewalAtMs = System.currentTimeMillis()
+
                         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                             try {
                                 val fresh = YouTubeStreamResolver.resolveStreamUrl(mediaId, forceFresh = true)

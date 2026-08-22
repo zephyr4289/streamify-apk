@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 import org.json.JSONArray
 import org.json.JSONObject
@@ -52,6 +53,14 @@ data class WrappedStats(
 object YtStatsTelemetryEngine {
 
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Single-threaded IO lane for prefs/JSON writes: preserves launch order
+     * (no read-modify-write lost updates) while keeping ALL disk+JSON work off
+     * the main thread.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val writeDispatcher = Dispatchers.IO.limitedParallelism(1)
 
     private val _cachedWrappedStats = MutableStateFlow<WrappedStats?>(null)
     val cachedWrappedStats: StateFlow<WrappedStats?> = _cachedWrappedStats.asStateFlow()
@@ -177,34 +186,45 @@ object YtStatsTelemetryEngine {
     // ═══════════════════════════════════════════════════════════════════
 
     fun initFromContext(context: android.content.Context) {
-        ensureMigrated(context)
-        hydrateCacheLocked(context)
+        // Migration + cached-JSON hydration parse potentially large pref blobs;
+        // keep them off the caller (often Application.onCreate / Main).
+        engineScope.launch(writeDispatcher) {
+            try {
+                ensureMigrated(context)
+                hydrateCacheLocked(context)
+            } catch (_: Exception) { }
+        }
     }
 
     fun recordListeningSeconds(seconds: Long) {
         val context = TrackRepository.appContext ?: return
-        refreshIdentityScope(context)
         if (seconds <= 0) return
-        try {
-            val p = prefs(context) ?: return
-            val keySec = k(context, "total_listened_seconds") ?: return
-            val newTotalSec = p.getLong(keySec, 0L) + seconds
-            p.edit().putLong(keySec, newTotalSec).apply()
+        // HOT PATH (called from ExoPlayer listeners on Main): all prefs I/O and
+        // wrapped-stats serialization happen on a single-threaded IO lane.
+        // Order is preserved; concurrent read-modify-write losses impossible.
+        engineScope.launch(writeDispatcher) {
+            try {
+                refreshIdentityScope(context)
+                val p = prefs(context) ?: return@launch
+                val keySec = k(context, "total_listened_seconds") ?: return@launch
+                val newTotalSec = p.getLong(keySec, 0L) + seconds
+                p.edit().putLong(keySec, newTotalSec).apply()
 
-            // Non-destructive in-place minutes patch (never wipe the cache).
-            val cur = _cachedWrappedStats.value
-            if (cur != null && cur.totalMinutes != (newTotalSec / 60).toInt()) {
-                val updated = cur.copy(totalMinutes = (newTotalSec / 60).toInt())
-                _cachedWrappedStats.value = updated
-                p.edit().putString(k(context, "cached_json"), serializeWrappedStats(updated)).apply()
-            }
+                // Non-destructive in-place minutes patch (never wipe the cache).
+                val cur = _cachedWrappedStats.value
+                if (cur != null && cur.totalMinutes != (newTotalSec / 60).toInt()) {
+                    val updated = cur.copy(totalMinutes = (newTotalSec / 60).toInt())
+                    _cachedWrappedStats.value = updated
+                    p.edit().putString(k(context, "cached_json"), serializeWrappedStats(updated)).apply()
+                }
 
-            secondsSinceLastCloudSync += seconds
-            if (secondsSinceLastCloudSync >= 60L) {
-                secondsSinceLastCloudSync = 0L
-                engineScope.launch(Dispatchers.IO) { syncCurrentTelemetryToCloud() }
-            }
-        } catch (_: Exception) { }
+                secondsSinceLastCloudSync += seconds
+                if (secondsSinceLastCloudSync >= 60L) {
+                    secondsSinceLastCloudSync = 0L
+                    syncCurrentTelemetryToCloud()
+                }
+            } catch (_: Exception) { }
+        }
     }
 
     /**
@@ -215,56 +235,61 @@ object YtStatsTelemetryEngine {
      */
     fun recordTrackPlay(track: Track, listenedSec: Long = -1L) {
         val context = TrackRepository.appContext ?: return
-        refreshIdentityScope(context)
-        try {
-            val p = prefs(context) ?: return
-            val sig = trackSig(track)
+        // HOT PATH (Main-thread ExoPlayer onMediaItemTransition): the JSON map
+        // parse + serialize below dominated track-change frames on little
+        // cores. Entire body now runs serialized off-Main.
+        engineScope.launch(writeDispatcher) {
+            try {
+                refreshIdentityScope(context)
+                val p = prefs(context) ?: return@launch
+                val sig = trackSig(track)
 
-            val countsKey = k(context, "played_tracks_counts_map") ?: return
-            val metaKey = k(context, "played_tracks_meta_map")
-            val countObj = JSONObject(p.getString(countsKey, "{}"))
-            val metaObj = JSONObject(p.getString(metaKey, "{}"))
+                val countsKey = k(context, "played_tracks_counts_map") ?: return@launch
+                val metaKey = k(context, "played_tracks_meta_map")
+                val countObj = JSONObject(p.getString(countsKey, "{}"))
+                val metaObj = JSONObject(p.getString(metaKey, "{}"))
 
-            // Metadata freshness: always refresh cover/like/bpm snapshot.
-            metaObj.put(sig, JSONObject().apply {
-                put("id", track.id)
-                put("title", track.title)
-                put("artist", track.artist)
-                put("album", track.album)
-                put("durationSec", track.durationSec)
-                put("filepath", track.filepath)
-                put("coverArtPath", track.coverArtPath ?: "")
-                put("bpm", track.bpm.toDouble())
-                put("isLiked", track.isLiked)
-            })
+                // Metadata freshness: always refresh cover/like/bpm snapshot.
+                metaObj.put(sig, JSONObject().apply {
+                    put("id", track.id)
+                    put("title", track.title)
+                    put("artist", track.artist)
+                    put("album", track.album)
+                    put("durationSec", track.durationSec)
+                    put("filepath", track.filepath)
+                    put("coverArtPath", track.coverArtPath ?: "")
+                    put("bpm", track.bpm.toDouble())
+                    put("isLiked", track.isLiked)
+                })
 
-            val countsAsPlay = listenedSec < 0L || listenedSec >= MIN_LISTEN_SEC
-            var totalPlays = p.getInt(k(context, "total_plays_count"), 0)
-            if (countsAsPlay) {
-                countObj.put(sig, countObj.optInt(sig, 0) + 1)
-                totalPlays += 1
+                val countsAsPlay = listenedSec < 0L || listenedSec >= MIN_LISTEN_SEC
+                var totalPlays = p.getInt(k(context, "total_plays_count"), 0)
+                if (countsAsPlay) {
+                    countObj.put(sig, countObj.optInt(sig, 0) + 1)
+                    totalPlays += 1
 
-                synchronized(pendingTrackSync) {
-                    val entry = pendingTrackSync.optJSONArray(sig) ?: JSONArray()
-                    entry.put(0, entry.optInt(0, 0) + 1)                 // plays delta
-                    entry.put(1, entry.optLong(1, 0L) + listenedSec.coerceAtLeast(0L))
-                    pendingTrackSync.put(sig, entry)
-                    if (pendingTrackSync.length() > 400) trimPendingLocked(countObj, metaObj)
+                    synchronized(pendingTrackSync) {
+                        val entry = pendingTrackSync.optJSONArray(sig) ?: JSONArray()
+                        entry.put(0, entry.optInt(0, 0) + 1)                 // plays delta
+                        entry.put(1, entry.optLong(1, 0L) + listenedSec.coerceAtLeast(0L))
+                        pendingTrackSync.put(sig, entry)
+                        if (pendingTrackSync.length() > 400) trimPendingLocked(countObj, metaObj)
+                    }
                 }
-            }
 
-            p.edit()
-                .putString(countsKey, countObj.toString())
-                .putString(metaKey, metaObj.toString())
-                .putInt(k(context, "total_plays_count"), totalPlays)
-                .apply()
+                p.edit()
+                    .putString(countsKey, countObj.toString())
+                    .putString(metaKey, metaObj.toString())
+                    .putInt(k(context, "total_plays_count"), totalPlays)
+                    .apply()
 
-            // Cache invalidation: rankings must reflect the new reality.
-            statsDirty = true
+                // Cache invalidation: rankings must reflect the new reality.
+                statsDirty = true
 
-            // Debounced cloud flush for this play.
-            engineScope.launch(Dispatchers.IO) { syncCurrentTelemetryToCloud() }
-        } catch (_: Exception) { }
+                // Debounced cloud flush for this play.
+                syncCurrentTelemetryToCloud()
+            } catch (_: Exception) { }
+        }
     }
 
     /** Keeps the pending buffer bounded by dropping lowest-pending entries. */

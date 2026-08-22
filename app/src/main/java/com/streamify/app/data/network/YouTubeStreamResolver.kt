@@ -1,5 +1,6 @@
 package com.streamify.app.data.network
 
+import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -35,6 +36,71 @@ class UnresolvableTrackException(msg: String = "Unable to resolve playable audio
 object YouTubeStreamResolver {
 
     private const val INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
+
+    // ── Dynamic signatureTimestamp (STS) ────────────────────────────────
+    // A hardcoded STS rots globally the day YouTube bumps its web player —
+    // every resolve starts failing at once. We serve the last-known value
+    // instantly and refresh from the live player bootstrap in the background
+    // at most once per day (retry after 10min on failure).
+    private const val FALLBACK_SIGNATURE_TIMESTAMP = 19850
+    private val STS_TTL_MS = 24 * 60 * 60 * 1000L
+
+    @Volatile private var cachedSts: Int = FALLBACK_SIGNATURE_TIMESTAMP
+    @Volatile private var stsFetchedAtMs: Long = 0L
+    @Volatile private var stsRefreshInFlight: Boolean = false
+
+    fun currentSignatureTimestamp(): Int {
+        if (System.currentTimeMillis() - stsFetchedAtMs >= STS_TTL_MS) {
+            maybeRefreshStsInBackground()
+        }
+        return cachedSts
+    }
+
+    private fun maybeRefreshStsInBackground() {
+        if (stsRefreshInFlight) return
+        synchronized(this) {
+            if (stsRefreshInFlight) return
+            stsRefreshInFlight = true
+        }
+        kotlin.concurrent.thread(name = "streamify-sts-refresh", isDaemon = true) {
+            try {
+                val htmlReq = Request.Builder()
+                    .url("https://www.youtube.com/")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .build()
+                NetworkEngine.client.newCall(htmlReq).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use
+                    val html = resp.body?.string() ?: return@use
+                    // The bootstrap HTML embeds the versioned player script path.
+                    val playerPath = Regex("""/s/player/[a-zA-Z0-9_-]+/player_ias\.vflset/[a-zA-Z]+/base\.js""")
+                        .find(html)?.value
+                        ?: Regex("""/s/player/[a-zA-Z0-9_-]+/player_ias\.js""").find(html)?.value
+                        ?: return@use
+                    val jsReq = Request.Builder()
+                        .url("https://www.youtube.com$playerPath")
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                        .build()
+                    NetworkEngine.client.newCall(jsReq).execute().use { jsResp ->
+                        if (!jsResp.isSuccessful) return@use
+                        val js = jsResp.body?.string() ?: return@use
+                        val m = Regex(""""signatureTimestamp"\s*:\s*(\d+)""").find(js)
+                        val v = m?.groupValues?.get(1)?.toIntOrNull()
+                        if (v != null && v > 10000) {
+                            cachedSts = v
+                            android.util.Log.i("StreamifyResolver", "Refreshed signatureTimestamp -> $v")
+                        }
+                    }
+                }
+                stsFetchedAtMs = System.currentTimeMillis()
+            } catch (_: Exception) {
+                // Failure: retry in 10 minutes, keep serving last-known value.
+                stsFetchedAtMs = System.currentTimeMillis() - STS_TTL_MS + 10 * 60 * 1000L
+            } finally {
+                stsRefreshInFlight = false
+            }
+        }
+    }
+
     private const val USER_AGENT_ANDROID = "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14; en_US) gzip"
     private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
 
@@ -404,7 +470,7 @@ object YouTubeStreamResolver {
                 put("racyCheckOk", true)
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
-                        put("signatureTimestamp", 19850)
+                        put("signatureTimestamp", currentSignatureTimestamp())
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
@@ -716,7 +782,7 @@ object YouTubeStreamResolver {
                 put("racyCheckOk", true)
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
-                        put("signatureTimestamp", 19850)
+                        put("signatureTimestamp", currentSignatureTimestamp())
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
