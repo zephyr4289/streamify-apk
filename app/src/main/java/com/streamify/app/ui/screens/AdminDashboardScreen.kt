@@ -133,11 +133,14 @@ fun AdminDashboardScreen(
     fun refreshAll(silent: Boolean = false) {
         scope.launch {
             if (!silent) isLoading = true
-            var telem = SupabaseClient.getAdminTelemetry().getOrNull()
-            if (telem != null) {
-                pendingLiveRecords.forEach { telem = applyProfileRecord(telem, it) }
+            val baseTelem = SupabaseClient.getAdminTelemetry().getOrNull()
+            if (baseTelem != null) {
+                // Non-null from here on is a VAL smart cast (stable); a mutated
+                // var captured by forEach would lose it at every call site.
+                var mergedTelem = baseTelem
+                pendingLiveRecords.forEach { mergedTelem = applyProfileRecord(mergedTelem, it) }
                 pendingLiveRecords = emptyList()
-                telemetry = telem
+                telemetry = mergedTelem
             }
 
             jamSessions = SupabaseClient.getAdminJamSessions().getOrDefault(emptyList())
@@ -154,8 +157,8 @@ fun AdminDashboardScreen(
         launch {
             SupabaseClient.liveProfileUpdates.collect { record: JSONObject ->
                 val base = telemetry
-                if (base == null) pendingLiveRecords = pendingLiveRecords + record
-                else telemetry = applyProfileRecord(base, record)
+                if (base != null) telemetry = applyProfileRecord(base, record)
+                else pendingLiveRecords = pendingLiveRecords + record
             }
         }
 

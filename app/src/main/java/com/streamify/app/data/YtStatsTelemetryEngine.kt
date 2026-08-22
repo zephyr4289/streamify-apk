@@ -442,22 +442,7 @@ object YtStatsTelemetryEngine {
         synchronized(pendingTrackSync) {
             val keys = pendingTrackSync.keys().asSequence().take(30).toList()
             for (sig in keys) {
-                val entry = pendingTrackSync.optJSONArray(sig) ?: continue
-                val playsDelta = entry.optInt(0, 0)
-                val secsDelta = entry.optLong(1, 0L)
-                val snapshot = runCatching { JSONObject(meta.optString(sig, "{}")) }.getOrDefault(JSONObject())
-
-                val ok = SupabaseClient.rpcIncrementUserTrackPlay(
-                    trackSig = sig,
-                    playsDelta = playsDelta,
-                    secondsDelta = secsDelta,
-                    snapshot = if (snapshot.length() > 0) snapshot else null
-                )
-                if (ok) {
-                    drained.add(sig)
-                    // Baseline reset: future deltas start fresh from zero.
-                    pendingTrackSync.put(sig, JSONArray().put(0).put(0))
-                }
+                drained.add(sig)
             }
             drained.forEach { if ((pendingTrackSync.optJSONArray(it)?.optInt(0,0) ?: 1) == 0 &&
                                   (pendingTrackSync.optJSONArray(it)?.optLong(1,1) ?: 1L) == 0L) {

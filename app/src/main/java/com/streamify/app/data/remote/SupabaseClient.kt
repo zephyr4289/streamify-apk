@@ -1764,7 +1764,7 @@ object SupabaseClient {
                     put("track_json", trackJson)
                 }
                 if (extras != null) {
-                    extras.keys().forEach { k -> payload.put(k, extras.opt(k)) }
+                    extras.keys().forEach { k -> put(k, extras.opt(k)) }
                 }
             }
             val broadcastMsg = JSONObject().apply {

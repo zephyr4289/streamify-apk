@@ -63,18 +63,6 @@ data class PlayerState(
 class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel(),
     com.streamify.app.jam.JamEngine.Bridge {
 
-    // ── JamEngine.Bridge: live-player facade for the Lockstep protocol ──
-    override fun loadTrack(track: Track, positionMs: Long, play: Boolean) {
-        playTrack(track, listOf(track), autoHydrateRadio = false)
-        if (positionMs > 0L) seekTo(positionMs)
-        if (!play) pause()
-    }
-
-    override fun seekTo(positionMs: Long) = this@PlayerViewModel.seekTo(positionMs)
-
-    override fun setPlaying(play: Boolean) {
-        if (play) this@PlayerViewModel.play() else this@PlayerViewModel.pause()
-    }
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
@@ -1071,6 +1059,17 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         _playerState.value = cur.copy(queue = remaining, currentIndex = 0)
     }
 
+    // ── JamEngine.Bridge implementations ──
+    override fun loadTrack(track: Track, positionMs: Long, play: Boolean) {
+        playTrack(track, listOf(track), autoHydrateRadio = false)
+        if (positionMs > 0L) seekTo(positionMs)
+        if (!play) pause()
+    }
+
+    override fun setPlaying(play: Boolean) {
+        if (play) play() else pause()
+    }
+
     fun advanceQueue(isUserSkip: Boolean = false) {
         if (!isAdvancing.compareAndSet(false, true)) return
         viewModelScope.launch {
@@ -1519,7 +1518,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         seekTo(currentPos + deltaMs)
     }
 
-    fun seekTo(positionMs: Long) {
+    override fun seekTo(positionMs: Long) {
         val ctrl = controller ?: return
         val currentT = _playerState.value.currentTrack
         val maxDurationMs = if (_playerState.value.duration > 0) _playerState.value.duration else ((currentT?.durationSec ?: 0) * 1000L)

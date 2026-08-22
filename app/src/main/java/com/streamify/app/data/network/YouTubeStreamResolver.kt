@@ -591,7 +591,11 @@ object YouTubeStreamResolver {
                 var loudnessDb: Float? = fmtLoud(bestFormat)
                 if (loudnessDb == null) {
                     for (i in 0 until candidateFormats.size) {
-                        fmtLoud(candidateFormats[i])?.let { loudnessDb = it; break }
+                        val found = fmtLoud(candidateFormats[i])
+                        if (found != null) {
+                            loudnessDb = found
+                            break
+                        }
                     }
                 }
                 if (loudnessDb == null) {

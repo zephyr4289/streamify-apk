@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.asStateFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -303,7 +305,7 @@ object JamEngine {
                     userId = payload.optString("p_user", sender),
                     name = payload.optString("p_name", "Listener"),
                     avatarUrl = payload.optString("p_avatar", "").ifBlank { null },
-                    isHost = payload.optBoolean("p_host", false)
+                    isHostFlag = payload.optBoolean("p_host", false)
                 )
                 refreshConnStatus(true)
             }

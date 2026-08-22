@@ -10,6 +10,8 @@ import android.graphics.Bitmap
 import android.graphics.Paint
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.ui.graphics.toArgb
+import kotlinx.coroutines.launch
 import androidx.compose.ui.geometry.Offset
 import com.streamify.app.data.NativeBridge
 import kotlin.math.*

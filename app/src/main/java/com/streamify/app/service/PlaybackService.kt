@@ -79,7 +79,7 @@ class PlaybackService : MediaSessionService() {
                 /* bufferForPlaybackMs = */ 1500,
                 /* bufferForPlaybackAfterRebufferMs = */ 3000
             )
-            .setTargetBufferBytes(androidx.media3.exoplayer.C.LENGTH_UNSET)
+            .setTargetBufferBytes(C.LENGTH_UNSET)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 

@@ -39,7 +39,7 @@ class LyricPlaybackController {
      */
     fun bindTrack(key: String?) {
         trackKey = key
-        userOffsetMs = LyricOffsetStore.get(key)
+        userOffsetMs = LyricOffsetStore.get(key ?: "")
         snapPending = true // re-anchor rendering to the restored offset
     }
 

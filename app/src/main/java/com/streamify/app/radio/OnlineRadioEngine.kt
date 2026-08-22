@@ -3,7 +3,7 @@ package com.streamify.app.radio
 import com.streamify.app.data.ContinuumRadioEngine
 import com.streamify.app.data.FuzzyTitleMatcher
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.network.AntiDriftScoringEngine
+import com.streamify.app.data.AntiDriftScoringEngine
 import com.streamify.app.data.network.CanonicalSeedResolver
 import com.streamify.app.data.network.NetworkEngine
 import com.streamify.app.data.network.YouTubeMusicSearchApi

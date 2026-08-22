@@ -26,8 +26,8 @@ object LyricOffsetStore {
         return ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
     }
 
-    fun get(key: String, context: Context? = null): Long {
-        if (key.isBlank()) return 0L
+    fun get(key: String?, context: Context? = null): Long {
+        if (key.isNullOrBlank()) return 0L
         return prefs(context)?.getLong(key, 0L) ?: 0L
     }
 

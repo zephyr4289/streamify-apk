@@ -197,7 +197,8 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         if (scratchFloats.size < sampleCount) scratchFloats = FloatArray(sampleCount * 2)
         buffer.position(0)
         buffer.limit(sampleCount * 4)
-        buffer.get(scratchFloats, 0, sampleCount)
+        // ByteBuffer has no bulk float ops: copy through an aligned view.
+        buffer.asFloatBuffer().get(scratchFloats, 0, sampleCount)
 
         if (needsEq) {
             runCatching {
@@ -221,7 +222,7 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         }
 
         buffer.position(0)
-        buffer.put(scratchFloats, 0, sampleCount)
+        buffer.asFloatBuffer().put(scratchFloats, 0, sampleCount)
         buffer.position(0)
         buffer.limit(sampleCount * 4)
     }

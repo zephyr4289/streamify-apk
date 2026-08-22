@@ -19,7 +19,7 @@ object FuzzyTitleMatcher {
     private val rootTokensMemo = java.util.concurrent.ConcurrentHashMap<String, Set<String>>(256)
     private val cleanArtistMemo = java.util.concurrent.ConcurrentHashMap<String, String>(256)
 
-    private fun <V> remember(memo: java.util.concurrent.ConcurrentHashMap<String, V>, key: String, compute: () -> V): V {
+    private fun <V> remember(memo: java.util.concurrent.ConcurrentHashMap<String, V>, key: String, compute: (String) -> V): V {
         memo[key]?.let { return it }
         if (memo.size >= MEMO_CAP) {
             // Cheap amortized reset: titles age out of queues naturally.
