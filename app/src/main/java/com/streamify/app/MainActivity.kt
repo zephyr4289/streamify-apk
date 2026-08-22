@@ -175,6 +175,10 @@ class MainActivity : ComponentActivity() {
                 //   Mini-player  -> everywhere except immersive full-screen routes
                 val topLevelRoutes = remember { setOf("home", "search", "library", "downloads") }
                 val immersiveRoutes = remember { setOf("queue", "lyrics", "jam", "profile_selection") }
+                var miniDockDismissedForTrack by remember { mutableStateOf<Int?>(null) }
+                LaunchedEffect(playerState.currentTrack?.id) {
+                    miniDockDismissedForTrack = null
+                }
 
                 LaunchedEffect(playerState.currentTrack) {
                     if (playerState.currentTrack != null && quantumController.stage == com.streamify.app.ui.components.TokenStage.FLYING) {
@@ -280,7 +284,12 @@ class MainActivity : ComponentActivity() {
                                 },
                                 bottomBar = {
                                     val showNavTabs = (currentRoute ?: "home") in topLevelRoutes
-                                    val showMiniPlayerDock = hasTrack && (currentRoute == null || currentRoute !in immersiveRoutes)
+                                    // Swipe-down dismissal is scoped to the current track:
+                                    // the dock auto-restores when a new track starts.
+                                    val dismissedForTrack = miniDockDismissedForTrack != null &&
+                                            miniDockDismissedForTrack == playerState.currentTrack?.id
+                                    val showMiniPlayerDock = hasTrack && !dismissedForTrack &&
+                                            (currentRoute == null || currentRoute !in immersiveRoutes)
                                     if (showNavTabs || showMiniPlayerDock) {
                                         Column(
                                             modifier = Modifier
@@ -312,6 +321,9 @@ class MainActivity : ComponentActivity() {
                                                     onPrevious = { playerViewModel.skipPrevious() },
                                                     onExpand = { isPlayerExpanded = true },
                                                     onToggleLike = { playerViewModel.toggleLike() },
+                                                    onSwipeDown = {
+                                                        miniDockDismissedForTrack = playerState.currentTrack?.id
+                                                    },
                                                     tokenController = quantumController
                                                 )
                                             }

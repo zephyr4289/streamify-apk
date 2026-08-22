@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -49,11 +50,14 @@ fun MiniPlayerBar(
     onPrevious: () -> Unit,
     onExpand: () -> Unit,
     onToggleLike: (() -> Unit)? = null,
+    onSwipeDown: (() -> Unit)? = null,
     alpha: Float = 1f,
     tokenController: QuantumSonicTokenController? = null,
     modifier: Modifier = Modifier
 ) {
     if (track == null) return
+    // Always-current callback reference for long-lived pointer detectors.
+    val currentOnSwipeDown by androidx.compose.runtime.rememberUpdatedState(onSwipeDown)
 
     val buttonState = when {
         isBuffering -> PlaybackButtonState.BUFFERING
@@ -112,6 +116,25 @@ fun MiniPlayerBar(
                 .fillMaxSize()
                 .pointerInput(Unit) {
                     detectTapGestures(onTap = { onExpand() })
+                }
+                .pointerInput(Unit) {
+                    // Swipe-down dismisses the dock for the current track
+                    // (auto-restores when the next track starts).
+                    var totalDragY = 0f
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            totalDragY += dragAmount
+                        },
+                        onDragEnd = {
+                            if (totalDragY > 140f) {
+                                com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
+                                currentOnSwipeDown?.invoke()
+                            }
+                            totalDragY = 0f
+                        },
+                        onDragCancel = { totalDragY = 0f }
+                    )
                 }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(

@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
@@ -17,6 +18,7 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -157,10 +160,69 @@ fun FullPlayerSheet(
         )
     }
 
+    // --- Swipe-Down-to-Collapse Physics (professional sheet dismissal) ---
+    // Dragging down on non-scrollable sheet chrome (header / artwork) follows the
+    // finger 1:1; releasing past the distance threshold — or flinging fast enough —
+    // collapses the player. Anything less springs back with zero bounce.
+    val collapseDragY = remember { Animatable(0f) }
+    val sheetGestureScope = rememberCoroutineScope()
+
+    // Immersive chrome toggle: single-tap on artwork dims player furniture
+    // (top bar / metadata) like professional apps. Tap again to restore.
+    var chromeDimmed by remember { mutableStateOf(false) }
+    val chromeAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (chromeDimmed) 0.15f else 1f,
+        animationSpec = tween(220),
+        label = "playerChromeAlpha"
+    )
+
+    fun collapseDragZone(): Modifier = Modifier.pointerInput(Unit) {
+        val velocityTracker = VelocityTracker()
+        detectVerticalDragGestures(
+            onDragStart = { velocityTracker.resetTracking() },
+            onVerticalDrag = { change, dragAmount ->
+                change.consume()
+                velocityTracker.addPosition(change.uptimeMillis, change.position)
+                sheetGestureScope.launch {
+                    collapseDragY.snapTo((collapseDragY.value + dragAmount).coerceAtLeast(0f))
+                }
+            },
+            onDragEnd = {
+                val velocityY = velocityTracker.calculateVelocity().y
+                sheetGestureScope.launch {
+                    val dismissPx = 140.dp.toPx()
+                    if (collapseDragY.value > dismissPx || velocityY > 2400f) {
+                        com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
+                        onCollapse()
+                        kotlinx.coroutines.delay(500)
+                        collapseDragY.snapTo(0f)
+                    } else {
+                        collapseDragY.animateTo(
+                            0f,
+                            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                        )
+                    }
+                }
+            },
+            onDragCancel = {
+                sheetGestureScope.launch {
+                    collapseDragY.animateTo(
+                        0f,
+                        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                    )
+                }
+            }
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(BgBase)
+            .graphicsLayer {
+                translationY = collapseDragY.value
+                alpha = 1f - (collapseDragY.value / 1000f).coerceIn(0f, 0.4f)
+            }
     ) {
         // 1. Extreme Performance: GPU Radial Gradient Ambient Glow (0.01ms Single Draw Call)
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -202,7 +264,9 @@ fun FullPlayerSheet(
                 ) {
                     // Top Bar: Collapse + Song/Video Switcher + Cast
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .collapseDragZone(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -547,7 +611,9 @@ fun FullPlayerSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                        .graphicsLayer { alpha = chromeAlpha }
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .collapseDragZone(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -605,8 +671,10 @@ fun FullPlayerSheet(
                                 scaleY = 0.98f + (heroPulseAlpha * 0.02f)
                             }
                         }
+                        .collapseDragZone()
                         .pointerInput(Unit) {
                             detectTapGestures(
+                                onTap = { chromeDimmed = !chromeDimmed },
                                 onLongPress = {
                                     com.streamify.app.util.StreamifyHapticEngine.magneticQueueGrab()
                                     onLyricsClick?.invoke()
@@ -693,6 +761,7 @@ fun FullPlayerSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .graphicsLayer { alpha = chromeAlpha }
                         .padding(horizontal = 24.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
