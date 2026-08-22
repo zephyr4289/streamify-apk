@@ -80,8 +80,6 @@ enum class LandscapePlayerTab {
     UP_NEXT, LYRICS, RELATED
 }
 
-@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
 /**
  * Signature swipe-down-to-collapse zone (1:1 finger tracking, fling dismiss).
  * File-level extension: a previous local-fun definition was not resolvable
@@ -130,6 +128,8 @@ private fun Modifier.collapseDragZone(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
 fun FullPlayerSheet(
     track: Track?,
     isPlaying: Boolean,
