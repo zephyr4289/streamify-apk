@@ -144,30 +144,37 @@ class MainActivity : ComponentActivity() {
                 val dockPositionState = remember { mutableStateOf(Offset.Zero) }
                 val contextMenuController = remember { com.streamify.app.ui.components.TrackContextMenuController() }
 
-                // --- PILLAR 4: Root Safe Harbor & Double-Back-to-Exit Guard ---
+                // --- Root Back Policy: professional stack-walking navigation ---
+                // Priority order:
+                //   1. Full player sheet open      -> collapse the sheet
+                //   2. Deeper in the back stack    -> natural popBackStack() walk
+                //      (e.g. artist -> search -> home, instead of snapping to home)
+                //   3. Already at root destination -> double-back-to-exit guard
                 var lastBackPressedTime by remember { mutableStateOf(0L) }
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route ?: "home"
+                val currentRoute = navBackStackEntry?.destination?.route
 
                 BackHandler(enabled = true) {
-                    if (isPlayerExpanded) {
-                        isPlayerExpanded = false
-                    } else if (currentRoute != "home") {
-                        navController.navigate("home") {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    } else {
-                        val now = System.currentTimeMillis()
-                        if (now - lastBackPressedTime < 2000) {
-                            this@MainActivity.finish()
-                        } else {
-                            lastBackPressedTime = now
-                            android.widget.Toast.makeText(this@MainActivity, "Press back again to exit", android.widget.Toast.LENGTH_SHORT).show()
+                    when {
+                        isPlayerExpanded -> isPlayerExpanded = false
+                        navController.previousBackStackEntry != null -> navController.popBackStack()
+                        else -> {
+                            val now = System.currentTimeMillis()
+                            if (now - lastBackPressedTime < 2000L) {
+                                this@MainActivity.finish()
+                            } else {
+                                lastBackPressedTime = now
+                                android.widget.Toast.makeText(this@MainActivity, "Press back again to exit", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
                 }
+
+                // Dock visibility policy (professional music apps):
+                //   Nav tabs     -> only on top-level tab destinations
+                //   Mini-player  -> everywhere except immersive full-screen routes
+                val topLevelRoutes = remember { setOf("home", "search", "library", "downloads") }
+                val immersiveRoutes = remember { setOf("queue", "lyrics", "jam", "profile_selection") }
 
                 LaunchedEffect(playerState.currentTrack) {
                     if (playerState.currentTrack != null && quantumController.stage == com.streamify.app.ui.components.TokenStage.FLYING) {
@@ -272,51 +279,57 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 bottomBar = {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .graphicsLayer { this.alpha = dockAlpha }
-                                            .windowInsetsPadding(WindowInsets.navigationBars)
-                                            .centerInLargeScreen()
-                                            .onGloballyPositioned { coordinates ->
-                                                val pos = coordinates.positionInWindow()
-                                                dockPositionState.value = Offset(
-                                                    pos.x + (coordinates.size.width / 2f),
-                                                    pos.y + 28f
+                                    val showNavTabs = (currentRoute ?: "home") in topLevelRoutes
+                                    val showMiniPlayerDock = hasTrack && (currentRoute == null || currentRoute !in immersiveRoutes)
+                                    if (showNavTabs || showMiniPlayerDock) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .graphicsLayer { this.alpha = dockAlpha }
+                                                .windowInsetsPadding(WindowInsets.navigationBars)
+                                                .centerInLargeScreen()
+                                                .onGloballyPositioned { coordinates ->
+                                                    val pos = coordinates.positionInWindow()
+                                                    dockPositionState.value = Offset(
+                                                        pos.x + (coordinates.size.width / 2f),
+                                                        pos.y + 28f
+                                                    )
+                                                }
+                                        ) {
+                                            // Docked Mini-Player (Directly above BottomNav with zero overlap)
+                                            AnimatedVisibility(
+                                                visible = showMiniPlayerDock,
+                                                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(200)),
+                                                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(200))
+                                            ) {
+                                                MiniPlayerBar(
+                                                    track = playerState.currentTrack,
+                                                    isPlaying = playerState.isPlaying,
+                                                    progress = progress,
+                                                    isBuffering = playerState.isBuffering,
+                                                    onPlayPause = { playerViewModel.togglePlayPause() },
+                                                    onNext = { playerViewModel.skipNext() },
+                                                    onPrevious = { playerViewModel.skipPrevious() },
+                                                    onExpand = { isPlayerExpanded = true },
+                                                    onToggleLike = { playerViewModel.toggleLike() },
+                                                    tokenController = quantumController
                                                 )
                                             }
-                                    ) {
-                                        // Docked Mini-Player (Directly above BottomNav with zero overlap)
-                                        AnimatedVisibility(
-                                            visible = hasTrack,
-                                            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(200)),
-                                            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(200))
-                                        ) {
-                                            MiniPlayerBar(
-                                                track = playerState.currentTrack,
-                                                isPlaying = playerState.isPlaying,
-                                                progress = progress,
-                                                isBuffering = playerState.isBuffering,
-                                                onPlayPause = { playerViewModel.togglePlayPause() },
-                                                onNext = { playerViewModel.skipNext() },
-                                                onPrevious = { playerViewModel.skipPrevious() },
-                                                onExpand = { isPlayerExpanded = true },
-                                                onToggleLike = { playerViewModel.toggleLike() },
-                                                tokenController = quantumController
-                                            )
-                                        }
 
-                                        // Docked Bottom Navigation (100% accessible at all times)
-                                        YtBottomNavBar(
-                                            currentRoute = currentRoute,
-                                            onNavigate = { route ->
-                                                navController.navigate(route) {
-                                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                                    launchSingleTop = true
-                                                    restoreState = true
-                                                }
+                                            // Docked Bottom Navigation (top-level tab destinations only)
+                                            if (showNavTabs) {
+                                                YtBottomNavBar(
+                                                    currentRoute = currentRoute,
+                                                    onNavigate = { route ->
+                                                        navController.navigate(route) {
+                                                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                                            launchSingleTop = true
+                                                            restoreState = true
+                                                        }
+                                                    }
+                                                )
                                             }
-                                        )
+                                        }
                                     }
                                 },
                                 containerColor = BgBase
