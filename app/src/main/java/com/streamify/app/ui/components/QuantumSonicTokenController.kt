@@ -203,7 +203,7 @@ class QuantumSonicTokenController {
                     .allowHardware(false)   // must survive native-canvas draw
                     .build()
                 val result = coil.Coil.imageLoader(ctx).execute(request)
-                val bmp = (result as? coil.request.SuccessResult)?.bitmap
+                val bmp = ((result as? coil.request.SuccessResult)?.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
                 if (bmp != null && artBitmapKey == artUrl) {
                     artBitmap = bmp
                     frameTick++   // swap placeholder ring → bitmap in draw phase

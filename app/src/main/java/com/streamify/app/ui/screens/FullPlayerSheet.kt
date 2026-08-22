@@ -82,6 +82,54 @@ enum class LandscapePlayerTab {
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
+/**
+ * Signature swipe-down-to-collapse zone (1:1 finger tracking, fling dismiss).
+ * File-level extension: a previous local-fun definition was not resolvable
+ * from every pane that needs it.
+ */
+private fun Modifier.collapseDragZone(
+    collapseDragY: Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
+    sheetGestureScope: kotlinx.coroutines.CoroutineScope,
+    onCollapse: () -> Unit
+): Modifier = Modifier.pointerInput(Unit) {
+    val velocityTracker = VelocityTracker()
+    detectVerticalDragGestures(
+        onDragStart = { velocityTracker.resetTracking() },
+        onVerticalDrag = { change, dragAmount ->
+            change.consume()
+            velocityTracker.addPosition(change.uptimeMillis, change.position)
+            sheetGestureScope.launch {
+                collapseDragY.snapTo((collapseDragY.value + dragAmount).coerceAtLeast(0f))
+            }
+        },
+        onDragEnd = {
+            val velocityY = velocityTracker.calculateVelocity().y
+            sheetGestureScope.launch {
+                val dismissPx = 140.dp.toPx()
+                if (collapseDragY.value > dismissPx || velocityY > 2400f) {
+                    com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
+                    onCollapse()
+                    kotlinx.coroutines.delay(500)
+                    collapseDragY.snapTo(0f)
+                } else {
+                    collapseDragY.animateTo(
+                        0f,
+                        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                    )
+                }
+            }
+        },
+        onDragCancel = {
+            sheetGestureScope.launch {
+                collapseDragY.animateTo(
+                    0f,
+                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                )
+            }
+        }
+    )
+}
+
 fun FullPlayerSheet(
     track: Track?,
     isPlaying: Boolean,
@@ -192,44 +240,6 @@ fun FullPlayerSheet(
         label = "playerChromeAlpha"
     )
 
-    fun collapseDragZone(): Modifier = Modifier.pointerInput(Unit) {
-        val velocityTracker = VelocityTracker()
-        detectVerticalDragGestures(
-            onDragStart = { velocityTracker.resetTracking() },
-            onVerticalDrag = { change, dragAmount ->
-                change.consume()
-                velocityTracker.addPosition(change.uptimeMillis, change.position)
-                sheetGestureScope.launch {
-                    collapseDragY.snapTo((collapseDragY.value + dragAmount).coerceAtLeast(0f))
-                }
-            },
-            onDragEnd = {
-                val velocityY = velocityTracker.calculateVelocity().y
-                sheetGestureScope.launch {
-                    val dismissPx = 140.dp.toPx()
-                    if (collapseDragY.value > dismissPx || velocityY > 2400f) {
-                        com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
-                        onCollapse()
-                        kotlinx.coroutines.delay(500)
-                        collapseDragY.snapTo(0f)
-                    } else {
-                        collapseDragY.animateTo(
-                            0f,
-                            spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                        )
-                    }
-                }
-            },
-            onDragCancel = {
-                sheetGestureScope.launch {
-                    collapseDragY.animateTo(
-                        0f,
-                        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                    )
-                }
-            }
-        )
-    }
 
     Box(
         modifier = Modifier
@@ -282,7 +292,7 @@ fun FullPlayerSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .collapseDragZone(),
+                            .collapseDragZone(collapseDragY, sheetGestureScope, onCollapse),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -629,7 +639,7 @@ fun FullPlayerSheet(
                         .fillMaxWidth()
                         .graphicsLayer { alpha = chromeAlpha }
                         .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .collapseDragZone(),
+                        .collapseDragZone(collapseDragY, sheetGestureScope, onCollapse),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -688,7 +698,7 @@ fun FullPlayerSheet(
                                 scaleY = 0.98f + (pulse * 0.02f)
                             }
                         }
-                        .collapseDragZone()
+                        .collapseDragZone(collapseDragY, sheetGestureScope, onCollapse)
                         .pointerInput(Unit) {
                             detectTapGestures(
                                 onTap = { chromeDimmed = !chromeDimmed },
@@ -697,7 +707,7 @@ fun FullPlayerSheet(
                                     onLyricsClick?.invoke()
                                 },
                                 onDoubleTap = { offset: Offset ->
-                                    val isRightSide = offset.x > (size.width / 2f)
+                                    val isRightSide = offset.x > (this@pointerInput.size.width / 2f)
                                     val seekDeltaMs = if (isRightSide) 10_000L else -10_000L
                                     com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
                                     playerViewModel.seekRelative(seekDeltaMs)

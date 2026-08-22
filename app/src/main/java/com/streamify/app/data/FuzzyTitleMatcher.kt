@@ -25,7 +25,7 @@ object FuzzyTitleMatcher {
             // Cheap amortized reset: titles age out of queues naturally.
             memo.clear()
         }
-        val v = compute()
+        val v = compute(key)
         memo[key] = v
         return v
     }

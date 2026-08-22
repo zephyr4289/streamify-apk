@@ -9,7 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.IntOffset
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -163,8 +163,8 @@ fun QuantumSonicTokenOverlay(
                 if (bmp != null) {
                     drawImage(
                         image = bmp.asImageBitmap(),
-                        dstOffset = androidx.compose.ui.geometry.IntOffset(artX.toInt(), artY.toInt()),
-                        dstSize = androidx.compose.ui.geometry.IntSize(artSize.toInt(), artSize.toInt())
+                        dstOffset = IntOffset(artX.toInt(), artY.toInt()),
+                        dstSize = IntSize(artSize.toInt(), artSize.toInt())
                     )
                 } else {
                     drawCircle(

@@ -603,8 +603,9 @@ object YouTubeStreamResolver {
                         ?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }
                         ?.let { loudnessDb = it.toFloat() }
                 }
+                val probeVideoId = root.optJSONObject("videoDetails")?.optString("videoId", "") ?: ""
                 android.util.Log.d("LoudnessProbe",
-                    "videoId=$videoId loudnessDb=$loudnessDb bitrate=$bitrate mime=$mimeType")
+                    "videoId=$probeVideoId loudnessDb=$loudnessDb bitrate=$bitrate mime=$mimeType")
 
                 return ResolvedStream(
                     streamUrl = streamUrl,
