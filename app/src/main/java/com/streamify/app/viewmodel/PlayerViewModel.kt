@@ -1216,6 +1216,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         )
         playbackStartTimeMs = System.currentTimeMillis()
 
+        // PHASE 1 LOUDNESS TRUTH: reset until this track's stream is resolved.
+        com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = null
+
         // 0. SMART OFFLINE VAULT GATE (0ms instant local playback if pre-cached)
         val vaulted = com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
         val trackToPlay = vaulted ?: track
@@ -1225,6 +1228,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(trackToPlay.filepath)
         val isLocalFile = trackToPlay.filepath.startsWith("/") || trackToPlay.filepath.startsWith("file://") || java.io.File(trackToPlay.filepath).exists()
 
+        var streamLoudnessDb: Float? = null
         val resolvedTrack = if (isLocalFile || isAlreadyDirectCdn) {
             trackToPlay
         } else {
@@ -1252,6 +1256,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(if (vidId != null) trackToPlay.copy(ytmVideoId = vidId) else trackToPlay)
                     val resolved = res.getOrNull()
                     if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                        // PHASE 1: capture YouTube's own loudness measurement.
+                        streamLoudnessDb = resolved.loudnessDb
                         trackToPlay.copy(filepath = resolved.streamUrl, ytmVideoId = vidId ?: trackToPlay.ytmVideoId)
                     } else {
                         trackToPlay
@@ -1269,6 +1275,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 java.io.File(resolvedTrack.filepath).exists()
 
         if (isPlayable) {
+            // PHASE 1: hand YouTube's loudness truth to the render processor.
+            com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = streamLoudnessDb
+
             val mediaItem = buildMediaItem(resolvedTrack)
             withContext(Dispatchers.Main) {
                 try {

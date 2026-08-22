@@ -23,6 +23,16 @@ import java.nio.ByteOrder
  */
 class StreamifyAudioProcessor : BaseAudioProcessor() {
 
+    companion object {
+        /**
+         * PHASE 1 LOUDNESS TRUTH: YouTube's own per-stream measurement
+         * (loudnessDb, relative to −14 LUFS reference). Applied as exact
+         * pre-gain; when present the legacy RMS normalizer is bypassed.
+         * Null → non-YT/local source → legacy RMS path.
+         */
+        @Volatile var currentPreGainDb: Float? = null
+    }
+
     private var statePtr: Long = 0L
     private var normalizerPtr: Long = 0L
 
@@ -84,15 +94,41 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
             nativeOutputBuffer = ByteBuffer.allocateDirect(requiredOutputCap * 2).order(ByteOrder.nativeOrder())
         }
 
-        nativeInputBuffer.clear()
-        if (is16Bit) {
-            nativeInputBuffer.put(inputBuffer)
-        } else {
-            repeat(sampleCount) {
-                val f = inputBuffer.float
-                nativeInputBuffer.putShort((f.coerceIn(-1.0f, 1.0f) * 32767.0f).toInt().toShort())
+        // ═══ PHASE 1 QUANTIZATION FIX + LOUDNESS TRUTH ═══
+        // FLOAT input never round-trips through i16 anymore (that injected
+        // ditherless quantization into a supposedly-float pipeline).
+        if (!is16Bit) {
+            val out = replaceOutputBuffer(sampleCount * 4)
+            val preGainLin = currentPreGainDb?.let { Math.pow(10.0, it / 20.0).toFloat() }
+            if (preGainLin != null) {
+                // EXACT PATH: YouTube-told-us gain; RMS engine bypassed.
+                var i = 0
+                while (i < sampleCount) {
+                    val v = inputBuffer.float * preGainLin
+                    out.putFloat(if (v > 1f) 1f else if (v < -1f) -1f else v)
+                    i++
+                }
+            } else {
+                // LEGACY PATH: identity copy → native RMS normalization.
+                nativeOutputBuffer.clear()
+                while (inputBuffer.hasRemaining()) nativeOutputBuffer.putFloat(inputBuffer.float)
+                nativeOutputBuffer.position(0)
+                nativeOutputBuffer.limit(sampleCount * 4)
+                if (normalizerPtr != 0L) {
+                    runCatching {
+                        NativeBridge.nativeApplyNormalization(normalizerPtr, nativeOutputBuffer, numFrames)
+                    }
+                }
+                nativeOutputBuffer.position(0)
+                nativeOutputBuffer.limit(sampleCount * 4)
+                out.put(nativeOutputBuffer)
             }
+            out.flip()
+            return
         }
+
+        nativeInputBuffer.clear()
+        nativeInputBuffer.put(inputBuffer)
         nativeInputBuffer.flip()
 
         nativeOutputBuffer.clear()
