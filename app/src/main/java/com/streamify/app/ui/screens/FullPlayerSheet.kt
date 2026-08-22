@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -929,14 +931,56 @@ fun FullPlayerSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                // --- IN-PLAYER SWIPE PAGES (Up Next | Lyrics | Related) ---
+                // Professional parity: the three surfaces live INSIDE the player as
+                // swipeable pages instead of navigating away and killing the sheet.
+                val portraitPagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
+                HorizontalPager(
+                    state = portraitPagerState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .heightIn(min = 110.dp)
+                        .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
+                    verticalAlignment = Alignment.Top
+                ) { page ->
+                    when (page) {
+                        0 -> LandscapeQueuePane(
+                            queue = playerState.queue,
+                            currentIndex = playerState.currentIndex,
+                            currentTrack = playerState.currentTrack,
+                            isPlaying = playerState.isPlaying,
+                            onTrackClick = { clicked ->
+                                playerViewModel.playTrack(clicked, playerState.queue)
+                            }
+                        )
+                        1 -> LandscapeLyricsPane(
+                            track = track,
+                            currentPositionMs = currentPositionMs,
+                            isPlaying = isPlaying,
+                            onSeek = { posMs ->
+                                if (durationMs > 0) onSeek(posMs.toFloat() / durationMs.toFloat())
+                            }
+                        )
+                        else -> LandscapeRelatedPane(
+                            track = track,
+                            playerViewModel = playerViewModel,
+                            onTrackClick = { clicked ->
+                                playerViewModel.playTrack(clicked, listOf(clicked))
+                            }
+                        )
+                    }
+                }
 
-                // --- BOTTOM SHEET ANCHOR TABS (UP NEXT | LYRICS | RELATED) ---
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // --- BOTTOM TABS (synced with swipe pages; switch in-place) ---
+                val pageTabLabels = listOf("UP NEXT", "LYRICS", "RELATED")
                 YtPlayerBottomTabs(
-                    activeTab = "UP NEXT",
-                    onQueueClick = { onQueueClick?.invoke() },
-                    onLyricsClick = { onLyricsClick?.invoke() },
-                    onRelatedClick = { showRelatedSheet = true }
+                    activeTab = pageTabLabels[portraitPagerState.currentPage],
+                    onQueueClick = { sheetGestureScope.launch { portraitPagerState.animateScrollToPage(0) } },
+                    onLyricsClick = { sheetGestureScope.launch { portraitPagerState.animateScrollToPage(1) } },
+                    onRelatedClick = { sheetGestureScope.launch { portraitPagerState.animateScrollToPage(2) } }
                 )
             }
         }
