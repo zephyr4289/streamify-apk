@@ -368,6 +368,19 @@ object NativeBridge {
         numFrames: Int
     ): Int
 
+    /**
+     * Fused single-crossing render pass: i16 PCM in -> DSP/EQ -> RMS
+     * normalization -> f32 out. One JNI transition per audio buffer instead
+     * of two, zero intermediate copies on the real-time thread.
+     */
+    external fun nativeProcessFusedAudio(
+        statePtr: Long,
+        normalizerPtr: Long,
+        input: java.nio.ByteBuffer,
+        output: java.nio.ByteBuffer,
+        numFrames: Int
+    ): Int
+
     // ═══════════════════════════════════════════════════════════════
     // PHASE 5: INFINITE DYNAMIC QUEUE & BACKGROUND DELTA SYNC
     // ═══════════════════════════════════════════════════════════════

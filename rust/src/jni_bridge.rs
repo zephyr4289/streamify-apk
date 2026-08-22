@@ -939,6 +939,68 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeApplyNor
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeProcessFusedAudio(
+    mut env: JNIEnv,
+    _class: JClass,
+    state_ptr: jlong,
+    normalizer_ptr: jlong,
+    input_buffer: JObject,
+    output_buffer: JObject,
+    num_frames: jint,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        if state_ptr == 0 || num_frames <= 0 {
+            return -1;
+        }
+
+        // Validate against DIRECT BUFFER CAPACITY, not just non-nullness:
+        // stereo interleaved, i16 in (2 B/sample), f32 out (4 B/sample).
+        let frames = num_frames as usize;
+        let need_in = frames * 2 * std::mem::size_of::<i16>();
+        let need_out = frames * 2 * std::mem::size_of::<f32>();
+        let in_cap = env.get_direct_buffer_capacity(&input_buffer).unwrap_or(0);
+        let out_cap = env.get_direct_buffer_capacity(&output_buffer).unwrap_or(0);
+        if in_cap < need_in || out_cap < need_out {
+            return -2;
+        }
+
+        let input_ptr = match env.get_direct_buffer_address(&input_buffer) {
+            Ok(p) => p as *const i16,
+            Err(_) => return -10,
+        };
+        let output_ptr = match env.get_direct_buffer_address(&output_buffer) {
+            Ok(p) => p as *mut f32,
+            Err(_) => return -10,
+        };
+
+        if input_ptr.is_null() || output_ptr.is_null() {
+            return -10;
+        }
+
+        // ONE crossing: DSP conversion/EQ then RMS normalization operate
+        // back-to-back on the same f32 output region — zero intermediate copies.
+        let dsp_result = crate::audio_dsp::process_audio_dsp(
+            state_ptr as *mut crate::audio_dsp::DspState,
+            input_ptr,
+            output_ptr,
+            frames,
+        );
+        if dsp_result != 0 {
+            return dsp_result;
+        }
+        if normalizer_ptr != 0 {
+            crate::normalizer::apply_normalization(
+                normalizer_ptr as *mut crate::normalizer::NormalizerState,
+                output_ptr,
+                frames,
+            );
+        }
+        0
+    }))
+    .unwrap_or(-10)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeSubmitSeekRequest(
     _env: JNIEnv,
     _class: JClass,

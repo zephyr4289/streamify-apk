@@ -1440,12 +1440,20 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         precisionProtocol: com.streamify.app.service.PrecisionTimeProtocol
     ) {
         val ctrl = controller ?: return
-        val scheduler = com.streamify.app.service.ScheduledAudioScheduler(ctrl, precisionProtocol)
+        // Single scheduler instance for the ViewModel lifetime — the old
+        // per-call instantiation leaked a CoroutineScope + SupervisorJob on
+        // every synchronized playout.
+        if (atomicScheduler == null) {
+            atomicScheduler = com.streamify.app.service.ScheduledAudioScheduler(ctrl, precisionProtocol)
+        }
+        val scheduler = atomicScheduler!!
         _playerState.value = _playerState.value.copy(currentTrack = track, queue = listOf(track))
         scheduler.scheduleAtomicPlayback(track, targetAtomicTimestampMs, startPositionMs) {
             _playerState.value = _playerState.value.copy(isPlaying = true)
         }
     }
+
+    private var atomicScheduler: com.streamify.app.service.ScheduledAudioScheduler? = null
 
     fun seekRelative(deltaMs: Long) {
         val currentPos = currentPositionMs()

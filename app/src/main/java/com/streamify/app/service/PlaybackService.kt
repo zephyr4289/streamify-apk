@@ -15,10 +15,21 @@ import kotlinx.coroutines.withContext
 
 class PlaybackService : MediaSessionService() {
     companion object {
+        // LEGACY objects kept alive only for non-chain consumers:
+        //  - syncAudioProcessor: Jam lockstep hardware-latency compensation
+        //    (PlayerViewModel.getAcousticPositionMs)
+        //  - crossfadeAudioProcessor companion: user's crossfade pref storage
+        // They are NO LONGER in the render chain — see streamifyProcessor.
         val syncAudioProcessor: SyncAudioProcessor = SyncAudioProcessor()
-        val meshAudioProcessor: MeshPcmAudioProcessor = MeshPcmAudioProcessor()
         val crossfadeAudioProcessor: CrossfadeAudioProcessor = CrossfadeAudioProcessor()
-        val rustDspAudioProcessor: RustDspAudioProcessor = RustDspAudioProcessor()
+
+        /**
+         * THE render-path processor: one fused native pass per buffer.
+         * Old chain was [RustDsp, MeshPcm, Crossfade, Sync] = 5 copies +
+         * 3 JNI crossings + a Kotlin sample loop on the real-time thread.
+         */
+        val streamifyProcessor: StreamifyAudioProcessor = StreamifyAudioProcessor()
+
         val isBuffering = kotlinx.coroutines.flow.MutableStateFlow(false)
         @Volatile var onSeekNextListener: (() -> Unit)? = null
         @Volatile var onSeekPrevListener: (() -> Unit)? = null
@@ -41,12 +52,27 @@ class PlaybackService : MediaSessionService() {
             ): androidx.media3.exoplayer.audio.AudioSink? {
                 return DefaultAudioSink.Builder(context)
                     .setEnableFloatOutput(true)
-                    .setAudioProcessors(arrayOf(rustDspAudioProcessor, meshAudioProcessor, crossfadeAudioProcessor, syncAudioProcessor))
+                    .setAudioProcessors(arrayOf(streamifyProcessor))
                     .build()
             }
         }.apply {
             setEnableAudioFloatOutput(true)
         }
+
+        // Audio-tuned LoadControl: small allocation chunk, generous back-buffer.
+        // Defaults target video; audio needs far less front-buffer to run
+        // glitch-free on eMMC + little-core devices while keeping enough
+        // buffered duration to survive GC pauses and I/O hiccups.
+        val audioLoadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 15000,
+                /* maxBufferMs = */ 60000,
+                /* bufferForPlaybackMs = */ 1500,
+                /* bufferForPlaybackAfterRebufferMs = */ 3000
+            )
+            .setTargetBufferBytes(androidx.media3.exoplayer.C.LENGTH_UNSET)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
 
         val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
@@ -75,6 +101,7 @@ class PlaybackService : MediaSessionService() {
                 .setSpatializationBehavior(C.SPATIALIZATION_BEHAVIOR_AUTO)
                 .build(), true
             )
+            .setLoadControl(audioLoadControl)
             .setHandleAudioBecomingNoisy(true)
             .setPauseAtEndOfMediaItems(false)
             .setWakeMode(C.WAKE_MODE_LOCAL)
@@ -91,7 +118,6 @@ class PlaybackService : MediaSessionService() {
         }
         
         dynamicQueueManager = DynamicQueueManager(this, exoPlayer)
-        seekDebounceManager = SeekDebounceManager(exoPlayer).apply { start() }
         preBufferManager = PredictivePreBufferManager(this)
 
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
@@ -293,7 +319,6 @@ class PlaybackService : MediaSessionService() {
 
     private var preBufferManager: PredictivePreBufferManager? = null
     private var dynamicQueueManager: DynamicQueueManager? = null
-    private var seekDebounceManager: SeekDebounceManager? = null
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
@@ -302,8 +327,6 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         AudioDeviceManager.release(this)
         EqualizerManager.release()
-        seekDebounceManager?.release()
-        seekDebounceManager = null
         dynamicQueueManager?.release()
         dynamicQueueManager = null
         preBufferManager?.release()
@@ -314,6 +337,8 @@ class PlaybackService : MediaSessionService() {
             mediaSession = null
         }
         player = null
+        // Free native DSP/normalizer state AFTER the sink has stopped.
+        try { streamifyProcessor.release() } catch (_: Throwable) {}
         super.onDestroy()
     }
 }

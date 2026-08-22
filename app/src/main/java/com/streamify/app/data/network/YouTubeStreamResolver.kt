@@ -19,7 +19,9 @@ data class ResolvedStream(
     val streamUrl: String,
     val mimeType: String,
     val bitrate: Int,
-    val durationSec: Int
+    val durationSec: Int,
+    /** YouTube's own loudness measurement for this exact stream (dB, rel −14 LUFS ref). */
+    val loudnessDb: Float? = null
 )
 
 data class ThumbnailDescriptor(
@@ -510,11 +512,36 @@ object YouTubeStreamResolver {
             val bitrate = bestFormat.optInt("bitrate", bestFormat.optInt("averageBitrate", 160000))
 
             if (streamUrl.isNotBlank()) {
+                // ═══ LOUDNESS TRUTH (Phase 1) ═══
+                // Innertube documents per-stream loudness in up to THREE places;
+                // presence varies by client/age of response. Probe all, prefer
+                // the chosen format's own value.
+                fun fmtLoud(f: JSONObject): Float? {
+                    f.optDouble("loudnessDb", Double.NaN).takeIf { !it.isNaN() }?.let { return it.toFloat() }
+                    val vni = f.optJSONObject("volumeNormalizationInfo")
+                    vni?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }?.let { return it.toFloat() }
+                    return null
+                }
+                var loudnessDb: Float? = fmtLoud(bestFormat)
+                if (loudnessDb == null) {
+                    for (i in 0 until candidateFormats.size) {
+                        fmtLoud(candidateFormats[i])?.let { loudnessDb = it; break }
+                    }
+                }
+                if (loudnessDb == null) {
+                    root.optJSONObject("playerConfig")?.optJSONObject("audioConfig")
+                        ?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }
+                        ?.let { loudnessDb = it.toFloat() }
+                }
+                android.util.Log.d("LoudnessProbe",
+                    "videoId=$videoId loudnessDb=$loudnessDb bitrate=$bitrate mime=$mimeType")
+
                 return ResolvedStream(
                     streamUrl = streamUrl,
                     mimeType = mimeType,
                     bitrate = bitrate,
-                    durationSec = durationSec
+                    durationSec = durationSec,
+                    loudnessDb = loudnessDb
                 )
             }
             return null
