@@ -737,7 +737,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeParseLrc
         }
         let lrc_str: String = match env.get_string(&lrc_text) {
             Ok(s) => s.into(),
-            Err(_) => return 0jlong,
+            Err(_) => return 0,
         };
         let bytes = lrc_str.as_bytes();
         if bytes.is_empty() {
