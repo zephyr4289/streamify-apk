@@ -654,9 +654,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     val (lookaheadYtAuth, lookaheadYtCookies) = ytSession()
                     if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
                         vidId = NativeBridge.resolveTrack(dbPath, cadId, nextTrack.isrc, nextTrack.title, nextTrack.artist, lookaheadYtAuth, lookaheadYtCookies)
-                    }                    if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
-                        val authHeader = appContext?.let { com.streamify.app.data.remote.SpotifyAuthManager(it).getYtAuthHeader() } ?: ""
-                        vidId = NativeBridge.resolveTrack(dbPath, cadId, nextTrack.isrc, nextTrack.title, nextTrack.artist, authHeader)
                     }
 
                     val nativeUrl = try {
@@ -1325,13 +1322,16 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 // TIER 1: Kotlin multi-client cascade — battle-tested format
                 // selection; this was the ONLY resolver before the Rust engine
                 // shipped, so it stays primary for playback trust.
-                val cascaded = runCatching {
-                    com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(
+                // resolveStreamJit ALREADY returns Result<ResolvedStream> —
+                // no runCatching wrapper (that produced Result<Result<..>>).
+                val cascaded = com.streamify.app.data.network.YouTubeStreamResolver
+                    .resolveStreamJit(
                         if (vidId != null) trackToPlay.copy(ytmVideoId = vidId) else trackToPlay
                     )
-                }.getOrNull()?.takeIf { resolved ->
-                    resolved.streamUrl.isNotBlank() && isTrustedStreamUrl(resolved.streamUrl)
-                }
+                    .getOrNull()
+                    ?.takeIf { resolved ->
+                        resolved.streamUrl.isNotBlank() && isTrustedStreamUrl(resolved.streamUrl)
+                    }
 
                 if (cascaded != null) {
                     // PHASE 1: capture YouTube's own loudness measurement.

@@ -118,8 +118,11 @@ object NativeBridge {
     suspend fun resolveTrack(
         dbPath: String,
         track: com.streamify.app.ui.models.VirtualShelfTrack,
-        authHeader: String = ""
+        authHeader: String = "",
+        cookies: String = ""
     ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val cookiesBytes = cookies.toByteArray(Charsets.UTF_8)
+        val cookiesLen = cookiesBytes.size
         synchronized(videoIdBuffer) {
             videoIdBuffer.fill(0)
             val result = try {
