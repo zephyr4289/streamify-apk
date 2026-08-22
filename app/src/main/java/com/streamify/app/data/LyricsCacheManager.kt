@@ -259,6 +259,24 @@ object LyricsCacheManager {
             val cachedFile = getCachedLyricsFile(context, track.title, track.artist)
             cachedFile.writeText(lrcContent)
 
+            // 1b. SHADOWING FIX (L1): the player's fetch pipeline mirrors lyrics
+            // to Downloads/.Streamify/lyrics/{id}.lrc and stamps it as
+            // track.lyricsPath — getOrFetchLyrics prefers THAT path first.
+            // Keep the mirror byte-identical so a saved sync is never silently
+            // shadowed by a stale unshifted original within the same session.
+            if (track.id > 0) {
+                try {
+                    val mirror = java.io.File(
+                        java.io.File(
+                            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                            ".Streamify/lyrics"
+                        ),
+                        "${track.id}.lrc"
+                    )
+                    if (mirror.exists()) mirror.writeText(lrcContent)
+                } catch (_: Exception) { }
+            }
+
             // 2. Clear memory SLYR cache for this track so fresh buffer is recomputed
             val hash = getTrackHash(track.title, track.artist)
             memorySlyrCache.remove(hash)

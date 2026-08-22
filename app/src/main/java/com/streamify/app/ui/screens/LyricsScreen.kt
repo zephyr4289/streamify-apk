@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track
+import com.streamify.app.service.LyricOffsetStore
 import com.streamify.app.service.LyricPlaybackController
 import com.streamify.app.ui.components.YtLyricsHeader
 import com.streamify.app.ui.components.YtSyllableLine
@@ -51,6 +52,11 @@ fun LyricsScreen(
 
     // 1. 120 FPS Sub-Frame Continuous Frame-Clock Controller
     val lyricController = remember { LyricPlaybackController() }
+
+    // L2: per-track persisted offsets — nudges survive navigation & restarts
+    LaunchedEffect(track?.id, track?.title, track?.artist) {
+        lyricController.bindTrack(LyricOffsetStore.keyOfTrack(track))
+    }
 
     LaunchedEffect(currentPositionMs, isPlaying) {
         lyricController.targetPositionMs = currentPositionMs

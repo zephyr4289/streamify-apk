@@ -63,6 +63,7 @@ import com.streamify.app.data.TrackRepository
 import com.streamify.app.data.models.LyricsData
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track
+import com.streamify.app.service.LyricOffsetStore
 import com.streamify.app.service.LyricPlaybackController
 import com.streamify.app.ui.components.*
 import com.streamify.app.ui.theme.*
@@ -1167,6 +1168,11 @@ private fun LandscapeLyricsPane(
     var isLoading by remember(track.id) { mutableStateOf(true) }
     val lyricController = remember { LyricPlaybackController() }
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    // L2: shared persisted offset (same key as LyricsScreen route)
+    LaunchedEffect(track.id, track.title, track.artist) {
+        lyricController.bindTrack(LyricOffsetStore.keyOfTrack(track))
+    }
 
     // Cache-only load keyed on lyricsPath too: when PlayerViewModel (the single fetch
     // owner) lands verified lyrics, this effect re-fires and hydrates them instantly.
