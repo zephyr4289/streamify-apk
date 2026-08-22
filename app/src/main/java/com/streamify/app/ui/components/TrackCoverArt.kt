@@ -22,7 +22,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import com.streamify.app.ui.theme.StreamifyShapes
 
 @Composable
@@ -45,23 +45,6 @@ fun TrackCoverArt(
 
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    val imageRequest = remember(descriptor.primary, descriptor.secondary, title, artist) {
-        val primary = descriptor.primary
-        if (primary.isNullOrBlank()) null
-        else {
-            val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(primary)
-            val cacheKey = "${primary}_${title.hashCode()}_${artist.hashCode()}"
-            coil.request.ImageRequest.Builder(context)
-                .data(primary)
-                .memoryCacheKey(cacheKey)
-                .diskCacheKey(cacheKey)
-                .crossfade(true)
-                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
-                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                .build()
-        }
-    }
-
     val fallbackColors = remember(descriptor.fallbackColorSeed) {
         val seed = descriptor.fallbackColorSeed
         val hue1 = kotlin.math.abs(seed % 360).toFloat()
@@ -72,54 +55,40 @@ fun TrackCoverArt(
         )
     }
 
+    // PERF: no subcomposition. The generative cover is a PERMANENT layer
+    // beneath the image; AsyncImage simply paints over it when pixels land.
+    // Failure walks primary -> secondary -> generative with zero recompose
+    // churn beyond one state step per downgrade.
+    var stage by remember(descriptor.primary, descriptor.secondary) { mutableStateOf(0) }
+    val candidateUrl = when (stage) {
+        0 -> descriptor.primary?.takeIf { it.isNotBlank() }
+        1 -> descriptor.secondary?.takeIf { it.isNotBlank() && it != descriptor.primary }
+        else -> null
+    }
+
     Box(
         modifier = modifier
             .clip(shape)
             .background(Brush.linearGradient(fallbackColors))
     ) {
-        if (imageRequest != null) {
-            SubcomposeAsyncImage(
-                model = imageRequest,
+        GenerativeCoverContent(title = title, artist = artist)
+
+        if (candidateUrl != null) {
+            val request = remember(candidateUrl) {
+                coil.request.ImageRequest.Builder(context)
+                    .data(candidateUrl)
+                    .crossfade(false)
+                    .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                    .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                    .build()
+            }
+            AsyncImage(
+                model = request,
                 contentDescription = "$title cover",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
-                error = {
-                    if (!descriptor.secondary.isNullOrBlank() && descriptor.secondary != descriptor.primary) {
-                        SubcomposeAsyncImage(
-                            model = descriptor.secondary,
-                            contentDescription = "$title cover",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                            error = {
-                                GenerativeCoverContent(title = title, artist = artist)
-                            },
-                            loading = {
-                                GenerativeCoverContent(title = title, artist = artist)
-                            }
-                        )
-                    } else {
-                        GenerativeCoverContent(title = title, artist = artist)
-                    }
-                },
-                loading = {
-                    GenerativeCoverContent(title = title, artist = artist)
-                }
+                onError = { if (stage < 2) stage++ }
             )
-        } else if (!descriptor.secondary.isNullOrBlank()) {
-            SubcomposeAsyncImage(
-                model = descriptor.secondary,
-                contentDescription = "$title cover",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                error = {
-                    GenerativeCoverContent(title = title, artist = artist)
-                },
-                loading = {
-                    GenerativeCoverContent(title = title, artist = artist)
-                }
-            )
-        } else {
-            GenerativeCoverContent(title = title, artist = artist)
         }
     }
 }

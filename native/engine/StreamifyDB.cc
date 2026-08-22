@@ -1,5 +1,5 @@
 #include "StreamifyDB.h"
-#include <android/log.h>
+#include "../util/stlog.h"
 #include <random>
 #include <sstream>
 #include <iomanip>

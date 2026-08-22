@@ -292,7 +292,50 @@ impl LyricCompiler {
         }
         let slice = unsafe { std::slice::from_raw_parts(slyr_ptr, slyr_len) };
         let line_idx = SlyrCompiler::find_active_line(slice, position_ms)?;
-        Some((line_idx, 0))
+
+        let header_size = std::mem::size_of::<SlyrHeader>();
+        let line_size = std::mem::size_of::<SlyrLineHeader>();
+        let span_size = std::mem::size_of::<SlyrSyllableSpan>();
+        if slice.len() < header_size {
+            return Some((line_idx, 0));
+        }
+
+        let header = unsafe { &*(slice.as_ptr() as *const SlyrHeader) };
+        let total_lines = header.line_count as usize;
+        if total_lines == 0 || slice.len() < header_size + total_lines * line_size {
+            return Some((line_idx, 0));
+        }
+        let lines = unsafe {
+            std::slice::from_raw_parts(slice[header_size..].as_ptr() as *const SlyrLineHeader, total_lines)
+        };
+        let line = &lines[line_idx];
+        if line.syllable_count == 0 {
+            return Some((line_idx, 0));
+        }
+
+        let span_offset = header_size + total_lines * line_size;
+        let total_spans = header.syllable_count as usize;
+        if slice.len() < span_offset + total_spans * span_size {
+            return Some((line_idx, 0));
+        }
+        let spans = unsafe {
+            std::slice::from_raw_parts(slice[span_offset..].as_ptr() as *const SlyrSyllableSpan, total_spans)
+        };
+
+        let start = line.syllable_start_idx as usize;
+        let end = start + line.syllable_count as usize;
+        let syl_idx = spans[start..end]
+            .binary_search_by(|span| {
+                if position_ms < span.start_time_ms {
+                    std::cmp::Ordering::Greater
+                } else if position_ms >= span.end_time_ms {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .unwrap_or(0);
+        Some((line_idx, syl_idx))
     }
 }
 

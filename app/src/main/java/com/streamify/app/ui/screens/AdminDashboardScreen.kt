@@ -28,7 +28,6 @@ import coil.compose.AsyncImage
 import com.streamify.app.data.remote.AdminCommentItem
 import com.streamify.app.data.remote.AdminJamSession
 import com.streamify.app.data.remote.AdminTelemetry
-import io.coil.compose.AsyncImage
 import com.streamify.app.data.remote.SupabaseClient
 import com.streamify.app.data.remote.UserProfile
 import com.streamify.app.ui.theme.StreamifyColors

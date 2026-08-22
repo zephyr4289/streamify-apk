@@ -6,6 +6,8 @@ use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 use rusqlite::Connection;
 
+use crate::json::{ParsedCandidate, ResolvedStreamFormat};
+
 static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 static TOKIO_RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
@@ -157,6 +159,97 @@ pub async fn execute_resolution(
     }
 
     Err(())
+}
+
+/// Byte-array FFI flow backing NativeBridge.resolveCdnUrl: resolves a playable
+/// CDN URL given an optional videoId / ISRC / title+artist identity triple.
+/// Tier 1: valid videoId -> direct Innertube player fetch.
+/// Tier 2: ISRC exact-match search, then CDN fetch.
+/// Tier 3: verified fuzzy title+artist search, then CDN fetch.
+/// Returns the URL length written into out_buf, or a negative error code.
+#[no_mangle]
+pub unsafe extern "C" fn resolve_track_cdn_url(
+    video_id_ptr: *const u8,
+    video_id_len: usize,
+    isrc_ptr: *const u8,
+    isrc_len: usize,
+    title_ptr: *const u8,
+    title_len: usize,
+    artist_ptr: *const u8,
+    artist_len: usize,
+    out_buf: *mut u8,
+    out_buf_len: usize,
+) -> i32 {
+    let result = catch_unwind(|| {
+        if out_buf.is_null() || out_buf_len == 0 {
+            return -2;
+        }
+
+        let read_str = |ptr: *const u8, len: usize| -> Option<&str> {
+            if ptr.is_null() || len == 0 || len > 4096 {
+                return None;
+            }
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(ptr, len) }).ok()
+        };
+        let video_id = read_str(video_id_ptr, video_id_len)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let isrc = read_str(isrc_ptr, isrc_len)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let title = read_str(title_ptr, title_len).unwrap_or("");
+        let artist = read_str(artist_ptr, artist_len).unwrap_or("");
+
+        let rt = get_runtime();
+        let resolved_id: Option<String> = rt.block_on(async {
+            if let Some(vid) = video_id.filter(|v| is_valid_video_id(v)) {
+                return Some(vid.to_string());
+            }
+            if let Some(code) = isrc {
+                let query = format!("isrc:{}", code);
+                if let Some(candidate) = innertube_search_candidates(&query, "")
+                    .await
+                    .into_iter()
+                    .find(|c| is_valid_video_id(&c.video_id))
+                {
+                    return Some(candidate.video_id);
+                }
+            }
+            if !title.is_empty() {
+                let query = format!("{} - {}", title.trim(), artist.trim());
+                return innertube_search_candidates(&query, "")
+                    .await
+                    .into_iter()
+                    .find(|c| {
+                        is_valid_video_id(&c.video_id)
+                            && titles_match(title, &c.title)
+                            && artists_match(artist, &c.artist)
+                    })
+                    .map(|c| c.video_id);
+            }
+            None
+        });
+
+        let vid = match resolved_id {
+            Some(v) => v,
+            None => return -4,
+        };
+
+        let client = get_client();
+        let url = match rt.block_on(fetch_innertube_cdn(client, &vid)) {
+            Ok(u) => u,
+            Err(_) => return -4,
+        };
+
+        let bytes = url.as_bytes();
+        if bytes.len() > out_buf_len {
+            return -1;
+        }
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len()) };
+        bytes.len() as i32
+    });
+
+    result.unwrap_or(-3)
 }
 
 /// Queries YouTube Music Innertube API and parses every shelf result into a
@@ -584,62 +677,6 @@ fn extract_best_audio_url(json: &Value) -> Option<String> {
     None
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn resolve_track_cdn(
-    video_id_ptr: *const u8,
-    video_id_len: usize,
-    isrc_ptr: *const u8,
-    isrc_len: usize,
-    title_ptr: *const u8,
-    title_len: usize,
-    artist_ptr: *const u8,
-    artist_len: usize,
-    out_buf: *mut u8,
-    out_buf_len: usize,
-) -> i32 {
-    let result = std::panic::catch_unwind(|| {
-        let video_id = if video_id_ptr.is_null() || video_id_len == 0 {
-            None
-        } else {
-            std::str::from_utf8(std::slice::from_raw_parts(video_id_ptr, video_id_len)).ok()
-        };
-
-        let isrc = if isrc_ptr.is_null() || isrc_len == 0 {
-            None
-        } else {
-            std::str::from_utf8(std::slice::from_raw_parts(isrc_ptr, isrc_len)).ok()
-        };
-
-        let title = match std::str::from_utf8(std::slice::from_raw_parts(title_ptr, title_len)) {
-            Ok(t) => t,
-            Err(_) => return -2,
-        };
-
-        let artist = match std::str::from_utf8(std::slice::from_raw_parts(artist_ptr, artist_len)) {
-            Ok(a) => a,
-            Err(_) => return -2,
-        };
-
-        let rt = get_runtime();
-        let cdn_url = match rt.block_on(execute_resolution(video_id, isrc, title, artist)) {
-            Ok(url) => url,
-            Err(_) => return -2, // Upstream network / parsing failure
-        };
-
-        let bytes = cdn_url.as_bytes();
-        if bytes.len() > out_buf_len {
-            return -1; // Buffer too small
-        }
-
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len());
-        bytes.len() as i32
-    });
-
-    result.unwrap_or(-3)
-}
-
-pub struct StreamResolver;
-
 impl StreamResolver {
     const INNERTUBE_PLAYER_URL: &'static str = "https://www.youtube.com/youtubei/v1/player";
     const INNERTUBE_SEARCH_URL: &'static str = "https://music.youtube.com/youtubei/v1/search";
@@ -651,14 +688,11 @@ impl StreamResolver {
         rt.block_on(async {
             let cdn_url = fetch_innertube_cdn(client, video_id).await?;
             Ok(vec![ResolvedStreamFormat {
-                itag: 140,
+                url: cdn_url,
                 mime_type: "audio/mp4".to_string(),
                 bitrate: 128000,
-                url: cdn_url,
-                content_length: 0,
-                audio_quality: "AUDIO_QUALITY_MEDIUM".to_string(),
-                is_audio: true,
-                is_video: false,
+                duration_sec: 0,
+                is_audio_only: true,
             }])
         })
     }

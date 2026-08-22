@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -77,15 +78,24 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
+    // ── HOT POSITION FLOWS ──────────────────────────────────────────
+    // The 200ms poller writes ONLY these. `playerState` (track/queue/flags)
+    // stays stable between discrete events, so collectors at the composition
+    // root no longer recompose the whole tree five times per second.
+    // Leaves (seekbars, time labels) collect these locally and redraw alone.
+    private val _positionMs = MutableStateFlow(0L)
+    val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
+
+    private val _durationMs = MutableStateFlow(0L)
+    val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
+
     val currentTrack: StateFlow<Track?> = _playerState
         .map { it.currentTrack }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    val progressFraction: StateFlow<Float> = _playerState
-        .map { state ->
-            if (state.duration > 0L) (state.currentPosition.toFloat() / state.duration.toFloat()).coerceIn(0f, 1f) else 0f
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+    val progressFraction: StateFlow<Float> = combine(_positionMs, _durationMs) { pos, dur ->
+        if (dur > 0L) (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f) else 0f
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -232,6 +242,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                 currentPosition = position,
                                 duration = (currentTrack.durationSec * 1000L).coerceAtLeast(0L)
                             )
+                            _positionMs.value = position.coerceAtLeast(0L)
+                            _durationMs.value = (currentTrack.durationSec * 1000L).coerceAtLeast(0L)
                         }
                     }
                 }
@@ -273,6 +285,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 val updated = if (curr != null && curr.durationSec <= 0) {
                     curr.copy(durationSec = (d / 1000).toInt())
                 } else curr
+                _positionMs.value = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
+                _durationMs.value = d
                 _playerState.value = _playerState.value.copy(
                     duration = d,
                     currentPosition = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L,
@@ -307,6 +321,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 val updated = if (curr != null && curr.durationSec <= 0) {
                     curr.copy(durationSec = (d / 1000).toInt())
                 } else curr
+                _positionMs.value = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
+                _durationMs.value = d
                 _playerState.value = _playerState.value.copy(
                     duration = d,
                     currentPosition = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L,
@@ -488,6 +504,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 pendingSeekTargetMs = null
                 isOptimisticSeeking = false
                 _playerState.value = _playerState.value.copy(currentPosition = newPosition.positionMs)
+                _positionMs.value = newPosition.positionMs.coerceAtLeast(0L)
             }
 
             if (_playerState.value.isAutoPlayEnabled) {
@@ -709,16 +726,22 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     val currentTrack = curState.currentTrack
                     val trackDuration = (currentTrack?.durationSec?.toLong() ?: 0L) * 1000L
                     val finalDuration = if (playerDuration > 0) playerDuration else if (trackDuration > 0) trackDuration else curState.duration
-                    
+
                     val updatedTrack = if (currentTrack != null && currentTrack.durationSec <= 0 && finalDuration > 0) {
                         currentTrack.copy(durationSec = (finalDuration / 1000).toInt())
                     } else currentTrack
 
                     if (!isOptimisticSeeking) {
                         val ctrlPos = ctrl.currentPosition.coerceAtLeast(0L)
-                        if (curState.currentPosition != ctrlPos || curState.duration != finalDuration || curState.currentTrack !== updatedTrack) {
+                        // HOT PATH: position ticks go to the dedicated flow so the
+                        // UI root never recomposes for them.
+                        _positionMs.value = ctrlPos
+                        _durationMs.value = finalDuration
+
+                        // COLD PATH: full-state copy only when something beyond
+                        // the playhead actually changed (rare).
+                        if (curState.duration != finalDuration || curState.currentTrack !== updatedTrack) {
                             _playerState.value = curState.copy(
-                                currentPosition = ctrlPos,
                                 duration = finalDuration,
                                 currentTrack = updatedTrack
                             )
@@ -741,7 +764,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             lastJamHeartbeatMs = now
                             com.streamify.app.jam.JamEngine.heartbeatTick(
                                 track = curState.currentTrack,
-                                positionMs = _playerState.value.currentPosition,
+                                positionMs = ctrl.currentPosition.coerceAtLeast(0L),
                                 isPlaying = true
                             )
                         }
@@ -836,10 +859,18 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
     var isApplyingJamSync: Boolean = false
 
+    /**
+     * Live playhead with controller-first fallback to the hot position flow.
+     * `playerState.currentPosition` is now a cold, event-time field (seek
+     * confirmations only) — never read it for "current" position.
+     */
+    fun currentPositionMs(): Long =
+        controller?.currentPosition?.coerceAtLeast(0L) ?: _positionMs.value
+
     fun broadcastJamAction(
         action: String,
         track: Track? = _playerState.value.currentTrack,
-        positionMs: Long = _playerState.value.currentPosition,
+        positionMs: Long = currentPositionMs(),
         isPlaying: Boolean = _playerState.value.isPlaying
     ) {
         if (isApplyingJamSync) return
@@ -1417,7 +1448,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun seekRelative(deltaMs: Long) {
-        val currentPos = _playerState.value.currentPosition
+        val currentPos = currentPositionMs()
         seekTo(currentPos + deltaMs)
     }
 
@@ -1431,6 +1462,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         isOptimisticSeeking = true
         pendingSeekTargetMs = validPos
         _playerState.value = _playerState.value.copy(currentPosition = validPos)
+        _positionMs.value = validPos
 
         seekTimeoutJob?.cancel()
         seekTimeoutJob = viewModelScope.launch {

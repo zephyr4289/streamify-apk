@@ -18,32 +18,38 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.streamify.app.ui.theme.*
 import com.streamify.app.util.DurationFormatter
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
  * Clean, Responsive YouTube Music Style Player Seekbar with Universal Tap & Drag Scrubbing.
+ *
+ * PERF: subscribes to the hot position flow at THIS leaf only — the parent
+ * sheet never recomposes for playhead ticks.
  */
 @Composable
 fun YtPlayerSeekBar(
-    progress: Float,
+    positionFlow: StateFlow<Long>,
     durationMs: Long,
-    currentPositionMs: Long,
     onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier,
     activeColor: Color = ActiveControl,
     trackColor: Color = Divider
 ) {
     val scope = rememberCoroutineScope()
+    val positionState by positionFlow.collectAsState()
     var isDragging by remember { mutableStateOf(false) }
     var dragPositionMs by remember { mutableLongStateOf(0L) }
     var latchedPositionMs by remember { mutableStateOf<Long?>(null) }
     val currentOnSeek by rememberUpdatedState(onSeek)
 
     // Clear UI latch when external playback position converges near the target
-    LaunchedEffect(currentPositionMs) {
-        latchedPositionMs?.let { latched ->
-            if (kotlin.math.abs(currentPositionMs - latched) < 400L) {
-                latchedPositionMs = null
+    LaunchedEffect(Unit) {
+        snapshotFlow { positionState }.collect { live ->
+            latchedPositionMs?.let { latched ->
+                if (kotlin.math.abs(live - latched) < 400L) {
+                    latchedPositionMs = null
+                }
             }
         }
     }
@@ -52,7 +58,7 @@ fun YtPlayerSeekBar(
     val displayPosition = when {
         isDragging -> dragPositionMs
         latchedPositionMs != null -> latchedPositionMs!!
-        else -> currentPositionMs
+        else -> positionState
     }
 
     val currentProgress = (displayPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)

@@ -49,19 +49,31 @@ fn test_lyrics_precompiler() {
 
     let compiled = LyricCompiler::compile_lrc(lrc);
     assert_eq!(compiled.entries.len(), 3);
-    assert_eq!(compiled.entries[0].timestamp_ms, 12340);
-    assert_eq!(compiled.entries[1].timestamp_ms, 16890);
-    assert_eq!(compiled.entries[2].timestamp_ms, 21000);
+    assert_eq!(compiled.entries[0].start_time_ms, 12340);
+    assert_eq!(compiled.entries[1].start_time_ms, 16890);
+    assert_eq!(compiled.entries[2].start_time_ms, 21000);
 
-    // Test O(log N) binary search lookup
-    let active_0 = LyricCompiler::find_active_line(&compiled.entries, 5000);
-    assert_eq!(active_0, None);
-
-    let active_1 = LyricCompiler::find_active_line(&compiled.entries, 14000);
-    assert_eq!(active_1, Some(0));
-
-    let active_2 = LyricCompiler::find_active_line(&compiled.entries, 17000);
-    assert_eq!(active_2, Some(1));
+    // Active-line lookup in production goes through the compiled SLYR binary
+    // (O(log N) binary search over raw memory).
+    let slyr = LyricCompiler::compile_to_slyr(lrc);
+    assert!(!slyr.is_empty());
+    unsafe {
+        // Before the first line: no active line.
+        assert_eq!(
+            LyricCompiler::find_active_positions(slyr.as_ptr(), slyr.len(), 5000),
+            None
+        );
+        // Inside line 0 (12.34s - 16.89s).
+        assert_eq!(
+            LyricCompiler::find_active_positions(slyr.as_ptr(), slyr.len(), 14000),
+            Some((0, 0))
+        );
+        // Inside line 1 (16.89s - 21.00s).
+        assert_eq!(
+            LyricCompiler::find_active_positions(slyr.as_ptr(), slyr.len(), 17000),
+            Some((1, 0))
+        );
+    }
 }
 
 #[test]
@@ -135,7 +147,7 @@ fn test_slyr_compilation_and_alignment() {
         assert!(pos_15_9s.is_some());
         let (line_idx_2, syl_idx_2) = pos_15_9s.unwrap();
         assert_eq!(line_idx_2, 1);
-        assert!(syl_idx_2 >= 2);
+        assert_eq!(syl_idx_2, 1); // "ing " (15.80s - 16.40s)
     }
 }
 

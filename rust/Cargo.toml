@@ -34,5 +34,7 @@ tempfile = "3.10"
 opt-level = 3
 lto = true
 codegen-units = 1
-panic = "abort"
+# unwind (not abort): JNI/FFI entry points rely on catch_unwind shields to
+# convert panics into error codes instead of aborting the host Android process.
+panic = "unwind"
 strip = true

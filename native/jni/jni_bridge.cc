@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <ctime>
@@ -415,10 +416,14 @@ static streamify::dsp::SoftKneeLimiter g_limiter(0.90f, 0.15f);
 extern "C" JNIEXPORT void JNICALL
 Java_com_streamify_app_data_NativeBridge_processLimiterShorts(JNIEnv* env, jobject /* this */, jshortArray buffer, jint length, jfloat threshold, jfloat kneeWidth) {
     if (!buffer || length <= 0) return;
+    // Never trust the declared length over the real JVM array bounds.
+    const jint actual = env->GetArrayLength(buffer);
+    const jint safeLen = std::min< jint>(length, actual);
+    if (safeLen <= 0) return;
     g_limiter.setParameters(threshold, kneeWidth);
     jshort* pcm = env->GetShortArrayElements(buffer, nullptr);
     if (pcm) {
-        g_limiter.processShorts(pcm, length);
+        g_limiter.processShorts(pcm, safeLen);
         env->ReleaseShortArrayElements(buffer, pcm, 0);
     }
 }
@@ -426,18 +431,27 @@ Java_com_streamify_app_data_NativeBridge_processLimiterShorts(JNIEnv* env, jobje
 extern "C" JNIEXPORT void JNICALL
 Java_com_streamify_app_data_NativeBridge_processLimiterFloats(JNIEnv* env, jobject /* this */, jfloatArray buffer, jint length, jfloat threshold, jfloat kneeWidth) {
     if (!buffer || length <= 0) return;
+    const jint actual = env->GetArrayLength(buffer);
+    const jint safeLen = std::min<jint>(length, actual);
+    if (safeLen <= 0) return;
     g_limiter.setParameters(threshold, kneeWidth);
     jfloat* pcm = env->GetFloatArrayElements(buffer, nullptr);
     if (pcm) {
-        g_limiter.processFloats(pcm, length);
+        g_limiter.processFloats(pcm, safeLen);
         env->ReleaseFloatArrayElements(buffer, pcm, 0);
     }
 }
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_streamify_app_data_NativeBridge_findFuzzyTrackMatch(JNIEnv* env, jobject /* this */, jstring title, jstring artist) {
-    const char* cTitle = env->GetStringUTFChars(title, 0);
-    const char* cArtist = env->GetStringUTFChars(artist, 0);
+    if (!title || !artist) return -1;
+    const char* cTitle = env->GetStringUTFChars(title, nullptr);
+    const char* cArtist = env->GetStringUTFChars(artist, nullptr);
+    if (!cTitle || !cArtist) {
+        if (cTitle) env->ReleaseStringUTFChars(title, cTitle);
+        if (cArtist) env->ReleaseStringUTFChars(artist, cArtist);
+        return -1;
+    }
 
     int id = StreamifyDB::getInstance().findFuzzyTrackMatch(cTitle, cArtist);
 
@@ -517,9 +531,11 @@ Java_com_streamify_app_data_NativeBridge_get2ndOrderMarkovProbability(JNIEnv* /*
 extern "C" JNIEXPORT void JNICALL
 Java_com_streamify_app_data_NativeBridge_processLufsNormalizerFloats(JNIEnv* env, jobject /* this */, jfloatArray buffer, jint length, jfloat targetLufs) {
     if (!buffer || length <= 0) return;
+    const jint safeLen = std::min<jint>(length, env->GetArrayLength(buffer));
+    if (safeLen <= 0) return;
     jfloat* pcm = env->GetFloatArrayElements(buffer, nullptr);
     if (pcm) {
-        LufsNormalizer::getInstance().processFloats(pcm, length, targetLufs);
+        LufsNormalizer::getInstance().processFloats(pcm, safeLen, targetLufs);
         env->ReleaseFloatArrayElements(buffer, pcm, 0);
     }
 }
@@ -527,9 +543,11 @@ Java_com_streamify_app_data_NativeBridge_processLufsNormalizerFloats(JNIEnv* env
 extern "C" JNIEXPORT void JNICALL
 Java_com_streamify_app_data_NativeBridge_processLufsNormalizerShorts(JNIEnv* env, jobject /* this */, jshortArray buffer, jint length, jfloat targetLufs) {
     if (!buffer || length <= 0) return;
+    const jint safeLen = std::min<jint>(length, env->GetArrayLength(buffer));
+    if (safeLen <= 0) return;
     jshort* pcm = env->GetShortArrayElements(buffer, nullptr);
     if (pcm) {
-        LufsNormalizer::getInstance().processShorts(pcm, length, targetLufs);
+        LufsNormalizer::getInstance().processShorts(pcm, safeLen, targetLufs);
         env->ReleaseShortArrayElements(buffer, pcm, 0);
     }
 }
@@ -542,6 +560,8 @@ Java_com_streamify_app_data_NativeBridge_getDynamicTargetLufs(JNIEnv* /* env */,
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_streamify_app_data_NativeBridge_generateProofOfCompute(JNIEnv* env, jobject /* this */, jfloatArray buffer, jint length, jstring nonce) {
     if (!buffer || length <= 0) return env->NewStringUTF("");
+    const jint safeLen = std::min<jint>(length, env->GetArrayLength(buffer));
+    if (safeLen <= 0) return env->NewStringUTF("");
     jfloat* pcm = env->GetFloatArrayElements(buffer, nullptr);
     if (!pcm) return env->NewStringUTF("");
 
@@ -549,7 +569,7 @@ Java_com_streamify_app_data_NativeBridge_generateProofOfCompute(JNIEnv* env, job
     std::string nonceCpp(nonceStr ? nonceStr : "");
     if (nonceStr) env->ReleaseStringUTFChars(nonce, nonceStr);
 
-    std::string proof = TelemetryEngine::getInstance().generateProofOfCompute(pcm, length, nonceCpp);
+    std::string proof = TelemetryEngine::getInstance().generateProofOfCompute(pcm, safeLen, nonceCpp);
     env->ReleaseFloatArrayElements(buffer, pcm, 0);
     return env->NewStringUTF(proof.c_str());
 }
@@ -752,7 +772,7 @@ Java_com_streamify_app_data_NativeBridge_getZhipuKey(
         "2f444b74e35c4d7ebae62471309b8b9e.5OzYzb9uP9v0uNzz",
         "85aa0d0ac2f845579dfc58ae355d855d.yQrUOUVlGG0Xe2q2"
     };
-    int safeIdx = (index >= 0 && index < 5) ? index : (abs(index) % 5);
+    int safeIdx = (index >= 0 && index < 5) ? index : (static_cast<unsigned int>(index) % 5u);
     return env->NewStringUTF(ZHIPU_KEYS[safeIdx]);
 }
 
@@ -845,6 +865,16 @@ Java_com_streamify_app_data_NativeBridge_analyzePcmAcousticDNA(
         return env->NewStringUTF("8B");
     }
 
+    // Clamp against real capacities: direct buffer size AND the out-array
+    // (AudioPipeline writes exactly 4 result floats).
+    const jlong bufCapacity = env->GetDirectBufferCapacity(directByteBuffer);
+    if (bufCapacity < static_cast<jlong>(byteCount)) {
+        return env->NewStringUTF("8B");
+    }
+    if (env->GetArrayLength(outResults) < 4) {
+        return env->NewStringUTF("8B");
+    }
+
     void* rawPtr = env->GetDirectBufferAddress(directByteBuffer);
     if (!rawPtr) {
         return env->NewStringUTF("8B");
@@ -900,6 +930,18 @@ Java_com_streamify_app_data_NativeBridge_calculateLyricDrift(
         return 0;
     }
 
+    // Clamp PCM byte count against real buffer capacity, and the onset count
+    // against the real array length (previously trusted -> OOB reads).
+    const jlong bufCapacity = env->GetDirectBufferCapacity(directPcmBuffer);
+    if (bufCapacity < static_cast<jlong>(pcmByteCount)) {
+        return 0;
+    }
+    const jint actualOnsets = env->GetArrayLength(textOnsetsMs);
+    const jint safeOnsetCount = std::min<jint>(onsetCount, actualOnsets);
+    if (safeOnsetCount <= 0) {
+        return 0;
+    }
+
     void* rawPcm = env->GetDirectBufferAddress(directPcmBuffer);
     if (!rawPcm) {
         return 0;
@@ -910,9 +952,9 @@ Java_com_streamify_app_data_NativeBridge_calculateLyricDrift(
         return 0;
     }
 
-    std::vector<uint32_t> onsetsU32(onsetCount);
-    for (int i = 0; i < onsetCount; ++i) {
-        onsetsU32[i] = static_cast<uint32_t>(std::max<jlong>(0, onsets[i]));
+    std::vector<uint32_t> onsetsU32(static_cast<size_t>(safeOnsetCount));
+    for (int i = 0; i < safeOnsetCount; ++i) {
+        onsetsU32[static_cast<size_t>(i)] = static_cast<uint32_t>(std::max<jlong>(0, onsets[i]));
     }
     env->ReleaseLongArrayElements(textOnsetsMs, onsets, JNI_ABORT);
 
@@ -925,7 +967,7 @@ Java_com_streamify_app_data_NativeBridge_calculateLyricDrift(
         sampleRate > 0 ? sampleRate : 44100,
         channelCount > 0 ? channelCount : 2,
         onsetsU32.data(),
-        onsetCount
+        safeOnsetCount
     );
 
     return drift;
@@ -1341,6 +1383,12 @@ Java_com_streamify_app_data_NativeBridge_nativePinToLittleCores(JNIEnv* /*env*/,
 JNIEXPORT jfloat JNICALL
 Java_com_streamify_app_data_NativeBridge_nativeProcessPcmTap(
     JNIEnv* env, jobject /*thiz*/, jobject direct_byte_buffer, jint sample_count) {
+    if (!direct_byte_buffer || sample_count <= 0) return 1.0f;
+    // sample_count is treated as an interleaved float count downstream; clamp
+    // it to the buffer's real capacity before any in-place write.
+    const jlong cap = env->GetDirectBufferCapacity(direct_byte_buffer);
+    if (cap < static_cast<jlong>(sample_count) * static_cast<jlong>(sizeof(float))) return 1.0f;
+
     auto* pcm_data = static_cast<float*>(env->GetDirectBufferAddress(direct_byte_buffer));
     if (!pcm_data || sample_count <= 0) return 1.0f;
 
@@ -1357,6 +1405,9 @@ Java_com_streamify_app_data_NativeBridge_nativeProcessPcmTap(
 JNIEXPORT void JNICALL
 Java_com_streamify_app_data_NativeBridge_nativeInsertVector(
     JNIEnv* env, jobject /*thiz*/, jlong track_id, jfloatArray embedding_array) {
+    if (!embedding_array) return;
+    // VectorStore::insert reads exactly VECTOR_DIM floats; reject short arrays.
+    if (env->GetArrayLength(embedding_array) < static_cast<jint>(VECTOR_DIM)) return;
     jfloat* elements = env->GetFloatArrayElements(embedding_array, nullptr);
     if (elements) {
         g_vector_store.insert(static_cast<uint64_t>(track_id), elements);
@@ -1367,18 +1418,24 @@ Java_com_streamify_app_data_NativeBridge_nativeInsertVector(
 JNIEXPORT jlongArray JNICALL
 Java_com_streamify_app_data_NativeBridge_nativeQueryTopK(
     JNIEnv* env, jobject /*thiz*/, jfloatArray target_embedding_array, jint k) {
+    if (!target_embedding_array || k <= 0) return nullptr;
+    // Cosine kernel reads VECTOR_DIM floats from the query vector.
+    if (env->GetArrayLength(target_embedding_array) < static_cast<jint>(VECTOR_DIM)) return nullptr;
+
     jfloat* elements = env->GetFloatArrayElements(target_embedding_array, nullptr);
     if (!elements) return nullptr;
 
     auto results = g_vector_store.queryTopK(elements, k);
     env->ReleaseFloatArrayElements(target_embedding_array, elements, JNI_ABORT);
 
-    jlongArray output = env->NewLongArray(results.size());
-    std::vector<jlong> track_ids(results.size());
-    for (size_t i = 0; i < results.size(); ++i) {
-        track_ids[i] = static_cast<jlong>(results[i].track_id);
+    jlongArray output = env->NewLongArray(static_cast<jsize>(results.size()));
+    if (output && !results.empty()) {
+        std::vector<jlong> track_ids(results.size());
+        for (size_t i = 0; i < results.size(); ++i) {
+            track_ids[i] = static_cast<jlong>(results[i].track_id);
+        }
+        env->SetLongArrayRegion(output, 0, static_cast<jsize>(results.size()), track_ids.data());
     }
-    env->SetLongArrayRegion(output, 0, results.size(), track_ids.data());
     return output;
 }
 
@@ -1390,6 +1447,15 @@ Java_com_streamify_app_data_NativeBridge_nativeCalculateDriftOffset(
     jfloatArray vocal_energy_array, jint vocal_len,
     jfloatArray lyric_onsets_array, jint lyric_len) {
 
+    if (!vocal_energy_array || !lyric_onsets_array) return 0;
+
+    // Clamp declared lengths against real array bounds.
+    const jint vocal_actual = env->GetArrayLength(vocal_energy_array);
+    const jint lyric_actual = env->GetArrayLength(lyric_onsets_array);
+    const jint safeVocalLen = std::min<jint>(vocal_len, vocal_actual);
+    const jint safeLyricLen = std::min<jint>(lyric_len, lyric_actual);
+    if (safeVocalLen <= 0 || safeLyricLen <= 0) return 0;
+
     jfloat* vocal_ptr = env->GetFloatArrayElements(vocal_energy_array, nullptr);
     jfloat* lyric_ptr = env->GetFloatArrayElements(lyric_onsets_array, nullptr);
 
@@ -1400,8 +1466,8 @@ Java_com_streamify_app_data_NativeBridge_nativeCalculateDriftOffset(
     }
 
     int drift_ms = g_lyric_aligner.calculateDriftOffset(
-        vocal_ptr, static_cast<size_t>(vocal_len),
-        lyric_ptr, static_cast<size_t>(lyric_len)
+        vocal_ptr, static_cast<size_t>(safeVocalLen),
+        lyric_ptr, static_cast<size_t>(safeLyricLen)
     );
 
     env->ReleaseFloatArrayElements(vocal_energy_array, vocal_ptr, JNI_ABORT);

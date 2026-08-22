@@ -1,6 +1,6 @@
 #include "EventTracker.h"
 #include "StreamifyDB.h"
-#include <android/log.h>
+#include "../util/stlog.h"
 
 EventTracker& EventTracker::getInstance() {
     static EventTracker instance;

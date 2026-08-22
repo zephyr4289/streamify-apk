@@ -37,13 +37,14 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.graphics.StrokeCap
 import com.streamify.app.viewmodel.PlaybackButtonState
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 @Composable
 fun MiniPlayerBar(
     track: Track?,
     isPlaying: Boolean,
-    progress: Float,
+    progressFlow: StateFlow<Float>,
     isBuffering: Boolean = false,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -56,6 +57,9 @@ fun MiniPlayerBar(
     modifier: Modifier = Modifier
 ) {
     if (track == null) return
+    // Snapshot-backed subscription: reading .value inside the Canvas draw
+    // scope below triggers REDRAW-ONLY invalidation per tick.
+    val progressState = progressFlow.collectAsState()
     // Always-current callback reference for long-lived pointer detectors.
     val currentOnSwipeDown by androidx.compose.runtime.rememberUpdatedState(onSwipeDown)
 
@@ -297,8 +301,9 @@ fun MiniPlayerBar(
                     color = Divider,
                     size = size
                 )
-                // Active progress (YouTube Stark White or Red)
-                val clampedProgress = progress.coerceIn(0f, 1f)
+                // Active progress (YouTube Stark White or Red).
+                // Snapshot read inside draw: ticks redraw this 2dp strip only.
+                val clampedProgress = progressState.value.coerceIn(0f, 1f)
                 drawRect(
                     color = ActiveControl,
                     size = Size(width = size.width * clampedProgress, height = size.height)

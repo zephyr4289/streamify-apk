@@ -79,3 +79,25 @@ if (STREAMIFY_BUILD_TESTS)
     target_include_directories(storage_telemetry_test_suite PRIVATE engine third_party/sqlite3 .)
     target_link_libraries(storage_telemetry_test_suite PRIVATE pthread dl)
 endif()
+
+# --- LIBFUZZER HARNESS (host clang; requires clang with compiler-rt) ---
+option(STREAMIFY_BUILD_FUZZERS "Build LibFuzzer harnesses (host builds only)" OFF)
+if (STREAMIFY_BUILD_FUZZERS)
+    if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "STREAMIFY_BUILD_FUZZERS requires clang (libFuzzer).")
+    endif()
+    add_executable(dsp_fuzzer_harness
+        fuzz/dsp_fuzzer_harness.cc
+        dsp/SoftKneeLimiter.cc
+        dsp/LufsNormalizer.cc
+    )
+    target_include_directories(dsp_fuzzer_harness PRIVATE dsp .)
+    # Sanitizers replace global -O3/-flto/-ffast-math for this target: fast-math
+    # elides the NaN guards the harness exists to exercise.
+    target_compile_options(dsp_fuzzer_harness PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -fno-fast-math -O1 -g
+    )
+    target_link_options(dsp_fuzzer_harness PRIVATE
+        -fsanitize=fuzzer,address,undefined
+    )
+endif()

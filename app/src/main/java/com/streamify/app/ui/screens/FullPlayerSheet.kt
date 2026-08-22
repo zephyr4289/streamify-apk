@@ -71,6 +71,7 @@ import com.streamify.app.viewmodel.CommunityViewModel
 import com.streamify.app.viewmodel.UiEvent
 import com.streamify.app.viewmodel.UiEventBus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -84,13 +85,16 @@ enum class LandscapePlayerTab {
 fun FullPlayerSheet(
     track: Track?,
     isPlaying: Boolean,
-    progress: Float,
+    // HOT flows (position ticks ~5Hz): collected only inside leaf nodes
+    // (seekbars / lyric clock). Reading them here would recompose the whole
+    // sheet on every tick.
+    positionFlow: StateFlow<Long>,
+    progressFlow: StateFlow<Float>,
     isBuffering: Boolean = false,
     isShuffleActive: Boolean,
     isRepeatActive: Boolean,
     dominantColor: Color,
     durationMs: Long = 0L,
-    currentPositionMs: Long = 0L,
     onCollapse: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -125,16 +129,25 @@ fun FullPlayerSheet(
         label = "HeroAspectRatioAnimation"
     )
 
-    val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "HeroBufferingPulse")
-    val heroPulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = 0.55f,
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-            animation = androidx.compose.animation.core.tween(durationMillis = 750, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
-        ),
-        label = "HeroPulseAlpha"
-    )
+    // PERF: the pulse animation is composed ONLY while buffering. An
+    // unconditional rememberInfiniteTransition keeps a Choreographer frame
+    // loop alive for the entire sheet lifetime, blocking frame-clock idle and
+    // draining battery during long listening sessions.
+    // Consumers read .value inside graphicsLayer{} blocks -> draw-phase-only
+    // invalidation; zero recomposition even while pulsing.
+    val heroPulseAlpha: androidx.compose.runtime.State<Float> = if (isBuffering && !isVideoMode) {
+        androidx.compose.animation.core.rememberInfiniteTransition(label = "HeroBufferingPulse").animateFloat(
+            initialValue = 1.0f,
+            targetValue = 0.55f,
+            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                animation = androidx.compose.animation.core.tween(durationMillis = 750, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+            ),
+            label = "HeroPulseAlpha"
+        )
+    } else {
+        remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    }
 
     val playbackButtonState = when {
         isBuffering -> com.streamify.app.viewmodel.PlaybackButtonState.BUFFERING
@@ -313,9 +326,10 @@ fun FullPlayerSheet(
                             .background(androidx.compose.ui.graphics.Color.Black)
                             .graphicsLayer {
                                 if (isBuffering && !isVideoMode) {
-                                    alpha = heroPulseAlpha
-                                    scaleX = 0.98f + (heroPulseAlpha * 0.02f)
-                                    scaleY = 0.98f + (heroPulseAlpha * 0.02f)
+                                    val pulse = heroPulseAlpha.value
+                                    alpha = pulse
+                                    scaleX = 0.98f + (pulse * 0.02f)
+                                    scaleY = 0.98f + (pulse * 0.02f)
                                 }
                             },
                         contentAlignment = Alignment.Center
@@ -407,9 +421,8 @@ fun FullPlayerSheet(
                     // Precision Canvas SeekBar
                     val effectiveDurationMs = if (durationMs > 0) durationMs else (track.durationSec * 1000L)
                     YtPlayerSeekBar(
-                        progress = progress,
+                        positionFlow = positionFlow,
                         durationMs = effectiveDurationMs,
-                        currentPositionMs = currentPositionMs,
                         onSeek = onSeek
                     )
 
@@ -578,7 +591,7 @@ fun FullPlayerSheet(
                             LandscapePlayerTab.LYRICS -> {
                                 LandscapeLyricsPane(
                                     track = track,
-                                    currentPositionMs = currentPositionMs,
+                                    positionFlow = positionFlow,
                                     isPlaying = isPlaying,
                                     onSeek = { posMs ->
                                         if (durationMs > 0) onSeek(posMs.toFloat() / durationMs.toFloat())
@@ -669,9 +682,10 @@ fun FullPlayerSheet(
                         .background(androidx.compose.ui.graphics.Color.Black)
                         .graphicsLayer {
                             if (isBuffering && !isVideoMode) {
-                                alpha = heroPulseAlpha
-                                scaleX = 0.98f + (heroPulseAlpha * 0.02f)
-                                scaleY = 0.98f + (heroPulseAlpha * 0.02f)
+                                val pulse = heroPulseAlpha.value
+                                alpha = pulse
+                                scaleX = 0.98f + (pulse * 0.02f)
+                                scaleY = 0.98f + (pulse * 0.02f)
                             }
                         }
                         .collapseDragZone()
@@ -826,9 +840,8 @@ fun FullPlayerSheet(
                 // --- PRECISION CANVAS SEEKBAR ---
                 val effectiveDurationMs = if (durationMs > 0) durationMs else (track.durationSec * 1000L)
                 YtPlayerSeekBar(
-                    progress = progress,
+                    positionFlow = positionFlow,
                     durationMs = effectiveDurationMs,
-                    currentPositionMs = currentPositionMs,
                     onSeek = onSeek
                 )
 
@@ -957,7 +970,7 @@ fun FullPlayerSheet(
                         )
                         1 -> LandscapeLyricsPane(
                             track = track,
-                            currentPositionMs = currentPositionMs,
+                            positionFlow = positionFlow,
                             isPlaying = isPlaying,
                             onSeek = { posMs ->
                                 if (durationMs > 0) onSeek(posMs.toFloat() / durationMs.toFloat())
@@ -988,9 +1001,12 @@ fun FullPlayerSheet(
     }
 
     if (showCommentsSheet) {
+        // Scoped collection: the tick subscription lives only while the
+        // comments sheet is open.
+        val livePositionMs by positionFlow.collectAsState()
         CommentsSheet(
             track = track,
-            currentPositionMs = currentPositionMs,
+            currentPositionMs = livePositionMs,
             communityViewModel = communityViewModel,
             onSeekTo = { posMs ->
                 if (durationMs > 0) onSeek(posMs.toFloat() / durationMs.toFloat())
@@ -1159,7 +1175,7 @@ private fun LandscapeQueuePane(
 @Composable
 private fun LandscapeLyricsPane(
     track: Track,
-    currentPositionMs: Long,
+    positionFlow: StateFlow<Long>,
     isPlaying: Boolean = true,
     onSeek: (Long) -> Unit
 ) {
@@ -1257,20 +1273,28 @@ private fun LandscapeLyricsPane(
         } else {
             val listState = rememberLazyListState()
 
-            LaunchedEffect(currentPositionMs, isPlaying) {
-                lyricController.targetPositionMs = currentPositionMs
+            // Seed the lyric clock from the hot flow WITHOUT restarting this
+            // effect (or recomposing) on every tick.
+            LaunchedEffect(positionFlow, isPlaying) {
                 lyricController.isPlaying = isPlaying
+                snapshotFlow { positionFlow.value }.collect { pos ->
+                    lyricController.targetPositionMs = pos
+                }
             }
 
             LaunchedEffect(Unit) {
                 lyricController.runFrameLoop()
             }
 
-            val activeIndex = remember(lyricController.interpolatedPosMs, lyricsLines, isSynced) {
-                if (!isSynced) -1
-                else {
-                    val idx = lyricsLines.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
-                    if (idx >= 0) idx else 0
+            // derivedStateOf: recomputes the scan every frame tick but only
+            // emits (and thus recomposes) when the ACTIVE LINE actually flips.
+            val activeIndex by remember(lyricsLines, isSynced) {
+                derivedStateOf {
+                    if (!isSynced) -1
+                    else {
+                        val idx = lyricsLines.indexOfLast { it.timeMs <= lyricController.interpolatedPosMs }
+                        if (idx >= 0) idx else 0
+                    }
                 }
             }
 
@@ -1327,7 +1351,9 @@ private fun LandscapeLyricsPane(
                             text = line.text,
                             lineStartMs = line.timeMs,
                             lineEndMs = nextLineTime,
-                            currentPlaybackMs = lyricController.interpolatedPosMs,
+                            // Playhead supplied as a provider: read only inside
+                            // the draw phase, so lyric rows never recompose per frame.
+                            playbackMsProvider = { lyricController.interpolatedPosMs },
                             isActive = isActive,
                             isPast = isPast,
                             onClick = { onSeek(line.timeMs) }

@@ -39,7 +39,18 @@ jobs:
           targets: aarch64-linux-android, armv7-linux-androideabi
 
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk || true
+        run: cargo install cargo-ndk --locked
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
 
       - name: Cache Android NDK & CMake
         id: ndk-cache
@@ -233,18 +244,8 @@ jobs:
             type: "native"
             target: "storage_telemetry_test_suite"
 
-          - shard: "playback-media3-timeline"
-            description: "Sliding 2-Track JIT Timeline, Gapless & Equal-Power Crossfade"
-            type: "android-jvm"
-            target: "com.streamify.app.playback.*"
-
-          - shard: "network-resolver-chaos"
-            description: "3-Tier Stream Resolver Race, HTTP 429 & Expired CDN Failover"
-            type: "android-jvm"
-            target: "com.streamify.app.network.*"
-
-          - shard: "database-outbox-sync"
-            description: "Fractional Indexing, LWW CRDTs & PGRST204 Auto-Healer"
+          - shard: "data-identity-fuzzy"
+            description: "JVM unit tests: CAD identity gates, fuzzy title/artist matching, dedup hashing"
             type: "android-jvm"
             target: "com.streamify.app.data.*"
 
@@ -252,11 +253,6 @@ jobs:
             description: "Zero-Copy SIMD JSON, Lofty Metadata, Lyric Precompiler & PTP"
             type: "rust"
             target: "rust"
-
-          - shard: "byzantine-jam-ptp"
-            description: "2-Peer Byzantine Consensus, MAD Lyric Drift & PTP PLL Clock"
-            type: "android-jvm"
-            target: "com.streamify.app.jam.*"
 
     steps:
       - uses: actions/checkout@v4

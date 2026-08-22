@@ -11,13 +11,28 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import kotlinx.coroutines.launch
 
 class StreamifyApp : Application(), ImageLoaderFactory {
+
+    companion object {
+        /**
+         * App-lifetime scope for deferred background initialization.
+         * SupervisorJob: one failed initializer never cancels its siblings.
+         */
+        val applicationScope: kotlinx.coroutines.CoroutineScope =
+            kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default
+            )
+    }
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    // 20%: leaves headroom on 3GB devices where artwork caches
+                    // compete with the audio pipeline.
+                    .maxSizePercent(0.20)
                     .build()
             }
             .diskCache {
@@ -46,34 +61,40 @@ class StreamifyApp : Application(), ImageLoaderFactory {
             android.util.Log.e("StreamifyApp", "Failed to initialize NativeBridge Database", e)
         }
 
-        // 3. Ensure files directory exists for VectorStore
-        try {
-            val vectorBinFile = java.io.File(filesDir, "vectors.bin")
-            vectorBinFile.parentFile?.mkdirs()
-            NativeBridge.initVectorStore(vectorBinFile.absolutePath)
-        } catch (e: Throwable) {
-            android.util.Log.e("StreamifyApp", "Failed to initialize NativeBridge VectorStore", e)
-        }
+        // 3+4. COLD-START BUDGET: vector-store mmap and the multi-MB ONNX
+        // asset copy + native session creation are NOT needed for the first
+        // frame. Deferring them off the main thread removes 0.5–3s of frozen
+        // window on eMMC-class devices.
+        applicationScope.launch {
+            // 3. Ensure files directory exists for VectorStore
+            try {
+                val vectorBinFile = java.io.File(filesDir, "vectors.bin")
+                vectorBinFile.parentFile?.mkdirs()
+                NativeBridge.initVectorStore(vectorBinFile.absolutePath)
+            } catch (e: Throwable) {
+                android.util.Log.e("StreamifyApp", "Failed to initialize NativeBridge VectorStore", e)
+            }
 
-        // 4. Copy ONNX model from assets if present
-        try {
-            val modelFile = java.io.File(filesDir, "clap_int8.onnx")
-            if (!modelFile.exists()) {
-                try {
-                    assets.open("models/clap_int8.onnx").use { input ->
-                        java.io.FileOutputStream(modelFile).use { output ->
-                            input.copyTo(output)
+            // 4. Copy ONNX model from assets if present
+            try {
+                val modelFile = java.io.File(filesDir, "clap_int8.onnx")
+                if (!modelFile.exists()) {
+                    try {
+                        assets.open("models/clap_int8.onnx").use { input ->
+                            java.io.FileOutputStream(modelFile).use { output ->
+                                input.copyTo(output)
+                            }
                         }
+                    } catch (e: Throwable) {
+                        android.util.Log.w("StreamifyApp", "CLAP ONNX model not found in assets, skipping")
                     }
-                } catch (e: Throwable) {
-                    android.util.Log.w("StreamifyApp", "CLAP ONNX model not found in assets, skipping")
                 }
+                if (modelFile.exists()) {
+                    NativeBridge.initAudioPipeline(modelFile.absolutePath)
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("StreamifyApp", "Failed to initialize AudioPipeline", e)
             }
-            if (modelFile.exists()) {
-                NativeBridge.initAudioPipeline(modelFile.absolutePath)
-            }
-        } catch (e: Throwable) {
-            android.util.Log.e("StreamifyApp", "Failed to initialize AudioPipeline", e)
         }
 
         // 5. Initialize device & remote services safely

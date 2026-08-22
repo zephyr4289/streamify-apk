@@ -31,6 +31,7 @@ import com.streamify.app.ui.components.YtLyricsHeader
 import com.streamify.app.ui.components.YtSyllableLine
 import com.streamify.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -38,7 +39,9 @@ import kotlinx.coroutines.withContext
 fun LyricsScreen(
     track: Track? = null,
     lyrics: List<LyricsLine>,
-    currentPositionMs: Long,
+    // HOT flow: seeded into the lyric clock via snapshotFlow — the screen's
+    // composition never recomposes for playhead ticks.
+    positionFlow: StateFlow<Long>,
     isPlaying: Boolean = true,
     dominantColor: Color = BgBase,
     onSeek: (Long) -> Unit,
@@ -58,9 +61,11 @@ fun LyricsScreen(
         lyricController.bindTrack(LyricOffsetStore.keyOfTrack(track))
     }
 
-    LaunchedEffect(currentPositionMs, isPlaying) {
-        lyricController.targetPositionMs = currentPositionMs
+    LaunchedEffect(positionFlow, isPlaying) {
         lyricController.isPlaying = isPlaying
+        snapshotFlow { positionFlow.value }.collect { pos ->
+            lyricController.targetPositionMs = pos
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -262,7 +267,8 @@ fun LyricsScreen(
                             text = line.text,
                             lineStartMs = line.timeMs,
                             lineEndMs = nextLineTime,
-                            currentPlaybackMs = lyricController.interpolatedPosMs,
+                            // Draw-phase-only read: rows never recompose per frame.
+                            playbackMsProvider = { lyricController.interpolatedPosMs },
                             isActive = isActive,
                             isPast = isPast,
                             onClick = { onSeek(line.timeMs) }

@@ -3,7 +3,7 @@
 #include <thread>
 #include <algorithm>
 #include <fstream>
-#include <android/log.h>
+#include "../util/stlog.h"
 
 #if defined(__linux__) || defined(__ANDROID__)
 #include <sched.h>

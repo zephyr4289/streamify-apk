@@ -28,7 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.coil.compose.AsyncImage
+import coil.compose.AsyncImage
 import com.streamify.app.jam.JamEngine
 import com.streamify.app.ui.components.YtActiveEqualizer
 import com.streamify.app.ui.components.YtThumbnail
@@ -125,7 +125,7 @@ fun JamSessionScreen(
                     // Start Jam Room Button
                     Button(
                         onClick = {
-                            jamViewModel.startJam(playerState.currentTrack, playerState.currentPosition)
+                            jamViewModel.startJam(playerState.currentTrack, playerViewModel.currentPositionMs())
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ActiveControl),
                         shape = RoundedCornerShape(24.dp),

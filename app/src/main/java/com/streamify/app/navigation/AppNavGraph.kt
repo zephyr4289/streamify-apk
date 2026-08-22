@@ -193,7 +193,7 @@ fun AppNavGraph(
             LyricsScreen(
                 track = playerState.currentTrack,
                 lyrics = lyricsLines,
-                currentPositionMs = playerState.currentPosition,
+                positionFlow = playerViewModel.positionMs,
                 dominantColor = dominantColor,
                 onSeek = { ms -> playerViewModel.seekTo(ms) },
                 onClose = { navController.popBackStack() }

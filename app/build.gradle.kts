@@ -65,6 +65,22 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        create("release") {
+            val ksPath = System.getenv("KEYSTORE_FILE")
+            if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            } else {
+                // No CI keystore provided: fall back to debug signing so
+                // personal/family builds still produce installable APKs.
+                storeFile = getByName("debug").storeFile
+                storePassword = getByName("debug").storePassword
+                keyAlias = getByName("debug").keyAlias
+                keyPassword = getByName("debug").keyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -75,6 +91,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -104,6 +121,9 @@ dependencies {
     implementation(composeBom)
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    // Installs baseline profiles when they ship; required before the
+    // baseline-profile Gradle module can be generated via macrobenchmark.
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -149,14 +169,33 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 
-tasks.register<Exec>("cargoBuildArm64") {
+// ── Rust core packaging ─────────────────────────────────────────────────
+// Builds libstreamify_core_rs.so for every packaged ABI and drops it into
+// src/main/jniLibs BEFORE the Android build runs, so every APK ships the
+// Rust engine. Failures abort the build loudly (never silently skipped).
+//
+// Escape hatch for toolchain-less builds:  ./gradlew assembleDebug -Pstreamify.skipRust=true
+val skipRustBuild = (project.findProperty("streamify.skipRust") as String?)?.toBoolean() == true
+
+tasks.register<Exec>("cargoBuildRust") {
+    group = "native"
+    description = "Builds streamify_core_rs (cdylib) for arm64-v8a + armeabi-v7a via cargo-ndk."
     workingDir = file("../rust")
     commandLine(
         "cargo", "ndk",
+        "--platform", "26",
         "-t", "arm64-v8a",
-        "-o", "../app/src/main/jniLibs",
-        "build", "--release"
+        "-t", "armeabi-v7a",
+        "-o", file("src/main/jniLibs").absolutePath,
+        "build", "--release",
     )
-    isIgnoreExitValue = true
+}
+
+afterEvaluate {
+    if (!skipRustBuild) {
+        tasks.named("preBuild") {
+            dependsOn("cargoBuildRust")
+        }
+    }
 }
 
