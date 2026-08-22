@@ -49,7 +49,9 @@ import com.streamify.app.util.PermissionHelper
 import com.streamify.app.viewmodel.PlayerViewModel
 import com.streamify.app.viewmodel.UiEvent
 import com.streamify.app.viewmodel.UiEventBus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -146,6 +148,19 @@ class MainActivity : ComponentActivity() {
 
                 var isSplashDone by remember { mutableStateOf(false) }
 
+                // POST-FIRST-FRAME INIT: heavy subsystem hydration happens
+                // AFTER the splash hands off, so time-to-interactive is bounded
+                // by the brand animation alone — not library scans or network.
+                LaunchedEffect(isSplashDone) {
+                    if (!isSplashDone) return@LaunchedEffect
+                    withContext(Dispatchers.IO) {
+                        playerViewModel.initialize(this@MainActivity)
+                        com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
+                        com.streamify.app.data.TrackRepository.getAllTracks()
+                    }
+                    com.streamify.app.data.remote.StreamifyUpdateManager.checkForUpdates(this@MainActivity)
+                }
+
                 // Dynamic Full-Player Overlay & Dock State
                 var isPlayerExpanded by remember { mutableStateOf(false) }
 
@@ -161,6 +176,11 @@ class MainActivity : ComponentActivity() {
                 //      (e.g. artist -> search -> home, instead of snapping to home)
                 //   3. Already at root destination -> double-back-to-exit guard
                 var lastBackPressedTime by remember { mutableStateOf(0L) }
+                LaunchedEffect(Unit) {
+                    val dm = this@MainActivity.resources.displayMetrics
+                    quantumController.initMetrics(dm.widthPixels.toFloat(), dm.heightPixels.toFloat(), dm.density)
+                }
+
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
 
@@ -206,12 +226,21 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(playerState.currentTrack?.coverArtPath) {
                     val path = playerState.currentTrack?.coverArtPath
                     if (path != null) {
-                        val request = ImageRequest.Builder(context)
-                            .data(path)
-                            .allowHardware(false)
-                            .build()
-                        val result = (Coil.imageLoader(context).execute(request) as? SuccessResult)?.drawable
-                        val bitmap = (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                        // PERF v2 B2 — SINGLE DECODE: reuse the flight token's
+                        // pre-decoded artwork when it belongs to this track.
+                        val cached = quantumController.consumeArtBitmapIfMatched(path)
+                        val bitmap = cached ?: run {
+                            val request = ImageRequest.Builder(context)
+                                .data(path)
+                                .allowHardware(false)
+                                // Palette only samples ~112²; decoding full-res art
+                                // (up to 36MB software bitmap) caused GC cliffs on
+                                // exactly the moment the player opens.
+                                .size(128)
+                                .build()
+                            val result = (Coil.imageLoader(context).execute(request) as? SuccessResult)?.drawable
+                            (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                        }
                         if (bitmap != null) {
                             androidx.palette.graphics.Palette.from(bitmap)
                                 .resizeBitmapArea(112 * 112)
@@ -229,14 +258,14 @@ class MainActivity : ComponentActivity() {
                 if (!isSplashDone) {
                     PrismaticSplashScreen(
                         onPreWarmComplete = {
+                            // CRITICAL PATH ONLY: everything here must finish
+                            // before the first interactive frame. Library scans,
+                            // repo hydration and the update network check are
+                            // deferred to post-first-frame background work.
                             val prefs = getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
                             com.streamify.app.service.CrossfadeAudioProcessor.crossfadeDurationMs =
                                 (prefs.getFloat("crossfade_val", 0f) * 1000).toLong()
                             AuthManager.init(this@MainActivity)
-                            playerViewModel.initialize(this@MainActivity)
-                            com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
-                            com.streamify.app.data.TrackRepository.getAllTracks()
-                            com.streamify.app.data.remote.StreamifyUpdateManager.checkForUpdates(this@MainActivity)
                         },
                         onAnimationComplete = {
                             isSplashDone = true
@@ -273,10 +302,9 @@ class MainActivity : ComponentActivity() {
                         label = "dockAlpha"
                     )
 
-                    val effectiveDuration = if (playerState.duration > 0) playerState.duration else ((playerState.currentTrack?.durationSec?.toLong() ?: 0L) * 1000L)
-                    val progress = if (effectiveDuration > 0)
-                        (playerState.currentPosition.toFloat() / effectiveDuration.toFloat()).coerceIn(0f, 1f)
-                    else 0f
+                    // PERF: position/progress are HOT (5Hz). They are passed as
+                    // flows and collected at the LEAF nodes only — reading them
+                    // here would recompose this entire tree every tick.
 
                     CompositionLocalProvider(
                         LocalQuantumController provides quantumController,
@@ -324,14 +352,14 @@ class MainActivity : ComponentActivity() {
                                         ) {
                                             // Docked Mini-Player (Directly above BottomNav with zero overlap)
                                             AnimatedVisibility(
-                                                visible = showMiniPlayerDock,
+                                                visible = showMiniPlayerDock && quantumController.dockReadyForUI,
                                                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(200)),
                                                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(200))
                                             ) {
                                                 MiniPlayerBar(
                                                     track = playerState.currentTrack,
                                                     isPlaying = playerState.isPlaying,
-                                                    progress = progress,
+                                                    progressFlow = playerViewModel.progressFraction,
                                                     isBuffering = playerState.isBuffering,
                                                     onPlayPause = { playerViewModel.togglePlayPause() },
                                                     onNext = { playerViewModel.skipNext() },
@@ -417,10 +445,10 @@ class MainActivity : ComponentActivity() {
                             FullPlayerSheet(
                                 track = playerState.currentTrack,
                                 isPlaying = playerState.isPlaying,
-                                progress = progress,
+                                positionFlow = playerViewModel.positionMs,
+                                progressFlow = playerViewModel.progressFraction,
                                 isBuffering = playerState.isBuffering,
                                 durationMs = playerState.duration,
-                                currentPositionMs = playerState.currentPosition,
                                 isShuffleActive = playerState.isShuffleActive,
                                 isRepeatActive = playerState.isRepeatActive,
                                 dominantColor = dominantColor,
