@@ -46,6 +46,16 @@ object OnlineRadioEngine {
     private val _lastBuildSummary = MutableStateFlow("Idle")
     val lastBuildSummary: StateFlow<String> = _lastBuildSummary.asStateFlow()
 
+    /**
+     * FIX #2 — /next continuation chaining for ultra-long sessions.
+     * (seedVideoId -> nextContinuationToken, pagesUsed). Reset when the seed
+     * changes or a page returns empty, so every session chains the REAL
+     * YouTube Music radio infinitely instead of re-seeding from scratch.
+     */
+    @Volatile private var continuationVideoId: String? = null
+    @Volatile private var continuationToken: String? = null
+    @Volatile private var continuationPagesUsed: Int = 0
+
     private val NOISE_TITLE_REGEX = Regex(
         "(?i)(\\blive\\b|\\bcover\\b|\\bremix\\b|\\bslowed\\b|\\breverb\\b|\\bsped up\\b|\\b8d\\b|" +
                 "\\bkaraoke\\b|\\binstrumental\\b|\\breaction\\b|\\btutorial\\b|\\blesson\\b|\\bnightcore\\b)"
@@ -59,11 +69,28 @@ object OnlineRadioEngine {
         val excludedKeys = buildExclusionKeys(activeQueue + seedTrack)
         val pool = LinkedHashMap<String, Track>()   // dedupe key -> track (insertion ordered)
 
-        // ── S1: YTM RDAMVM radio (primary, one retry) ──────────────────────
+        // ── S1: YTM RDAMVM radio (primary, chained via /next) ──────────────
         val canonicalId = CanonicalSeedResolver.resolveToCanonicalId(seedTrack)
         if (canonicalId.isNotBlank()) {
+            if (continuationVideoId != canonicalId) {
+                continuationVideoId = canonicalId
+                continuationToken = null
+                continuationPagesUsed = 0
+            }
             val radio = runWithRetry {
-                ContinuumRadioEngine.fetchRawRadioTracks(canonicalId, seedTrack)
+                val (page, nextToken) = ContinuumRadioEngine.fetchRadioPage(
+                    videoId = canonicalId,
+                    continuationToken = continuationToken,
+                    seedTrack = seedTrack
+                )
+                if (page.isEmpty() || nextToken == null) {
+                    continuationToken = null
+                    continuationPagesUsed = 0
+                } else {
+                    continuationToken = nextToken
+                    continuationPagesUsed += 1
+                }
+                page
             }
             absorb(pool, radio, excludedKeys)
         }
@@ -138,13 +165,17 @@ object OnlineRadioEngine {
         val token = com.streamify.app.data.remote.SpotifyAuthManager(context).getAccessToken()
             ?: return emptyList()
 
-        // 1. Resolve the seed artist to a Spotify artist id
-        val artistId = spotifyArtistId(token, seedTrack.artist) ?: return emptyList()
+        // 1. BEST SEEDING: exact-track seed when Spotify knows this song
+        //    (one extra search call), graceful fallback to artist-level seed.
+        val seedParam: String? = run {
+            val trackSeed = spotifyTrackId(token, "${seedTrack.title} ${seedTrack.artist}")
+            trackSeed?.let { "seed_tracks=$it" }
+        } ?: spotifyArtistId(token, seedTrack.artist)?.let { "seed_artists=$it" } ?: return emptyList()
 
-        // 2. Artist-seeded recommendations
+        // 2. Recommendations
         val recJson = spotifyGet(
             token,
-            "https://api.spotify.com/v1/recommendations?limit=${want.coerceAtMost(25)}&seed_artists=$artistId"
+            "https://api.spotify.com/v1/recommendations?limit=${want.coerceAtMost(25)}&$seedParam"
         ) ?: return emptyList()
 
         val tracksArr = recJson.optJSONArray("tracks") ?: return emptyList()
@@ -173,6 +204,21 @@ object OnlineRadioEngine {
             )
         }
         return out.take(want)
+    }
+
+    /** Exact-track seed lookup: "title artist" → Spotify track id. */
+    private fun spotifyTrackId(token: String, query: String): String? {
+        return try {
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+            val json = spotifyGet(
+                token,
+                "https://api.spotify.com/v1/search?q=$encoded&type=tracks&limit=1"
+            ) ?: return null
+            json.optJSONObject("tracks")?.optJSONArray("items")
+                ?.optJSONObject(0)?.optString("id", "")?.ifBlank { null }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun spotifyArtistId(token: String, artistName: String): String? {

@@ -16,6 +16,8 @@ import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.ContextMenuSheet
 import com.streamify.app.ui.components.LocalContextMenuController
 import com.streamify.app.ui.components.MenuOrigin
+import com.streamify.app.data.UniversalCandidateBroker
+import com.streamify.app.radio.OnlineRadioEngine
 import com.streamify.app.ui.components.YtQueueHeader
 import com.streamify.app.ui.components.YtQueueTrackItem
 import com.streamify.app.ui.theme.*
@@ -28,6 +30,8 @@ fun QueueScreen(
     onClose: (() -> Unit)? = null
 ) {
     val playerState by playerViewModel.playerState.collectAsState()
+    val radioBuilding by UniversalCandidateBroker.isFetching.collectAsState()
+    val radioSummary by OnlineRadioEngine.lastBuildSummary.collectAsState()
     val contextMenuController = LocalContextMenuController.current
     val nowPlaying = playerState.currentTrack
     val queue = playerState.queue
@@ -71,6 +75,28 @@ fun QueueScreen(
             onClose = { onClose?.invoke() ?: run { /* Pop backstack */ } },
             hasQueueItems = upNext.isNotEmpty() || playedTracks.isNotEmpty()
         )
+
+        // Radio build telemetry (OnlineRadioEngine)
+        if (radioBuilding || radioSummary != "Idle") {
+            androidx.compose.material3.Surface(
+                color = if (radioBuilding) StreamifyColors.Primary.copy(alpha = 0.12f)
+                        else StreamifyColors.BgSurfaceElevated,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .fillMaxWidth()
+            ) {
+                Text(
+                    text = if (radioBuilding) "◌ Building online radio…" else "◉ $radioSummary",
+                    style = LocalAppTypography.current.songArtist.copy(
+                        fontSize = 10.sp, letterSpacing = 0.8.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    ),
+                    color = if (radioBuilding) StreamifyColors.Primary else StreamifyColors.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                )
+            }
+        }
 
         // 2. Queue LazyColumn
         LazyColumn(

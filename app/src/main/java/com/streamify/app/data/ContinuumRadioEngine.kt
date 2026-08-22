@@ -210,6 +210,17 @@ object ContinuumRadioEngine {
         return emptyList()
     }
 
+    /**
+     * Stateless single radio page fetch — exposes the /next continuation chain
+     * to OnlineRadioEngine so ultra-long sessions can chain infinite batches
+     * without touching this object's UI-facing radio context.
+     */
+    suspend fun fetchRadioPage(
+        videoId: String,
+        continuationToken: String?,
+        seedTrack: Track? = null
+    ): Pair<List<Track>, String?> = executeNextRequest(videoId, continuationToken, seedTrack)
+
     private fun executeNextRequest(videoId: String, continuationToken: String?, seedTrack: Track? = null): Pair<List<Track>, String?> {
         // Tier 1: Try ANDROID_MUSIC client
         val androidResult = executeInnertubeNextCall(
