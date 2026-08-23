@@ -517,7 +517,7 @@ object YouTubeStreamResolver {
                 videoId = videoId,
                 clientName = config.clientName,
                 visitorId = visitorId,
-                sts = effectiveSts.toLong(),
+                sts = effectiveSts,
                 cookies = cookies
             )
 
@@ -589,11 +589,13 @@ object YouTubeStreamResolver {
                 // Tier 1: Zero-Copy Native Rust Stream Extractor (<1.5ms, 0 JVM GC allocations)
                 val streamInfo = com.streamify.app.data.NativeBridge.extractStreamInfo(rawBytes)
                 if (streamInfo != null && streamInfo.stream_url.isNotBlank()) {
+                    val isOpus = streamInfo.mime_type.contains("opus") || streamInfo.mime_type.contains("webm")
                     return ResolvedStream(
                         streamUrl = streamInfo.stream_url,
-                        mimeType = streamInfo.mime_type,
+                        format = if (isOpus) StreamFormat.OPUS else StreamFormat.AAC,
                         bitrate = streamInfo.bitrate.toInt(),
-                        durationSec = streamInfo.duration_sec.toInt(),
+                        duration = streamInfo.duration_sec.toInt(),
+                        isAdaptive = true,
                         loudnessDb = streamInfo.loudness_db
                     )
                 }
