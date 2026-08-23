@@ -320,4 +320,111 @@ impl InnertubeParser {
             _ => 0,
         }
     }
+
+    pub fn extract_best_stream_info(raw_json: &str) -> Option<ExtractedStreamInfo> {
+        let root: Value = serde_json::from_str(raw_json).ok()?;
+
+        let loudness_db = root
+            .pointer("/playerConfig/audioConfig/loudnessDb")
+            .and_then(|v| v.as_f64())
+            .map(|f| f as f32);
+
+        let mut formats_list = Vec::new();
+        if let Some(adaptive) = root.pointer("/streamingData/adaptiveFormats").and_then(|v| v.as_array()) {
+            formats_list.extend(adaptive.iter().cloned());
+        }
+        if let Some(formats) = root.pointer("/streamingData/formats").and_then(|v| v.as_array()) {
+            formats_list.extend(formats.iter().cloned());
+        }
+
+        let mut candidate_streams = Vec::new();
+        for f in &formats_list {
+            if let Some(url) = Self::extract_format_url(f) {
+                let mime_type = f.get("mimeType").and_then(|m| m.as_str()).unwrap_or("").to_string();
+                let bitrate = f.get("bitrate").and_then(|b| b.as_u64()).unwrap_or(0) as u32;
+                let itag = f.get("itag").and_then(|i| i.as_u64()).unwrap_or(0) as u32;
+                let is_audio = mime_type.starts_with("audio/");
+                let approx_duration_ms = f
+                    .get("approxDurationMs")
+                    .and_then(|d| d.as_str())
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(0);
+
+                let is_opus = mime_type.contains("opus") || itag == 251;
+                let is_aac = mime_type.contains("mp4a") || itag == 140;
+
+                // Priority score: Audio Opus > Audio AAC > other audio > video
+                let priority: u32 = if is_opus {
+                    300_000 + bitrate
+                } else if is_aac {
+                    200_000 + bitrate
+                } else if is_audio {
+                    100_000 + bitrate
+                } else {
+                    bitrate
+                };
+
+                let expire_epoch = url
+                    .split('?')
+                    .nth(1)
+                    .unwrap_or("")
+                    .split('&')
+                    .find(|p| p.starts_with("expire="))
+                    .and_then(|p| p.strip_prefix("expire="))
+                    .and_then(|e| e.parse::<u64>().ok())
+                    .unwrap_or(0);
+
+                candidate_streams.push((
+                    priority,
+                    ExtractedStreamInfo {
+                        stream_url: url,
+                        mime_type,
+                        bitrate,
+                        duration_sec: approx_duration_ms / 1000,
+                        loudness_db,
+                        expiration_epoch: expire_epoch,
+                    },
+                ));
+            }
+        }
+
+        candidate_streams.sort_by(|a, b| b.0.cmp(&a.0));
+        candidate_streams.into_iter().next().map(|(_, stream)| stream)
+    }
+
+    pub fn extract_session_tokens(html: &str) -> Option<ExtractedSessionTokens> {
+        let visitor_id = regex::Regex::new(r#""visitorData"\s*:\s*"([^"]+)""#)
+            .ok()?
+            .captures(html)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+
+        let sts = regex::Regex::new(r#""signatureTimestamp"\s*:\s*(\d+)"#)
+            .ok()?
+            .captures(html)
+            .and_then(|cap| cap.get(1))
+            .and_then(|m| m.as_str().parse::<u32>().ok());
+
+        Some(ExtractedSessionTokens {
+            visitor_id,
+            signature_timestamp: sts,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedStreamInfo {
+    pub stream_url: String,
+    pub mime_type: String,
+    pub bitrate: u32,
+    pub duration_sec: u32,
+    pub loudness_db: Option<f32>,
+    pub expiration_epoch: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedSessionTokens {
+    pub visitor_id: String,
+    pub signature_timestamp: Option<u32>,
 }

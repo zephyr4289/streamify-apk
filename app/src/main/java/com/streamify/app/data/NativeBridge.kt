@@ -852,6 +852,55 @@ object NativeBridge {
         nativeCalculatePtp(seqId, t0, t1, t2, t3, outResultsUs)
     }
 
+    data class ExtractedStreamInfo(
+        val stream_url: String,
+        val mime_type: String,
+        val bitrate: Long,
+        val duration_sec: Long,
+        val loudness_db: Float?,
+        val expiration_epoch: Long
+    )
+
+    fun extractStreamInfo(responseBytes: ByteArray): ExtractedStreamInfo? {
+        val jsonStr = try {
+            nativeExtractStreamInfo(responseBytes)
+        } catch (e: Throwable) {
+            null
+        } ?: return null
+        return try {
+            val obj = org.json.JSONObject(jsonStr)
+            ExtractedStreamInfo(
+                stream_url = obj.getString("stream_url"),
+                mime_type = obj.optString("mime_type", ""),
+                bitrate = obj.optLong("bitrate", 0L),
+                duration_sec = obj.optLong("duration_sec", 0L),
+                loudness_db = if (obj.has("loudness_db") && !obj.isNull("loudness_db")) obj.getDouble("loudness_db").toFloat() else null,
+                expiration_epoch = obj.optLong("expiration_epoch", 0L)
+            )
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    fun extractSessionTokens(htmlBytes: ByteArray): Pair<String, Int?>? {
+        val jsonStr = try {
+            nativeExtractSessionTokens(htmlBytes)
+        } catch (e: Throwable) {
+            null
+        } ?: return null
+        return try {
+            val obj = org.json.JSONObject(jsonStr)
+            val visitorId = obj.optString("visitor_id", "")
+            val sts = if (obj.has("signature_timestamp") && !obj.isNull("signature_timestamp")) obj.getInt("signature_timestamp") else null
+            visitorId to sts
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    private external fun nativeExtractStreamInfo(responseBytes: ByteArray): String?
+    private external fun nativeExtractSessionTokens(htmlBytes: ByteArray): String?
+
     private external fun nativeVerifyPeerConsensus(
         node1: String, lufs1: Float, key1: String, vec1: FloatArray, proof1: ByteArray,
         node2: String, lufs2: Float, key2: String, vec2: FloatArray, proof2: ByteArray

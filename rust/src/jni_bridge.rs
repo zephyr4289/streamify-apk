@@ -1241,3 +1241,60 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_stepAirDropPhy
         elements[13] = if state.is_ready_to_dock { 1.0 } else { 0.0 };
     }));
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeExtractStreamInfo(
+    mut env: JNIEnv,
+    _class: JClass,
+    response_bytes: JByteArray,
+) -> jstring {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        let bytes = match env.convert_byte_array(&response_bytes) {
+            Ok(b) => b,
+            Err(_) => return None,
+        };
+
+        let raw_str = match std::str::from_utf8(&bytes) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        let stream_info = crate::json::InnertubeParser::extract_best_stream_info(raw_str)?;
+        let json_out = serde_json::to_string(&stream_info).ok()?;
+        env.new_string(json_out).ok().map(|js| js.into_raw())
+    }));
+
+    match res {
+        Ok(Some(ptr)) => ptr,
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeExtractSessionTokens(
+    mut env: JNIEnv,
+    _class: JClass,
+    html_bytes: JByteArray,
+) -> jstring {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        let bytes = match env.convert_byte_array(&html_bytes) {
+            Ok(b) => b,
+            Err(_) => return None,
+        };
+
+        let raw_str = match std::str::from_utf8(&bytes) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        let tokens = crate::json::InnertubeParser::extract_session_tokens(raw_str)?;
+        let json_out = serde_json::to_string(&tokens).ok()?;
+        env.new_string(json_out).ok().map(|js| js.into_raw())
+    }));
+
+    match res {
+        Ok(Some(ptr)) => ptr,
+        _ => std::ptr::null_mut(),
+    }
+}
+
