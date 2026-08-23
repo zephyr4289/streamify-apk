@@ -89,7 +89,7 @@ jobs:
           set -o pipefail
           touch build.log
           chmod +x gradlew
-          ./gradlew assembleDebug -Pandroid.injected.build.model.only.versioned=3 \
+          ./gradlew clean assembleDebug --no-build-cache --no-daemon -Pandroid.injected.build.model.only.versioned=3 \
             -Dorg.gradle.caching=true \
             -DANDROID_CCACHE=ccache \
             --stacktrace 2>&1 | tee build.log
