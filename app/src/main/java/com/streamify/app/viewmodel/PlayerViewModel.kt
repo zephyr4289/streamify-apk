@@ -61,12 +61,19 @@ data class PlayerState(
 }
 
 class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel(),
-        com.streamify.app.jam.JamEngine.Bridge {
+    com.streamify.app.jam.JamEngine.Bridge {
 
-    companion object {
-        private const val TAG = "PlaybackTrace"
+    // ── JamEngine.Bridge: live-player facade for the Lockstep protocol ──
+    override fun loadTrack(track: Track, positionMs: Long, play: Boolean) {
+        playTrack(track, listOf(track), autoHydrateRadio = false)
+        if (positionMs > 0L) seekTo(positionMs)
+        if (!play) pause()
     }
 
+
+    override fun setPlaying(play: Boolean) {
+        if (play) this@PlayerViewModel.play() else this@PlayerViewModel.pause()
+    }
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
@@ -107,16 +114,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private val sessionPlayedTrackIds = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
     // Dedup guard for lyric fetches: key = "trackId:videoIdOrEmpty" so a retry is only
     // allowed when the video identity actually improved (e.g. after DB registration).
-    // Lyrics fetch dedup: key -> last attempt epoch ms. Successes stamp
-    // Long.MAX_VALUE (never retried); failures auto-expire after the negative
-    // TTL so unavailable tracks don't re-hammer every provider on every replay
-    // (the old set-removal-on-failure caused exactly that retry storm).
-    private val lyricsFetchAttempts = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val LYRICS_NEGATIVE_TTL_MS = 10 * 60 * 1000L
-
-    // Error-recovery give-up guard: trackId -> (consecutive failure count,
-    // last failure epoch ms) within the evaluation window.
-    private val recoveryFailures = HashMap<Int, Pair<Int, Long>>()
+    private val lyricsFetchAttempts = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
     init {
         com.streamify.app.jam.JamEngine.attachBridge(this)
@@ -273,11 +271,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         override fun onIsPlayingChanged(isPlaying: Boolean) {
 
             _playerState.value = _playerState.value.copy(isPlaying = isPlaying)
-            if (isPlaying) {
-                // Playback confirmed healthy: reset the error give-up counter.
-                synchronized(recoveryFailures) { recoveryFailures.clear() }
-                startPollingPosition()
-            } else stopPollingPosition()
+            if (isPlaying) startPollingPosition() else stopPollingPosition()
             if (!isApplyingJamSync && com.streamify.app.data.remote.SupabaseClient.activeJam.value != null) {
                 broadcastJamAction(if (isPlaying) "PLAY" else "PAUSE", isPlaying = isPlaying)
             }
@@ -548,37 +542,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             pendingSeekTargetMs = null
             isOptimisticSeeking = false
             val currentT = _playerState.value.currentTrack
-
-            // ── SINGLE-OWNER CIRCUIT BREAKER ──
-            // If the service just initiated a CDN renewal for this item, it is
-            // already recovering with position preserved — hands off. (The old
-            // dual engine raced: service renewed + kept position while this
-            // listener re-resolved and slammed playback back to 0.)
-            val svc = com.streamify.app.service.PlaybackService
-            if (currentT != null &&
-                System.currentTimeMillis() - svc.lastRenewalAtMs < 3000L &&
-                svc.lastRenewalMediaId != null
-            ) {
-                return
-            }
-
             if (currentT != null) {
-                // Give-up guard: 3 failures on the same track within a minute
-                // means the source is dead — advance instead of looping forever.
-                val now = System.currentTimeMillis()
-                synchronized(recoveryFailures) {
-                    val (count, ts) = recoveryFailures[currentT.id] ?: (0 to 0L)
-                    val windowCount = if (now - ts < 60_000L) count else 0
-                    if (windowCount >= 2) {
-                        recoveryFailures.remove(currentT.id)
-                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                            advanceQueue(isUserSkip = false)
-                        }
-                        return
-                    }
-                    recoveryFailures[currentT.id] = (windowCount + 1) to now
-                }
-
                 viewModelScope.launch(Dispatchers.IO) {
                     try {
                         val resolved = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(currentT)
@@ -654,13 +618,16 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     val cadId = NativeBridge.generateCadId(nextTrack.title, nextTrack.artist, nextTrack.durationSec)
 
                     var vidId = nextTrack.ytmVideoId ?: if (nextTrack.filepath.startsWith("yt_") || (nextTrack.filepath.length == 11 && !nextTrack.filepath.contains("/"))) nextTrack.filepath.removePrefix("yt_") else null
+                    if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
+                        val authHeader = appContext?.let { com.streamify.app.data.remote.SpotifyAuthManager(it).getYtAuthHeader() } ?: ""
+                        vidId = NativeBridge.resolveTrack(dbPath, cadId, nextTrack.isrc, nextTrack.title, nextTrack.artist, authHeader)
+                    }
 
-                    // Pure Kotlin lookahead — no Rust FFI in hot path
-                    val nativeUrl = if (vidId != null) {
-                        com.streamify.app.data.network.YouTubeStreamResolver
-                            .resolveStreamJit(nextTrack.copy(ytmVideoId = vidId))
-                            .getOrNull()?.streamUrl
-                    } else null
+                    val nativeUrl = try {
+                        NativeBridge.resolveCdnUrl(vidId, nextTrack.isrc, nextTrack.title, nextTrack.artist)
+                    } catch (e: Exception) {
+                        null
+                    }
 
                     val finalUrl = if (!nativeUrl.isNullOrBlank()) nativeUrl else {
                         com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(if (vidId != null) nextTrack.copy(ytmVideoId = vidId) else nextTrack).getOrNull()?.streamUrl
@@ -1060,17 +1027,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         _playerState.value = cur.copy(queue = remaining, currentIndex = 0)
     }
 
-    // ── JamEngine.Bridge implementations ──
-    override fun loadTrack(track: Track, positionMs: Long, play: Boolean) {
-        playTrack(track, listOf(track), autoHydrateRadio = false)
-        if (positionMs > 0L) seekTo(positionMs)
-        if (!play) pause()
-    }
-
-    override fun setPlaying(play: Boolean) {
-        if (play) play() else pause()
-    }
-
     fun advanceQueue(isUserSkip: Boolean = false) {
         if (!isAdvancing.compareAndSet(false, true)) return
         viewModelScope.launch {
@@ -1181,12 +1137,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             )
 
         val attemptKey = "${playingTrack.id}:${vid ?: ""}"
-        val lastAttemptMs = lyricsFetchAttempts[attemptKey]
-        if (lastAttemptMs != null) {
-            if (lastAttemptMs == Long.MAX_VALUE) return
-            if (System.currentTimeMillis() - lastAttemptMs < LYRICS_NEGATIVE_TTL_MS) return
-        }
-        lyricsFetchAttempts[attemptKey] = System.currentTimeMillis()
+        if (!lyricsFetchAttempts.add(attemptKey)) return
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1228,9 +1179,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     }
 
                     if (storedPath != null) {
-                        // Success: this exact identity is permanently served —
-                        // never re-fetch it again.
-                        lyricsFetchAttempts[attemptKey] = Long.MAX_VALUE
                         withContext(Dispatchers.Main) {
                             val cur = _playerState.value.currentTrack
                             if (cur != null && cur.id == playingTrack.id && cur.lyricsPath.isNullOrBlank()) {
@@ -1241,53 +1189,32 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         }
                     }
                 } else {
-                    // Nothing usable found: the failure timestamp stands — this
-                    // exact identity won't be re-fetched until the TTL expires.
+                    // Nothing usable found: clear the attempt so a later transition can retry
+                    lyricsFetchAttempts.remove(attemptKey)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                lyricsFetchAttempts.remove(attemptKey)
             }
         }
     }
 
-
-    /**
-     * A resolved URL is only trusted when it is a live googlevideo CDN link.
-     * Native-tier results in the current YouTube enforcement era can be
-     * syntactically valid but PO-token/UA-gated (HTTP 403 at play time), which
-     * used to be accepted blindly and killed every track.
-     */
-    /**
-     * AUTHENTICATED RESOLUTION: the harvested YouTube session is what gets
-     * player/search requests past the 2026 bot-wall. Fetched per resolve
-     * call; cheap after first EncryptedSharedPreferences open.
-     */
-    private fun ytSession(): Pair<String, String> {
-        val ctx = appContext ?: com.streamify.app.data.TrackRepository.appContext ?: return "" to ""
-        return try {
-            val m = com.streamify.app.data.remote.SpotifyAuthManager(ctx)
-            (m.getYtAuthHeader() ?: "") to (m.getYtRawCookies() ?: "")
-        } catch (_: Throwable) {
-            "" to ""
-        }
-    }
-
-    private fun isTrustedStreamUrl(url: String?): Boolean =
-        !url.isNullOrBlank() &&
-                url.contains("googlevideo.com") &&
-                !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(url)
-
     private suspend fun playTrackInternal(track: Track, index: Int, queue: List<Track>) {
-        android.util.Log.d("PlaybackTrace", "▶️ START: ${track.title}")
-        com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = null
+        seekTimeoutJob?.cancel()
+        isOptimisticSeeking = false
+        pendingSeekTargetMs = null
 
-            _playerState.value = _playerState.value.copy(
+        _playerState.value = _playerState.value.copy(
             currentTrack = track,
             currentIndex = index,
+            currentPosition = 0L,
             queue = queue,
             isPlaying = true,
-            isBuffering = true
+            isBuffering = true,
+            isVideoMode = false
         )
+        playbackStartTimeMs = System.currentTimeMillis()
+        com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = null
 
         // 0. SMART OFFLINE VAULT GATE (0ms instant local playback if pre-cached)
         val vaulted = com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
@@ -1302,12 +1229,34 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             trackToPlay
         } else {
             withContext(Dispatchers.IO) {
-                val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(trackToPlay)
-                val resolved = res.getOrNull()
-                if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                    trackToPlay.copy(filepath = resolved.streamUrl)
+                val dbPath = appContext?.getDatabasePath("streamify_universal.db")?.absolutePath ?: ""
+                val cadId = NativeBridge.generateCadId(trackToPlay.title, trackToPlay.artist, trackToPlay.durationSec)
+
+                var vidId = trackToPlay.ytmVideoId ?: if (trackToPlay.filepath.startsWith("yt_") || (trackToPlay.filepath.length == 11 && !trackToPlay.filepath.contains("/"))) trackToPlay.filepath.removePrefix("yt_") else null
+                if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
+                    val authHeader = appContext?.let { com.streamify.app.data.remote.SpotifyAuthManager(it).getYtAuthHeader() } ?: ""
+                    vidId = NativeBridge.resolveTrack(dbPath, cadId, trackToPlay.isrc, trackToPlay.title, trackToPlay.artist, authHeader)
+                }
+
+                // Tier 1: Native Rust Tokio JIT Stream Resolver
+                val nativeUrl = try {
+                    NativeBridge.resolveCdnUrl(vidId, trackToPlay.isrc, trackToPlay.title, trackToPlay.artist)
+                } catch (e: Exception) {
+                    null
+                }
+
+                if (!nativeUrl.isNullOrBlank()) {
+                    trackToPlay.copy(filepath = nativeUrl, ytmVideoId = vidId ?: trackToPlay.ytmVideoId)
                 } else {
-                    trackToPlay
+                    // Fallback to Kotlin multi-client cascade
+                    val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(if (vidId != null) trackToPlay.copy(ytmVideoId = vidId) else trackToPlay)
+                    val resolved = res.getOrNull()
+                    resolved?.let { com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = it.loudnessDb }
+                    if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                        trackToPlay.copy(filepath = resolved.streamUrl, ytmVideoId = vidId ?: trackToPlay.ytmVideoId)
+                    } else {
+                        trackToPlay
+                    }
                 }
             }
         }
@@ -1323,14 +1272,19 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         if (isPlayable) {
             val mediaItem = buildMediaItem(resolvedTrack)
             withContext(Dispatchers.Main) {
-                controller?.let { ctrl ->
-                    ctrl.setMediaItem(mediaItem, 0L)
-                    ctrl.prepare()
-                    ctrl.play()
+                try {
+                    controller?.let { ctrl ->
+                        ctrl.setMediaItem(mediaItem, 0L)
+                        ctrl.prepare()
+                        ctrl.play()
+                    }
+                } catch (e: Throwable) {
+                    e.printStackTrace()
                 }
+                val isCtrlBuffering = controller?.let { it.playbackState == androidx.media3.common.Player.STATE_BUFFERING || it.playbackState == androidx.media3.common.Player.STATE_IDLE } ?: true
                 _playerState.value = _playerState.value.copy(
                     currentTrack = resolvedTrack,
-                    isBuffering = false
+                    isBuffering = isCtrlBuffering
                 )
             }
 
@@ -1345,7 +1299,17 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         withContext(Dispatchers.Main) {
                             val cur = _playerState.value.currentTrack
                             if (cur != null && cur.title == track.title && cur.artist == track.artist) {
-                                _playerState.value = _playerState.value.copy(currentTrack = registered.copy(filepath = resolvedTrack.filepath))
+                                val finalVid = registered.ytmVideoId ?: track.ytmVideoId ?: resolvedTrack.ytmVideoId
+                                _playerState.value = _playerState.value.copy(
+                                    currentTrack = registered.copy(
+                                        filepath = resolvedTrack.filepath,
+                                        ytmVideoId = finalVid
+                                    )
+                                )
+                                // Exact video identity is now pinned: if the initial lyric
+                                // fetch ran without it, this authorized retry upgrades to
+                                // the perfectly synced ATV timed lyrics for that upload.
+                                maybeFetchLyricsForTrack(_playerState.value.currentTrack)
                             }
                         }
                     }
@@ -1361,9 +1325,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
     }
 
-
-    }
-
+    private fun armLookaheadPreBuffer(nextIndex: Int, queue: List<Track>) {
         if (nextIndex >= queue.size) return
         val nextTrack = queue[nextIndex]
         lookaheadJob?.cancel()
@@ -1397,9 +1359,18 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
 
             try {
-                // Pure Kotlin lookahead — no Rust FFI in hot path
-                val finalUrl = com.streamify.app.data.network.YouTubeStreamResolver
-                    .resolveStreamJit(nextTrack).getOrNull()?.streamUrl
+                // Tier 1: Try Native Rust Tokio JIT Stream Resolver
+                val nativeUrl = try {
+                    val vidId = nextTrack.ytmVideoId ?: if (nextTrack.filepath.startsWith("yt_") || (nextTrack.filepath.length == 11 && !nextTrack.filepath.contains("/"))) nextTrack.filepath.removePrefix("yt_") else null
+                    NativeBridge.resolveCdnUrl(vidId, nextTrack.isrc, nextTrack.title, nextTrack.artist)
+                } catch (e: Exception) {
+                    null
+                }
+
+                val finalUrl = if (!nativeUrl.isNullOrBlank()) nativeUrl else {
+                    val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack)
+                    res.getOrNull()?.streamUrl
+                }
 
                 if (!finalUrl.isNullOrBlank()) {
                     val warmTrack = nextTrack.copy(filepath = finalUrl)
@@ -1470,27 +1441,19 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         precisionProtocol: com.streamify.app.service.PrecisionTimeProtocol
     ) {
         val ctrl = controller ?: return
-        // Single scheduler instance for the ViewModel lifetime — the old
-        // per-call instantiation leaked a CoroutineScope + SupervisorJob on
-        // every synchronized playout.
-        if (atomicScheduler == null) {
-            atomicScheduler = com.streamify.app.service.ScheduledAudioScheduler(ctrl, precisionProtocol)
-        }
-        val scheduler = atomicScheduler!!
+        val scheduler = com.streamify.app.service.ScheduledAudioScheduler(ctrl, precisionProtocol)
         _playerState.value = _playerState.value.copy(currentTrack = track, queue = listOf(track))
         scheduler.scheduleAtomicPlayback(track, targetAtomicTimestampMs, startPositionMs) {
             _playerState.value = _playerState.value.copy(isPlaying = true)
         }
     }
 
-    private var atomicScheduler: com.streamify.app.service.ScheduledAudioScheduler? = null
-
     fun seekRelative(deltaMs: Long) {
         val currentPos = currentPositionMs()
         seekTo(currentPos + deltaMs)
     }
 
-    override fun seekTo(positionMs: Long) {
+    fun seekTo(positionMs: Long) {
         val ctrl = controller ?: return
         val currentT = _playerState.value.currentTrack
         val maxDurationMs = if (_playerState.value.duration > 0) _playerState.value.duration else ((currentT?.durationSec ?: 0) * 1000L)

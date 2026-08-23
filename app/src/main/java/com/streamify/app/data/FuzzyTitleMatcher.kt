@@ -15,10 +15,7 @@ object FuzzyTitleMatcher {
     // replace + split + sort + join. Titles repeat enormously across scans,
     // so a small bounded cache turns the hot path into a hashmap lookup.
     private const val MEMO_CAP = 4096
-    private val rootHashMemo = java.util.concurrent.ConcurrentHashMap<String, Long>(256)
-    private val rootTokensMemo = java.util.concurrent.ConcurrentHashMap<String, Set<String>>(256)
-    private val cleanArtistMemo = java.util.concurrent.ConcurrentHashMap<String, String>(256)
-
+            
     private fun <V> remember(memo: java.util.concurrent.ConcurrentHashMap<String, V>, key: String, compute: (String) -> V): V {
         memo[key]?.let { return it }
         if (memo.size >= MEMO_CAP) {
@@ -35,8 +32,8 @@ object FuzzyTitleMatcher {
      * "House of Balloons / Glass Table Girls" and "House of Balloons (Audio)"
      * both produce root tokens [balloons, house] and the exact same 64-bit Long hash.
      */
-    fun extractRootHash(title: String): Long = remember(rootHashMemo, title) {
-        val clean = NOISE_REGEX.replace(it, " ")
+    fun extractRootHash(title: String): Long {
+        val clean = NOISE_REGEX.replace(title, " ")
         val tokens = clean.lowercase()
             .split(CLEAN_REGEX)
             .filter { it.length > 2 && it != "the" && it != "and" }
@@ -44,21 +41,20 @@ object FuzzyTitleMatcher {
             .joinToString("")
 
         if (tokens.isBlank()) {
-            // Fallback for short titles like "Us", "Go", "Me"
-            val fallback = it.lowercase().replace(CLEAN_REGEX, "")
-            if (fallback.isBlank()) 0L
-            else computeFnv1a(fallback)
-        } else {
-            computeFnv1a(tokens)
+            val fallback = title.lowercase().replace(CLEAN_REGEX, "")
+            if (fallback.isBlank()) return 0L
+            return computeFnv1a(fallback)
         }
+
+        return computeFnv1a(tokens)
     }
 
     /**
      * Extracts token set of root title words for Jaccard similarity.
      */
-    fun extractRootTokens(title: String): Set<String> = remember(rootTokensMemo, title) {
-        val clean = NOISE_REGEX.replace(it, " ")
-        clean.lowercase()
+    fun extractRootTokens(title: String): Set<String> {
+        val clean = NOISE_REGEX.replace(title, " ")
+        return clean.lowercase()
             .split(CLEAN_REGEX)
             .filter { it.length > 2 && it != "the" && it != "and" }
             .toSet()
@@ -80,8 +76,8 @@ object FuzzyTitleMatcher {
      * Cleans artist strings for identity comparison: drops distribution noise
      * ("- Topic", "VEVO", "Official") and punctuation.
      */
-    fun cleanArtistForMatch(artist: String): String = remember(cleanArtistMemo, artist) {
-        it.lowercase()
+    fun cleanArtistForMatch(artist: String): String {
+        return artist.lowercase()
             .replace("- topic", "")
             .replace("vevo", "")
             .replace(" - official", "")

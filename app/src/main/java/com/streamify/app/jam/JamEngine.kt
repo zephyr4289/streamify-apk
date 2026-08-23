@@ -83,7 +83,6 @@ object JamEngine {
     /** Live-player facade attached by the app shell. */
     interface Bridge {
         fun loadTrack(track: Track, positionMs: Long, play: Boolean)
-        fun seekTo(positionMs: Long)
         fun setPlaying(play: Boolean)
     }
 
