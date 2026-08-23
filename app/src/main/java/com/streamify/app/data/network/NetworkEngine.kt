@@ -69,6 +69,33 @@ object ConnectionWarmer {
     }
 }
 
+object ZeroCopyBufferPool {
+    // Thread-local DirectByteBuffer pool (512KB off-heap per thread) for zero-copy JNI parsing
+    private val localBuffer = ThreadLocal.withInitial {
+        java.nio.ByteBuffer.allocateDirect(512 * 1024).order(java.nio.ByteOrder.nativeOrder())
+    }
+
+    fun obtain(): java.nio.ByteBuffer {
+        val buf = localBuffer.get()
+        buf.clear()
+        return buf
+    }
+
+    fun readResponseDirect(response: okhttp3.Response, buffer: java.nio.ByteBuffer): Int {
+        buffer.clear()
+        val source = response.body?.source() ?: return -1
+        val channel = java.nio.channels.Channels.newChannel(source.inputStream())
+        var totalBytesRead = 0
+        while (buffer.hasRemaining()) {
+            val read = channel.read(buffer)
+            if (read == -1) break
+            totalBytesRead += read
+        }
+        buffer.flip()
+        return totalBytesRead
+    }
+}
+
 object NetworkEngine {
 
     val client: OkHttpClient by lazy {

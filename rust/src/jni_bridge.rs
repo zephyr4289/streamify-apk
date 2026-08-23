@@ -1,4 +1,4 @@
-use jni::objects::{JByteArray, JClass, JFloatArray, JLongArray, JObject, JString, ReleaseMode};
+use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JLongArray, JObject, JString, ReleaseMode};
 use jni::sys::{jboolean, jfloat, jint, jlong, jstring};
 use jni::JNIEnv;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -1297,4 +1297,73 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeExtractS
         _ => std::ptr::null_mut(),
     }
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeExtractStreamInfoDirect(
+    mut env: JNIEnv,
+    _class: JClass,
+    direct_buffer: JByteBuffer,
+    length: jint,
+) -> jstring {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if length <= 0 {
+            return None;
+        }
+
+        let ptr = env.get_direct_buffer_address(&direct_buffer).ok()?;
+        if ptr.is_null() {
+            return None;
+        }
+
+        let slice = std::slice::from_raw_parts(ptr as *const u8, length as usize);
+        let raw_str = match std::str::from_utf8(slice) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        let stream_info = crate::json::InnertubeParser::extract_best_stream_info(raw_str)?;
+        let json_out = serde_json::to_string(&stream_info).ok()?;
+        env.new_string(json_out).ok().map(|js| js.into_raw())
+    }));
+
+    match res {
+        Ok(Some(ptr)) => ptr,
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeExtractSessionTokensDirect(
+    mut env: JNIEnv,
+    _class: JClass,
+    direct_buffer: JByteBuffer,
+    length: jint,
+) -> jstring {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        if length <= 0 {
+            return None;
+        }
+
+        let ptr = env.get_direct_buffer_address(&direct_buffer).ok()?;
+        if ptr.is_null() {
+            return None;
+        }
+
+        let slice = std::slice::from_raw_parts(ptr as *const u8, length as usize);
+        let raw_str = match std::str::from_utf8(slice) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        let tokens = crate::json::InnertubeParser::extract_session_tokens(raw_str)?;
+        let json_out = serde_json::to_string(&tokens).ok()?;
+        env.new_string(json_out).ok().map(|js| js.into_raw())
+    }));
+
+    match res {
+        Ok(Some(ptr)) => ptr,
+        _ => std::ptr::null_mut(),
+    }
+}
+
 

@@ -500,9 +500,9 @@ object YouTubeStreamResolver {
 
             NetworkEngine.exoPlayerClient.newCall(warmReq).execute().use { resp ->
                 if (!resp.isSuccessful) return null
-                val body = resp.body ?: return null
-                val rawBytes = body.bytes()
-                if (rawBytes.isEmpty()) return null
+                val buffer = ZeroCopyBufferPool.obtain()
+                val bytesRead = ZeroCopyBufferPool.readResponseDirect(resp, buffer)
+                if (bytesRead <= 0) return null
 
                 val rawHeaders = resp.headers("Set-Cookie")
                 val cookieJar = mutableListOf("PREF=hl=en&tz=UTC", "SOCS=CAI")
@@ -516,12 +516,18 @@ object YouTubeStreamResolver {
                 }
 
                 // Rust Zero-Copy Native Token Extraction (0 JVM GC Regex allocations)
-                val nativeTokens = com.streamify.app.data.NativeBridge.extractSessionTokens(rawBytes)
+                val nativeTokens = com.streamify.app.data.NativeBridge.extractSessionTokensDirect(buffer, bytesRead)
                 val visitorId = nativeTokens?.first?.takeIf { it.isNotBlank() } ?: run {
+                    buffer.position(0)
+                    val rawBytes = ByteArray(bytesRead)
+                    buffer.get(rawBytes)
                     val html = String(rawBytes, Charsets.UTF_8)
                     Regex(""""visitorData"\s*:\s*"([^"]+)"""").find(html)?.groupValues?.getOrNull(1) ?: ""
                 }
                 val sts = nativeTokens?.second ?: run {
+                    buffer.position(0)
+                    val rawBytes = ByteArray(bytesRead)
+                    buffer.get(rawBytes)
                     val html = String(rawBytes, Charsets.UTF_8)
                     Regex(""""signatureTimestamp"\s*:\s*(\d+)"""").find(html)?.groupValues?.getOrNull(1)?.toIntOrNull()
                         ?: currentSignatureTimestamp()
@@ -635,12 +641,12 @@ object YouTubeStreamResolver {
             NetworkEngine.exoPlayerClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
 
-                val body = response.body ?: return null
-                val rawBytes = body.bytes()
-                if (rawBytes.isEmpty()) return null
+                val buffer = ZeroCopyBufferPool.obtain()
+                val bytesRead = ZeroCopyBufferPool.readResponseDirect(response, buffer)
+                if (bytesRead <= 0) return null
 
                 // Tier 1: Zero-Copy Native Rust Stream Extractor (<1.5ms, 0 JVM GC allocations)
-                val streamInfo = com.streamify.app.data.NativeBridge.extractStreamInfo(rawBytes)
+                val streamInfo = com.streamify.app.data.NativeBridge.extractStreamInfoDirect(buffer, bytesRead)
                 if (streamInfo != null && streamInfo.stream_url.isNotBlank()) {
                     return ResolvedStream(
                         streamUrl = streamInfo.stream_url,
@@ -652,6 +658,9 @@ object YouTubeStreamResolver {
                 }
 
                 // Tier 2: Pure Kotlin JSON Fallback Parser
+                buffer.position(0)
+                val rawBytes = ByteArray(bytesRead)
+                buffer.get(rawBytes)
                 val root = JSONObject(String(rawBytes, Charsets.UTF_8))
                 return parsePlayerResponse(root)
             }
