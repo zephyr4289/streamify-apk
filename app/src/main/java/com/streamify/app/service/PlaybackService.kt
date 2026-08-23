@@ -106,7 +106,6 @@ class PlaybackService : MediaSessionService() {
             }
         }
         
-        dynamicQueueManager = DynamicQueueManager(this, exoPlayer)
         preBufferManager = PredictivePreBufferManager(this)
 
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
@@ -312,7 +311,6 @@ class PlaybackService : MediaSessionService() {
     }
 
     private var preBufferManager: PredictivePreBufferManager? = null
-    private var dynamicQueueManager: DynamicQueueManager? = null
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
@@ -321,8 +319,6 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         AudioDeviceManager.release(this)
         EqualizerManager.release()
-        dynamicQueueManager?.release()
-        dynamicQueueManager = null
         preBufferManager?.release()
         preBufferManager = null
         mediaSession?.run {
@@ -331,8 +327,6 @@ class PlaybackService : MediaSessionService() {
             mediaSession = null
         }
         player = null
-        // Free native DSP/normalizer state AFTER the sink has stopped.
-        try { streamifyProcessor.release() } catch (_: Throwable) {}
         super.onDestroy()
     }
 }
