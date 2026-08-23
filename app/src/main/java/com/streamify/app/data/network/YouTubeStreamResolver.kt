@@ -296,6 +296,7 @@ object YouTubeStreamResolver {
     // INVARIANT 2: UNIFIED JIT 3-TIER STREAM RESOLUTION CASCADE
     // ========================================================================
     suspend fun resolveStreamJit(track: com.streamify.app.data.models.Track, forceFresh: Boolean = false): Result<ResolvedStream> = withContext(Dispatchers.IO) {
+        android.util.Log.d("ResolveTrace", "🔍 resolveStreamJit START: ${track.title} | filepath=${track.filepath.take(60)}")
         // Tier 0: Offline Local File Exists
         if (track.filepath.startsWith("/") || track.filepath.startsWith("file://")) {
             val localFile = java.io.File(track.filepath.removePrefix("file://"))
@@ -363,7 +364,7 @@ object YouTubeStreamResolver {
         }
 
         if (videoId == null) {
-            return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
+            android.util.Log.e("ResolveTrace", "❌ RESOLUTION FAILED for ${track.title}"); return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
         }
 
         // Canonical Pinning: Lock resolved immutable Video ID in DB so audio never shifts on future plays

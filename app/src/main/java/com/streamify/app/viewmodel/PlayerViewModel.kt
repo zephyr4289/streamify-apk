@@ -61,6 +61,11 @@ data class PlayerState(
 }
 
 class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel(),
+        com.streamify.app.jam.JamEngine.Bridge {
+
+    companion object {
+        private const val TAG = "PlaybackTrace"
+    }
     com.streamify.app.jam.JamEngine.Bridge {
 
     private val _playerState = MutableStateFlow(PlayerState())
@@ -1292,6 +1297,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             isVideoMode = false
         )
         playbackStartTimeMs = System.currentTimeMillis()
+        android.util.Log.d(TAG, "▶️ playTrackInternal START: ${track.title} | filepath=${track.filepath.take(60)} | ytmVideoId=${track.ytmVideoId}")
 
         // PHASE 1 LOUDNESS TRUTH: reset until this track's stream is resolved.
         com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = null
@@ -1301,6 +1307,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         val trackToPlay = vaulted ?: track
 
         // 1. FAST-PATH GATE: If trackToPlay.filepath is already a direct playable local file or unexpired CDN stream
+        android.util.Log.d(TAG, "📋 filepath=${trackToPlay.filepath.take(80)}")
         val isAlreadyDirectCdn = (trackToPlay.filepath.contains("googlevideo.com") || trackToPlay.filepath.contains(".googlevideo.")) &&
                 !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(trackToPlay.filepath)
         val isLocalFile = trackToPlay.filepath.startsWith("/") || trackToPlay.filepath.startsWith("file://") || java.io.File(trackToPlay.filepath).exists()
@@ -1353,6 +1360,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
         }
 
+        android.util.Log.d(TAG, "🔗 RESOLVED: filepath=${resolvedTrack.filepath.take(80)} | ytmVideoId=${resolvedTrack.ytmVideoId}")
         val isDirectStream = resolvedTrack.filepath.startsWith("http") &&
                 !resolvedTrack.filepath.contains("youtube.com/watch") &&
                 !resolvedTrack.filepath.contains("music.youtube.com") &&
@@ -1361,6 +1369,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 resolvedTrack.filepath.startsWith("file") ||
                 java.io.File(resolvedTrack.filepath).exists()
 
+        android.util.Log.d(TAG, "${if (isPlayable) "✅ PLAYABLE" else "❌ NOT PLAYABLE"} | preGain=${com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb} | filepath=${resolvedTrack.filepath.take(60)}")
         if (isPlayable) {
             // PHASE 1: hand YouTube's loudness truth to the render processor.
             com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = streamLoudnessDb
