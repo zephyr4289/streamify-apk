@@ -33,6 +33,7 @@ class PredictivePreBufferManager(
             if (activePreCacheJobs[trackKey]?.isActive == true) return@forEach
 
             val job = scope.launch {
+                com.streamify.app.data.NativeBridge.pinThreadToLittleCores()
                 runCatching {
                     val streamUrl = if (track.filepath.startsWith("http")) {
                         track.filepath

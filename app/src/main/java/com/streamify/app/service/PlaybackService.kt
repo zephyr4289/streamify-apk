@@ -50,6 +50,9 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+        } catch (_: Throwable) {}
         DolbySpatialManager.init(this)
         AudioDeviceManager.init(this)
 

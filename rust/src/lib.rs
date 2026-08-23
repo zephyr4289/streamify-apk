@@ -28,9 +28,9 @@ pub mod repository;
 pub mod resolver;
 pub mod seek_guard;
 pub mod spotify_ingest;
-
 pub mod search;
 pub mod tagger;
+pub mod task_orchestrator;
 
 pub use airdrop::{AirdropPhysicsEngine, AirdropState};
 pub use aligner::{AlignedLine, AlignedSyllable, LyricAlignerEngine};

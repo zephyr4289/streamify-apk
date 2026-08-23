@@ -935,10 +935,19 @@ object NativeBridge {
         }
     }
 
+    fun pinThreadToLittleCores(): Boolean {
+        return try {
+            nativePinThreadToLittleCores()
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     private external fun nativeExtractStreamInfo(responseBytes: ByteArray): String?
     private external fun nativeExtractSessionTokens(htmlBytes: ByteArray): String?
     private external fun nativeExtractStreamInfoDirect(buffer: java.nio.ByteBuffer, length: Int): String?
     private external fun nativeExtractSessionTokensDirect(buffer: java.nio.ByteBuffer, length: Int): String?
+    private external fun nativePinThreadToLittleCores(): Boolean
 
     private external fun nativeVerifyPeerConsensus(
         node1: String, lufs1: Float, key1: String, vec1: FloatArray, proof1: ByteArray,

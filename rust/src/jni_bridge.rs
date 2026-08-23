@@ -1366,4 +1366,19 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeExtractS
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativePinThreadToLittleCores(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jboolean {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        crate::task_orchestrator::pin_current_thread_to_little_cores()
+    }));
+    match res {
+        Ok(true) => 1,
+        _ => 0,
+    }
+}
+
+
 
