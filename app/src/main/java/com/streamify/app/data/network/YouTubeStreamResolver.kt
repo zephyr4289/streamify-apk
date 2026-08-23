@@ -509,99 +509,74 @@ object YouTubeStreamResolver {
         try {
             val warmSession = if (config.clientName == "ANDROID_VR") warmWatchSession(videoId) else null
             val effectiveSts = warmSession?.signatureTimestamp ?: currentSignatureTimestamp()
-            val cookies = warmSession?.cookies ?: ""
-            val visitorId = warmSession?.visitorId ?: ""
 
-            // Tier 1: Rust Anti-Tamper Native Request Construction (0ms)
-            val reqSpec = com.streamify.app.data.NativeBridge.buildPlayerRequest(
-                videoId = videoId,
-                clientName = config.clientName,
-                visitorId = visitorId,
-                sts = effectiveSts,
-                cookies = cookies
-            )
+            val clientJson = JSONObject().apply {
+                put("clientName", config.clientName)
+                put("clientVersion", config.clientVersion)
+                put("hl", "en")
+                put("gl", "US")
+                config.deviceMake?.let { put("deviceMake", it) }
+                config.deviceModel?.let { put("deviceModel", it) }
+                config.osName?.let { put("osName", it) }
+                config.osVersion?.let { put("osVersion", it) }
+                if (config.clientName.contains("ANDROID", ignoreCase = true)) {
+                    put("androidSdkVersion", if (config.clientName == "ANDROID_VR") 32 else 34)
+                }
+            }
+
+            val requestJson = JSONObject().apply {
+                put("context", JSONObject().apply {
+                    put("client", clientJson)
+                })
+                put("videoId", videoId)
+                put("contentCheckOk", true)
+                put("racyCheckOk", true)
+                put("playbackContext", JSONObject().apply {
+                    put("contentPlaybackContext", JSONObject().apply {
+                        put("signatureTimestamp", effectiveSts)
+                        put("html5Preference", "HTML5_PREF_WANTS")
+                    })
+                })
+            }
 
             val reqBuilder = Request.Builder()
-            if (reqSpec != null) {
-                reqBuilder.url(reqSpec.url)
-                reqSpec.headers.forEach { (k, v) -> reqBuilder.header(k, v) }
-                reqBuilder.post(reqSpec.body_json.toRequestBody(JSON_MEDIA_TYPE))
-            } else {
-                // Fallback to Kotlin JSON builder if native library not loaded
-                val clientJson = JSONObject().apply {
-                    put("clientName", config.clientName)
-                    put("clientVersion", config.clientVersion)
-                    put("hl", "en")
-                    put("gl", "US")
-                    config.deviceMake?.let { put("deviceMake", it) }
-                    config.deviceModel?.let { put("deviceModel", it) }
-                    config.osName?.let { put("osName", it) }
-                    config.osVersion?.let { put("osVersion", it) }
-                    if (config.clientName.contains("ANDROID", ignoreCase = true)) {
-                        put("androidSdkVersion", if (config.clientName == "ANDROID_VR") 32 else 34)
-                    }
+                .url(INNERTUBE_PLAYER_URL)
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .header("User-Agent", config.userAgent)
+                .header("Accept", "*/*")
+                .header("X-YouTube-Client-Name", config.clientNumber)
+                .header("X-YouTube-Client-Version", config.clientVersion)
+                .also { attachYtSession(it) }
+
+            if (warmSession != null) {
+                if (warmSession.cookies.isNotBlank()) {
+                    reqBuilder.header("Cookie", warmSession.cookies)
                 }
-
-                val requestJson = JSONObject().apply {
-                    put("context", JSONObject().apply {
-                        put("client", clientJson)
-                    })
-                    put("videoId", videoId)
-                    put("contentCheckOk", true)
-                    put("racyCheckOk", true)
-                    put("playbackContext", JSONObject().apply {
-                        put("contentPlaybackContext", JSONObject().apply {
-                            put("signatureTimestamp", effectiveSts)
-                            put("html5Preference", "HTML5_PREF_WANTS")
-                        })
-                    })
+                if (warmSession.visitorId.isNotBlank()) {
+                    reqBuilder.header("X-Goog-Visitor-Id", warmSession.visitorId)
                 }
-
-                reqBuilder.url(INNERTUBE_PLAYER_URL)
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .header("User-Agent", config.userAgent)
-                    .header("Accept", "*/*")
-                    .header("X-YouTube-Client-Name", config.clientNumber)
-                    .header("X-YouTube-Client-Version", config.clientVersion)
-                    .also { attachYtSession(it) }
-
-                if (warmSession != null) {
-                    if (warmSession.cookies.isNotBlank()) reqBuilder.header("Cookie", warmSession.cookies)
-                    if (warmSession.visitorId.isNotBlank()) reqBuilder.header("X-Goog-Visitor-Id", warmSession.visitorId)
-                    reqBuilder.header("Origin", "https://www.youtube.com")
-                }
-                if (!config.origin.isNullOrBlank() && warmSession == null) reqBuilder.header("Origin", config.origin)
-                if (!config.referer.isNullOrBlank()) reqBuilder.header("Referer", config.referer)
-
-                reqBuilder.post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+                reqBuilder.header("Origin", "https://www.youtube.com")
             }
+
+            if (!config.origin.isNullOrBlank() && warmSession == null) {
+                reqBuilder.header("Origin", config.origin)
+            }
+            if (!config.referer.isNullOrBlank()) {
+                reqBuilder.header("Referer", config.referer)
+            }
+
+            reqBuilder.post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
 
             val request = reqBuilder.build()
 
-            // OkHttp Network Transport (Shared Connection Pool + Android OS DNS/IPv6/VPN)
-            NetworkEngine.exoPlayerClient.newCall(request).execute().use { response ->
+            NetworkEngine.client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
 
                 val body = response.body ?: return null
-                val rawBytes = body.bytes()
-                if (rawBytes.isEmpty()) return null
+                val responseBody = body.string()
 
-                // Tier 1: Zero-Copy Native Rust Stream Extractor (<1.5ms, 0 JVM GC allocations)
-                val streamInfo = com.streamify.app.data.NativeBridge.extractStreamInfo(rawBytes)
-                if (streamInfo != null && streamInfo.stream_url.isNotBlank()) {
-                    val isOpus = streamInfo.mime_type.contains("opus") || streamInfo.mime_type.contains("webm")
-                    return ResolvedStream(
-                        streamUrl = streamInfo.stream_url,
-                        format = if (isOpus) StreamFormat.OPUS else StreamFormat.AAC,
-                        bitrate = streamInfo.bitrate.toInt(),
-                        duration = streamInfo.duration_sec.toInt(),
-                        isAdaptive = true,
-                        loudnessDb = streamInfo.loudness_db
-                    )
-                }
-
-                // Tier 2: Pure Kotlin JSON Fallback Parser
-                val root = JSONObject(String(rawBytes, Charsets.UTF_8))
+                if (responseBody.isBlank()) return null
+                val root = JSONObject(responseBody)
                 return parsePlayerResponse(root)
             }
         } catch (e: Exception) {

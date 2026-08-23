@@ -852,79 +852,6 @@ object NativeBridge {
         nativeCalculatePtp(seqId, t0, t1, t2, t3, outResultsUs)
     }
 
-    data class PlayerRequestSpec(
-        val url: String,
-        val headers: Map<String, String>,
-        val body_json: String
-    )
-
-    data class ExtractedStreamInfo(
-        val stream_url: String,
-        val mime_type: String,
-        val bitrate: Long,
-        val duration_sec: Long,
-        val loudness_db: Float?,
-        val expiration_epoch: Long
-    )
-
-    fun buildPlayerRequest(
-        videoId: String,
-        clientName: String,
-        visitorId: String,
-        sts: Long,
-        cookies: String
-    ): PlayerRequestSpec? {
-        val jsonStr = try {
-            nativeBuildPlayerRequest(videoId, clientName, visitorId, sts, cookies)
-        } catch (e: Throwable) {
-            null
-        } ?: return null
-        return try {
-            val obj = org.json.JSONObject(jsonStr)
-            val url = obj.getString("url")
-            val body = obj.getString("body_json")
-            val headersObj = obj.getJSONObject("headers")
-            val headers = mutableMapOf<String, String>()
-            headersObj.keys().forEach { k -> headers[k] = headersObj.getString(k) }
-            PlayerRequestSpec(url, headers, body)
-        } catch (e: Throwable) {
-            null
-        }
-    }
-
-    fun extractStreamInfo(responseBytes: ByteArray): ExtractedStreamInfo? {
-        val jsonStr = try {
-            nativeExtractStreamInfo(responseBytes)
-        } catch (e: Throwable) {
-            null
-        } ?: return null
-        return try {
-            val obj = org.json.JSONObject(jsonStr)
-            ExtractedStreamInfo(
-                stream_url = obj.getString("stream_url"),
-                mime_type = obj.optString("mime_type", ""),
-                bitrate = obj.optLong("bitrate", 0L),
-                duration_sec = obj.optLong("duration_sec", 0L),
-                loudness_db = if (obj.has("loudness_db") && !obj.isNull("loudness_db")) obj.getDouble("loudness_db").toFloat() else null,
-                expiration_epoch = obj.optLong("expiration_epoch", 0L)
-            )
-        } catch (e: Throwable) {
-            null
-        }
-    }
-
-    private external fun nativeBuildPlayerRequest(
-        videoId: String,
-        clientName: String,
-        visitorId: String,
-        sts: Long,
-        cookies: String
-    ): String?
-
-    private external fun nativeExtractStreamInfo(
-        responseBytes: ByteArray
-    ): String?
-
     private external fun nativeVerifyPeerConsensus(
         node1: String, lufs1: Float, key1: String, vec1: FloatArray, proof1: ByteArray,
         node2: String, lufs2: Float, key2: String, vec2: FloatArray, proof2: ByteArray
@@ -934,5 +861,4 @@ object NativeBridge {
         seqId: Int, t0: Long, t1: Long, t2: Long, t3: Long, outResults: LongArray
     )
 }
-
 
