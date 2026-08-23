@@ -1285,7 +1285,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             val mediaItem = buildMediaItem(resolvedTrack)
             withContext(Dispatchers.Main) {
                 try {
-                    controller?.let { ctrl ->
+                    val ctrl = controller ?: try { controllerFuture?.get() } catch (_: Throwable) { null }
+                    if (ctrl != null) {
                         ctrl.setMediaItem(mediaItem, 0L)
                         ctrl.prepare()
                         ctrl.play()
@@ -1293,7 +1294,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 } catch (e: Throwable) {
                     e.printStackTrace()
                 }
-                val isCtrlBuffering = controller?.let { it.playbackState == androidx.media3.common.Player.STATE_BUFFERING || it.playbackState == androidx.media3.common.Player.STATE_IDLE } ?: true
+                val isCtrlBuffering = controller?.let { it.playbackState == androidx.media3.common.Player.STATE_BUFFERING } ?: false
                 _playerState.value = _playerState.value.copy(
                     currentTrack = resolvedTrack,
                     isBuffering = isCtrlBuffering
@@ -1402,11 +1403,12 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     val warmTrack = nextTrack.copy(filepath = finalUrl)
                     val lookaheadItem = buildMediaItem(warmTrack)
                     withContext(Dispatchers.Main) {
-                        controller?.let { ctrl ->
-                            if (ctrl.mediaItemCount == 1) {
-                                ctrl.addMediaItem(lookaheadItem)
-                            } else if (ctrl.mediaItemCount > 1) {
-                                ctrl.replaceMediaItem(1, lookaheadItem)
+                        val ctrl = controller ?: try { controllerFuture?.get() } catch (_: Throwable) { null }
+                        ctrl?.let { c ->
+                            if (c.mediaItemCount == 1) {
+                                c.addMediaItem(lookaheadItem)
+                            } else if (c.mediaItemCount > 1) {
+                                c.replaceMediaItem(1, lookaheadItem)
                             }
                         }
                     }

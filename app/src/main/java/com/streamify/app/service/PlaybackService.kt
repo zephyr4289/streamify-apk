@@ -53,42 +53,22 @@ class PlaybackService : MediaSessionService() {
         DolbySpatialManager.init(this)
         AudioDeviceManager.init(this)
 
-        val renderersFactory = object : DefaultRenderersFactory(this) {
-            override fun buildAudioSink(
-                context: android.content.Context,
-                enableFloatOutput: Boolean,
-                enableAudioTrackPlaybackParams: Boolean
-            ): androidx.media3.exoplayer.audio.AudioSink? {
-                return DefaultAudioSink.Builder(context)
-                    .setEnableFloatOutput(true)
-                    .setAudioProcessors(arrayOf(streamifyProcessor))
-                    .build()
-            }
-        }.apply {
-            setEnableAudioFloatOutput(true)
-        }
+        val renderersFactory = DefaultRenderersFactory(this)
 
-        // Audio-tuned LoadControl: small allocation chunk, generous back-buffer.
-        // Defaults target video; audio needs far less front-buffer to run
-        // glitch-free on eMMC + little-core devices while keeping enough
-        // buffered duration to survive GC pauses and I/O hiccups.
         val audioLoadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 15000,
-                /* maxBufferMs = */ 60000,
-                /* bufferForPlaybackMs = */ 1500,
-                /* bufferForPlaybackAfterRebufferMs = */ 3000
+                /* minBufferMs = */ 2500,
+                /* maxBufferMs = */ 30000,
+                /* bufferForPlaybackMs = */ 500,
+                /* bufferForPlaybackAfterRebufferMs = */ 1000
             )
             .setTargetBufferBytes(C.LENGTH_UNSET)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-        val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(15000)
-            .setAllowCrossProtocolRedirects(true)
-            .setKeepPostFor302Redirects(true)
+        val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
+            com.streamify.app.data.network.NetworkEngine.exoPlayerClient
+        ).setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
         // Progressive 250MB Audio LRU Cache (Zero-latency seeking & offline replaying)
         val audioCache = AudioCacheManager.getCache(this)
