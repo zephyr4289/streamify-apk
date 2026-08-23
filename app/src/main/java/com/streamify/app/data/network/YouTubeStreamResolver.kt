@@ -442,24 +442,16 @@ object YouTubeStreamResolver {
 
     @Volatile private var cachedWarmSession: WarmSession? = null
     @Volatile private var warmSessionFetchedAtMs: Long = 0L
-    @Volatile private var warmSessionRefreshInFlight: Boolean = false
     private const val SESSION_TTL_MS = 60 * 60 * 1000L // 1 Hour
 
-    private fun getOrRefreshWarmSession(forceFresh: Boolean = false): WarmSession? {
+    private fun getOrRefreshWarmSession(videoId: String): WarmSession? {
         val now = System.currentTimeMillis()
         val current = cachedWarmSession
-        if (!forceFresh && current != null && (now - warmSessionFetchedAtMs) < SESSION_TTL_MS) {
+        if (current != null && (now - warmSessionFetchedAtMs) < SESSION_TTL_MS) {
             return current
         }
 
-        if (current != null && !forceFresh) {
-            // Expired: Return stale session instantly (0ms) and refresh in background
-            maybeRefreshSessionInBackground()
-            return current
-        }
-
-        // First launch or forceFresh: Fetch session
-        val fresh = warmWatchSession("dQw4w9WgXcQ")
+        val fresh = warmWatchSession(videoId)
         if (fresh != null) {
             cachedWarmSession = fresh
             warmSessionFetchedAtMs = now
@@ -467,28 +459,9 @@ object YouTubeStreamResolver {
         return fresh ?: current
     }
 
-    private fun maybeRefreshSessionInBackground() {
-        if (warmSessionRefreshInFlight) return
-        synchronized(this) {
-            if (warmSessionRefreshInFlight) return
-            warmSessionRefreshInFlight = true
-        }
-        kotlin.concurrent.thread(name = "streamify-session-daemon", isDaemon = true) {
-            try {
-                val fresh = warmWatchSession("dQw4w9WgXcQ")
-                if (fresh != null) {
-                    cachedWarmSession = fresh
-                    warmSessionFetchedAtMs = System.currentTimeMillis()
-                }
-            } finally {
-                warmSessionRefreshInFlight = false
-            }
-        }
-    }
-
-    private fun warmWatchSession(seedVideoId: String): WarmSession? {
+    private fun warmWatchSession(videoId: String): WarmSession? {
         try {
-            val warmUrl = "https://www.youtube.com/watch?v=$seedVideoId&bpctr=9999999999&has_verified=1&hl=en"
+            val warmUrl = "https://www.youtube.com/watch?v=$videoId&bpctr=9999999999&has_verified=1&hl=en"
             val warmReq = Request.Builder()
                 .url(warmUrl)
                 .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)")
@@ -498,11 +471,10 @@ object YouTubeStreamResolver {
                 .header("Sec-Fetch-Mode", "navigate")
                 .build()
 
-            NetworkEngine.exoPlayerClient.newCall(warmReq).execute().use { resp ->
+            NetworkEngine.client.newCall(warmReq).execute().use { resp ->
                 if (!resp.isSuccessful) return null
-                val buffer = ZeroCopyBufferPool.obtain()
-                val bytesRead = ZeroCopyBufferPool.readResponseDirect(resp, buffer)
-                if (bytesRead <= 0) return null
+                val html = resp.body?.string() ?: return null
+                if (html.isBlank()) return null
 
                 val rawHeaders = resp.headers("Set-Cookie")
                 val cookieJar = mutableListOf("PREF=hl=en&tz=UTC", "SOCS=CAI")
@@ -515,20 +487,13 @@ object YouTubeStreamResolver {
                     }
                 }
 
-                // Rust Zero-Copy Native Token Extraction (0 JVM GC Regex allocations)
-                val nativeTokens = com.streamify.app.data.NativeBridge.extractSessionTokensDirect(buffer, bytesRead)
+                // Rust Zero-Copy Native Token Extraction + Regex Fallback
+                val rawBytes = html.toByteArray(Charsets.UTF_8)
+                val nativeTokens = com.streamify.app.data.NativeBridge.extractSessionTokens(rawBytes)
                 val visitorId = nativeTokens?.first?.takeIf { it.isNotBlank() } ?: run {
-                    buffer.position(0)
-                    val rawBytes = ByteArray(bytesRead)
-                    buffer.get(rawBytes)
-                    val html = String(rawBytes, Charsets.UTF_8)
                     Regex(""""visitorData"\s*:\s*"([^"]+)"""").find(html)?.groupValues?.getOrNull(1) ?: ""
                 }
                 val sts = nativeTokens?.second ?: run {
-                    buffer.position(0)
-                    val rawBytes = ByteArray(bytesRead)
-                    buffer.get(rawBytes)
-                    val html = String(rawBytes, Charsets.UTF_8)
                     Regex(""""signatureTimestamp"\s*:\s*(\d+)"""").find(html)?.groupValues?.getOrNull(1)?.toIntOrNull()
                         ?: currentSignatureTimestamp()
                 }
@@ -575,7 +540,7 @@ object YouTubeStreamResolver {
 
     private fun executePlayerRequest(videoId: String, config: ClientConfig): ResolvedStream? {
         try {
-            val warmSession = getOrRefreshWarmSession()
+            val warmSession = if (config.clientName == "ANDROID_VR") getOrRefreshWarmSession(videoId) else null
             val effectiveSts = warmSession?.signatureTimestamp ?: currentSignatureTimestamp()
 
             val clientJson = JSONObject().apply {
@@ -624,13 +589,13 @@ object YouTubeStreamResolver {
                     reqBuilder.header("X-Goog-Visitor-Id", warmSession.visitorId)
                 }
                 reqBuilder.header("Origin", "https://www.youtube.com")
-            }
-
-            if (!config.origin.isNullOrBlank() && warmSession == null) {
-                reqBuilder.header("Origin", config.origin)
-            }
-            if (!config.referer.isNullOrBlank()) {
-                reqBuilder.header("Referer", config.referer)
+            } else {
+                if (!config.origin.isNullOrBlank()) {
+                    reqBuilder.header("Origin", config.origin)
+                }
+                if (!config.referer.isNullOrBlank()) {
+                    reqBuilder.header("Referer", config.referer)
+                }
             }
 
             reqBuilder.post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -638,15 +603,14 @@ object YouTubeStreamResolver {
             val request = reqBuilder.build()
 
             // OkHttp Network Transport (Shared Connection Pool + Android OS DNS/IPv6/VPN)
-            NetworkEngine.exoPlayerClient.newCall(request).execute().use { response ->
+            NetworkEngine.client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
 
-                val buffer = ZeroCopyBufferPool.obtain()
-                val bytesRead = ZeroCopyBufferPool.readResponseDirect(response, buffer)
-                if (bytesRead <= 0) return null
+                val rawBytes = response.body?.bytes() ?: return null
+                if (rawBytes.isEmpty()) return null
 
                 // Tier 1: Zero-Copy Native Rust Stream Extractor (<1.5ms, 0 JVM GC allocations)
-                val streamInfo = com.streamify.app.data.NativeBridge.extractStreamInfoDirect(buffer, bytesRead)
+                val streamInfo = com.streamify.app.data.NativeBridge.extractStreamInfo(rawBytes)
                 if (streamInfo != null && streamInfo.stream_url.isNotBlank()) {
                     return ResolvedStream(
                         streamUrl = streamInfo.stream_url,
@@ -658,9 +622,6 @@ object YouTubeStreamResolver {
                 }
 
                 // Tier 2: Pure Kotlin JSON Fallback Parser
-                buffer.position(0)
-                val rawBytes = ByteArray(bytesRead)
-                buffer.get(rawBytes)
                 val root = JSONObject(String(rawBytes, Charsets.UTF_8))
                 return parsePlayerResponse(root)
             }

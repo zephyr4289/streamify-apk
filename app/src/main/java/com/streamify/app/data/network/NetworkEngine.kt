@@ -13,86 +13,17 @@ import java.net.InetAddress
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-object StreamifyDnsCache : Dns {
-    private val cache = ConcurrentHashMap<String, List<InetAddress>>()
-
-    override fun lookup(hostname: String): List<InetAddress> {
-        // Fast-path: return cached IPs in <0.1ms
-        cache[hostname]?.let { return it }
-
-        // Slow-path: query system resolver and cache
-        val addresses = try {
-            InetAddress.getAllByName(hostname).toList()
-        } catch (e: Exception) {
-            Dns.SYSTEM.lookup(hostname)
-        }
-        if (addresses.isNotEmpty()) {
-            cache[hostname] = addresses
-        }
-        return addresses
-    }
-
-    fun preWarm(hostname: String) {
-        if (cache.containsKey(hostname)) return
-        kotlin.concurrent.thread(name = "streamify-dns-prewarm", isDaemon = true) {
-            try {
-                val addresses = InetAddress.getAllByName(hostname).toList()
-                if (addresses.isNotEmpty()) {
-                    cache[hostname] = addresses
-                }
-            } catch (_: Throwable) {}
-        }
-    }
-}
-
 object ConnectionWarmer {
     suspend fun preWarmCDN(cdnUrl: String) = withContext(Dispatchers.IO) {
+        // Safe DNS resolution trigger without sending malformed HTTP probes
         if (cdnUrl.isBlank() || !cdnUrl.startsWith("http")) return@withContext
         try {
             val uri = android.net.Uri.parse(cdnUrl)
             val host = uri.host ?: return@withContext
-            StreamifyDnsCache.preWarm(host)
-
-            // Lightweight HTTP request to force DNS resolution + TLS 1.3 handshake and pool the socket
-            val warmRequest = Request.Builder()
-                .url(cdnUrl)
-                .header("Range", "bytes=0-1")
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-                .build()
-
-            NetworkEngine.exoPlayerClient.newCall(warmRequest).execute().use { _ ->
-                // Socket is now warm and pooled in exoPlayerClient's connection pool
-            }
+            InetAddress.getByName(host)
         } catch (_: Throwable) {
-            // Fail silently; ExoPlayer will establish connection normally
+            // Fail silently; ExoPlayer will resolve normally
         }
-    }
-}
-
-object ZeroCopyBufferPool {
-    // Thread-local DirectByteBuffer pool (512KB off-heap per thread) for zero-copy JNI parsing
-    private val localBuffer = ThreadLocal.withInitial {
-        java.nio.ByteBuffer.allocateDirect(512 * 1024).order(java.nio.ByteOrder.nativeOrder())
-    }
-
-    fun obtain(): java.nio.ByteBuffer {
-        val buf = localBuffer.get()
-        buf.clear()
-        return buf
-    }
-
-    fun readResponseDirect(response: okhttp3.Response, buffer: java.nio.ByteBuffer): Int {
-        buffer.clear()
-        val source = response.body?.source() ?: return -1
-        val channel = java.nio.channels.Channels.newChannel(source.inputStream())
-        var totalBytesRead = 0
-        while (buffer.hasRemaining()) {
-            val read = channel.read(buffer)
-            if (read == -1) break
-            totalBytesRead += read
-        }
-        buffer.flip()
-        return totalBytesRead
     }
 }
 
@@ -100,12 +31,11 @@ object NetworkEngine {
 
     val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .dns(StreamifyDnsCache)
             .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
-            .connectTimeout(3000, TimeUnit.MILLISECONDS)
-            .readTimeout(4000, TimeUnit.MILLISECONDS)
-            .writeTimeout(3000, TimeUnit.MILLISECONDS)
+            .connectTimeout(5000, TimeUnit.MILLISECONDS)
+            .readTimeout(6000, TimeUnit.MILLISECONDS)
+            .writeTimeout(5000, TimeUnit.MILLISECONDS)
             .retryOnConnectionFailure(true)
             .build()
     }
@@ -124,12 +54,11 @@ object NetworkEngine {
 
     val exoPlayerClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .dns(StreamifyDnsCache)
             .addInterceptor(prioritizedInterceptor)
             .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectTimeout(10000, TimeUnit.MILLISECONDS)
-            .readTimeout(10000, TimeUnit.MILLISECONDS)
+            .readTimeout(15000, TimeUnit.MILLISECONDS)
             .retryOnConnectionFailure(true)
             .build()
     }
