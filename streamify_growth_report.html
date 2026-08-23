@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streamify APK — Codebase Growth & Architectural Evolution</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&family=Poppins:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #07090E;
+            --bg-surface: #0F141C;
+            --bg-card: #161D28;
+            --bg-elevated: #1F2837;
+            --primary: #1DB954;
+            --primary-glow: rgba(29, 185, 84, 0.3);
+            --primary-dark: #169c46;
+            --accent-cyan: #00D2FF;
+            --accent-purple: #9D4EDD;
+            --accent-orange: #FF9E00;
+            --accent-pink: #FF4D6D;
+            --accent-rust: #DEA584;
+            --text-main: #FFFFFF;
+            --text-secondary: #A0ABC0;
+            --text-tertiary: #64748B;
+            --border-subtle: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(29, 185, 84, 0.4);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: 'Poppins', sans-serif;
+            line-height: 1.6;
+            padding: 24px;
+            overflow-x: hidden;
+        }
+        .container { max-width: 1440px; margin: 0 auto; }
+        header {
+            background: linear-gradient(135deg, rgba(29, 185, 84, 0.18) 0%, rgba(15, 20, 29, 0.95) 100%);
+            border: 1px solid var(--border-subtle);
+            border-radius: 20px;
+            padding: 36px 40px;
+            margin-bottom: 28px;
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+            position: relative;
+            overflow: hidden;
+        }
+        header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 550px;
+            height: 550px;
+            background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .badge-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(29, 185, 84, 0.15);
+            border: 1px solid rgba(29, 185, 84, 0.35);
+            color: var(--primary);
+            font-family: 'Montserrat', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            margin-bottom: 16px;
+        }
+        .badge-pill span {
+            width: 8px;
+            height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 10px var(--primary);
+        }
+        h1 {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 38px;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+            line-height: 1.2;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #FFFFFF 0%, #E2E8F0 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 16px;
+            max-width: 950px;
+        }
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 18px;
+            margin-bottom: 28px;
+        }
+        .kpi-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 22px;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+        }
+        .kpi-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--border-highlight);
+            box-shadow: 0 12px 28px rgba(29, 185, 84, 0.15);
+        }
+        .kpi-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--primary);
+        }
+        .kpi-card.cyan::after { background: var(--accent-cyan); }
+        .kpi-card.purple::after { background: var(--accent-purple); }
+        .kpi-card.rust::after { background: var(--accent-rust); }
+        .kpi-card.pink::after { background: var(--accent-pink); }
+
+        .kpi-title {
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.8px;
+            margin-bottom: 8px;
+        }
+        .kpi-value {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-bottom: 4px;
+        }
+        .kpi-subtext {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .chart-section {
+            display: grid;
+            grid-template-columns: 2.2fr 1fr;
+            gap: 22px;
+            margin-bottom: 28px;
+        }
+        @media (max-width: 1024px) {
+            .chart-section { grid-template-columns: 1fr; }
+        }
+        .chart-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 18px;
+            padding: 26px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .chart-title {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+        }
+        .pie-container {
+            position: relative;
+            height: 340px;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .milestones-section {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 18px;
+            padding: 30px;
+            margin-bottom: 28px;
+        }
+        .timeline-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .milestone-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 14px;
+            padding: 20px;
+            position: relative;
+            transition: all 0.2s ease;
+        }
+        .milestone-card:hover {
+            border-color: var(--primary);
+            background: var(--bg-elevated);
+            transform: translateY(-2px);
+        }
+        .milestone-tag {
+            display: inline-block;
+            background: rgba(29, 185, 84, 0.18);
+            color: var(--primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        .milestone-title {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            color: #FFF;
+        }
+        .milestone-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+        .milestone-stats {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text-tertiary);
+        }
+        .milestone-stats strong { color: var(--accent-cyan); }
+        .table-section {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: 18px;
+            padding: 30px;
+            margin-bottom: 28px;
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            text-align: left;
+        }
+        th {
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-family: 'Montserrat', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+        }
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+            color: var(--text-main);
+        }
+        .hash-code {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-cyan);
+            font-weight: 600;
+        }
+        .loc-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        footer {
+            text-align: center;
+            padding: 30px 0;
+            color: var(--text-tertiary);
+            font-size: 13px;
+            border-top: 1px solid var(--border-subtle);
+        }
+        footer strong { color: var(--primary); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="badge-pill">
+                <span></span> Git Evolution Intelligence Report • v7.0 (304 Commits)
+            </div>
+            <h1>Streamify APK — Codebase Growth Analysis</h1>
+            <p class="subtitle">
+                Comprehensive historical metrics from initial commit <strong>#1 (Genesis)</strong> to <strong>Commit #304 (HEAD)</strong>. Visualizing Dual-Native <strong>C++20 + Rust</strong> architecture migration, SLYR Acoustic Sync, Project Continuum, and extreme performance optimizations.
+            </p>
+        </header>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-title">Total Authored LoC</div>
+                <div class="kpi-value">43,147</div>
+                <div class="kpi-subtext">+41.1x growth from initial baseline</div>
+            </div>
+            <div class="kpi-card cyan">
+                <div class="kpi-title">Kotlin UI & Core</div>
+                <div class="kpi-value">34,947</div>
+                <div class="kpi-subtext">81.0% of authored application codebase</div>
+            </div>
+            <div class="kpi-card purple">
+                <div class="kpi-title">Native C++20 DSP & Core</div>
+                <div class="kpi-value">6,390</div>
+                <div class="kpi-subtext">LyricAligner, RK4, PTP, LUFS & DB</div>
+            </div>
+            <div class="kpi-card rust">
+                <div class="kpi-title">Rust High-Perf Engine</div>
+                <div class="kpi-value">1,667</div>
+                <div class="kpi-subtext">Zero-cost FFI, Resolver, Tagger & Lyrics</div>
+            </div>
+            <div class="kpi-card pink">
+                <div class="kpi-title">Total Git Commits</div>
+                <div class="kpi-value">304</div>
+                <div class="kpi-subtext">Spanning 137+ automated CI releases</div>
+            </div>
+        </div>
+
+        <div class="chart-section">
+            <div class="chart-card">
+                <div class="chart-header">
+                    <div class="chart-title">
+                        Authored Lines of Code Growth Trajectory
+                    </div>
+                    <span style="font-size: 12px; color: var(--primary); font-family: 'JetBrains Mono';">All 304 Commits</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="growthChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-header">
+                    <div class="chart-title">
+                        Language Share Ratio
+                    </div>
+                </div>
+                <div class="pie-container">
+                    <canvas id="langPieChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-card" style="margin-bottom: 28px;">
+            <div class="chart-header">
+                <div class="chart-title">
+                    Multi-Language Layer Stack (Kotlin vs C++ vs Rust vs Python)
+                </div>
+            </div>
+            <div class="chart-container" style="height: 360px;">
+                <canvas id="stackedAreaChart"></canvas>
+            </div>
+        </div>
+
+        <div class="milestones-section">
+            <div class="chart-title">
+                Key Architectural Evolution Epochs
+            </div>
+            <div class="timeline-grid">
+
+                <div class="milestone-card">
+                    <div class="milestone-tag">1b5a97a</div>
+                    <div class="milestone-title">Commit #1 — Genesis Foundation</div>
+                    <div class="milestone-desc">Initial Android single-activity architecture, Jetpack Compose skeleton, and basic ExoPlayer.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-12</span>
+                        <span>LoC: <strong>0</strong></span>
+                    </div>
+                </div>
+    
+                <div class="milestone-card">
+                    <div class="milestone-tag">e27ac17</div>
+                    <div class="milestone-title">Build 25 — Early JNI & DSP</div>
+                    <div class="milestone-desc">C++ SQLite3 connection, KissFFT STFT spectral flux analysis.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-12</span>
+                        <span>LoC: <strong>4,989</strong></span>
+                    </div>
+                </div>
+    
+                <div class="milestone-card">
+                    <div class="milestone-tag">a0001d0</div>
+                    <div class="milestone-title">Build 60 — Vector Cosine Similarity</div>
+                    <div class="milestone-desc">512-dim vector store with ARM NEON SIMD vectorization.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-13</span>
+                        <span>LoC: <strong>5,839</strong></span>
+                    </div>
+                </div>
+    
+                <div class="milestone-card">
+                    <div class="milestone-tag">0aa9530</div>
+                    <div class="milestone-title">Build 75 — Spotify Compose UI Overhaul</div>
+                    <div class="milestone-desc">Pixel-perfect Spotify dark theme, dynamic palette, LRC lyrics sheet.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-13</span>
+                        <span>LoC: <strong>7,451</strong></span>
+                    </div>
+                </div>
+    
+                <div class="milestone-card">
+                    <div class="milestone-tag">0d6d35c</div>
+                    <div class="milestone-title">Build 88 — Resilient EventBus & Native Stream</div>
+                    <div class="milestone-desc">Global SharedFlow UI EventBus, C++ mutex WAL sync, Sub-100ms Innertube.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-14</span>
+                        <span>LoC: <strong>12,186</strong></span>
+                    </div>
+                </div>
+    
+                <div class="milestone-card">
+                    <div class="milestone-tag">80a635c</div>
+                    <div class="milestone-title">Build 92 — Modular Audio & Cache Subsystems</div>
+                    <div class="milestone-desc">Soft-Knee Limiter, 0.00s gapless caching, Prometheus QoS scheduler, Janus & Hermes.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-15</span>
+                        <span>LoC: <strong>16,268</strong></span>
+                    </div>
+                </div>
+    
+                <div class="milestone-card">
+                    <div class="milestone-tag">4f54171</div>
+                    <div class="milestone-title">Build 100 — Project Titan & Edge Mesh</div>
+                    <div class="milestone-desc">Distributed edge compute mesh, realtime Jam rooms, LUFS normalizer, Chronos profiler, telemetry queue.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-15</span>
+                        <span>LoC: <strong>21,825</strong></span>
+                    </div>
+                </div>
+    
+                <div class="milestone-card">
+                    <div class="milestone-tag">c07d87f</div>
+                    <div class="milestone-title">Build 109 — Project Continuum & Full YouTube Engine</div>
+                    <div class="milestone-desc">Infinite Radio Continuum engine, 120fps Syllable Karaoke, Quantum Sonic Token, In-App OTA updater & tactile haptics.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-16</span>
+                        <span>LoC: <strong>30,352</strong></span>
+                    </div>
+                </div>
+    
+                <div class="milestone-card">
+                    <div class="milestone-tag">187849a</div>
+                    <div class="milestone-title">Build 121 — Project Aether PTP & 64-Feature Systems Suite</div>
+                    <div class="milestone-desc">Sub-15ms IEEE 1588 PTP audio sync, 5-Key Zhipu NDK Vault, Semantic Search, Zero-Loss Nuclear Reset & Dual-Pane Adaptive UI.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-17</span>
+                        <span>LoC: <strong>35,186</strong></span>
+                    </div>
+                </div>
+    
+                <div class="milestone-card">
+                    <div class="milestone-tag">a628fc5</div>
+                    <div class="milestone-title">Build 125 — AirDrop RK4 & Live Mesh</div>
+                    <div class="milestone-desc">Continuous C++20 Runge-Kutta 4th order AirDrop fluid dynamics, JIT timeline window, Spotify-grade distributed playlists.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-18</span>
+                        <span>LoC: <strong>39,411</strong></span>
+                    </div>
+                </div>
+    
+                <div class="milestone-card">
+                    <div class="milestone-tag">e99e4a5</div>
+                    <div class="milestone-title">Commit #304 (HEAD) — Dual-Native C++20 + Rust Migration & SLYR Sync</div>
+                    <div class="milestone-desc">Eliminated Python runtime in favor of high-performance Rust FFI + C++20 DSP LyricAligner, SLYR acoustic sync, and extreme test matrix.</div>
+                    <div class="milestone-stats">
+                        <span>Date: 2026-08-19</span>
+                        <span>LoC: <strong>43,147</strong></span>
+                    </div>
+                </div>
+    
+            </div>
+        </div>
+
+        <div class="table-section">
+            <div class="chart-title" style="margin-bottom: 18px;">
+                Recent Milestone Commits (Builds 125 → HEAD #304)
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Commit</th>
+                        <th>Date</th>
+                        <th>Author</th>
+                        <th>Message</th>
+                        <th>Cumulative Authored LoC</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr>
+                        <td class="hash-code">d2329b6</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>fix(auth-sync): resolve account switching leak, db nuke auto...</td>
+                        <td class="loc-badge">40,917</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">6a95d68</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>fix(playlist-scraper): resolve YTM browse blocking and suppo...</td>
+                        <td class="loc-badge">40,928</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">8bfeff1</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>feat(ui): add emoji-free cybernetic telemetry progression to...</td>
+                        <td class="loc-badge">40,966</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">ce59667</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>fix(playback): resolve track resolution hijacking and add th...</td>
+                        <td class="loc-badge">41,004</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">ed51605</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>fix(jam): resolve play/pause sync across devices and add col...</td>
+                        <td class="loc-badge">41,223</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">24ba991</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>feat(search): implement parametric category search, studio n...</td>
+                        <td class="loc-badge">41,641</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">1bfe59a</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>perf(architecture): implement reactive event-driven pipeline...</td>
+                        <td class="loc-badge">41,678</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">2bd0065</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>perf(viewmodel): debounce recommendation engine, parallelize...</td>
+                        <td class="loc-badge">41,702</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">90ee200</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>perf(recomposition): add atomic hydration cancellation, deri...</td>
+                        <td class="loc-badge">41,731</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">83efd5a</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>perf(rendering): pre-allocate GPU canvas assets and isolate ...</td>
+                        <td class="loc-badge">41,746</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">83557ee</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>perf(data-integrity): implement composite queue keys, target...</td>
+                        <td class="loc-badge">41,783</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">51d2f4b</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>perf(concurrency): implement structured channel actor for pl...</td>
+                        <td class="loc-badge">41,784</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">6fddcb7</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>ci: replace build.yml with extreme test matrix and chaos sui...</td>
+                        <td class="loc-badge">41,784</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">e443572</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>docs: add test-log.md guide for CI extreme testing matrix an...</td>
+                        <td class="loc-badge">41,784</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">bd17753</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>ci: remove obsolete android.yml workflow in favor of extreme...</td>
+                        <td class="loc-badge">41,784</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">d5986bc</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>fix(ci): escape multiline bash strings in extreme-test-matri...</td>
+                        <td class="loc-badge">41,784</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">c4da7fe</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>fix(ci): robust build failure handling, fix host CMake NDK l...</td>
+                        <td class="loc-badge">41,786</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">dd6fd76</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>fix(compile): resolve multiple kotlin compiler errors across...</td>
+                        <td class="loc-badge">41,844</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">04f0185</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>fix(ui): remove duplicate landscape pane overloads in FullPl...</td>
+                        <td class="loc-badge">41,810</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">e239cf9</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>feat(tests): implement native C++ & python test harnesses, r...</td>
+                        <td class="loc-badge">42,009</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">80e8d55</td>
+                        <td>2026-08-18</td>
+                        <td>sireenyadav</td>
+                        <td>fix(tests): add log stub and link pthread/dl for native stor...</td>
+                        <td class="loc-badge">42,020</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="hash-code">e99e4a5</td>
+                        <td>2026-08-19</td>
+                        <td>sireenyadav</td>
+                        <td>feat(core): migrate to Dual-Native C++20 + Rust architecture...</td>
+                        <td class="loc-badge">43,147</td>
+                    </tr>
+    
+                </tbody>
+            </table>
+        </div>
+
+        <footer>
+            Generated for <strong>Streamify Mobile Client</strong> • Analyzed 304 Commits & 137+ Build Tags • Production Intelligence Report
+        </footer>
+    </div>
+
+    <script>
+        const rawData = [{"hash": "1b5a97a", "date": "2026-08-12", "author": "sireenyadav", "msg": "init: streamify-apk project scaffold with implementation blu...", "kotlin": 0, "native_cpp": 0, "rust": 0, "python": 0, "docs": 1309, "total_authored": 0}, {"hash": "0a1eae2", "date": "2026-08-12", "author": "sireenyadav", "msg": "docs: upgrade implementation.md to AI-executable master blue...", "kotlin": 0, "native_cpp": 0, "rust": 0, "python": 0, "docs": 1784, "total_authored": 0}, {"hash": "4e83bef", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat: initialize Android project and NDK foundation (Phase 1...", "kotlin": 93, "native_cpp": 18, "rust": 0, "python": 0, "docs": 1861, "total_authored": 111}, {"hash": "e75de27", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat: core playback and native sqlite db via JNI (Phase 2)", "kotlin": 346, "native_cpp": 586, "rust": 0, "python": 0, "docs": 1861, "total_authored": 932}, {"hash": "168942c", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat: Python search and download pipeline via Chaquopy (Phas...", "kotlin": 475, "native_cpp": 586, "rust": 0, "python": 82, "docs": 1861, "total_authored": 1143}, {"hash": "db2f325", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat: ONNX AI recommendation engine with ARM NEON SIMD (Phas...", "kotlin": 490, "native_cpp": 1273, "rust": 0, "python": 238, "docs": 2569, "total_authored": 2001}, {"hash": "831dd75", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat: device music discovery and background ingestion (Phase...", "kotlin": 679, "native_cpp": 1273, "rust": 0, "python": 238, "docs": 2568, "total_authored": 2190}, {"hash": "9def262", "date": "2026-08-12", "author": "sireenyadav", "msg": "chore: release preparations, lyrics UI, and final polish (Ph...", "kotlin": 770, "native_cpp": 1273, "rust": 0, "python": 238, "docs": 2567, "total_authored": 2281}, {"hash": "75acf62", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: capture build logs and push to build-logs branch", "kotlin": 770, "native_cpp": 1273, "rust": 0, "python": 238, "docs": 2567, "total_authored": 2281}, {"hash": "542583d", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: add write permissions for github actions bot to push log...", "kotlin": 770, "native_cpp": 1273, "rust": 0, "python": 238, "docs": 2567, "total_authored": 2281}, {"hash": "b7b44b5", "date": "2026-08-12", "author": "sireenyadav", "msg": "chore: add gradle wrapper files for CI", "kotlin": 770, "native_cpp": 1273, "rust": 0, "python": 238, "docs": 2567, "total_authored": 2281}, {"hash": "973284c", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: rename drawable resources to use underscores instead of...", "kotlin": 770, "native_cpp": 1273, "rust": 0, "python": 238, "docs": 2567, "total_authored": 2281}, {"hash": "9e35a5f", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: add missing mipmap launcher icons", "kotlin": 770, "native_cpp": 1273, "rust": 0, "python": 238, "docs": 2567, "total_authored": 2281}, {"hash": "2d76810", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: resolve C++ compilation errors for miniaudio and ONNX m...", "kotlin": 770, "native_cpp": 1274, "rust": 0, "python": 238, "docs": 2567, "total_authored": 2282}, {"hash": "f7dea7b", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: resolve Kotlin compilation errors (WorkManager and Reco...", "kotlin": 777, "native_cpp": 1274, "rust": 0, "python": 238, "docs": 2567, "total_authored": 2289}, {"hash": "3869881", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: C++ mock types and remove duplicate RecommendationNativ...", "kotlin": 771, "native_cpp": 1274, "rust": 0, "python": 238, "docs": 2567, "total_authored": 2283}, {"hash": "bd68792", "date": "2026-08-12", "author": "sireenyadav", "msg": "docs: add implementation_v2.md plan [skip ci]", "kotlin": 771, "native_cpp": 1274, "rust": 0, "python": 238, "docs": 3926, "total_authored": 2283}, {"hash": "e8b1cf3", "date": "2026-08-12", "author": "Sireen Yadav", "msg": "Edit implementation_v2.md", "kotlin": 771, "native_cpp": 1274, "rust": 0, "python": 238, "docs": 3939, "total_authored": 2283}, {"hash": "926c384", "date": "2026-08-12", "author": "sireenyadav", "msg": "docs: add execution checklist task_v2.md [skip ci]", "kotlin": 771, "native_cpp": 1274, "rust": 0, "python": 238, "docs": 4072, "total_authored": 2283}, {"hash": "11d5d3c", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat(ui): establish Spotify design system \u2014 fonts, typograph...", "kotlin": 909, "native_cpp": 1274, "rust": 0, "python": 238, "docs": 4072, "total_authored": 2421}, {"hash": "cacd1cb", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat(ui): build component library, utilities, and animations", "kotlin": 1823, "native_cpp": 1274, "rust": 0, "python": 238, "docs": 4072, "total_authored": 3335}, {"hash": "60e7f54", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat(ui): complete phase 3 - core screens and architecture", "kotlin": 2404, "native_cpp": 1274, "rust": 0, "python": 238, "docs": 4072, "total_authored": 3916}, {"hash": "40209d2", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat(player): complete phase 4 - full exoplayer system and u...", "kotlin": 3126, "native_cpp": 1274, "rust": 0, "python": 238, "docs": 4072, "total_authored": 4638}, {"hash": "f083f7c", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat(download): complete phase 5 - yt-dlp python pipeline an...", "kotlin": 3294, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4071, "total_authored": 4875}, {"hash": "e27ac17", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat(polish): complete phase 6 - animations, edge to edge, n...", "kotlin": 3408, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4071, "total_authored": 4989}, {"hash": "fc63bfa", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: wire full player stack, fix compile errors (missing imp...", "kotlin": 3478, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4071, "total_authored": 5059}, {"hash": "1e2fa02", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: remove invalid yt-dlp version constraint [skip ci]", "kotlin": 3478, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4071, "total_authored": 5059}, {"hash": "9716e32", "date": "2026-08-12", "author": "sireenyadav", "msg": "chore: trigger CI workflow", "kotlin": 3478, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4071, "total_authored": 5059}, {"hash": "6904bf1", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: resolve remaining compose ui compile errors", "kotlin": 3421, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4071, "total_authored": 5002}, {"hash": "812813b", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: upload apk to nightly release instead of zip artifact", "kotlin": 3421, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4071, "total_authored": 5002}, {"hash": "1b583da", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat: wire online search results and trigger downloads, add ...", "kotlin": 3479, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4071, "total_authored": 5060}, {"hash": "3f23121", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: resolve Track instantiation compile error in SearchScre...", "kotlin": 3502, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4071, "total_authored": 5083}, {"hash": "32ddf6f", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: reorder Compose parameters to avoid compiler plugin iss...", "kotlin": 3595, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4077, "total_authored": 5176}, {"hash": "672dada", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: upload apk to artifacts and dynamically create releases", "kotlin": 3595, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4077, "total_authored": 5176}, {"hash": "68d89fd", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: initialize Chaquopy Python context on app launch", "kotlin": 3603, "native_cpp": 1274, "rust": 0, "python": 307, "docs": 4077, "total_authored": 5184}, {"hash": "1c4b444", "date": "2026-08-12", "author": "sireenyadav", "msg": "perf: strip 32-bit ABI to halve APK size, wire AI extraction...", "kotlin": 3630, "native_cpp": 1274, "rust": 0, "python": 315, "docs": 4077, "total_authored": 5219}, {"hash": "1830207", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat: complete AI audio pipeline, real-time downloads, faste...", "kotlin": 3766, "native_cpp": 1412, "rust": 0, "python": 346, "docs": 4077, "total_authored": 5524}, {"hash": "e3e5ad3", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix(build): add explicit Observer import and NDK M_PI macro ...", "kotlin": 3768, "native_cpp": 1416, "rust": 0, "python": 346, "docs": 4077, "total_authored": 5530}, {"hash": "627844e", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: add Python 3.11 setup for Chaquopy Gradle plugin in GitH...", "kotlin": 3768, "native_cpp": 1416, "rust": 0, "python": 346, "docs": 4077, "total_authored": 5530}, {"hash": "07ff6be", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: install CMake 3.22.1 and print build log on failure", "kotlin": 3768, "native_cpp": 1416, "rust": 0, "python": 346, "docs": 4077, "total_authored": 5530}, {"hash": "a05077d", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix(release): specify exact app-debug.apk file path for GitH...", "kotlin": 3768, "native_cpp": 1416, "rust": 0, "python": 346, "docs": 4077, "total_authored": 5530}, {"hash": "1294ac4", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: pass GITHUB_TOKEN explicitly to softprops/action-gh-rele...", "kotlin": 3768, "native_cpp": 1416, "rust": 0, "python": 346, "docs": 4077, "total_authored": 5530}, {"hash": "c2a4a88", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix(release): bulletproof apk path resolution for github rel...", "kotlin": 3768, "native_cpp": 1416, "rust": 0, "python": 346, "docs": 4077, "total_authored": 5530}, {"hash": "3d8d32e", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: capture and upload prepare log to build-logs", "kotlin": 3768, "native_cpp": 1416, "rust": 0, "python": 346, "docs": 4077, "total_authored": 5530}, {"hash": "b02f545", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix(ci): use explicit dynamic APK_PATH environment variable ...", "kotlin": 3768, "native_cpp": 1416, "rust": 0, "python": 346, "docs": 4077, "total_authored": 5530}, {"hash": "a93e885", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix(ui): fix kotlin unresolved references and compose compil...", "kotlin": 3772, "native_cpp": 1416, "rust": 0, "python": 346, "docs": 4077, "total_authored": 5534}, {"hash": "1c4c75d", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat: complete UI enhancements for AI badges, lyrics, sync, ...", "kotlin": 3800, "native_cpp": 1416, "rust": 0, "python": 365, "docs": 4077, "total_authored": 5581}, {"hash": "c09ee87", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: resolve compile errors with LocalLifecycleOwner and Obs...", "kotlin": 3800, "native_cpp": 1416, "rust": 0, "python": 365, "docs": 4077, "total_authored": 5581}, {"hash": "5814dc8", "date": "2026-08-12", "author": "sireenyadav", "msg": "docs: update README for Android APK architecture [skip ci]", "kotlin": 3800, "native_cpp": 1416, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5581}, {"hash": "8b1de32", "date": "2026-08-12", "author": "sireenyadav", "msg": "feat: complete architectural overhaul with strict UDF, Botto...", "kotlin": 4013, "native_cpp": 1442, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5820}, {"hash": "cc98c90", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: fix artifact upload paths and release paths", "kotlin": 4013, "native_cpp": 1442, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5820}, {"hash": "ace781a", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: fix artifact release upload by copying apk to root direc...", "kotlin": 4013, "native_cpp": 1442, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5820}, {"hash": "e94398e", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: capture gradle output properly and upload build.log arti...", "kotlin": 4013, "native_cpp": 1442, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5820}, {"hash": "7bb8f6b", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: commit build log to branch", "kotlin": 4013, "native_cpp": 1442, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5820}, {"hash": "fef21f3", "date": "2026-08-12", "author": "sireenyadav", "msg": "fix: resolve kotlin compilation errors in MainActivity, AppN...", "kotlin": 4013, "native_cpp": 1442, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5820}, {"hash": "db5c7b9", "date": "2026-08-12", "author": "sireenyadav", "msg": "ci: remove custom build logger to fix workflow pipeline", "kotlin": 4013, "native_cpp": 1442, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5820}, {"hash": "b2f3ccb", "date": "2026-08-13", "author": "sireenyadav", "msg": "ci: post build log to commit comment on failure", "kotlin": 4013, "native_cpp": 1442, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5820}, {"hash": "f44f1e7", "date": "2026-08-13", "author": "sireenyadav", "msg": "ci: grep exact kotlin errors", "kotlin": 4013, "native_cpp": 1442, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5820}, {"hash": "e424fc3", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix: change sampleRate check to use -1 instead of C.RATE_UNS...", "kotlin": 4013, "native_cpp": 1442, "rust": 0, "python": 365, "docs": 3995, "total_authored": 5820}, {"hash": "a0001d0", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(download): eliminate premature onFinished callbacks and ...", "kotlin": 4031, "native_cpp": 1442, "rust": 0, "python": 366, "docs": 3995, "total_authored": 5839}, {"hash": "a4413f2", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: add dedicated music download folder, audio quality sel...", "kotlin": 4127, "native_cpp": 1442, "rust": 0, "python": 366, "docs": 3995, "total_authored": 5935}, {"hash": "fe042f2", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(ui): add missing dp import and resolve OnlineSearchResul...", "kotlin": 4129, "native_cpp": 1442, "rust": 0, "python": 366, "docs": 3995, "total_authored": 5937}, {"hash": "d5120b0", "date": "2026-08-13", "author": "sireenyadav", "msg": "perf: optimize CI build speed with ccache, setup-java gradle...", "kotlin": 4129, "native_cpp": 1442, "rust": 0, "python": 366, "docs": 3995, "total_authored": 5937}, {"hash": "b984943", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(phase1): resolve download data pipeline, TrackRepository...", "kotlin": 4192, "native_cpp": 1442, "rust": 0, "python": 366, "docs": 4715, "total_authored": 6000}, {"hash": "07902da", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat(phase2): implement VLC-style device audio scanner and a...", "kotlin": 4269, "native_cpp": 1442, "rust": 0, "python": 366, "docs": 4715, "total_authored": 6077}, {"hash": "57de5fb", "date": "2026-08-13", "author": "sireenyadav", "msg": "style(phase3): apply Spotify exact dark design tokens and ty...", "kotlin": 4270, "native_cpp": 1442, "rust": 0, "python": 366, "docs": 4715, "total_authored": 6078}, {"hash": "6ab8926", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat(phase4): reconstruct screens, add downloads tab, repair...", "kotlin": 4279, "native_cpp": 1442, "rust": 0, "python": 366, "docs": 4715, "total_authored": 6087}, {"hash": "8a4d968", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat(phase5): improve player immersion, mini player gestures...", "kotlin": 4291, "native_cpp": 1442, "rust": 0, "python": 366, "docs": 4715, "total_authored": 6099}, {"hash": "f539227", "date": "2026-08-13", "author": "sireenyadav", "msg": "perf(phase6-7): add C++ session memory cleanup, SQL indexes,...", "kotlin": 4292, "native_cpp": 1458, "rust": 0, "python": 366, "docs": 4715, "total_authored": 6116}, {"hash": "7f4f511", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: implement folder view in library screen", "kotlin": 4495, "native_cpp": 1456, "rust": 0, "python": 366, "docs": 4715, "total_authored": 6317}, {"hash": "dce8c1a", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: implement settings, sleep timer, id3 editor, and queue...", "kotlin": 4855, "native_cpp": 1489, "rust": 0, "python": 366, "docs": 4715, "total_authored": 6710}, {"hash": "7bcd59b", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: playlists, palette, gapless, miniplayer gestures", "kotlin": 5117, "native_cpp": 1489, "rust": 0, "python": 366, "docs": 4715, "total_authored": 6972}, {"hash": "4abae98", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: immersive animated lyrics and search history", "kotlin": 5241, "native_cpp": 1489, "rust": 0, "python": 366, "docs": 4715, "total_authored": 7096}, {"hash": "7e4b32f", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: zero-buffer architecture with instant streaming", "kotlin": 5251, "native_cpp": 1489, "rust": 0, "python": 385, "docs": 4715, "total_authored": 7125}, {"hash": "0aa9530", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: master equalizer, auto-lyrics via lrclib, and android ...", "kotlin": 5577, "native_cpp": 1489, "rust": 0, "python": 385, "docs": 4715, "total_authored": 7451}, {"hash": "cb92998", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: integrate legacy spotify import, itunes hd art, and sm...", "kotlin": 5693, "native_cpp": 1489, "rust": 0, "python": 590, "docs": 4715, "total_authored": 7772}, {"hash": "a8a974e", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: integrate native mutagen metadata tagging, lrclib, and...", "kotlin": 5819, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 7928}, {"hash": "44f9cec", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: Neural Infinity Radio, Gapless Playback, Transfer Hub,...", "kotlin": 5901, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8010}, {"hash": "f02e707", "date": "2026-08-13", "author": "sireenyadav", "msg": "ci: add GitHub Actions workflow for Android APK build", "kotlin": 5901, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8010}, {"hash": "48e3eef", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(ui): resolve DownloadScreen taskId compilation error", "kotlin": 5901, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8010}, {"hash": "53181dd", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(ui): resolve massive batch of unresolved references and ...", "kotlin": 5932, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8041}, {"hash": "86f084c", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(ui): resolve ContextMenuSheet coroutine launch syntax an...", "kotlin": 5934, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8043}, {"hash": "44cd7b4", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat: search loading shimmer, direct stream HTTP headers, St...", "kotlin": 6260, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8369}, {"hash": "39a8a1d", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(build): resolve DefaultRenderersFactory setAudioSink, Co...", "kotlin": 6252, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8361}, {"hash": "09a3848", "date": "2026-08-13", "author": "sireenyadav", "msg": "ci: add Python 3.11 and NDK/CMake to android.yml and automat...", "kotlin": 6252, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8361}, {"hash": "ab8a900", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(build): fix buildAudioSink return type, ExoPlayer builde...", "kotlin": 6256, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8365}, {"hash": "fe7adf2", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(build): add missing StreamifyShapes import to ShimmerPla...", "kotlin": 6257, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8366}, {"hash": "ba6a897", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(player): resolve local URI scheme parsing to fix playbac...", "kotlin": 6305, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8414}, {"hash": "276911d", "date": "2026-08-13", "author": "sireenyadav", "msg": "feat(settings): add Audio Quality configuration (128, 192, 2...", "kotlin": 6381, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8490}, {"hash": "3ebbe3d", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(settings): fix clickable import syntax in SettingsScreen...", "kotlin": 6382, "native_cpp": 1489, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8491}, {"hash": "d91db11", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(player): resolve local audio stalling via direct PCM pas...", "kotlin": 6383, "native_cpp": 1511, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8514}, {"hash": "e4e92dc", "date": "2026-08-13", "author": "sireenyadav", "msg": "Fix local file playback, download path resolution, search ca...", "kotlin": 6396, "native_cpp": 1511, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8527}, {"hash": "82c95f5", "date": "2026-08-13", "author": "zephyr4289", "msg": "fix(search): fix isActive unresolved reference compilation e...", "kotlin": 6397, "native_cpp": 1511, "rust": 0, "python": 620, "docs": 4715, "total_authored": 8528}, {"hash": "2a8c91f", "date": "2026-08-13", "author": "zephyr4289", "msg": "fix(player): resolve live stream ExoPlayer HTTP 403 error & ...", "kotlin": 6455, "native_cpp": 1511, "rust": 0, "python": 629, "docs": 4715, "total_authored": 8595}, {"hash": "165df54", "date": "2026-08-13", "author": "zephyr4289", "msg": "fix(ingestion): remove FFmpeg postprocessor and ensure insta...", "kotlin": 6455, "native_cpp": 1511, "rust": 0, "python": 640, "docs": 4715, "total_authored": 8606}, {"hash": "ae87484", "date": "2026-08-13", "author": "zephyr4289", "msg": "feat(recommendation): add on-the-fly DB ID resolution to gua...", "kotlin": 6467, "native_cpp": 1511, "rust": 0, "python": 640, "docs": 4715, "total_authored": 8618}, {"hash": "7fe01a1", "date": "2026-08-13", "author": "zephyr4289", "msg": "feat(recommendation): overhaul engine to Spotify-grade hybri...", "kotlin": 6467, "native_cpp": 1597, "rust": 0, "python": 640, "docs": 4715, "total_authored": 8704}, {"hash": "e0c450f", "date": "2026-08-13", "author": "zephyr4289", "msg": "feat(search): implement parallel ThreadPoolExecutor cover ar...", "kotlin": 6487, "native_cpp": 1597, "rust": 0, "python": 682, "docs": 4715, "total_authored": 8766}, {"hash": "c81a555", "date": "2026-08-13", "author": "zephyr4289", "msg": "fix(player): fix missing closing brace in setupController au...", "kotlin": 6488, "native_cpp": 1597, "rust": 0, "python": 682, "docs": 4715, "total_authored": 8767}, {"hash": "0ca8343", "date": "2026-08-13", "author": "zephyr4289", "msg": "build: enforce clean builds, disable Gradle task cache, and ...", "kotlin": 6488, "native_cpp": 1597, "rust": 0, "python": 682, "docs": 4715, "total_authored": 8767}, {"hash": "6af36e2", "date": "2026-08-13", "author": "zephyr4289", "msg": "fix(library): guarantee instant Liked Songs & Streamify tag ...", "kotlin": 6497, "native_cpp": 1597, "rust": 0, "python": 682, "docs": 4715, "total_authored": 8776}, {"hash": "0499199", "date": "2026-08-13", "author": "zephyr4289", "msg": "fix(build): resolve getTrackById reference and DownloadWorke...", "kotlin": 6496, "native_cpp": 1597, "rust": 0, "python": 682, "docs": 4715, "total_authored": 8775}, {"hash": "ac1b629", "date": "2026-08-13", "author": "zephyr4289", "msg": "Refactor persistence layer and add UI Event Bus for real-tim...", "kotlin": 6535, "native_cpp": 1616, "rust": 0, "python": 682, "docs": 4718, "total_authored": 8833}, {"hash": "736235e", "date": "2026-08-13", "author": "zephyr4289", "msg": "Fix unresolved reference: rememberSnackbarHostState", "kotlin": 6535, "native_cpp": 1616, "rust": 0, "python": 682, "docs": 4718, "total_authored": 8833}, {"hash": "9b7fac6", "date": "2026-08-13", "author": "zephyr4289", "msg": "docs: add build_log.md CI/CD workflow documentation", "kotlin": 6535, "native_cpp": 1616, "rust": 0, "python": 682, "docs": 4762, "total_authored": 8833}, {"hash": "c6a50ee", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(persistence): persist coverArtPath on track creation & i...", "kotlin": 6540, "native_cpp": 1621, "rust": 0, "python": 682, "docs": 4762, "total_authored": 8843}, {"hash": "14fdca4", "date": "2026-08-13", "author": "sireenyadav", "msg": "fix(library): resolve empty Streamify tab filtering & add 99...", "kotlin": 6540, "native_cpp": 1621, "rust": 0, "python": 757, "docs": 4762, "total_authored": 8918}, {"hash": "638f2a3", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(v4): overhaul AI core, harden Python backend, and revam...", "kotlin": 6695, "native_cpp": 1849, "rust": 0, "python": 725, "docs": 6383, "total_authored": 9269}, {"hash": "a49510c", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(v4): overhaul home screen, search categories, and libra...", "kotlin": 6708, "native_cpp": 1849, "rust": 0, "python": 725, "docs": 6383, "total_authored": 9282}, {"hash": "02c1715", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat: complete Phase 8-12 including Settings Polish, AppNavG...", "kotlin": 7070, "native_cpp": 1849, "rust": 0, "python": 725, "docs": 6385, "total_authored": 9644}, {"hash": "29676b7", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix: resolve StateFlow wiring, type mismatch in search, inge...", "kotlin": 7082, "native_cpp": 1941, "rust": 0, "python": 725, "docs": 6385, "total_authored": 9748}, {"hash": "8a69cfa", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix(cmake): remove missing onnxruntime so link and use nativ...", "kotlin": 7082, "native_cpp": 1874, "rust": 0, "python": 725, "docs": 6385, "total_authored": 9681}, {"hash": "7a60d94", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix(native): include cmath in VectorStore.cc for std::isnan ...", "kotlin": 7082, "native_cpp": 1875, "rust": 0, "python": 725, "docs": 6385, "total_authored": 9682}, {"hash": "ad020a8", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix(ui): add package to HomeScreen, fix imports in HeartButt...", "kotlin": 7100, "native_cpp": 1875, "rust": 0, "python": 725, "docs": 6385, "total_authored": 9700}, {"hash": "a7514eb", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix: filter call recordings, fix streamify tab download filt...", "kotlin": 7171, "native_cpp": 1880, "rust": 0, "python": 725, "docs": 6385, "total_authored": 9776}, {"hash": "3ee0e37", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(perf): implement 5-tier zero-bloat caching for audio ch...", "kotlin": 7304, "native_cpp": 1880, "rust": 0, "python": 725, "docs": 6385, "total_authored": 9909}, {"hash": "e2eafec", "date": "2026-08-14", "author": "sireenyadav", "msg": "perf(search): implement sub-100ms native Kotlin YouTube Musi...", "kotlin": 7596, "native_cpp": 1880, "rust": 0, "python": 724, "docs": 6385, "total_authored": 10200}, {"hash": "0903035", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(flagship): implement swipe gestures, artist & album scr...", "kotlin": 8803, "native_cpp": 1880, "rust": 0, "python": 724, "docs": 6385, "total_authored": 11407}, {"hash": "38e9450", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(auth): integrate Supabase & Google 1-Tap OAuth with Adm...", "kotlin": 9582, "native_cpp": 1880, "rust": 0, "python": 724, "docs": 6560, "total_authored": 12186}, {"hash": "8b0b0e6", "date": "2026-08-14", "author": "sireenyadav", "msg": "build: bundle debug.keystore and configure deterministic deb...", "kotlin": 9582, "native_cpp": 1880, "rust": 0, "python": 724, "docs": 6560, "total_authored": 12186}, {"hash": "0d6d35c", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(config): bind Supabase and Google OAuth credentials fro...", "kotlin": 9582, "native_cpp": 1880, "rust": 0, "python": 724, "docs": 6560, "total_authored": 12186}, {"hash": "9a49212", "date": "2026-08-14", "author": "sireenyadav", "msg": "chore(ci): configure Supabase and Google OAuth default fallb...", "kotlin": 9582, "native_cpp": 1880, "rust": 0, "python": 724, "docs": 6560, "total_authored": 12186}, {"hash": "bf122a1", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix(compilation): fix missing clickable/device icon imports ...", "kotlin": 9587, "native_cpp": 1880, "rust": 0, "python": 724, "docs": 6560, "total_authored": 12191}, {"hash": "8105fe2", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix(build): add explicit java.util.Properties imports in bui...", "kotlin": 9587, "native_cpp": 1880, "rust": 0, "python": 724, "docs": 6560, "total_authored": 12191}, {"hash": "f7ea631", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix(compilation): resolve all remaining compiler issues acro...", "kotlin": 9590, "native_cpp": 1880, "rust": 0, "python": 724, "docs": 6560, "total_authored": 12194}, {"hash": "447db03", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix(streaming): remove unwanted background auto-download, fi...", "kotlin": 9683, "native_cpp": 1880, "rust": 0, "python": 733, "docs": 6560, "total_authored": 12296}, {"hash": "7101c0a", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(orchestrator): dynamic C++ resource-aware task orchestr...", "kotlin": 9917, "native_cpp": 2079, "rust": 0, "python": 733, "docs": 6560, "total_authored": 12729}, {"hash": "232539e", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix(build): include TaskOrchestrator header in jni_bridge.cc...", "kotlin": 9899, "native_cpp": 2078, "rust": 0, "python": 733, "docs": 6560, "total_authored": 12710}, {"hash": "16225d4", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix(player): resolve search stream freeze with job cancellat...", "kotlin": 9994, "native_cpp": 2078, "rust": 0, "python": 733, "docs": 6560, "total_authored": 12805}, {"hash": "6d71079", "date": "2026-08-14", "author": "sireenyadav", "msg": "fix(stream): implement validated audio stream extraction wit...", "kotlin": 9994, "native_cpp": 2078, "rust": 0, "python": 782, "docs": 6560, "total_authored": 12854}, {"hash": "03122b1", "date": "2026-08-14", "author": "zephyr4289", "msg": "docs: update comprehensive technical README with full file m...", "kotlin": 9994, "native_cpp": 2078, "rust": 0, "python": 782, "docs": 6861, "total_authored": 12854}, {"hash": "76ee29a", "date": "2026-08-14", "author": "sireenyadav", "msg": "refactor(cleanup): remove unused accompanist dependency and ...", "kotlin": 9995, "native_cpp": 2078, "rust": 0, "python": 782, "docs": 6861, "total_authored": 12855}, {"hash": "9f3ac3d", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(stream): add high-speed native Kotlin Innertube stream ...", "kotlin": 10199, "native_cpp": 2078, "rust": 0, "python": 782, "docs": 6861, "total_authored": 13059}, {"hash": "d2a9558", "date": "2026-08-14", "author": "sireenyadav", "msg": "docs: update comprehensive README with native HTTP streaming...", "kotlin": 10199, "native_cpp": 2078, "rust": 0, "python": 782, "docs": 6863, "total_authored": 13059}, {"hash": "97bea90", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(legacy-integration): integrate heuristic studio candida...", "kotlin": 10457, "native_cpp": 2078, "rust": 0, "python": 836, "docs": 6863, "total_authored": 13371}, {"hash": "2d0c92f", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(stream-persistence): implement unified C++ SQLite strea...", "kotlin": 10571, "native_cpp": 2245, "rust": 0, "python": 836, "docs": 6863, "total_authored": 13652}, {"hash": "9009f24", "date": "2026-08-14", "author": "sireenyadav", "msg": "feat(recommendations): implement session-aware EMA vector tr...", "kotlin": 10860, "native_cpp": 2411, "rust": 0, "python": 836, "docs": 6863, "total_authored": 14107}, {"hash": "53e0fc0", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(dsp-orpheus): implement ARM NEON SIMD vectorization, ze...", "kotlin": 10860, "native_cpp": 2507, "rust": 0, "python": 836, "docs": 6863, "total_authored": 14203}, {"hash": "68cf65f", "date": "2026-08-15", "author": "sireenyadav", "msg": "docs: update technical architecture mapping all 9 core engin...", "kotlin": 10860, "native_cpp": 2507, "rust": 0, "python": 836, "docs": 6940, "total_authored": 14203}, {"hash": "968563d", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(orchestrator-prometheus): implement 3-tier QoS task que...", "kotlin": 10895, "native_cpp": 2819, "rust": 0, "python": 836, "docs": 6940, "total_authored": 14550}, {"hash": "bb16d9a", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(network-hyperion): implement Happy Eyeballs parallel cl...", "kotlin": 11064, "native_cpp": 2819, "rust": 0, "python": 836, "docs": 6940, "total_authored": 14719}, {"hash": "0baa46f", "date": "2026-08-15", "author": "sireenyadav", "msg": "docs: update README with Project Prometheus and Project Hype...", "kotlin": 11064, "native_cpp": 2819, "rust": 0, "python": 836, "docs": 6946, "total_authored": 14719}, {"hash": "89d5dfe", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(cache-tartarus): implement Predictive Pre-Buffering for...", "kotlin": 11318, "native_cpp": 2819, "rust": 0, "python": 836, "docs": 6946, "total_authored": 14973}, {"hash": "42d3fa3", "date": "2026-08-15", "author": "sireenyadav", "msg": "docs: update README with Project Tartarus Vault caching arch...", "kotlin": 11318, "native_cpp": 2819, "rust": 0, "python": 836, "docs": 6951, "total_authored": 14973}, {"hash": "c2d812a", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(lyrics-aria): implement Native Kotlin Multi-Provider Ly...", "kotlin": 11589, "native_cpp": 2819, "rust": 0, "python": 836, "docs": 6951, "total_authored": 15244}, {"hash": "da4b4b9", "date": "2026-08-15", "author": "sireenyadav", "msg": "docs: update README with Project Aria lyrics engine architec...", "kotlin": 11589, "native_cpp": 2819, "rust": 0, "python": 836, "docs": 6954, "total_authored": 15244}, {"hash": "5db5b04", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(dsp-sonic-maxx): implement Native C++ Soft-Knee Limiter...", "kotlin": 11812, "native_cpp": 2934, "rust": 0, "python": 836, "docs": 6954, "total_authored": 15582}, {"hash": "fb46a46", "date": "2026-08-15", "author": "sireenyadav", "msg": "docs: update README with Project Sonic Maxx DSP architecture...", "kotlin": 11812, "native_cpp": 2934, "rust": 0, "python": 836, "docs": 6958, "total_authored": 15582}, {"hash": "15df7fa", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(download-hermes): implement pure Kotlin ParallelStreamD...", "kotlin": 12139, "native_cpp": 2934, "rust": 0, "python": 836, "docs": 6958, "total_authored": 15909}, {"hash": "ebca6e6", "date": "2026-08-15", "author": "sireenyadav", "msg": "docs: update README with Project Hermes download pipeline ar...", "kotlin": 12139, "native_cpp": 2934, "rust": 0, "python": 836, "docs": 6963, "total_authored": 15909}, {"hash": "c83cb7b", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(migration-janus): implement pure Kotlin Spotify parser,...", "kotlin": 12343, "native_cpp": 3023, "rust": 0, "python": 836, "docs": 6963, "total_authored": 16202}, {"hash": "4c08b6c", "date": "2026-08-15", "author": "sireenyadav", "msg": "docs: update README with Project Janus playlist migration ar...", "kotlin": 12343, "native_cpp": 3023, "rust": 0, "python": 836, "docs": 6966, "total_authored": 16202}, {"hash": "676b220", "date": "2026-08-15", "author": "sireenyadav", "msg": "fix(build): resolve type mismatch in PlaylistRepository/Trac...", "kotlin": 12348, "native_cpp": 3023, "rust": 0, "python": 836, "docs": 6966, "total_authored": 16207}, {"hash": "80a635c", "date": "2026-08-15", "author": "sireenyadav", "msg": "fix(player): resolve missing duration & time labels for sear...", "kotlin": 12409, "native_cpp": 3023, "rust": 0, "python": 836, "docs": 6966, "total_authored": 16268}, {"hash": "9527b48", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(supabase): integrate flagship cloud features, realtime ...", "kotlin": 15027, "native_cpp": 3099, "rust": 0, "python": 836, "docs": 7074, "total_authored": 18962}, {"hash": "ee286c0", "date": "2026-08-15", "author": "sireenyadav", "msg": "perf: optimize JNI bridge, SQLite prepared statements, 30s c...", "kotlin": 15031, "native_cpp": 3163, "rust": 0, "python": 836, "docs": 7074, "total_authored": 19030}, {"hash": "d420cec", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(admin): overhaul Admin Portal with live RPC telemetry, ...", "kotlin": 15631, "native_cpp": 3163, "rust": 0, "python": 836, "docs": 7589, "total_authored": 19630}, {"hash": "e5f18f2", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(intelligence): implement Project Chronos user listening...", "kotlin": 15759, "native_cpp": 3316, "rust": 0, "python": 836, "docs": 7656, "total_authored": 19911}, {"hash": "ee1d523", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(telemetry): implement Project Nexus contextual intellig...", "kotlin": 15814, "native_cpp": 3496, "rust": 0, "python": 836, "docs": 7816, "total_authored": 20146}, {"hash": "6791ac4", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(engine): implement C++20 lock-free psychometric telemet...", "kotlin": 15819, "native_cpp": 3963, "rust": 0, "python": 836, "docs": 7835, "total_authored": 20618}, {"hash": "d15c8b9", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(intelligence): implement Vyukov MPMC queue, sinusoidal ...", "kotlin": 15825, "native_cpp": 4294, "rust": 0, "python": 836, "docs": 7906, "total_authored": 20955}, {"hash": "71ad36f", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(edge-mesh): implement Project Titan distributed edge co...", "kotlin": 16590, "native_cpp": 4399, "rust": 0, "python": 836, "docs": 8243, "total_authored": 21825}, {"hash": "4f54171", "date": "2026-08-15", "author": "sireenyadav", "msg": "docs: upgrade README.md and supabase.md with 13-engine runti...", "kotlin": 16590, "native_cpp": 4399, "rust": 0, "python": 836, "docs": 8377, "total_authored": 21825}, {"hash": "047e79b", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(recommender): implement 5-layer Hybrid Asymmetric Recom...", "kotlin": 17075, "native_cpp": 5027, "rust": 0, "python": 836, "docs": 8376, "total_authored": 22938}, {"hash": "b3e31c1", "date": "2026-08-15", "author": "sireenyadav", "msg": "docs: add Project Apex hybrid asymmetric recommender specs, ...", "kotlin": 17075, "native_cpp": 5027, "rust": 0, "python": 836, "docs": 8427, "total_authored": 22938}, {"hash": "4eaa2e4", "date": "2026-08-15", "author": "sireenyadav", "msg": "fix(build): resolve all Compose typography, missing icon imp...", "kotlin": 17089, "native_cpp": 5027, "rust": 0, "python": 836, "docs": 8427, "total_authored": 22952}, {"hash": "2759c17", "date": "2026-08-15", "author": "sireenyadav", "msg": "fix(build): resolve TrackRepository mapNotNull, HybridGraphF...", "kotlin": 17080, "native_cpp": 5027, "rust": 0, "python": 836, "docs": 8427, "total_authored": 22943}, {"hash": "bdd50a9", "date": "2026-08-15", "author": "sireenyadav", "msg": "fix(stability): harden application cold start, ensure databa...", "kotlin": 17118, "native_cpp": 5029, "rust": 0, "python": 836, "docs": 8427, "total_authored": 22983}, {"hash": "b921d34", "date": "2026-08-15", "author": "sireenyadav", "msg": "fix(jni): fix RecommendationNative constructor signatures in...", "kotlin": 17120, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 22996}, {"hash": "54c79e3", "date": "2026-08-15", "author": "sireenyadav", "msg": "fix(model): remove redundant secondary constructor to fix pl...", "kotlin": 17118, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 22994}, {"hash": "ef281ad", "date": "2026-08-15", "author": "sireenyadav", "msg": "feat(stream): auto-save streamed songs into Streamify playli...", "kotlin": 17285, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 23161}, {"hash": "9af9b20", "date": "2026-08-15", "author": "sireenyadav", "msg": "fix(build): resolve kotlin type mismatches, add generateEmbe...", "kotlin": 17290, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 23166}, {"hash": "bddbafc", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): overhaul theme engine to YouTube Music OLED graphi...", "kotlin": 17563, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 23439}, {"hash": "abce74d", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement Part 2 - YouTube Music Global Shell, Doc...", "kotlin": 17849, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 23725}, {"hash": "fbc78bb", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement Part 3 - YouTube Music Home Feed, Quick ...", "kotlin": 17922, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 23798}, {"hash": "ff59788", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement Part 4 - YouTube Music Now Playing, Song...", "kotlin": 18466, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 24342}, {"hash": "54c5a81", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement Part 5 - YouTube Music Queue Engine, 120...", "kotlin": 18839, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 24715}, {"hash": "b2ed287", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement Part 6 - YouTube Music Lyrics Engine, Ze...", "kotlin": 18963, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 24839}, {"hash": "c351dd8", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement Part 7 - YouTube Music Search & Explore ...", "kotlin": 19344, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 25220}, {"hash": "61e68cc", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement Part 8 - YouTube Music Library & Album E...", "kotlin": 19772, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 25648}, {"hash": "e2f643d", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement Part 9 - YouTube Music Audio DSP Studio,...", "kotlin": 20058, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 25934}, {"hash": "68fa807", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement Part 10 - YouTube Music Social, Live Jam...", "kotlin": 20623, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8427, "total_authored": 26499}, {"hash": "8d50dac", "date": "2026-08-16", "author": "sireenyadav", "msg": "docs: update README with comprehensive YouTube Music UI Engi...", "kotlin": 20623, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 26499}, {"hash": "db33efc", "date": "2026-08-16", "author": "sireenyadav", "msg": "fix(ui): resolve Kotlin Compose compilation context errors a...", "kotlin": 20630, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 26506}, {"hash": "0e73904", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(auth): implement persistent AuthState gate, 120fps onbo...", "kotlin": 21023, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 26899}, {"hash": "44c12b4", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement adaptive responsive engine with WindowIn...", "kotlin": 21108, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 26984}, {"hash": "a781cd7", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ui): implement fluid spring-physics sliding active indi...", "kotlin": 21171, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 27047}, {"hash": "e8f442e", "date": "2026-08-16", "author": "sireenyadav", "msg": "refactor(shell): replace BottomSheetScaffold with unified do...", "kotlin": 21158, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 27034}, {"hash": "3bfd736", "date": "2026-08-16", "author": "sireenyadav", "msg": "style(brand): replace all YT Music UI strings with Streamify", "kotlin": 21158, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 27034}, {"hash": "52aeda6", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(splash): implement Netflix-tier 120fps Prismatic Acoust...", "kotlin": 21412, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 27288}, {"hash": "7645706", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(physics): implement 120fps 3D Quantum Sonic Token levit...", "kotlin": 21807, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 27683}, {"hash": "69145e3", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(ota): implement zero-bloat In-App OTA Update Engine wit...", "kotlin": 22212, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 28088}, {"hash": "66bf124", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(lyrics): implement Apple Music-tier 120fps Syllable Kar...", "kotlin": 22403, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 28279}, {"hash": "8cb993a", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(importer): implement zero-auth Universal Playlist Impor...", "kotlin": 22899, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 28775}, {"hash": "c08718a", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(haptics): implement zero-allocation Rich Tactile Physic...", "kotlin": 23064, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8363, "total_authored": 28940}, {"hash": "017152e", "date": "2026-08-16", "author": "sireenyadav", "msg": "docs: update README with 20 subsystem engines, directory map...", "kotlin": 23064, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 28940}, {"hash": "0177048", "date": "2026-08-16", "author": "sireenyadav", "msg": "fix(compilation): resolve MainActivity brace and import, Qua...", "kotlin": 23065, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 28941}, {"hash": "0270644", "date": "2026-08-16", "author": "sireenyadav", "msg": "fix: restore admin access for sireenyadav, fix listening tel...", "kotlin": 23207, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 29083}, {"hash": "282cfbb", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(splash): add 120 FPS kinetic flying 'DEVELOPED BY SIREE...", "kotlin": 23258, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 29134}, {"hash": "a7136a2", "date": "2026-08-16", "author": "sireenyadav", "msg": "fix(jam): resolve PGRST503 JWT expired error with auto-refre...", "kotlin": 23367, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 29243}, {"hash": "811c880", "date": "2026-08-16", "author": "sireenyadav", "msg": "fix(player): implement on-demand live stream resolver and 40...", "kotlin": 23479, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 29355}, {"hash": "84a956e", "date": "2026-08-16", "author": "sireenyadav", "msg": "fix(core): resolve Jam sync, M3U8 album export, admin access...", "kotlin": 23529, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 29405}, {"hash": "eb08aff", "date": "2026-08-16", "author": "sireenyadav", "msg": "fix(player): implement seamless radio queue appending and Re...", "kotlin": 23857, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 29733}, {"hash": "a9bd9b1", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(continuum): implement Project Continuum infinite radio ...", "kotlin": 24258, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 30134}, {"hash": "6d0c261", "date": "2026-08-16", "author": "sireenyadav", "msg": "refactor(continuum): align RadioContext, ensureQueueDepth, a...", "kotlin": 24266, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 30142}, {"hash": "8a1c08c", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(player): add onPositionDiscontinuity listener for seaml...", "kotlin": 24302, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 30178}, {"hash": "3186fd7", "date": "2026-08-16", "author": "sireenyadav", "msg": "feat(dsp): implement autonomous OnlineTrackProcessor for bac...", "kotlin": 24476, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8428, "total_authored": 30352}, {"hash": "c07d87f", "date": "2026-08-16", "author": "sireenyadav", "msg": "docs: update README with 22 core subsystem engines including...", "kotlin": 24476, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8442, "total_authored": 30352}, {"hash": "84bd1a7", "date": "2026-08-16", "author": "sireenyadav", "msg": "fix(scraper): modernize YouTube Innertube and Spotify API pl...", "kotlin": 24611, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8442, "total_authored": 30487}, {"hash": "371104e", "date": "2026-08-16", "author": "sireenyadav", "msg": "fix(build): resolve all CI compilation errors in PlayerViewM...", "kotlin": 24629, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8442, "total_authored": 30505}, {"hash": "26f76a6", "date": "2026-08-16", "author": "sireenyadav", "msg": "fix(player): remove duplicate isCdnExpired definition to fix...", "kotlin": 24626, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8442, "total_authored": 30502}, {"hash": "6804789", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(sync): immunize Supabase and SQLite against expired CDN ...", "kotlin": 24706, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8442, "total_authored": 30582}, {"hash": "198ac43", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(jam): handle missing current_track_json column gracefull...", "kotlin": 24759, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8442, "total_authored": 30635}, {"hash": "1d89389", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(jam): implement multi-tier hybrid architecture with aut...", "kotlin": 24819, "native_cpp": 5040, "rust": 0, "python": 836, "docs": 8442, "total_authored": 30695}, {"hash": "ac0fb28", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(sync): implement sub-15ms cross-device acoustic sync wi...", "kotlin": 25601, "native_cpp": 5217, "rust": 0, "python": 836, "docs": 8442, "total_authored": 31654}, {"hash": "a36dee1", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(recommendation): implement 3-layer intelligent de-dupli...", "kotlin": 25709, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 31828}, {"hash": "2cab4a6", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(importer): implement 15x fast 8-worker parallel playlis...", "kotlin": 25888, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 32007}, {"hash": "5e4e8ff", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(ui): empower splash branding with dominating STREAMIFY ...", "kotlin": 25927, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 32046}, {"hash": "e0b38d4", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(lyrics): implement 120 FPS spring frame-clock interpola...", "kotlin": 26181, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 32300}, {"hash": "ea63ebc", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(navigation): implement 5-pillar rock-solid navigation a...", "kotlin": 26274, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 32393}, {"hash": "265ef04", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(wrapped): add Top 5 Songs showcase with gold/silver/bro...", "kotlin": 26421, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 32540}, {"hash": "aef98f2", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(admin): implement real-time user telemetry synchronizat...", "kotlin": 26763, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 32882}, {"hash": "1a2df95", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(edge-mesh): transform edge mesh into local-first opport...", "kotlin": 26933, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 33052}, {"hash": "5ea419c", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(performance): implement Zero-Cost Cold Start 2-phase ing...", "kotlin": 26987, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 33106}, {"hash": "fe3b054", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(player): implement zero-buffer progressive video stream...", "kotlin": 27271, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 33390}, {"hash": "c259fe6", "date": "2026-08-17", "author": "sireenyadav", "msg": "perf(core): implement Kotlin-First architecture with Resilie...", "kotlin": 27401, "native_cpp": 5283, "rust": 0, "python": 836, "docs": 8442, "total_authored": 33520}, {"hash": "fe65a75", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(ai): implement Invisible Intelligence Layer with 5-Key ...", "kotlin": 27888, "native_cpp": 5300, "rust": 0, "python": 836, "docs": 8442, "total_authored": 34024}, {"hash": "b7fb220", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(ui): implement Adaptive Dual-Pane Landscape & Tablet Pl...", "kotlin": 28311, "native_cpp": 5300, "rust": 0, "python": 836, "docs": 8442, "total_authored": 34447}, {"hash": "8ac7033", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(animation): implement Apple AirDrop-grade Kinetic Morph...", "kotlin": 28382, "native_cpp": 5300, "rust": 0, "python": 836, "docs": 8442, "total_authored": 34518}, {"hash": "577c54d", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(ui): implement Unified Long-Press Context Menu with Pla...", "kotlin": 28497, "native_cpp": 5300, "rust": 0, "python": 836, "docs": 8442, "total_authored": 34633}, {"hash": "d45ac34", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(ui): implement 120 FPS GPU Neon Orbital Arc Pull-to-Ref...", "kotlin": 28674, "native_cpp": 5300, "rust": 0, "python": 836, "docs": 8442, "total_authored": 34810}, {"hash": "dd8c7af", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(data): implement Zero-Loss Nuclear Purge & Cloud-Seeded...", "kotlin": 29000, "native_cpp": 5350, "rust": 0, "python": 836, "docs": 8442, "total_authored": 35186}, {"hash": "187849a", "date": "2026-08-17", "author": "sireenyadav", "msg": "docs: extensively update README with all 28 engines, archite...", "kotlin": 29000, "native_cpp": 5350, "rust": 0, "python": 836, "docs": 8477, "total_authored": 35186}, {"hash": "3cbf4df", "date": "2026-08-17", "author": "sireenyadav", "msg": "ci(build): trigger debug APK build and release pipeline", "kotlin": 29000, "native_cpp": 5350, "rust": 0, "python": 836, "docs": 8477, "total_authored": 35186}, {"hash": "2024fdd", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(build): resolve C++ unordered_map include, Compose LazyC...", "kotlin": 28979, "native_cpp": 5351, "rust": 0, "python": 836, "docs": 8477, "total_authored": 35166}, {"hash": "d37f242", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(build): add media3-ui dependency, fix LibraryScreen brac...", "kotlin": 28982, "native_cpp": 5351, "rust": 0, "python": 836, "docs": 8477, "total_authored": 35169}, {"hash": "19576aa", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(build): resolve model properties, pull-to-refresh nested...", "kotlin": 29002, "native_cpp": 5351, "rust": 0, "python": 836, "docs": 8477, "total_authored": 35189}, {"hash": "52ff891", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(build): resolve iTunesSearchApi model mapping, playCount...", "kotlin": 29005, "native_cpp": 5351, "rust": 0, "python": 836, "docs": 8477, "total_authored": 35192}, {"hash": "3b2111d", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(playback): enforce 4 architectural invariants for JIT st...", "kotlin": 29231, "native_cpp": 5350, "rust": 0, "python": 836, "docs": 8477, "total_authored": 35417}, {"hash": "06a4d77", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(sync): implement real-time cloud-first multi-device syn...", "kotlin": 29591, "native_cpp": 5350, "rust": 0, "python": 836, "docs": 8477, "total_authored": 35777}, {"hash": "c9668d2", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(recommendation): implement 4-stage hybrid recommendatio...", "kotlin": 29973, "native_cpp": 5350, "rust": 0, "python": 836, "docs": 8477, "total_authored": 36159}, {"hash": "f911258", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(playlist): implement 3-tier resilient YouTube playlist i...", "kotlin": 30129, "native_cpp": 5350, "rust": 0, "python": 879, "docs": 8477, "total_authored": 36358}, {"hash": "8d1bb1d", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(admin-telemetry): eliminate fake mock data and implement...", "kotlin": 30218, "native_cpp": 5350, "rust": 0, "python": 879, "docs": 8477, "total_authored": 36447}, {"hash": "aafbb37", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(auth): enforce strict authentication and completely eli...", "kotlin": 30196, "native_cpp": 5350, "rust": 0, "python": 879, "docs": 8477, "total_authored": 36425}, {"hash": "33d5f60", "date": "2026-08-17", "author": "sireenyadav", "msg": "perf(wrapped-sync): implement SWR hot-path engine and Cristi...", "kotlin": 30304, "native_cpp": 5350, "rust": 0, "python": 879, "docs": 8477, "total_authored": 36533}, {"hash": "abf30a8", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(jam): implement self-healing adaptive PostgREST engine a...", "kotlin": 30398, "native_cpp": 5350, "rust": 0, "python": 879, "docs": 8477, "total_authored": 36627}, {"hash": "47ee0b7", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(ui): add like buttons to tablet landscape player and mi...", "kotlin": 30448, "native_cpp": 5350, "rust": 0, "python": 879, "docs": 8477, "total_authored": 36677}, {"hash": "f7bdecf", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(playlists): implement Spotify-level distributed playlis...", "kotlin": 31223, "native_cpp": 5350, "rust": 0, "python": 879, "docs": 8477, "total_authored": 37452}, {"hash": "c18c43d", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(engine): implement Universal Continuum Recommendation E...", "kotlin": 31510, "native_cpp": 5350, "rust": 0, "python": 879, "docs": 8477, "total_authored": 37739}, {"hash": "f95a6e2", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(video): implement seamless Video-Audio stream separatio...", "kotlin": 31596, "native_cpp": 5350, "rust": 0, "python": 879, "docs": 8477, "total_authored": 37825}, {"hash": "f538ead", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(updater): implement rate-limit defended CI/CD auto-upda...", "kotlin": 32002, "native_cpp": 5350, "rust": 0, "python": 879, "docs": 8477, "total_authored": 38231}, {"hash": "be43bf6", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(physics): implement C++20 RK4 continuous AirDrop fluid ...", "kotlin": 32084, "native_cpp": 5550, "rust": 0, "python": 879, "docs": 8477, "total_authored": 38513}, {"hash": "84095d2", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(ui): implement single root host track context menu & un...", "kotlin": 32141, "native_cpp": 5550, "rust": 0, "python": 879, "docs": 8477, "total_authored": 38570}, {"hash": "8e3db3d", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(player): implement sliding 2-track JIT timeline window a...", "kotlin": 32318, "native_cpp": 5550, "rust": 0, "python": 879, "docs": 8477, "total_authored": 38747}, {"hash": "6e0bea4", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(edgemesh): implement Project Nexus in-stream closed-loo...", "kotlin": 32604, "native_cpp": 5836, "rust": 0, "python": 879, "docs": 8477, "total_authored": 39319}, {"hash": "fef5191", "date": "2026-08-17", "author": "sireenyadav", "msg": "feat(ui): add 1-tap Settings navigation to UserProfileScreen...", "kotlin": 32674, "native_cpp": 5836, "rust": 0, "python": 879, "docs": 8477, "total_authored": 39389}, {"hash": "e63c150", "date": "2026-08-17", "author": "sireenyadav", "msg": "docs: rewrite README into comprehensive 64-feature systems m...", "kotlin": 32674, "native_cpp": 5836, "rust": 0, "python": 879, "docs": 8381, "total_authored": 39389}, {"hash": "4155a03", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(build): resolve unresolved Compose UI imports and JamVie...", "kotlin": 32680, "native_cpp": 5836, "rust": 0, "python": 879, "docs": 8381, "total_authored": 39395}, {"hash": "fab277f", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(build): resolve all missing imports, delegate types, and...", "kotlin": 32692, "native_cpp": 5836, "rust": 0, "python": 879, "docs": 8381, "total_authored": 39407}, {"hash": "9ecc60d", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(build): add missing Material3/Coil imports in AlbumScree...", "kotlin": 32695, "native_cpp": 5836, "rust": 0, "python": 879, "docs": 8381, "total_authored": 39410}, {"hash": "afa769f", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(build): resolve all compilation errors across repositori...", "kotlin": 32695, "native_cpp": 5836, "rust": 0, "python": 879, "docs": 8381, "total_authored": 39410}, {"hash": "506bf9e", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(build): convert IntArray to list prior to mapNotNull in ...", "kotlin": 32695, "native_cpp": 5836, "rust": 0, "python": 879, "docs": 8381, "total_authored": 39410}, {"hash": "3ff595d", "date": "2026-08-17", "author": "sireenyadav", "msg": "fix(build): opt-in to ExperimentalMaterial3Api in LibraryScr...", "kotlin": 32696, "native_cpp": 5836, "rust": 0, "python": 879, "docs": 8381, "total_authored": 39411}, {"hash": "a628fc5", "date": "2026-08-18", "author": "sireenyadav", "msg": "docs: add comprehensive 64-feature systems mapping and compl...", "kotlin": 32696, "native_cpp": 5836, "rust": 0, "python": 879, "docs": 8937, "total_authored": 39411}, {"hash": "f8f8ecb", "date": "2026-08-18", "author": "sireenyadav", "msg": "perf(native): enable -O3, -ffast-math, LTO, hidden visibilit...", "kotlin": 32696, "native_cpp": 5845, "rust": 0, "python": 879, "docs": 8937, "total_authored": 39420}, {"hash": "e83c172", "date": "2026-08-18", "author": "sireenyadav", "msg": "perf: optimize audio pipeline, compose rendering, airdrop fl...", "kotlin": 32739, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8937, "total_authored": 39484}, {"hash": "bed1d41", "date": "2026-08-18", "author": "sireenyadav", "msg": "feat(discovery): decouple cloud discovery pipeline and rebui...", "kotlin": 32882, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8940, "total_authored": 39627}, {"hash": "6c5f01b", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(player): eliminate playback race conditions, thumbnail d...", "kotlin": 32909, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8940, "total_authored": 39654}, {"hash": "f1480ce", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(likes): make SQLite single source of truth for track lik...", "kotlin": 32977, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8940, "total_authored": 39722}, {"hash": "16c8565", "date": "2026-08-18", "author": "sireenyadav", "msg": "feat(lyrics): add lyrics timing tweaking & community save ti...", "kotlin": 33108, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8940, "total_authored": 39853}, {"hash": "9201bee", "date": "2026-08-18", "author": "sireenyadav", "msg": "feat(perf): implement sub-50ms search-to-stream pipeline wit...", "kotlin": 33169, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8940, "total_authored": 39914}, {"hash": "14792a8", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(wrapped): eliminate telemetry cache wiping, fix play_cou...", "kotlin": 33356, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8940, "total_authored": 40101}, {"hash": "3614151", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(admin): enable periodic 60s cloud telemetry push, on-tra...", "kotlin": 33370, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8940, "total_authored": 40115}, {"hash": "cb69b36", "date": "2026-08-18", "author": "sireenyadav", "msg": "feat(jam): implement Spotify-grade Jam with universal contro...", "kotlin": 33760, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8965, "total_authored": 40505}, {"hash": "fafa59e", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(playlist): implement 0-search fast importer, channelFlow...", "kotlin": 33875, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8965, "total_authored": 40620}, {"hash": "b284392", "date": "2026-08-18", "author": "sireenyadav", "msg": "docs: document 0-search instant playlist importer and concur...", "kotlin": 33875, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8971, "total_authored": 40620}, {"hash": "939c1bd", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(build): resolve all Kotlin compilation errors from CI ru...", "kotlin": 33868, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8971, "total_authored": 40613}, {"hash": "edd9a1a", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(player): prevent auto-play on app launch and fix EVENT_P...", "kotlin": 33876, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8971, "total_authored": 40621}, {"hash": "093c08c", "date": "2026-08-18", "author": "sireenyadav", "msg": "feat(radio): implement 70/30 discovery-first interleaving an...", "kotlin": 33911, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8971, "total_authored": 40656}, {"hash": "d8730d6", "date": "2026-08-18", "author": "sireenyadav", "msg": "feat(playback): implement 0ms Gapless Lookahead Pre-Cache, J...", "kotlin": 34175, "native_cpp": 5866, "rust": 0, "python": 879, "docs": 8971, "total_authored": 40920}, {"hash": "7ab2459", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(ui): smooth floating token flight physics and optimize p...", "kotlin": 34174, "native_cpp": 5866, "rust": 0, "python": 883, "docs": 8971, "total_authored": 40923}, {"hash": "9d367ae", "date": "2026-08-18", "author": "sireenyadav", "msg": "chore(cleanup): remove scratch files and organize root direc...", "kotlin": 34170, "native_cpp": 5866, "rust": 0, "python": 883, "docs": 3424, "total_authored": 40919}, {"hash": "d2329b6", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(auth-sync): resolve account switching leak, db nuke auto...", "kotlin": 34168, "native_cpp": 5866, "rust": 0, "python": 883, "docs": 3424, "total_authored": 40917}, {"hash": "6a95d68", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(playlist-scraper): resolve YTM browse blocking and suppo...", "kotlin": 34174, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 40928}, {"hash": "8bfeff1", "date": "2026-08-18", "author": "sireenyadav", "msg": "feat(ui): add emoji-free cybernetic telemetry progression to...", "kotlin": 34212, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 40966}, {"hash": "ce59667", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(playback): resolve track resolution hijacking and add th...", "kotlin": 34250, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 41004}, {"hash": "ed51605", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(jam): resolve play/pause sync across devices and add col...", "kotlin": 34469, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 41223}, {"hash": "24ba991", "date": "2026-08-18", "author": "sireenyadav", "msg": "feat(search): implement parametric category search, studio n...", "kotlin": 34887, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 41641}, {"hash": "1bfe59a", "date": "2026-08-18", "author": "sireenyadav", "msg": "perf(architecture): implement reactive event-driven pipeline...", "kotlin": 34924, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 41678}, {"hash": "2bd0065", "date": "2026-08-18", "author": "sireenyadav", "msg": "perf(viewmodel): debounce recommendation engine, parallelize...", "kotlin": 34948, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 41702}, {"hash": "90ee200", "date": "2026-08-18", "author": "sireenyadav", "msg": "perf(recomposition): add atomic hydration cancellation, deri...", "kotlin": 34977, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 41731}, {"hash": "83efd5a", "date": "2026-08-18", "author": "sireenyadav", "msg": "perf(rendering): pre-allocate GPU canvas assets and isolate ...", "kotlin": 34992, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 41746}, {"hash": "83557ee", "date": "2026-08-18", "author": "sireenyadav", "msg": "perf(data-integrity): implement composite queue keys, target...", "kotlin": 35029, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 41783}, {"hash": "51d2f4b", "date": "2026-08-18", "author": "sireenyadav", "msg": "perf(concurrency): implement structured channel actor for pl...", "kotlin": 35030, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 41784}, {"hash": "6fddcb7", "date": "2026-08-18", "author": "sireenyadav", "msg": "ci: replace build.yml with extreme test matrix and chaos sui...", "kotlin": 35030, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3424, "total_authored": 41784}, {"hash": "e443572", "date": "2026-08-18", "author": "sireenyadav", "msg": "docs: add test-log.md guide for CI extreme testing matrix an...", "kotlin": 35030, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3481, "total_authored": 41784}, {"hash": "bd17753", "date": "2026-08-18", "author": "sireenyadav", "msg": "ci: remove obsolete android.yml workflow in favor of extreme...", "kotlin": 35030, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3481, "total_authored": 41784}, {"hash": "d5986bc", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(ci): escape multiline bash strings in extreme-test-matri...", "kotlin": 35030, "native_cpp": 5866, "rust": 0, "python": 888, "docs": 3481, "total_authored": 41784}, {"hash": "c4da7fe", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(ci): robust build failure handling, fix host CMake NDK l...", "kotlin": 35030, "native_cpp": 5868, "rust": 0, "python": 888, "docs": 3481, "total_authored": 41786}, {"hash": "dd6fd76", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(compile): resolve multiple kotlin compiler errors across...", "kotlin": 35088, "native_cpp": 5868, "rust": 0, "python": 888, "docs": 3481, "total_authored": 41844}, {"hash": "04f0185", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(ui): remove duplicate landscape pane overloads in FullPl...", "kotlin": 35054, "native_cpp": 5868, "rust": 0, "python": 888, "docs": 3481, "total_authored": 41810}, {"hash": "e239cf9", "date": "2026-08-18", "author": "sireenyadav", "msg": "feat(tests): implement native C++ & python test harnesses, r...", "kotlin": 35009, "native_cpp": 6091, "rust": 0, "python": 909, "docs": 3481, "total_authored": 42009}, {"hash": "80e8d55", "date": "2026-08-18", "author": "sireenyadav", "msg": "fix(tests): add log stub and link pthread/dl for native stor...", "kotlin": 35009, "native_cpp": 6102, "rust": 0, "python": 909, "docs": 3481, "total_authored": 42020}, {"hash": "e99e4a5", "date": "2026-08-19", "author": "sireenyadav", "msg": "feat(core): migrate to Dual-Native C++20 + Rust architecture...", "kotlin": 34947, "native_cpp": 6390, "rust": 1667, "python": 143, "docs": 4024, "total_authored": 43147}];
+
+        const labels = rawData.map((d, i) => `#` + (i+1) + ` (` + d.date.slice(5) + `)`);
+        const totalAuthored = rawData.map(d => d.total_authored);
+        const kotlin = rawData.map(d => d.kotlin);
+        const cpp = rawData.map(d => d.native_cpp);
+        const rust = rawData.map(d => d.rust);
+        const python = rawData.map(d => d.python);
+
+        Chart.defaults.color = '#A0ABC0';
+        Chart.defaults.font.family = "'Poppins', sans-serif";
+
+        // 1. Growth Line Chart
+        const ctxGrowth = document.getElementById('growthChart').getContext('2d');
+        const gradientPrimary = ctxGrowth.createLinearGradient(0, 0, 0, 380);
+        gradientPrimary.addColorStop(0, 'rgba(29, 185, 84, 0.45)');
+        gradientPrimary.addColorStop(1, 'rgba(29, 185, 84, 0.0)');
+
+        new Chart(ctxGrowth, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Total Authored LoC',
+                    data: totalAuthored,
+                    borderColor: '#1DB954',
+                    borderWidth: 3,
+                    backgroundColor: gradientPrimary,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 1,
+                    pointHoverRadius: 6,
+                    pointHoverBackgroundColor: '#FFFFFF',
+                    pointHoverBorderColor: '#1DB954',
+                    pointHoverBorderWidth: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#161D28',
+                        titleColor: '#FFFFFF',
+                        bodyColor: '#A0ABC0',
+                        borderColor: 'rgba(29, 185, 84, 0.5)',
+                        borderWidth: 1,
+                        padding: 12,
+                        callbacks: {
+                            label: function(context) {
+                                const item = rawData[context.dataIndex];
+                                return [
+                                    'Total LoC: ' + context.parsed.y.toLocaleString() + ' lines',
+                                    'Commit: ' + item.hash + ' - ' + item.msg
+                                ];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.04)' },
+                        ticks: { maxTicksLimit: 18, font: { size: 10 } }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255, 255, 255, 0.06)' },
+                        ticks: {
+                            callback: value => value >= 1000 ? (value/1000) + 'k' : value
+                        }
+                    }
+                }
+            }
+        });
+
+        // 2. Language Share Donut Chart
+        const ctxPie = document.getElementById('langPieChart').getContext('2d');
+        new Chart(ctxPie, {
+            type: 'doughnut',
+            data: {
+                labels: ['Kotlin (UI, Cloud, Edge)', 'Native C++20 Core & DSP', 'Rust Engine', 'Python (Deprecated)'],
+                datasets: [{
+                    data: [34947, 6390, 1667, 143],
+                    backgroundColor: ['#1DB954', '#9D4EDD', '#DEA584', '#FF9E00'],
+                    borderColor: '#0F141C',
+                    borderWidth: 3,
+                    hoverOffset: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '72%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 18,
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                            font: { size: 11 }
+                        }
+                    }
+                }
+            }
+        });
+
+        // 3. Stacked Area Chart
+        const ctxStacked = document.getElementById('stackedAreaChart').getContext('2d');
+        new Chart(ctxStacked, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Kotlin (UI, Framework, Cloud)',
+                        data: kotlin,
+                        borderColor: '#1DB954',
+                        backgroundColor: 'rgba(29, 185, 84, 0.4)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Native C++20 (LyricAligner, RK4, PTP, DSP)',
+                        data: cpp,
+                        borderColor: '#9D4EDD',
+                        backgroundColor: 'rgba(157, 78, 221, 0.4)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0
+                    },
+                    {
+                        label: 'Rust (Resolver, Tagger, Lyrics FFI)',
+                        data: rust,
+                        borderColor: '#DEA584',
+                        backgroundColor: 'rgba(222, 165, 132, 0.4)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { font: { size: 11 }, usePointStyle: true }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.04)' },
+                        ticks: { maxTicksLimit: 18, font: { size: 10 } }
+                    },
+                    y: {
+                        stacked: true,
+                        grid: { color: 'rgba(255, 255, 255, 0.06)' },
+                        ticks: {
+                            callback: value => value >= 1000 ? (value/1000) + 'k' : value
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
