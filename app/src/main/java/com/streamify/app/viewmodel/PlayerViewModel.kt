@@ -66,7 +66,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     companion object {
         private const val TAG = "PlaybackTrace"
     }
-    com.streamify.app.jam.JamEngine.Bridge {
 
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
