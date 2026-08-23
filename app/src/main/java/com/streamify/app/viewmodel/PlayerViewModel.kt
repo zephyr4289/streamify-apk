@@ -655,16 +655,12 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
                     var vidId = nextTrack.ytmVideoId ?: if (nextTrack.filepath.startsWith("yt_") || (nextTrack.filepath.length == 11 && !nextTrack.filepath.contains("/"))) nextTrack.filepath.removePrefix("yt_") else null
 
-                    val (lookaheadYtAuth, lookaheadYtCookies) = ytSession()
-                    if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
-                        vidId = NativeBridge.resolveTrack(dbPath, cadId, nextTrack.isrc, nextTrack.title, nextTrack.artist, lookaheadYtAuth, lookaheadYtCookies)
-                    }
-
-                    val nativeUrl = try {
-                        NativeBridge.resolveCdnUrl(vidId, nextTrack.isrc, nextTrack.title, nextTrack.artist, lookaheadYtAuth, lookaheadYtCookies)
-                    } catch (_: Throwable) {
-                        null
-                    }
+                    // Pure Kotlin lookahead — no Rust FFI in hot path
+                    val nativeUrl = if (vidId != null) {
+                        com.streamify.app.data.network.YouTubeStreamResolver
+                            .resolveStreamJit(nextTrack.copy(ytmVideoId = vidId))
+                            .getOrNull()?.streamUrl
+                    } else null
 
                     val finalUrl = if (!nativeUrl.isNullOrBlank()) nativeUrl else {
                         com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(if (vidId != null) nextTrack.copy(ytmVideoId = vidId) else nextTrack).getOrNull()?.streamUrl
@@ -1322,7 +1318,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
 
                 var vidId = trackToPlay.ytmVideoId ?: if (trackToPlay.filepath.startsWith("yt_") || (trackToPlay.filepath.length == 11 && !trackToPlay.filepath.contains("/"))) trackToPlay.filepath.removePrefix("yt_") else null
                 if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
-                    vidId = NativeBridge.resolveTrack(dbPath, cadId, trackToPlay.isrc, trackToPlay.title, trackToPlay.artist, ytAuth, ytCookies)
+                    // Rust resolver bypassed in hot path — Kotlin cascade handles it below
                 }
 
                 // TIER 1: Kotlin multi-client cascade — battle-tested format
@@ -1343,18 +1339,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     // PHASE 1: capture YouTube's own loudness measurement.
                     streamLoudnessDb = cascaded.loudnessDb
                     trackToPlay.copy(filepath = cascaded.streamUrl, ytmVideoId = vidId ?: trackToPlay.ytmVideoId)
-                } else {
-                    // TIER 2: Native Rust JIT resolver (fallback).
-                    val nativeUrl = try {
-                        NativeBridge.resolveCdnUrl(vidId, trackToPlay.isrc, trackToPlay.title, trackToPlay.artist, ytAuth, ytCookies)
-                    } catch (_: Throwable) {
-                        null
-                    }
-                    if (isTrustedStreamUrl(nativeUrl)) {
-                        trackToPlay.copy(filepath = nativeUrl!!, ytmVideoId = vidId ?: trackToPlay.ytmVideoId)
-                    } else {
-                        trackToPlay
-                    }
                 }
             }
         }
@@ -1462,19 +1446,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
 
             try {
-                // Tier 1: Try Native Rust Tokio JIT Stream Resolver
-                val (warmYtAuth, warmYtCookies) = ytSession()
-                val nativeUrl = try {
-                    val vidId = nextTrack.ytmVideoId ?: if (nextTrack.filepath.startsWith("yt_") || (nextTrack.filepath.length == 11 && !nextTrack.filepath.contains("/"))) nextTrack.filepath.removePrefix("yt_") else null
-                    NativeBridge.resolveCdnUrl(vidId, nextTrack.isrc, nextTrack.title, nextTrack.artist, warmYtAuth, warmYtCookies)
-                } catch (_: Throwable) {
-                    null
-                }
-
-                val finalUrl = if (!nativeUrl.isNullOrBlank()) nativeUrl else {
-                    val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack)
-                    res.getOrNull()?.streamUrl
-                }
+                // Pure Kotlin lookahead — no Rust FFI in hot path
+                val finalUrl = com.streamify.app.data.network.YouTubeStreamResolver
+                    .resolveStreamJit(nextTrack).getOrNull()?.streamUrl
 
                 if (!finalUrl.isNullOrBlank()) {
                     val warmTrack = nextTrack.copy(filepath = finalUrl)
