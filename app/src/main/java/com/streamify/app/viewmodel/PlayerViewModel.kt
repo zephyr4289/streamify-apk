@@ -1230,25 +1230,37 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         } else {
             withContext(Dispatchers.IO) {
                 val dbPath = appContext?.getDatabasePath("streamify_universal.db")?.absolutePath ?: ""
+                val (ytAuth, ytCookies) = appContext?.let { ctx ->
+                    val authMgr = com.streamify.app.data.remote.SpotifyAuthManager(ctx)
+                    (authMgr.getYtAuthHeader() ?: "") to (authMgr.getYtRawCookies() ?: "")
+                } ?: ("" to "")
                 val cadId = NativeBridge.generateCadId(trackToPlay.title, trackToPlay.artist, trackToPlay.durationSec)
 
                 var vidId = trackToPlay.ytmVideoId ?: if (trackToPlay.filepath.startsWith("yt_") || (trackToPlay.filepath.length == 11 && !trackToPlay.filepath.contains("/"))) trackToPlay.filepath.removePrefix("yt_") else null
                 if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
-                    val authHeader = appContext?.let { com.streamify.app.data.remote.SpotifyAuthManager(it).getYtAuthHeader() } ?: ""
-                    vidId = NativeBridge.resolveTrack(dbPath, cadId, trackToPlay.isrc, trackToPlay.title, trackToPlay.artist, authHeader)
+                    vidId = NativeBridge.resolveTrack(dbPath, cadId, trackToPlay.isrc, trackToPlay.title, trackToPlay.artist, ytAuth, ytCookies)
                 }
 
-                // Tier 1: Native Rust Tokio JIT Stream Resolver
+                // Tier 1: Native Rust Tokio JIT Stream Resolver (with 2.5s safety timeout)
                 val nativeUrl = try {
-                    NativeBridge.resolveCdnUrl(vidId, trackToPlay.isrc, trackToPlay.title, trackToPlay.artist)
-                } catch (e: Exception) {
+                    kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                        NativeBridge.resolveCdnUrl(
+                            videoId = vidId,
+                            isrc = trackToPlay.isrc,
+                            title = trackToPlay.title,
+                            artist = trackToPlay.artist,
+                            authHeader = ytAuth,
+                            cookies = ytCookies
+                        )
+                    }
+                } catch (_: Throwable) {
                     null
                 }
 
                 if (!nativeUrl.isNullOrBlank()) {
                     trackToPlay.copy(filepath = nativeUrl, ytmVideoId = vidId ?: trackToPlay.ytmVideoId)
                 } else {
-                    // Fallback to Kotlin multi-client cascade
+                    // Tier 2: Infallible Pure Kotlin Multi-Client Cascade Fallback
                     val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(if (vidId != null) trackToPlay.copy(ytmVideoId = vidId) else trackToPlay)
                     val resolved = res.getOrNull()
                     resolved?.let { com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = it.loudnessDb }
@@ -1359,11 +1371,25 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             }
 
             try {
+                val (ytAuth, ytCookies) = appContext?.let { ctx ->
+                    val authMgr = com.streamify.app.data.remote.SpotifyAuthManager(ctx)
+                    (authMgr.getYtAuthHeader() ?: "") to (authMgr.getYtRawCookies() ?: "")
+                } ?: ("" to "")
+
                 // Tier 1: Try Native Rust Tokio JIT Stream Resolver
                 val nativeUrl = try {
                     val vidId = nextTrack.ytmVideoId ?: if (nextTrack.filepath.startsWith("yt_") || (nextTrack.filepath.length == 11 && !nextTrack.filepath.contains("/"))) nextTrack.filepath.removePrefix("yt_") else null
-                    NativeBridge.resolveCdnUrl(vidId, nextTrack.isrc, nextTrack.title, nextTrack.artist)
-                } catch (e: Exception) {
+                    kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                        NativeBridge.resolveCdnUrl(
+                            videoId = vidId,
+                            isrc = nextTrack.isrc,
+                            title = nextTrack.title,
+                            artist = nextTrack.artist,
+                            authHeader = ytAuth,
+                            cookies = ytCookies
+                        )
+                    }
+                } catch (_: Throwable) {
                     null
                 }
 

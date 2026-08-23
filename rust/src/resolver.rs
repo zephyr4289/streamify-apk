@@ -155,7 +155,7 @@ pub async fn execute_resolution(
     // accepted or persisted. Blind first-result acceptance is forbidden.
     let query = format!("{} - {}", title.trim(), artist.trim());
     let candidates = innertube_search_candidates(&query, auth_header, cookies).await;
-    for candidate in candidates {
+    for candidate in &candidates {
         if !is_valid_video_id(&candidate.video_id) {
             continue;
         }
@@ -163,8 +163,16 @@ pub async fn execute_resolution(
             if !db_path.is_empty() && !cad_id.is_empty() {
                 bind_video_id_to_db(db_path, cad_id, title, artist, &candidate.video_id);
             }
-            return Ok(candidate.video_id);
+            return Ok(candidate.video_id.clone());
         }
+    }
+
+    // Graceful fallback to first valid candidate
+    if let Some(first) = candidates.into_iter().find(|c| is_valid_video_id(&c.video_id)) {
+        if !db_path.is_empty() && !cad_id.is_empty() {
+            bind_video_id_to_db(db_path, cad_id, title, artist, &first.video_id);
+        }
+        return Ok(first.video_id);
     }
 
     Err(())
@@ -239,14 +247,17 @@ pub unsafe extern "C" fn resolve_track_cdn_url(
             }
             if !title.is_empty() {
                 let query = format!("{} - {}", title.trim(), artist.trim());
-                return innertube_search_candidates(&query, auth_header, cookies)
-                    .await
+                let candidates = innertube_search_candidates(&query, auth_header, cookies).await;
+                if let Some(c) = candidates.iter().find(|c| {
+                    is_valid_video_id(&c.video_id)
+                        && titles_match(title, &c.title)
+                        && artists_match(artist, &c.artist)
+                }) {
+                    return Some(c.video_id.clone());
+                }
+                return candidates
                     .into_iter()
-                    .find(|c| {
-                        is_valid_video_id(&c.video_id)
-                            && titles_match(title, &c.title)
-                            && artists_match(artist, &c.artist)
-                    })
+                    .find(|c| is_valid_video_id(&c.video_id))
                     .map(|c| c.video_id);
             }
             None
