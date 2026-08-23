@@ -5,10 +5,12 @@ import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.streamify.app.data.models.Track
+import com.streamify.app.data.network.ConnectionWarmer
+import com.streamify.app.data.network.NetworkEngine
 import com.streamify.app.data.network.YouTubeStreamResolver
 import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
@@ -20,8 +22,8 @@ class PredictivePreBufferManager(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activePreCacheJobs = ConcurrentHashMap<String, Job>()
 
-    // Initial 2MB pre-cache slice (~25-30s of 160kbps Opus audio)
-    private val preCacheChunkBytes = 2 * 1024 * 1024L
+    // 512KB Head-Chunk Matrix (~25-30s of 160kbps Opus audio container header & stream)
+    private val HEAD_CHUNK_BYTES = 512 * 1024L
 
     fun preBufferUpcomingTracks(upcomingTracks: List<Track>) {
         val targets = upcomingTracks.take(2)
@@ -39,22 +41,28 @@ class PredictivePreBufferManager(
                         if (vid != null) YouTubeStreamResolver.resolveStreamUrl(vid)?.streamUrl else null
                     } ?: return@launch
 
-                    val uri = Uri.parse(streamUrl)
                     val cache = AudioCacheManager.getCache(context)
-                    val upstreamFactory = DefaultHttpDataSource.Factory()
-                        .setUserAgent("com.google.android.apps.youtube.music/7.21.50")
-                        .setConnectTimeoutMs(4000)
-                        .setReadTimeoutMs(4000)
+
+                    // If already cached on disk/RAM, avoid redundant network I/O
+                    if (cache.isCached(streamUrl, 0L, HEAD_CHUNK_BYTES)) {
+                        ConnectionWarmer.preWarmCDN(streamUrl)
+                        return@launch
+                    }
+
+                    // Use shared ExoPlayer OkHttp client (reuses warm connection pool & DNS cache)
+                    val upstreamFactory = OkHttpDataSource.Factory(NetworkEngine.exoPlayerClient)
+                        .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
                     val cacheDataSourceFactory = CacheDataSource.Factory()
                         .setCache(cache)
                         .setUpstreamDataSourceFactory(upstreamFactory)
                         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
+                    val uri = Uri.parse(streamUrl)
                     val dataSpec = DataSpec.Builder()
                         .setUri(uri)
                         .setPosition(0)
-                        .setLength(preCacheChunkBytes)
+                        .setLength(HEAD_CHUNK_BYTES)
                         .setKey(streamUrl)
                         .build()
 
@@ -65,7 +73,11 @@ class PredictivePreBufferManager(
                         null
                     )
 
+                    // Write 512KB head-chunk directly into Media3 SimpleCache
                     cacheWriter.cache()
+
+                    // Pre-warm socket for bytes beyond 512KB
+                    ConnectionWarmer.preWarmCDN(streamUrl)
                 }
             }
 
@@ -83,3 +95,4 @@ class PredictivePreBufferManager(
         scope.cancel()
     }
 }
+
