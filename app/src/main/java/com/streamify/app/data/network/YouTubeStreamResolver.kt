@@ -329,11 +329,13 @@ object YouTubeStreamResolver {
                 // Same-recording proof: a candidate may only be pinned when its
                 // title, artist AND duration agree with the requested track.
                 fun isVerifiedMatch(match: com.streamify.app.viewmodel.OnlineSearchResult): Boolean {
-                    return extractVideoId(match.url) != null &&
-                            com.streamify.app.data.FuzzyTitleMatcher.isSameRecording(
-                                track.title, track.artist, track.durationSec,
-                                match.title, match.uploader, match.duration
-                            )
+                    val vid = extractVideoId(match.url) ?: return false
+                    // Title + artist must match; duration checked only when BOTH sides know it.
+                    val titleOk = com.streamify.app.data.FuzzyTitleMatcher.titlesMatch(track.title, match.title)
+                    val artistOk = com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(track.artist, match.uploader)
+                    val durOk = track.durationSec <= 0 || match.duration <= 0 ||
+                            com.streamify.app.data.FuzzyTitleMatcher.durationMatches(track.durationSec, match.duration)
+                    return vid.isNotBlank() && titleOk && artistOk && durOk
                 }
                 // Strict Official Audio Filter: Exclude user covers, live recordings, slowed, and remixes
                 val isNoiseFreeTitle = { title: String ->
@@ -401,12 +403,9 @@ object YouTubeStreamResolver {
             val fallbackSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 3)
             for (candidate in fallbackSearch) {
                 val candVideoId = extractVideoId(candidate.url, candidate.thumbnail)
-                if (candVideoId != null && candVideoId != videoId &&
-                    com.streamify.app.data.FuzzyTitleMatcher.isSameRecording(
-                        track.title, track.artist, track.durationSec,
-                        candidate.title, candidate.uploader, candidate.duration
-                    )
-                ) {
+                val candOk = com.streamify.app.data.FuzzyTitleMatcher.titlesMatch(track.title, candidate.title) &&
+                        com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(track.artist, candidate.uploader)
+                if (candVideoId != null && candVideoId != videoId && candOk) {
                     val retryResolved = raceClientEndpoints(candVideoId)
                     if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
                         StreamEdgeCache.putStream(candVideoId, retryResolved)

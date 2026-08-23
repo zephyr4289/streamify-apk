@@ -45,7 +45,7 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         @Volatile var activeEqEngine: String = "SYSTEM"
 
         /** PHASE 2 SAFETY: soft-knee ceiling after every gain stage. */
-        @Volatile var limiterEnabled: Boolean = true
+        @Volatile var limiterEnabled: Boolean = false // opt-in after device testing
     }
 
     private var statePtr: Long = 0L

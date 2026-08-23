@@ -40,17 +40,20 @@ object CanonicalSeedResolver {
         if (query.isNotBlank()) {
             try {
                 val results = YouTubeMusicSearchApi.search(query, maxResults = 8)
+                // Two-tier acceptance: exact recording proof preferred, but
+                // title+artist similarity alone is accepted when duration is
+                // unknown (0) — prevents total resolution failure for tracks
+                // with missing/imprecise metadata while still rejecting covers.
                 val topMatch = results.firstOrNull { item ->
                     val vId = YouTubeStreamResolver.extractVideoId(item.url)
                     vId != null && vId.matches(VIDEO_ID_REGEX) &&
-                            com.streamify.app.data.FuzzyTitleMatcher.isSameRecording(
-                                track.title,
-                                track.artist,
-                                track.durationSec,
-                                item.title,
-                                item.uploader,
-                                item.duration
-                            )
+                            com.streamify.app.data.FuzzyTitleMatcher.titlesMatch(track.title, item.title) &&
+                            com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(track.artist, item.uploader)
+                } ?: results.firstOrNull { item ->
+                    val vId = YouTubeStreamResolver.extractVideoId(item.url)
+                    vId != null && vId.matches(VIDEO_ID_REGEX) &&
+                            com.streamify.app.data.FuzzyTitleMatcher.titlesMatch(track.title, item.title) &&
+                            track.durationSec <= 0 // duration-unknown fallback
                 }
                 if (topMatch != null) {
                     val resolvedId = YouTubeStreamResolver.extractVideoId(topMatch.url)!!
