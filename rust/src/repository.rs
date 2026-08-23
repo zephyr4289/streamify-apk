@@ -45,11 +45,41 @@ const REKEY_SCHEMA_VERSION: i32 = 2;
 impl TrackRepository {
     pub fn new(path: &str) -> Result<Self, rusqlite::Error> {
         let conn = Connection::open(path)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        Self::apply_performance_pragmas(&conn)?;
         conn.execute_batch(UNIVERSAL_TRACKS_DDL)?;
         ensure_cad_rekey(&conn);
         Ok(TrackRepository { conn })
+    }
+
+    /// Applies RAM-Native Memory-Mapped I/O, WAL, and 64MB Cache to the SQLite connection
+    pub fn apply_performance_pragmas(conn: &Connection) -> Result<(), rusqlite::Error> {
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        let mmap_bytes = Self::calculate_mmap_size();
+        let _ = conn.pragma_update(None, "mmap_size", mmap_bytes);
+        let _ = conn.pragma_update(None, "temp_store", "MEMORY");
+        let _ = conn.pragma_update(None, "cache_size", -64000); // 64MB Page Cache
+        Ok(())
+    }
+
+    /// Dynamically scales MMAP size based on device RAM to prevent low-end OOMs
+    pub fn calculate_mmap_size() -> i64 {
+        let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+        let total_ram_kb = meminfo
+            .lines()
+            .find(|line| line.starts_with("MemTotal:"))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(2048 * 1024);
+
+        let total_ram_bytes = total_ram_kb * 1024;
+        if total_ram_bytes >= 6_000_000_000 {
+            268_435_456 // 256MB for 6GB+ flagships
+        } else if total_ram_bytes >= 3_000_000_000 {
+            134_217_728 // 128MB for 3-4GB mid-range
+        } else {
+            67_108_864 // 64MB for low-end
+        }
     }
 
     /// Generates a Duration-Aware Canonical Hash (CAD-ID).
@@ -329,7 +359,7 @@ pub fn ensure_db_migrated(db_path: &str) {
         return;
     }
     if let Ok(conn) = Connection::open(db_path) {
-        let _ = conn.pragma_update(None, "journal_mode", "WAL");
+        let _ = TrackRepository::apply_performance_pragmas(&conn);
         if conn.execute_batch(UNIVERSAL_TRACKS_DDL).is_ok() {
             ensure_cad_rekey(&conn);
         }

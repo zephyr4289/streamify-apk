@@ -551,6 +551,7 @@ fn artists_match(query_artist: &str, candidate_artist: &str) -> bool {
 // --- SQLite Cache Helpers ---
 fn check_local_cache(db_path: &str, cad_id: &str) -> Option<String> {
     let conn = Connection::open(db_path).ok()?;
+    let _ = crate::repository::TrackRepository::apply_performance_pragmas(&conn);
     let mut stmt = conn.prepare("SELECT ytm_video_id FROM universal_tracks WHERE cad_id = ?1").ok()?;
     let result = stmt.query_map([cad_id], |row| row.get::<_, String>(0)).ok()?.next()?.ok();
     result.filter(|s| !s.is_empty())
@@ -562,7 +563,7 @@ fn check_local_cache(db_path: &str, cad_id: &str) -> Option<String> {
 /// the fuzzy lottery. Now the row is created on first binding.
 fn bind_video_id_to_db(db_path: &str, cad_id: &str, title: &str, artist: &str, video_id: &str) {
     if let Ok(conn) = Connection::open(db_path) {
-        let _ = conn.pragma_update(None, "journal_mode", "WAL");
+        let _ = crate::repository::TrackRepository::apply_performance_pragmas(&conn);
         let _ = conn.execute(
             "INSERT INTO universal_tracks (cad_id, title, artist, duration_sec, ytm_video_id, source_platform)
              VALUES (?1, ?2, ?3, 0, ?4, 'resolver')

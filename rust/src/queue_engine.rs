@@ -77,8 +77,7 @@ pub unsafe extern "C" fn get_next_track(
             Err(_) => return -1,
         };
 
-        let _ = conn.pragma_update(None, "journal_mode", "WAL");
-        let _ = conn.pragma_update(None, "synchronous", "NORMAL");
+        let _ = TrackRepository::apply_performance_pragmas(&conn);
 
         // 1. Find the rowid of the current track
         let current_rowid: i64 = conn.query_row(
@@ -181,8 +180,7 @@ pub unsafe extern "C" fn spotify_delta_sync(
                 Err(_) => return 0,
             };
 
-            let _ = conn.pragma_update(None, "journal_mode", "WAL");
-            let _ = conn.pragma_update(None, "synchronous", "NORMAL");
+            let _ = TrackRepository::apply_performance_pragmas(&conn);
 
             let tx = match conn.unchecked_transaction() {
                 Ok(t) => t,

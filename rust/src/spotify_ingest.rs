@@ -270,8 +270,7 @@ async fn fetch_and_commit_spotify_pages(
         Err(_) => return 0,
     };
 
-    let _ = conn.pragma_update(None, "journal_mode", "WAL");
-    let _ = conn.pragma_update(None, "synchronous", "NORMAL");
+    let _ = TrackRepository::apply_performance_pragmas(&conn);
 
     let tx = match conn.unchecked_transaction() {
         Ok(t) => t,
@@ -347,8 +346,7 @@ async fn fetch_and_commit_spotify_top_tracks(
         Err(_) => return 0,
     };
 
-    let _ = conn.pragma_update(None, "journal_mode", "WAL");
-    let _ = conn.pragma_update(None, "synchronous", "NORMAL");
+    let _ = TrackRepository::apply_performance_pragmas(&conn);
 
     let tx = match conn.unchecked_transaction() {
         Ok(t) => t,
