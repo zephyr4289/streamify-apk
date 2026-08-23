@@ -1278,72 +1278,40 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(url)
 
     private suspend fun playTrackInternal(track: Track, index: Int, queue: List<Track>) {
-        seekTimeoutJob?.cancel()
-        isOptimisticSeeking = false
-        pendingSeekTargetMs = null
+        android.util.Log.d("PlaybackTrace", "▶️ START: ${track.title}")
+        com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = null
 
-        _playerState.value = _playerState.value.copy(
+            _playerState.value = _playerState.value.copy(
             currentTrack = track,
             currentIndex = index,
-            currentPosition = 0L,
             queue = queue,
             isPlaying = true,
-            isBuffering = true,
-            isVideoMode = false
+            isBuffering = true
         )
-        playbackStartTimeMs = System.currentTimeMillis()
-        android.util.Log.d(TAG, "▶️ playTrackInternal START: ${track.title} | filepath=${track.filepath.take(60)} | ytmVideoId=${track.ytmVideoId}")
-
-        // PHASE 1 LOUDNESS TRUTH: reset until this track's stream is resolved.
-        com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = null
 
         // 0. SMART OFFLINE VAULT GATE (0ms instant local playback if pre-cached)
         val vaulted = com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
         val trackToPlay = vaulted ?: track
 
         // 1. FAST-PATH GATE: If trackToPlay.filepath is already a direct playable local file or unexpired CDN stream
-        android.util.Log.d(TAG, "📋 filepath=${trackToPlay.filepath.take(80)}")
         val isAlreadyDirectCdn = (trackToPlay.filepath.contains("googlevideo.com") || trackToPlay.filepath.contains(".googlevideo.")) &&
                 !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(trackToPlay.filepath)
         val isLocalFile = trackToPlay.filepath.startsWith("/") || trackToPlay.filepath.startsWith("file://") || java.io.File(trackToPlay.filepath).exists()
 
-        var streamLoudnessDb: Float? = null
         val resolvedTrack = if (isLocalFile || isAlreadyDirectCdn) {
             trackToPlay
         } else {
             withContext(Dispatchers.IO) {
-                val dbPath = appContext?.getDatabasePath("streamify_universal.db")?.absolutePath ?: ""
-                val cadId = NativeBridge.generateCadId(trackToPlay.title, trackToPlay.artist, trackToPlay.durationSec)
-                val (ytAuth, ytCookies) = ytSession()
-
-                var vidId = trackToPlay.ytmVideoId ?: if (trackToPlay.filepath.startsWith("yt_") || (trackToPlay.filepath.length == 11 && !trackToPlay.filepath.contains("/"))) trackToPlay.filepath.removePrefix("yt_") else null
-                if (vidId.isNullOrBlank() && dbPath.isNotBlank() && cadId.isNotBlank()) {
-                    // Rust resolver bypassed in hot path — Kotlin cascade handles it below
-                }
-
-                // TIER 1: Kotlin multi-client cascade — battle-tested format
-                // selection; this was the ONLY resolver before the Rust engine
-                // shipped, so it stays primary for playback trust.
-                // resolveStreamJit ALREADY returns Result<ResolvedStream> —
-                // no runCatching wrapper (that produced Result<Result<..>>).
-                val cascaded = com.streamify.app.data.network.YouTubeStreamResolver
-                    .resolveStreamJit(
-                        if (vidId != null) trackToPlay.copy(ytmVideoId = vidId) else trackToPlay
-                    )
-                    .getOrNull()
-                    ?.takeIf { resolved ->
-                        resolved.streamUrl.isNotBlank() && isTrustedStreamUrl(resolved.streamUrl)
-                    }
-
-                if (cascaded != null) {
-                    // PHASE 1: capture YouTube's own loudness measurement.
-                    streamLoudnessDb = cascaded.loudnessDb
-                    trackToPlay.copy(filepath = cascaded.streamUrl, ytmVideoId = vidId ?: trackToPlay.ytmVideoId)
+                val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(trackToPlay)
+                val resolved = res.getOrNull()
+                if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                    trackToPlay.copy(filepath = resolved.streamUrl)
+                } else {
+                    trackToPlay
                 }
             }
         }
 
-        android.util.Log.d(TAG, "🔗 RESOLVED: filepath=${resolvedTrack.filepath.take(80)} | ytmVideoId=${resolvedTrack.ytmVideoId}")
         val isDirectStream = resolvedTrack.filepath.startsWith("http") &&
                 !resolvedTrack.filepath.contains("youtube.com/watch") &&
                 !resolvedTrack.filepath.contains("music.youtube.com") &&
@@ -1352,26 +1320,17 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 resolvedTrack.filepath.startsWith("file") ||
                 java.io.File(resolvedTrack.filepath).exists()
 
-        android.util.Log.d(TAG, "${if (isPlayable) "✅ PLAYABLE" else "❌ NOT PLAYABLE"} | preGain=${com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb} | filepath=${resolvedTrack.filepath.take(60)}")
         if (isPlayable) {
-            // PHASE 1: hand YouTube's loudness truth to the render processor.
-            com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = streamLoudnessDb
-
             val mediaItem = buildMediaItem(resolvedTrack)
             withContext(Dispatchers.Main) {
-                try {
-                    controller?.let { ctrl ->
-                        ctrl.setMediaItem(mediaItem, 0L)
-                        ctrl.prepare()
-                        ctrl.play()
-                    }
-                } catch (e: Throwable) {
-                    e.printStackTrace()
+                controller?.let { ctrl ->
+                    ctrl.setMediaItem(mediaItem, 0L)
+                    ctrl.prepare()
+                    ctrl.play()
                 }
-                val isCtrlBuffering = controller?.let { it.playbackState == androidx.media3.common.Player.STATE_BUFFERING || it.playbackState == androidx.media3.common.Player.STATE_IDLE } ?: true
                 _playerState.value = _playerState.value.copy(
                     currentTrack = resolvedTrack,
-                    isBuffering = isCtrlBuffering
+                    isBuffering = false
                 )
             }
 
@@ -1386,17 +1345,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         withContext(Dispatchers.Main) {
                             val cur = _playerState.value.currentTrack
                             if (cur != null && cur.title == track.title && cur.artist == track.artist) {
-                                val finalVid = registered.ytmVideoId ?: track.ytmVideoId ?: resolvedTrack.ytmVideoId
-                                _playerState.value = _playerState.value.copy(
-                                    currentTrack = registered.copy(
-                                        filepath = resolvedTrack.filepath,
-                                        ytmVideoId = finalVid
-                                    )
-                                )
-                                // Exact video identity is now pinned: if the initial lyric
-                                // fetch ran without it, this authorized retry upgrades to
-                                // the perfectly synced ATV timed lyrics for that upload.
-                                maybeFetchLyricsForTrack(_playerState.value.currentTrack)
+                                _playerState.value = _playerState.value.copy(currentTrack = registered.copy(filepath = resolvedTrack.filepath))
                             }
                         }
                     }
@@ -1412,7 +1361,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
     }
 
-    private fun armLookaheadPreBuffer(nextIndex: Int, queue: List<Track>) {
+
+    }
+
         if (nextIndex >= queue.size) return
         val nextTrack = queue[nextIndex]
         lookaheadJob?.cancel()
