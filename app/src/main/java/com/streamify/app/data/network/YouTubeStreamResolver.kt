@@ -382,6 +382,7 @@ object YouTubeStreamResolver {
         if (!forceFresh) {
             val cached = StreamEdgeCache.getStream(videoId)
             if (cached != null && !isCdnExpired(cached.streamUrl, safetyMarginMs = 600_000L)) {
+                ConnectionWarmer.preWarmCDN(cached.streamUrl)
                 return@withContext Result.success(cached)
             }
         } else {
@@ -393,6 +394,7 @@ object YouTubeStreamResolver {
         val nativeResolved = raceClientEndpoints(videoId)
         if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putStream(videoId, nativeResolved)
+            ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
             return@withContext Result.success(nativeResolved)
         }
 
@@ -407,6 +409,7 @@ object YouTubeStreamResolver {
                     val retryResolved = raceClientEndpoints(candVideoId)
                     if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
                         StreamEdgeCache.putStream(candVideoId, retryResolved)
+                        ConnectionWarmer.preWarmCDN(retryResolved.streamUrl)
                         return@withContext Result.success(retryResolved)
                     }
                 }
