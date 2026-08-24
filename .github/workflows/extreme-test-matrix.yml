@@ -203,11 +203,6 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
@@ -222,7 +217,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: c-cpp, java-kotlin, python
+          languages: c-cpp, java-kotlin
           queries: security-and-quality
 
       - name: Manual Build for CodeQL Tracing
