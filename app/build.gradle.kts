@@ -177,37 +177,50 @@ dependencies {
 // Escape hatch for toolchain-less builds:  ./gradlew assembleDebug -Pstreamify.skipRust=true
 val skipRustBuild = (project.findProperty("streamify.skipRust") as String?)?.toBoolean() == true
 
-val skipRustForCI = System.getenv("CI") == "true"
-
 tasks.register<Exec>("cargoBuildRust") {
     group = "native"
     description = "Builds streamify_core_rs (cdylib) for arm64-v8a + armeabi-v7a via cargo-ndk."
     workingDir = file("../rust")
-    enabled = !skipRustForCI
+
     doFirst {
+        // Ensure Android Rust targets are installed (belt-and-suspenders)
+        val targetInstall = ProcessBuilder(
+            "rustup", "target", "add", "aarch64-linux-android", "armv7-linux-androideabi"
+        ).inheritIO().start().waitFor()
+        println("[cargoBuildRust] rustup target install exit: $targetInstall")
+
+        // Resolve NDK path from env or Android plugin
         val ndkPath = System.getenv("ANDROID_NDK_HOME")
             ?: System.getenv("ANDROID_NDK_ROOT")
+            ?: System.getenv("NDK_HOME")
             ?: (try { android.ndkDirectory.absolutePath } catch (_: Exception) { "" })
         if (ndkPath.isNotBlank()) {
             environment("ANDROID_NDK_HOME", ndkPath)
             environment("ANDROID_NDK_ROOT", ndkPath)
             environment("NDK_HOME", ndkPath)
         }
-        val cargoBin = System.getenv("HOME")?.let { "$it/.cargo/bin" } ?: ""
+
+        // Ensure cargo-ndk binary is reachable
+        val cargoBin = System.getenv("HOME")?.let { "$it/.cargo/bin" } ?: "/usr/local/cargo/bin"
         environment("PATH", "$cargoBin:" + System.getenv("PATH"))
+
+        // Print EXACTLY what will be executed for CI debugging
+        println("[cargoBuildRust] NDK_PATH=$ndkPath")
+        println("[cargoBuildRust] command=cargo ndk --platform 26 -t arm64-v8a -t armeabi-v7a -o <jniLibs> build --release")
     }
+
     commandLine(
-        System.getenv("HOME")?.let { "$it/.cargo/bin/cargo" } ?: "cargo",
-        "ndk", "--platform", "26",
-        "-t", "arm64-v8a", "-t", "armeabi-v7a",
+        "cargo", "ndk",
+        "--platform", "26",
+        "-t", "arm64-v8a",
+        "-t", "armeabi-v7a",
         "-o", file("src/main/jniLibs").absolutePath,
         "build", "--release"
     )
 }
 
-val isCI = System.getenv("CI") == "true"
 afterEvaluate {
-    if (!isCI && !skipRustBuild) {
+    if (!skipRustBuild) {
         tasks.named("preBuild") {
             dependsOn("cargoBuildRust")
         }
