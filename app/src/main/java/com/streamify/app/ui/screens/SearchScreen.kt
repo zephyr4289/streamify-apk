@@ -415,7 +415,7 @@ fun SearchScreen(
                             }
                             itemsIndexed(
                                 items = onlineMatches,
-                                key = { _, it -> "online_${it.url}" },
+                                key = { index, it -> "online_${it.url}_$index" },
                                 contentType = { _, it -> "trackRow_${it.type.name}" }
                             ) { index, onlineTrack ->
                                 when (onlineTrack.type) {

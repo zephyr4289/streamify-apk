@@ -88,9 +88,26 @@ object TrackRepository {
     }
     
     suspend fun searchTracks(query: String): List<Track> = withContext(Dispatchers.IO) {
-        val likedIds = NativeBridge.getLikedTracks(1).map { it.id }.toSet()
-        val directMatches = NativeBridge.searchTracks(query).map { native ->
-            native.toTrack().copy(isLiked = likedIds.contains(native.id))
+        // Close the init race honestly: wait for the native DB instead of racing it.
+        // ensureInitialized() is an idempotent shared CompletableDeferred that always
+        // completes (even if initDatabase failed), so this never hangs.
+        DatabaseInitializer.ensureInitialized()
+        val likedIds = try {
+            NativeBridge.getLikedTracks(1).map { it.id }.toSet()
+        } catch (t: Throwable) {
+            android.util.Log.e("TrackRepository", "Native liked-tracks fetch failed, degrading", t)
+            emptySet<Int>()
+        }
+        val directMatches = try {
+            NativeBridge.searchTracks(query).map { native ->
+                native.toTrack().copy(isLiked = likedIds.contains(native.id))
+            }
+        } catch (t: Throwable) {
+            // UnsatisfiedLinkError is an Error, not an Exception — only catch(Throwable)
+            // keeps a missing/mismatched native lib from killing the process. Degraded
+            // local search falls through to the fuzzy in-memory path below.
+            android.util.Log.e("TrackRepository", "Native search failed, degrading to fuzzy fallback", t)
+            emptyList()
         }
         if (directMatches.isNotEmpty()) {
             return@withContext directMatches

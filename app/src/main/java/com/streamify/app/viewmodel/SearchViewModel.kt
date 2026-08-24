@@ -189,11 +189,11 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         }
                     } else emptyList()
 
-                    val combined = if (semanticResults.isNotEmpty()) {
-                        (semanticResults + searchResult).distinctBy { it.url.ifBlank { it.title } }
-                    } else {
-                        searchResult
-                    }
+                    // Unconditional dedupe: repeated videoIds across Innertube shelves and
+                    // identical iTunes title+artist entries share a URL/composite key, which
+                    // crashes LazyColumn ("key was already used") at render time.
+                    val combined = (semanticResults + searchResult)
+                        .distinctBy { it.url.ifBlank { "${it.title}_${it.uploader}" } }
 
                     rankSearchResults(combined, cleanQuery)
                 } catch (e: Exception) {

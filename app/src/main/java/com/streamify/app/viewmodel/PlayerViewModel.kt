@@ -106,6 +106,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private var preResolvingTrackKey: String? = null
     private var lookaheadJob: Job? = null
     private var playJob: Job? = null
+
+    // Bounded auto-advance: consecutive stream-resolution failures before playback
+    // halts instead of churning the queue forever behind a pinned spinner.
+    // Exactly three write sites: reset in playTrack(), reset on success,
+    // incremented in registerResolutionFailure(). Nothing else may touch it.
+    private var consecutiveResolutionFailures = 0
+    private val maxResolutionFailures = 3
     private var hydrateJob: Job? = null
     private var pendingSeekTargetMs: Long? = null
     private var isOptimisticSeeking: Boolean = false
@@ -921,6 +928,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     }
 
     fun playTrack(track: Track, queue: List<Track> = listOf(track), autoHydrateRadio: Boolean = true) {
+        // Manual entry point = fresh user intent → fresh failure budget.
+        consecutiveResolutionFailures = 0
         val hydratedTrack = repository.hydrateTrack(track)
         val hydratedQueue = queue.map { qTrack ->
             if (qTrack.id == track.id || (qTrack.title.equals(track.title, ignoreCase = true) && qTrack.artist.equals(track.artist, ignoreCase = true))) {
@@ -953,23 +962,35 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         // 2. Tracked Single Job - cancel previous resolution jobs to prevent race conditions
         playJob?.cancel()
         playJob = viewModelScope.launch {
-            // Register track and prime hash deduplication set without clearing history
-            sessionPlayedTrackIds.add(hydratedTrack.id)
-            val playedH = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(hydratedTrack.title)
-            if (playedH != 0L) processedTitleHashes.add(playedH)
+            try {
+                // Register track and prime hash deduplication set without clearing history
+                sessionPlayedTrackIds.add(hydratedTrack.id)
+                val playedH = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(hydratedTrack.title)
+                if (playedH != 0L) processedTitleHashes.add(playedH)
 
-            for (t in hydratedQueue) {
-                val h = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(t.title)
-                if (h != 0L) processedTitleHashes.add(h)
-                if (t.id != 0) sessionPlayedTrackIds.add(t.id)
-            }
+                for (t in hydratedQueue) {
+                    val h = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(t.title)
+                    if (h != 0L) processedTitleHashes.add(h)
+                    if (t.id != 0) sessionPlayedTrackIds.add(t.id)
+                }
 
-            com.streamify.app.data.NeuroQueueManager.onTrackStarted(hydratedTrack)
-            playTrackInternal(hydratedTrack, targetIndex, hydratedQueue)
+                com.streamify.app.data.NeuroQueueManager.onTrackStarted(hydratedTrack)
+                playTrackInternal(hydratedTrack, targetIndex, hydratedQueue)
 
-            // Asynchronously hydrate upcoming continuum radio queue seeded directly from the tapped track
-            if (autoHydrateRadio) {
-                hydrateContinuumRadio(hydratedTrack)
+                // Asynchronously hydrate upcoming continuum radio queue seeded directly from the tapped track
+                if (autoHydrateRadio) {
+                    hydrateContinuumRadio(hydratedTrack)
+                }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce // superseded by a newer playTrack / VM teardown — never a failure
+            } catch (t: Throwable) {
+                // Safety net: an unknown throw between the optimistic buffering=true above
+                // and completion must never strand the spinner. Known resolution failures
+                // are already routed through registerResolutionFailure() inside
+                // playTrackInternal(); unknown bugs get a safe stop, no auto-advance.
+                android.util.Log.e("PlayerViewModel", "playTrack coroutine died", t)
+                _playerState.value = _playerState.value.copy(isBuffering = false, isPlaying = false)
+                UiEventBus.emitEvent(UiEvent.ShowSnackbar("Playback error — please try again"))
             }
         }
     }
@@ -1273,17 +1294,27 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         val resolvedTrack = if (isLocalFile || isAlreadyDirectCdn) {
             trackToPlay
         } else {
-            withContext(Dispatchers.IO) {
-                val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(trackToPlay)
-                val resolved = res.getOrNull()
-                resolved?.let { com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = it.loudnessDb }
-                if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                    val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(resolved.streamUrl)
-                        ?: trackToPlay.ytmVideoId
-                    trackToPlay.copy(filepath = resolved.streamUrl, ytmVideoId = vid ?: trackToPlay.ytmVideoId)
-                } else {
-                    trackToPlay
+            try {
+                withContext(Dispatchers.IO) {
+                    val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(trackToPlay)
+                    val resolved = res.getOrNull()
+                    resolved?.let { com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = it.loudnessDb }
+                    if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                        val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(resolved.streamUrl)
+                            ?: trackToPlay.ytmVideoId
+                        trackToPlay.copy(filepath = resolved.streamUrl, ytmVideoId = vid ?: trackToPlay.ytmVideoId)
+                    } else {
+                        trackToPlay
+                    }
                 }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce // user skipped mid-resolve / job cancelled — NOT a resolution failure
+            } catch (t: Throwable) {
+                // Resolution threw instead of returning null: route through the same
+                // strike system, otherwise exceptions bypass the failure cap entirely.
+                android.util.Log.e("PlayerViewModel", "Stream resolution threw for ${track.title}", t)
+                registerResolutionFailure()
+                return
             }
         }
 
@@ -1296,6 +1327,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 java.io.File(resolvedTrack.filepath).exists()
 
         if (isPlayable) {
+            consecutiveResolutionFailures = 0 // success resets the strike budget
             val mediaItem = buildMediaItem(resolvedTrack)
             withContext(Dispatchers.Main) {
                 try {
@@ -1345,9 +1377,43 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 }
             }
         } else {
-            android.util.Log.e("PlayerViewModel", "Track stream unresolvable for ${track.title}, auto-skipping")
-            withContext(Dispatchers.Main) {
-                advanceQueue(isUserSkip = false)
+            android.util.Log.e("PlayerViewModel", "Track stream unresolvable for ${track.title}, strike ${consecutiveResolutionFailures + 1}/$maxResolutionFailures")
+            registerResolutionFailure()
+        }
+    }
+
+    /**
+     * The ONLY failure site for stream resolution. Two callers: the catch around
+     * the resolve step in [playTrackInternal], and its isPlayable == false branch.
+     * Clears the optimistic buffering state and surfaces user feedback, then
+     * either auto-advances (under the strike cap) or locks playback until the
+     * next manual playTrack() resets the budget.
+     */
+    private suspend fun registerResolutionFailure() {
+        consecutiveResolutionFailures++
+        val underCap = consecutiveResolutionFailures < maxResolutionFailures
+        withContext(Dispatchers.Main) {
+            _playerState.value = _playerState.value.copy(isBuffering = false, isPlaying = false)
+            UiEventBus.emitEvent(
+                if (underCap) UiEvent.ShowSnackbar("Track unavailable (${consecutiveResolutionFailures}/$maxResolutionFailures). Advancing…")
+                else UiEvent.ShowSnackbar("Multiple tracks unavailable — playback stopped.")
+            )
+        }
+        if (underCap) {
+            // Deferred advance: when invoked from inside an advanceQueue pass (Paths A-C),
+            // its isAdvancing CAS guard is held until this call stack returns. Awaiting
+            // inline would self-block, so hand off to a concurrent job that waits for
+            // the guard to clear (bounded) and then advances.
+            viewModelScope.launch {
+                delay(250) // let UI state settle before the next resolve attempt
+                var waitedMs = 0
+                while (isAdvancing.get() && waitedMs < 10_000) {
+                    delay(100)
+                    waitedMs += 100
+                }
+                if (!isAdvancing.get()) {
+                    advanceQueue(isUserSkip = false)
+                }
             }
         }
     }

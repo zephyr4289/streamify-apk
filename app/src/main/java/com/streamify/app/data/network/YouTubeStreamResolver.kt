@@ -500,7 +500,7 @@ object YouTubeStreamResolver {
                 put("racyCheckOk", true)
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
-                        put("signatureTimestamp", 19850)
+                        put("signatureTimestamp", currentSignatureTimestamp())
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
@@ -513,6 +513,7 @@ object YouTubeStreamResolver {
                 .header("Accept", "*/*")
                 .header("X-YouTube-Client-Name", config.clientNumber)
                 .header("X-YouTube-Client-Version", config.clientVersion)
+                .also { attachYtSession(it) }
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
 
             if (!config.origin.isNullOrBlank()) {
