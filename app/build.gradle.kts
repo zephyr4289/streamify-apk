@@ -181,7 +181,15 @@ tasks.register<Exec>("cargoBuildRust") {
     group = "native"
     description = "Builds streamify_core_rs (cdylib) for arm64-v8a + armeabi-v7a via cargo-ndk."
     workingDir = file("../rust")
+
     doFirst {
+        // Ensure Android Rust targets are installed (belt-and-suspenders)
+        val targetInstall = ProcessBuilder(
+            "rustup", "target", "add", "aarch64-linux-android", "armv7-linux-androideabi"
+        ).inheritIO().start().waitFor()
+        println("[cargoBuildRust] rustup target install exit: $targetInstall")
+
+        // Resolve NDK path from env or Android plugin
         val ndkPath = System.getenv("ANDROID_NDK_HOME")
             ?: System.getenv("ANDROID_NDK_ROOT")
             ?: System.getenv("NDK_HOME")
@@ -191,7 +199,16 @@ tasks.register<Exec>("cargoBuildRust") {
             environment("ANDROID_NDK_ROOT", ndkPath)
             environment("NDK_HOME", ndkPath)
         }
+
+        // Ensure cargo-ndk binary is reachable
+        val cargoBin = System.getenv("HOME")?.let { "$it/.cargo/bin" } ?: "/usr/local/cargo/bin"
+        environment("PATH", "$cargoBin:" + System.getenv("PATH"))
+
+        // Print EXACTLY what will be executed for CI debugging
+        println("[cargoBuildRust] NDK_PATH=$ndkPath")
+        println("[cargoBuildRust] command=cargo ndk --platform 26 -t arm64-v8a -t armeabi-v7a -o <jniLibs> build --release")
     }
+
     commandLine(
         "cargo", "ndk",
         "--platform", "26",
