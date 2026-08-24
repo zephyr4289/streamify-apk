@@ -137,29 +137,29 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             addQueryToHistory(cleanQuery)
         }
 
-        // 1. Instantaneous Local Search & LRU Cache Hit (0ms Delay - Synchronous Fast-Path)
-        val localResults = if (filter == "All" || filter == "Songs") {
-            repository.searchTracks(cleanQuery)
-        } else emptyList()
+        searchJob = viewModelScope.launch {
+            // 1. Instantaneous Local Search & LRU Cache Hit (0ms Delay)
+            val localResults = if (filter == "All" || filter == "Songs") {
+                withContext(Dispatchers.IO) { repository.searchTracks(cleanQuery) }
+            } else emptyList()
 
-        val cachedOnline = searchCache.get(cacheKey)
-        if (cachedOnline != null) {
+            val cachedOnline = searchCache.get(cacheKey)
+            if (cachedOnline != null) {
+                _uiState.value = SearchUiState.Success(
+                    localResults = localResults,
+                    onlineResults = cachedOnline,
+                    isOnlineLoading = false
+                )
+                return@launch
+            }
+
+            // Emit instant local results immediately while online search is debounced
             _uiState.value = SearchUiState.Success(
                 localResults = localResults,
-                onlineResults = cachedOnline,
-                isOnlineLoading = false
+                onlineResults = emptyList(),
+                isOnlineLoading = true
             )
-            return
-        }
 
-        // Emit instant local results immediately while online search is debounced
-        _uiState.value = SearchUiState.Success(
-            localResults = localResults,
-            onlineResults = emptyList(),
-            isOnlineLoading = true
-        )
-
-        searchJob = viewModelScope.launch {
             // 2. Tight 60ms keystroke debounce for remote cloud search
             kotlinx.coroutines.delay(60)
 

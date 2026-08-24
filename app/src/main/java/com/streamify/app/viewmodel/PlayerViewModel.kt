@@ -558,9 +558,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     urlRetryAttempts.remove(trackKey)
                     consecutiveDeadSkips++
                     if (consecutiveDeadSkips >= 3) {
-                        viewModelScope.launch {
-                            _uiEvent.emit(UiEvent.ShowToast("Multiple tracks unavailable. Advancing queue."))
-                        }
+                        UiEventBus.emitEvent(UiEvent.ShowSnackbar("Multiple tracks unavailable. Advancing queue."))
                         consecutiveDeadSkips = 0
                     }
                     advanceQueue(isUserSkip = false)

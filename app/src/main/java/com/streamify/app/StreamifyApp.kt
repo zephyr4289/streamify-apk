@@ -11,6 +11,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class StreamifyApp : Application(), ImageLoaderFactory {

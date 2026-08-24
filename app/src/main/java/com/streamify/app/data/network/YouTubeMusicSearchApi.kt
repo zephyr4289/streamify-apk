@@ -1,5 +1,6 @@
 package com.streamify.app.data.network
 
+import com.streamify.app.data.NativeBridge
 import com.streamify.app.viewmodel.OnlineSearchResult
 import com.streamify.app.viewmodel.SearchResultType
 import kotlinx.coroutines.Dispatchers
@@ -197,7 +198,7 @@ object YouTubeMusicSearchApi {
                 if (rawBytes.isEmpty()) return emptyList()
 
                 // Tier 1: Native SIMD Tree-Walk in Rust (<1ms, zero JVM tree allocations)
-                val nativeCandidates = try {
+                val nativeCandidates: List<OnlineSearchResult>? = try {
                     val json = NativeBridge.rustParseInnertubeCandidates(rawBytes)
                     if (!json.isNullOrBlank()) {
                         val arr = JSONArray(json)
@@ -220,7 +221,7 @@ object YouTubeMusicSearchApi {
                         }
                         if (list.isNotEmpty()) list.take(maxResults) else null
                     } else null
-                } catch (_: Throwable) {
+                } catch (e: Throwable) {
                     null
                 }
 
