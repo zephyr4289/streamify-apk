@@ -193,15 +193,43 @@ object YouTubeMusicSearchApi {
                 if (!response.isSuccessful) return emptyList()
 
                 val body = response.body ?: return emptyList()
-                val encoding = response.header("Content-Encoding", "")
+                val rawBytes = body.bytes()
+                if (rawBytes.isEmpty()) return emptyList()
 
-                val responseBody = if ("gzip".equals(encoding, ignoreCase = true)) {
-                    GZIPInputStream(body.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                } else {
-                    body.string()
+                // Tier 1: Native SIMD Tree-Walk in Rust (<1ms, zero JVM tree allocations)
+                val nativeCandidates = try {
+                    val json = NativeBridge.rustParseInnertubeCandidates(rawBytes)
+                    if (!json.isNullOrBlank()) {
+                        val arr = JSONArray(json)
+                        val list = ArrayList<OnlineSearchResult>(arr.length())
+                        for (i in 0 until arr.length()) {
+                            val item = arr.getJSONObject(i)
+                            val vid = item.optString("id", "")
+                            if (vid.isNotBlank()) {
+                                list.add(
+                                    OnlineSearchResult(
+                                        title = item.optString("title", ""),
+                                        uploader = item.optString("artist", ""),
+                                        url = "https://www.youtube.com/watch?v=$vid",
+                                        duration = item.optInt("duration_sec", 0),
+                                        thumbnail = item.optString("thumbnail_url", ""),
+                                        type = SearchResultType.SONG
+                                    )
+                                )
+                            }
+                        }
+                        if (list.isNotEmpty()) list.take(maxResults) else null
+                    } else null
+                } catch (_: Throwable) {
+                    null
                 }
 
-                val root = JSONObject(responseBody)
+                if (nativeCandidates != null && nativeCandidates.isNotEmpty()) {
+                    return nativeCandidates
+                }
+
+                // Tier 2: Pure Kotlin Fallback
+                val root = JSONObject(String(rawBytes, Charsets.UTF_8))
                 return parseInnertubeResponse(root, maxResults)
             }
         } catch (e: Exception) {
