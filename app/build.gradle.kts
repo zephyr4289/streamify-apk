@@ -181,14 +181,20 @@ tasks.register<Exec>("cargoBuildRust") {
     group = "native"
     description = "Builds streamify_core_rs (cdylib) for arm64-v8a + armeabi-v7a via cargo-ndk."
     workingDir = file("../rust")
-    commandLine(
-        "cargo", "ndk",
+    val ndkPath = System.getenv("ANDROID_NDK_HOME") ?: System.getenv("NDK_HOME") ?: (try { android.ndkDirectory?.absolutePath } catch (_: Exception) { null })
+    val cmd = mutableListOf("cargo", "ndk")
+    if (!ndkPath.isNullOrBlank() && file(ndkPath).exists()) {
+        cmd.add("--ndk-path")
+        cmd.add(ndkPath)
+    }
+    cmd.addAll(listOf(
         "--platform", "26",
         "-t", "arm64-v8a",
         "-t", "armeabi-v7a",
         "-o", file("src/main/jniLibs").absolutePath,
-        "build", "--release",
-    )
+        "build", "--release"
+    ))
+    commandLine(cmd)
 }
 
 afterEvaluate {

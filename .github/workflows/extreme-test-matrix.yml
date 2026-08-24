@@ -69,6 +69,12 @@ jobs:
         run: |
           sdkmanager "ndk;26.1.10909125" "cmake;3.22.1" "build-tools;34.0.0"
 
+      - name: Configure NDK Environment
+        run: |
+          NDK_DIR="${ANDROID_HOME}/ndk/26.1.10909125"
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          echo "NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
@@ -94,6 +100,13 @@ jobs:
             -DANDROID_CCACHE=ccache \
             --stacktrace 2>&1 | tee build.log
 
+      - name: Upload Build Log Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: build.log
+
       - name: Handle Build Failure & Push to build-logs
         if: failure()
         env:
@@ -107,14 +120,9 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin build-logs || true
-          if git show-ref --verify --quiet refs/remotes/origin/build-logs; then
-            git checkout build-logs
-            git pull --rebase origin build-logs || true
-          else
-            git checkout --orphan build-logs
-            git rm -rf . || true
-          fi
+          git fetch origin build-logs:build-logs || git checkout -b build-logs
+          git checkout build-logs || git checkout -b build-logs
+          git pull origin build-logs --rebase || true
           mkdir -p runs
           cp build.log runs/build-${{ github.run_number }}.log
           cp build.log latest-build.log
