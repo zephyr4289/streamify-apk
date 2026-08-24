@@ -279,7 +279,7 @@ fun AlbumScreen(
                     onPlay = {
                         if (albumTracks.isNotEmpty()) {
                             if (isRadioDiscoveryMode) {
-                                playerViewModel.playTrack(albumTracks.first(), listOf(albumTracks.first()), autoHydrateRadio = true)
+                                playerViewModel.playSingleTrack(albumTracks.first())
                             } else {
                                 onTrackClick(albumTracks.first(), albumTracks)
                             }
@@ -288,11 +288,7 @@ fun AlbumScreen(
                     onShuffle = {
                         if (albumTracks.isNotEmpty()) {
                             val shuffled = albumTracks.shuffled()
-                            if (isRadioDiscoveryMode) {
-                                playerViewModel.playTrack(shuffled.first(), listOf(shuffled.first()), autoHydrateRadio = true)
-                            } else {
-                                onTrackClick(shuffled.first(), shuffled)
-                            }
+                            playerViewModel.playCollection(shuffled, 0)
                         }
                     },
                     onExportM3u = {
@@ -318,7 +314,7 @@ fun AlbumScreen(
                     showDragHandle = false,
                     onClick = {
                         if (isRadioDiscoveryMode) {
-                            playerViewModel.playTrack(track, listOf(track), autoHydrateRadio = true)
+                            playerViewModel.playSingleTrack(track)
                         } else {
                             onTrackClick(track, albumTracks)
                         }

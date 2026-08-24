@@ -896,6 +896,32 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         )
     }
 
+    fun playSingleTrack(track: Track) {
+        com.streamify.app.service.QueueEngine.playSingle(track, this)
+    }
+
+    fun playCollection(tracks: List<Track>, startIndex: Int = 0) {
+        com.streamify.app.service.QueueEngine.playCollection(tracks, startIndex, this)
+    }
+
+    fun updateQueueSilently(newQueue: List<Track>, newIndex: Int = _playerState.value.currentIndex) {
+        val hydrated = newQueue.map { repository.hydrateTrack(it) }
+        val safeIndex = newIndex.coerceIn(0, (hydrated.size - 1).coerceAtLeast(0))
+        _playerState.value = _playerState.value.copy(queue = hydrated, currentIndex = safeIndex)
+    }
+
+    fun appendToQueue(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        val hydrated = tracks.map { repository.hydrateTrack(it) }
+        val currentQ = _playerState.value.queue.toMutableList()
+        val existingKeys = currentQ.map { "${it.title}:::${it.artist}".lowercase() }.toSet()
+        val uniqueNew = hydrated.filterNot { existingKeys.contains("${it.title}:::${it.artist}".lowercase()) }
+        if (uniqueNew.isNotEmpty()) {
+            currentQ.addAll(uniqueNew)
+            _playerState.value = _playerState.value.copy(queue = currentQ)
+        }
+    }
+
     fun playTrack(track: Track, queue: List<Track> = listOf(track), autoHydrateRadio: Boolean = true) {
         val hydratedTrack = repository.hydrateTrack(track)
         val hydratedQueue = queue.map { qTrack ->
@@ -1025,6 +1051,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 }
             }
             armLookaheadPreBuffer(nextIndex + 1, queue)
+            viewModelScope.launch(Dispatchers.IO) {
+                com.streamify.app.service.QueueEngine.ensureQueueDepth(this@PlayerViewModel)
+            }
         } else {
             advanceQueue(isUserSkip = false)
         }
@@ -1087,17 +1116,20 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     // Path A: Next track exists within current queue bounds
                     nextIndex < queue.size -> {
                         playTrackInternal(queue[nextIndex], nextIndex, queue)
+                        viewModelScope.launch(Dispatchers.IO) {
+                            com.streamify.app.service.QueueEngine.ensureQueueDepth(this@PlayerViewModel)
+                        }
                     }
                     // Path B: End of queue reached with REPEAT_ALL enabled
                     nextIndex >= queue.size && isRepeatActive && queue.isNotEmpty() -> {
                         playTrackInternal(queue.first(), 0, queue)
                     }
-                    // Path C: End of queue reached with AUTOPLAY enabled (Continuum Engine)
+                    // Path C: End of queue reached with AUTOPLAY enabled (Continuum Radio Engine)
                     nextIndex >= queue.size && isAutoplayEnabled && queue.isNotEmpty() -> {
                         _playerState.value = _playerState.value.copy(isBuffering = true)
                         val seedTrack = queue.last()
                         val freshCandidates = withContext(Dispatchers.IO) {
-                            com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                            com.streamify.app.radio.OnlineRadioEngine.fetchCandidates(
                                 seedTrack = seedTrack,
                                 activeQueue = queue,
                                 targetCount = 15

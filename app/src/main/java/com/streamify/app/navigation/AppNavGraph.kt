@@ -68,7 +68,7 @@ fun AppNavGraph(
                 communityViewModel = communityViewModel,
                 dominantColor = dominantColor,
                 onTrackClick = { track, _ ->
-                    playerViewModel.playTrack(track, listOf(track), autoHydrateRadio = true)
+                    playerViewModel.playSingleTrack(track)
                 },
                 onSearchClick = {
                     navController.navigate("search")
@@ -91,16 +91,16 @@ fun AppNavGraph(
         composable("search") {
             SearchScreen(
                 playerViewModel = playerViewModel,
-                onTrackClick = { track, allTracks ->
-                    playerViewModel.playTrack(track, allTracks)
+                onTrackClick = { track, _ ->
+                    playerViewModel.playSingleTrack(track)
                 }
             )
         }
         composable("library") {
             LibraryScreen(
                 playerViewModel = playerViewModel,
-                onTrackClick = { track, allTracks ->
-                    playerViewModel.playTrack(track, allTracks)
+                onTrackClick = { track, _ ->
+                    playerViewModel.playSingleTrack(track)
                 },
                 onSettingsClick = {
                     navController.navigate("settings")
@@ -271,7 +271,7 @@ fun AppNavGraph(
                 allTracks = libraryState,
                 playerViewModel = playerViewModel,
                 onBack = { navController.popBackStack() },
-                onTrackClick = { track, list -> playerViewModel.playTrack(track, list) }
+                onTrackClick = { track, _ -> playerViewModel.playSingleTrack(track) }
             )
         }
         composable("album/{albumName}") { backStackEntry ->
@@ -282,7 +282,7 @@ fun AppNavGraph(
                 allTracks = libraryState,
                 playerViewModel = playerViewModel,
                 onBack = { navController.popBackStack() },
-                onTrackClick = { track, list -> playerViewModel.playTrack(track, list) }
+                onTrackClick = { track, list -> playerViewModel.playCollection(list, list.indexOf(track).coerceAtLeast(0)) }
             )
         }
     }

@@ -621,7 +621,7 @@ fun FullPlayerSheet(
                                     track = track,
                                     playerViewModel = playerViewModel,
                                     onTrackClick = { clickedTrack ->
-                                        playerViewModel.playTrack(clickedTrack, listOf(clickedTrack))
+                                        playerViewModel.playSingleTrack(clickedTrack)
                                     }
                                 )
                             }
@@ -1039,7 +1039,7 @@ fun FullPlayerSheet(
     if (showRelatedSheet) {
         val onRelatedTrackClick = remember(playerViewModel) {
             { clickedTrack: Track ->
-                playerViewModel.playTrack(clickedTrack, listOf(clickedTrack))
+                playerViewModel.playSingleTrack(clickedTrack)
             }
         }
         RelatedDiscoverSheet(
