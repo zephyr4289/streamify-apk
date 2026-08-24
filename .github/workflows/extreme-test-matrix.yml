@@ -36,10 +36,10 @@ jobs:
       - name: Set up Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android, armv7-linux-androideabi
+          targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
+        run: which cargo-ndk || cargo install cargo-ndk --locked
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -121,9 +121,13 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin build-logs:build-logs || git checkout -b build-logs
-          git checkout build-logs || git checkout -b build-logs
-          git pull origin build-logs --rebase || true
+          git fetch origin build-logs || true
+          if git show-ref --verify --quiet refs/remotes/origin/build-logs; then
+            git checkout -B build-logs origin/build-logs
+          else
+            git checkout --orphan build-logs
+            git rm -rf . || true
+          fi
           mkdir -p runs
           cp build.log runs/build-${{ github.run_number }}.log
           cp build.log latest-build.log
@@ -218,7 +222,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: cpp, kotlin, python
+          languages: c-cpp, java-kotlin, python
           queries: security-and-quality
 
       - name: Manual Build for CodeQL Tracing
