@@ -180,11 +180,11 @@ object FuzzyTitleMatcher {
 
         try {
             val rustScore = NativeBridge.rustCalculateSimilarity(str1, str2)
-            if (rustScore > 0f) {
+            if (rustScore >= 0f) {
                 return rustScore.toDouble()
             }
         } catch (_: Throwable) {
-            // Fallback to pure Kotlin evaluator
+            // Fallback to pure Kotlin 1D sliding window evaluator
         }
 
         // Direct Substring check
@@ -203,7 +203,7 @@ object FuzzyTitleMatcher {
             if (jaccard > 0.5) return jaccard
         }
 
-        // Bounded Levenshtein distance
+        // Bounded Levenshtein distance with O(N) 2-row rolling memory
         val maxLen = maxOf(str1.length, str2.length)
         if (maxLen > 30) return 0.0
         val distance = computeLevenshtein(str1, str2)
@@ -211,19 +211,25 @@ object FuzzyTitleMatcher {
     }
 
     fun computeLevenshtein(a: String, b: String): Int {
-        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
-        for (i in 0..a.length) dp[i][0] = i
-        for (j in 0..b.length) dp[0][j] = j
-        for (i in 1..a.length) {
-            for (j in 1..b.length) {
+        val lenA = a.length
+        val lenB = b.length
+        var prevRow = IntArray(lenB + 1) { it }
+        var currRow = IntArray(lenB + 1)
+
+        for (i in 1..lenA) {
+            currRow[0] = i
+            for (j in 1..lenB) {
                 val cost = if (a[i - 1] == b[j - 1]) 0 else 1
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 1,
-                    dp[i][j - 1] + 1,
-                    dp[i - 1][j - 1] + cost
+                currRow[j] = minOf(
+                    currRow[j - 1] + 1,
+                    prevRow[j] + 1,
+                    prevRow[j - 1] + cost
                 )
             }
+            val temp = prevRow
+            prevRow = currRow
+            currRow = temp
         }
-        return dp[a.length][b.length]
+        return prevRow[lenB]
     }
 }
