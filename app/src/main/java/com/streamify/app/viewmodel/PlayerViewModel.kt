@@ -115,6 +115,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     // Dedup guard for lyric fetches: key = "trackId:videoIdOrEmpty" so a retry is only
     // allowed when the video identity actually improved (e.g. after DB registration).
     private val lyricsFetchAttempts = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    private var consecutiveDeadSkips = 0
+    private val urlRetryAttempts = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     init {
         com.streamify.app.jam.JamEngine.attachBridge(this)
@@ -304,6 +306,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     _playerState.value = _playerState.value.copy(isBuffering = true)
                 }
                 Player.STATE_READY -> {
+                    consecutiveDeadSkips = 0
+                    urlRetryAttempts.clear()
                     isOptimisticSeeking = false
                     pendingSeekTargetMs = null
                     seekTimeoutJob?.cancel()
@@ -543,13 +547,32 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            val resumePos = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
             pendingSeekTargetMs = null
             isOptimisticSeeking = false
             val currentT = _playerState.value.currentTrack
             if (currentT != null) {
+                val trackKey = currentT.ytmVideoId ?: "${currentT.title}:${currentT.artist}"
+                val attempts = urlRetryAttempts[trackKey] ?: 0
+                if (attempts >= 2) {
+                    urlRetryAttempts.remove(trackKey)
+                    consecutiveDeadSkips++
+                    if (consecutiveDeadSkips >= 3) {
+                        viewModelScope.launch {
+                            _uiEvent.emit(UiEvent.ShowToast("Multiple tracks unavailable. Advancing queue."))
+                        }
+                        consecutiveDeadSkips = 0
+                    }
+                    advanceQueue(isUserSkip = false)
+                    return
+                }
+                urlRetryAttempts[trackKey] = attempts + 1
+
+                currentT.ytmVideoId?.let { com.streamify.app.data.network.StreamEdgeCache.evictStream(it) }
+
                 viewModelScope.launch(Dispatchers.IO) {
                     try {
-                        val resolved = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(currentT)
+                        val resolved = com.streamify.app.data.network.YouTubeStreamResolver.resolveTrackStream(currentT, forceFresh = true)
                         if (resolved != null && resolved.streamUrl.isNotBlank()) {
                             val updated = currentT.copy(filepath = resolved.streamUrl)
                             withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -561,19 +584,21 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                     currentQueue[idx] = updated
                                     _playerState.value = _playerState.value.copy(queue = currentQueue, currentTrack = updated)
                                     val mediaItem = buildMediaItem(updated)
-                                    controller?.setMediaItem(mediaItem, 0L)
+                                    controller?.setMediaItem(mediaItem, resumePos)
                                     controller?.prepare()
                                     controller?.play()
                                 }
                             }
                         } else {
                             withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                consecutiveDeadSkips++
                                 advanceQueue(isUserSkip = false)
                             }
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            consecutiveDeadSkips++
                             advanceQueue(isUserSkip = false)
                         }
                     }

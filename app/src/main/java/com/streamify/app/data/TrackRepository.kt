@@ -23,6 +23,7 @@ object TrackRepository {
     val likedTracks: StateFlow<List<Track>> = _likedTracks.asStateFlow()
 
     suspend fun refresh(): List<Track> = withContext(Dispatchers.IO) {
+        DatabaseInitializer.ensureInitialized()
         val prefs = appContext?.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
         val isLocalAudioEnabled = prefs?.getBoolean("enable_local_audio", false) ?: false
 

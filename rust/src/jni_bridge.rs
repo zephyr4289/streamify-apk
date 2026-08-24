@@ -7,7 +7,7 @@ use crate::auth::generate_sapisid_hash;
 use crate::consensus::{ByzantineConsensusEngine, MeshCandidateSubmission};
 use crate::ptp::{PtpEngine, PtpPacket};
 use crate::repository::generate_cad_id;
-use crate::resolver::{resolve_track_cdn, resolve_track_cdn_url};
+use crate::resolver::resolve_track_cdn;
 
 // ═══════════════════════════════════════════════════════════════════
 // PANIC SHIELD CONTRACT
@@ -344,108 +344,6 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_spotifyIngestL
         crate::spotify_ingest::spotify_ingest_library(c_db.as_ptr(), c_token.as_ptr())
     }))
     .unwrap_or(-10)
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveTrackCdn(
-    mut env: JNIEnv,
-    _class: JClass,
-    video_id_bytes: JByteArray,
-    video_id_len: jint,
-    isrc_bytes: JByteArray,
-    isrc_len: jint,
-    title_bytes: JByteArray,
-    title_len: jint,
-    artist_bytes: JByteArray,
-    artist_len: jint,
-    auth_bytes: JByteArray,
-    auth_len: jint,
-    cookies_bytes: JByteArray,
-    cookies_len: jint,
-    out_buf: JByteArray,
-    out_buf_len: jint,
-) -> jint {
-    catch_unwind(AssertUnwindSafe(|| {
-        // Clamp every declared length against the REAL JVM array length: a
-        // declared length longer than the array would previously read/write
-        // past its end (negative jint became a ~2^64 usize).
-        let v_actual = env.get_array_length(&video_id_bytes).unwrap_or(0).max(0);
-        let i_actual = env.get_array_length(&isrc_bytes).unwrap_or(0).max(0);
-        let t_actual = env.get_array_length(&title_bytes).unwrap_or(0).max(0);
-        let a_actual = env.get_array_length(&artist_bytes).unwrap_or(0).max(0);
-        let h_actual = env.get_array_length(&auth_bytes).unwrap_or(0).max(0);
-        let c_actual = env.get_array_length(&cookies_bytes).unwrap_or(0).max(0);
-
-        let vlen = video_id_len.max(0).min(v_actual) as usize;
-        let ilen = isrc_len.max(0).min(i_actual) as usize;
-        let tlen = title_len.max(0).min(t_actual) as usize;
-        let alen = artist_len.max(0).min(a_actual) as usize;
-        let hlen = auth_len.max(0).min(h_actual) as usize;
-        let clen = cookies_len.max(0).min(c_actual) as usize;
-
-        if tlen == 0 && alen == 0 && vlen == 0 && ilen == 0 {
-            return -2;
-        }
-
-        let video_id_elements =
-            match env.get_array_elements(&video_id_bytes, ReleaseMode::NoCopyBack) {
-                Ok(e) => Some(e),
-                Err(_) => None,
-            };
-        let isrc_elements =
-            match env.get_array_elements(&isrc_bytes, ReleaseMode::NoCopyBack) {
-                Ok(e) => Some(e),
-                Err(_) => None,
-            };
-        let title_elements =
-            match env.get_array_elements(&title_bytes, ReleaseMode::NoCopyBack) {
-                Ok(e) => Some(e),
-                Err(_) => None,
-            };
-        let artist_elements =
-            match env.get_array_elements(&artist_bytes, ReleaseMode::NoCopyBack) {
-                Ok(e) => Some(e),
-                Err(_) => None,
-            };
-        let auth_elements =
-            match env.get_array_elements(&auth_bytes, ReleaseMode::NoCopyBack) {
-                Ok(e) => Some(e),
-                Err(_) => None,
-            };
-        let cookies_elements =
-            match env.get_array_elements(&cookies_bytes, ReleaseMode::NoCopyBack) {
-                Ok(e) => Some(e),
-                Err(_) => None,
-            };
-        let mut out_elements = match env.get_array_elements(&out_buf, ReleaseMode::CopyBack) {
-            Ok(e) => e,
-            Err(_) => return -2,
-        };
-
-        // Trust the ACTUAL output buffer size, never the caller-declared one.
-        let olen = (out_buf_len.max(0) as usize).min(out_elements.len());
-        if olen == 0 {
-            return -2;
-        }
-
-        resolve_track_cdn_url(
-            video_id_elements.as_ref().map_or(std::ptr::null(), |e| e.as_ptr()) as *const u8,
-            vlen.min(video_id_elements.as_ref().map_or(0, |e| e.len())),
-            isrc_elements.as_ref().map_or(std::ptr::null(), |e| e.as_ptr()) as *const u8,
-            ilen.min(isrc_elements.as_ref().map_or(0, |e| e.len())),
-            title_elements.as_ref().map_or(std::ptr::null(), |e| e.as_ptr()) as *const u8,
-            tlen.min(title_elements.as_ref().map_or(0, |e| e.len())),
-            artist_elements.as_ref().map_or(std::ptr::null(), |e| e.as_ptr()) as *const u8,
-            alen.min(artist_elements.as_ref().map_or(0, |e| e.len())),
-            auth_elements.as_ref().map_or(std::ptr::null(), |e| e.as_ptr()) as *const u8,
-            hlen,
-            cookies_elements.as_ref().map_or(std::ptr::null(), |e| e.as_ptr()) as *const u8,
-            clen,
-            out_elements.as_mut_ptr() as *mut u8,
-            olen,
-        )
-    }))
-    .unwrap_or(-2)
 }
 
 #[no_mangle]

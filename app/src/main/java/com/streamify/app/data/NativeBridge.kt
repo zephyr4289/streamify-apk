@@ -184,50 +184,6 @@ object NativeBridge {
         }
     }
 
-    fun resolveCdnUrl(
-        videoId: String?,
-        isrc: String?,
-        title: String,
-        artist: String,
-        authHeader: String = "",
-        cookies: String = ""
-    ): String? {
-        val videoIdBytes = videoId?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
-        val isrcBytes = isrc?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
-        val titleBytes = title.toByteArray(Charsets.UTF_8)
-        val artistBytes = artist.toByteArray(Charsets.UTF_8)
-        // AUTHENTICATED RESOLUTION (2026 bot-wall): the harvested YouTube
-        // session (SAPISIDHASH + raw cookies) is mandatory for the native
-        // WEB_REMIX player request to return any format.
-        val authBytes = authHeader.toByteArray(Charsets.UTF_8)
-        val cookieBytes = cookies.toByteArray(Charsets.UTF_8)
-        val outBuffer = ByteArray(BUFFER_SIZE)
-        val written = try {
-            nativeResolveTrackCdn(
-                videoIdBytes, videoIdBytes.size,
-                isrcBytes, isrcBytes.size,
-                titleBytes, titleBytes.size,
-                artistBytes, artistBytes.size,
-                authBytes, authBytes.size,
-                cookieBytes, cookieBytes.size,
-                outBuffer, outBuffer.size
-            )
-        } catch (e: Throwable) {
-            -1
-        }
-        return if (written > 0) String(outBuffer, 0, written, Charsets.UTF_8) else null
-    }
-
-    private external fun nativeResolveTrackCdn(
-        videoId: ByteArray, videoIdLen: Int,
-        isrc: ByteArray, isrcLen: Int,
-        title: ByteArray, titleLen: Int,
-        artist: ByteArray, artistLen: Int,
-        auth: ByteArray, authLen: Int,
-        cookies: ByteArray, cookiesLen: Int,
-        outBuf: ByteArray, outBufLen: Int
-    ): Int
-
     // ═══════════════════════════════════════════════════════════════
     // PHASE 1: SAPISID AUTH & CANONICAL AUDIO DESCRIPTOR (CAD)
     // ═══════════════════════════════════════════════════════════════

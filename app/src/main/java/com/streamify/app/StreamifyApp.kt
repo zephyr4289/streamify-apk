@@ -52,13 +52,15 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         com.streamify.app.data.TrackRepository.appContext = this
         com.streamify.app.data.YtStatsTelemetryEngine.initFromContext(this)
 
-        // 2. Ensure database directory exists before C++ sqlite3_open_v2
+        // 2. Ensure database directory exists and initialize asynchronously off the main thread
         try {
             val dbFile = getDatabasePath("streamify.db")
             dbFile.parentFile?.mkdirs()
-            NativeBridge.initDatabase(dbFile.absolutePath)
+            applicationScope.launch(Dispatchers.IO) {
+                com.streamify.app.data.DatabaseInitializer.startInitialization(dbFile.absolutePath)
+            }
         } catch (e: Throwable) {
-            android.util.Log.e("StreamifyApp", "Failed to initialize NativeBridge Database", e)
+            android.util.Log.e("StreamifyApp", "Failed to schedule NativeBridge Database init", e)
         }
 
         // 3+4. COLD-START BUDGET: vector-store mmap and the multi-MB ONNX

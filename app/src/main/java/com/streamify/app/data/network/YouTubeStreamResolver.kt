@@ -383,10 +383,17 @@ object YouTubeStreamResolver {
             val cached = StreamEdgeCache.getStream(videoId)
             if (cached != null && !isCdnExpired(cached.streamUrl, safetyMarginMs = 600_000L)) {
                 ConnectionWarmer.preWarmCDN(cached.streamUrl)
+                StreamifyCircuitBreaker.recordSuccess(videoId)
                 return@withContext Result.success(cached)
             }
         } else {
             StreamEdgeCache.evictStream(videoId)
+        }
+
+        // Fast-fail if circuit breaker knows this video ID is definitively unplayable
+        if (StreamifyCircuitBreaker.isDefinitivelyDead(videoId)) {
+            android.util.Log.w("YouTubeStreamResolver", "Circuit breaker active for dead videoId: $videoId")
+            return@withContext Result.failure(UnresolvableTrackException("Video $videoId is unplayable (circuit open)"))
         }
 
         // 3. Tier 1: Native HTTP/2 Innertube Multi-Client Race (<80ms)
@@ -395,6 +402,7 @@ object YouTubeStreamResolver {
         if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putStream(videoId, nativeResolved)
             ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
+            StreamifyCircuitBreaker.recordSuccess(videoId)
             return@withContext Result.success(nativeResolved)
         }
 
@@ -537,22 +545,21 @@ object YouTubeStreamResolver {
 
                 // Tier 2: Pure Kotlin JSON Fallback Parser
                 val root = JSONObject(String(rawBytes, Charsets.UTF_8))
-                return parsePlayerResponse(root)
+                return parsePlayerResponse(root, videoId)
             }
         } catch (e: Exception) {
             return null
         }
     }
-        } catch (e: Exception) {
-            return null
-        }
-    }
 
-    private fun parsePlayerResponse(root: JSONObject): ResolvedStream? {
+    private fun parsePlayerResponse(root: JSONObject, videoId: String? = null): ResolvedStream? {
         try {
             val playabilityStatus = root.optJSONObject("playabilityStatus")
             val status = playabilityStatus?.optString("status", "")
             if (status != null && !status.equals("OK", ignoreCase = true)) {
+                if (videoId != null && (status.equals("UNPLAYABLE", true) || status.equals("ERROR", true) || status.equals("LOGIN_REQUIRED", true))) {
+                    StreamifyCircuitBreaker.tripHard(videoId)
+                }
                 return null
             }
 

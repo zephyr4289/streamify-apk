@@ -74,7 +74,7 @@ class DynamicQueueManager(
                         }
 
                         val cdnUrl = if (!videoId.isNullOrBlank()) {
-                            NativeBridge.resolveCdnUrl(videoId, null, "", "")
+                            com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamUrl(videoId)?.streamUrl
                         } else null
 
                         if (!cdnUrl.isNullOrBlank()) {
