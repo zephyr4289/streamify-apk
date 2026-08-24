@@ -8,6 +8,7 @@ public:
     void processInterleavedSIMD(float* pcm_samples, size_t total_samples);
 
     // Backward compatibility helpers
+    void reset();
     void setParameters(float threshold, float kneeWidth);
     void processFloats(float* buffer, int numSamples);
     void processShorts(int16_t* buffer, int numSamples);

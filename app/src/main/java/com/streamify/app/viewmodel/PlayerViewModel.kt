@@ -331,6 +331,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            runCatching {
+                com.streamify.app.data.NativeBridge.nativeResetAudioDSP()
+            }
+
             seekTimeoutJob?.cancel()
             isOptimisticSeeking = false
             pendingSeekTargetMs = null

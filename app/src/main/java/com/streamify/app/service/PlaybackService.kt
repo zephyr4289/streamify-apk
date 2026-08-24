@@ -130,6 +130,10 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                runCatching {
+                    com.streamify.app.data.NativeBridge.nativeResetAudioDSP()
+                }
+
                 val now = System.currentTimeMillis()
                 if (lastPlayStartMs > 0L) {
                     val deltaSec = ((now - lastPlayStartMs) / 1000L).coerceAtLeast(0L)

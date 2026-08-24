@@ -45,6 +45,10 @@ void SoftKneeLimiter::processInterleavedSIMD(float* pcm_samples, size_t total_sa
     }
 }
 
+void SoftKneeLimiter::reset() {
+    envelope_db_ = -70.0f;
+}
+
 void SoftKneeLimiter::setParameters(float threshold, float kneeWidth) {
     threshold_db_ = threshold;
     knee_width_db_ = kneeWidth;
