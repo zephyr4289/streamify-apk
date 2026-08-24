@@ -799,6 +799,7 @@ object NativeBridge {
     // ═══════════════════════════════════════════════════════════════
     external fun rustFuzzyRankCandidates(query: String, candidatesJson: String): String?
     external fun rustCalculateSimilarity(s1: String, s2: String): Float
+    external fun rustCompileToSlyr(lrcContent: String): ByteArray?
 
     /**
      * PHASE 4 NATIVE ARSENAL: parses an Innertube search/radio response into a

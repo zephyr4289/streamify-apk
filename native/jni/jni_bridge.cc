@@ -1246,6 +1246,35 @@ Java_com_streamify_app_data_NativeBridge_nativeProcessFloatAudio(
     g_floatLimiter->processFloats(pcm_data, total_samples);
 }
 
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_streamify_app_data_NativeBridge_rustCompileToSlyr(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring lrcContent
+) {
+    if (!lrcContent) return nullptr;
+    typedef uint8_t* (*RustFn)(const uint8_t*, size_t, size_t*);
+    typedef void (*RustFreeFn)(uint8_t*, size_t);
+    auto fn = get_rust_symbol<RustFn>("rust_compile_to_slyr");
+    auto free_fn = get_rust_symbol<RustFreeFn>("rust_free_slyr_buffer");
+    if (!fn) return nullptr;
+
+    const char* utf = env->GetStringUTFChars(lrcContent, nullptr);
+    jsize len = env->GetStringUTFLength(lrcContent);
+
+    size_t out_len = 0;
+    uint8_t* slyr_bytes = fn(reinterpret_cast<const uint8_t*>(utf), static_cast<size_t>(len), &out_len);
+    env->ReleaseStringUTFChars(lrcContent, utf);
+
+    if (!slyr_bytes || out_len == 0) return nullptr;
+
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(out_len));
+    env->SetByteArrayRegion(result, 0, static_cast<jsize>(out_len), reinterpret_cast<const jbyte*>(slyr_bytes));
+
+    if (free_fn) free_fn(slyr_bytes, out_len);
+    return result;
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_streamify_app_data_NativeBridge_rustDownloadStreamDirect(
     JNIEnv* env,
