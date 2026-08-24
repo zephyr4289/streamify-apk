@@ -137,34 +137,34 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             addQueryToHistory(cleanQuery)
         }
 
+        // 1. Instantaneous Local Search & LRU Cache Hit (0ms Delay - Synchronous Fast-Path)
+        val localResults = if (filter == "All" || filter == "Songs") {
+            repository.searchTracks(cleanQuery)
+        } else emptyList()
+
+        val cachedOnline = searchCache.get(cacheKey)
+        if (cachedOnline != null) {
+            _uiState.value = SearchUiState.Success(
+                localResults = localResults,
+                onlineResults = cachedOnline,
+                isOnlineLoading = false
+            )
+            return
+        }
+
+        // Emit instant local results immediately while online search is debounced
+        _uiState.value = SearchUiState.Success(
+            localResults = localResults,
+            onlineResults = emptyList(),
+            isOnlineLoading = true
+        )
+
         searchJob = viewModelScope.launch {
-            // 200ms keystroke debounce to prevent SQLite and network thrashing
-            kotlinx.coroutines.delay(200)
+            // 2. Tight 60ms keystroke debounce for remote cloud search
+            kotlinx.coroutines.delay(60)
 
             // Signal orchestrator to prioritize search over background AI ingestion
             com.streamify.app.data.NativeBridge.setHighPriorityActive(true)
-
-            // 1. Instantaneous Local Search (Sub-millisecond JNI + Fuzzy Fallback)
-            val localResults = if (filter == "All" || filter == "Songs") {
-                repository.searchTracks(cleanQuery)
-            } else emptyList()
-
-            // 2. Check In-Memory LRU Cache for Instant Online Results (0ms)
-            val cachedOnline = searchCache.get(cacheKey)
-            if (cachedOnline != null) {
-                _uiState.value = SearchUiState.Success(
-                    localResults = localResults,
-                    onlineResults = cachedOnline,
-                    isOnlineLoading = false
-                )
-                return@launch
-            }
-
-            _uiState.value = SearchUiState.Success(
-                localResults = localResults,
-                onlineResults = emptyList(),
-                isOnlineLoading = true
-            )
 
             // 3. Ultra-Fast Sub-100ms Parametric Innertube & Python Search Pipeline
             val onlineResults = withContext(Dispatchers.IO) {

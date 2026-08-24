@@ -92,9 +92,12 @@ fun YtThumbnail(
 
             if (effectiveUrl != null) {
                 val context = androidx.compose.ui.platform.LocalContext.current
-                val request = remember(effectiveUrl) {
+                val density = androidx.compose.ui.platform.LocalDensity.current
+                val targetPx = remember(size, density) { with(density) { size.roundToPx() } }
+                val request = remember(effectiveUrl, targetPx) {
                     coil.request.ImageRequest.Builder(context)
                         .data(effectiveUrl)
+                        .size(targetPx, targetPx)
                         .crossfade(false)
                         .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                         .memoryCachePolicy(coil.request.CachePolicy.ENABLED)

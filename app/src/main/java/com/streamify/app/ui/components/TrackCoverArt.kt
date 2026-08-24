@@ -31,7 +31,8 @@ fun TrackCoverArt(
     title: String,
     artist: String,
     modifier: Modifier = Modifier,
-    shape: Shape = StreamifyShapes.CardShape
+    shape: Shape = StreamifyShapes.CardShape,
+    sizeDp: Int = 0
 ) {
     val descriptor = remember(coverArtPath, title, artist) {
         val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(coverArtPath ?: "")
@@ -74,9 +75,14 @@ fun TrackCoverArt(
         GenerativeCoverContent(title = title, artist = artist)
 
         if (candidateUrl != null) {
-            val request = remember(candidateUrl) {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val targetPx = remember(sizeDp, density) { if (sizeDp > 0) with(density) { sizeDp.dp.roundToPx() } else 0 }
+            val request = remember(candidateUrl, targetPx) {
                 coil.request.ImageRequest.Builder(context)
                     .data(candidateUrl)
+                    .apply {
+                        if (targetPx > 0) size(targetPx, targetPx)
+                    }
                     .crossfade(false)
                     .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                     .memoryCachePolicy(coil.request.CachePolicy.ENABLED)

@@ -55,13 +55,21 @@ fun YtPlayerSeekBar(
     }
 
     val totalDuration = if (durationMs > 0L) durationMs else 1000L
-    val displayPosition = when {
-        isDragging -> dragPositionMs
-        latchedPositionMs != null -> latchedPositionMs!!
-        else -> positionState
+    val displayPosition by remember {
+        derivedStateOf {
+            when {
+                isDragging -> dragPositionMs
+                latchedPositionMs != null -> latchedPositionMs!!
+                else -> positionState
+            }
+        }
     }
 
-    val currentProgress = (displayPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+    val currentProgress by remember {
+        derivedStateOf {
+            (displayPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+        }
+    }
 
     // Hardware-Accelerated Animatable Thumb Physics
     val thumbScale = remember { Animatable(1f) }
