@@ -215,7 +215,7 @@ jobs:
       - name: Manual Build for CodeQL Tracing
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug -Pstreamify.skipRust=true --stacktrace
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
@@ -331,7 +331,7 @@ jobs:
         if: matrix.type == 'android-jvm'
         run: |
           chmod +x gradlew
-          ./gradlew testDebugUnitTest --tests "${{ matrix.target }}" --stacktrace > shard-${{ matrix.shard }}.log 2>&1
+          ./gradlew testDebugUnitTest -Pstreamify.skipRust=true --tests "${{ matrix.target }}" --stacktrace > shard-${{ matrix.shard }}.log 2>&1
 
       - name: Execute Rust Core Shard
         id: rust_test
@@ -500,7 +500,7 @@ jobs:
           script: |
             touch raw_emulator.log
             chmod +x gradlew
-            ./gradlew connectedDebugAndroidTest --stacktrace > raw_emulator.log 2>&1
+            ./gradlew connectedDebugAndroidTest -Pstreamify.skipRust=true --stacktrace > raw_emulator.log 2>&1
 
       - name: Format Emulator Log Header
         if: always()
