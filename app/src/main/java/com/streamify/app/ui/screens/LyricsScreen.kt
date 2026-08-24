@@ -63,7 +63,7 @@ fun LyricsScreen(
 
     LaunchedEffect(positionFlow, isPlaying) {
         lyricController.isPlaying = isPlaying
-        snapshotFlow { positionFlow.value }.collect { pos ->
+        positionFlow.collect { pos ->
             lyricController.targetPositionMs = pos
         }
     }

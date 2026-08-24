@@ -1298,7 +1298,7 @@ private fun LandscapeLyricsPane(
             // effect (or recomposing) on every tick.
             LaunchedEffect(positionFlow, isPlaying) {
                 lyricController.isPlaying = isPlaying
-                snapshotFlow { positionFlow.value }.collect { pos ->
+                positionFlow.collect { pos ->
                     lyricController.targetPositionMs = pos
                 }
             }
