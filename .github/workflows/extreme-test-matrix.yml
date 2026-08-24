@@ -73,6 +73,7 @@ jobs:
         run: |
           NDK_DIR="${ANDROID_HOME}/ndk/26.1.10909125"
           echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$NDK_DIR" >> $GITHUB_ENV
           echo "NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
 
       - name: Setup Gradle
