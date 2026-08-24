@@ -141,35 +141,38 @@ object YouTubeStreamResolver {
 
     private val CLIENT_TARGETS = listOf(
         // 1. Android App: 100% verified direct playback on official/topic music videos
+        // Fingerprints restored from 6ffa6c4 — the last build with zero-token audio
+        // resolution solving fast. 7a1c9e4 regressed these to stale 19.x clients,
+        // which YouTube answers without adaptiveFormats.
         ClientConfig(
             clientName = "ANDROID",
-            clientVersion = "19.09.37",
+            clientVersion = "21.26.364",
             clientNumber = "3",
-            userAgent = "com.google.android.youtube/19.09.37 (Linux; U; Android 14) gzip",
+            userAgent = "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
             osName = "Android",
-            osVersion = "14"
+            osVersion = "11"
         ),
-        // 2. Android VR: Direct Opus & AAC CDN streams
+        // 2. Meta Quest / Android VR: Verified unencrypted direct Opus & AAC CDN streams
         ClientConfig(
             clientName = "ANDROID_VR",
-            clientVersion = "1.57.0",
-            clientNumber = "30",
-            userAgent = "com.google.android.apps.youtube.vr.oculus/1.57.0 (Linux; U; Android 14) gzip",
+            clientVersion = "1.60.19",
+            clientNumber = "28",
+            userAgent = "Mozilla/5.0 (Linux; Android 12; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/33.0.0.19.46.568453472 SamsungBrowser/4.0 Chrome/122.0.6261.139 Mobile VR Safari/537.36",
             deviceMake = "Oculus",
             deviceModel = "Quest 3",
             osName = "Android",
-            osVersion = "14"
+            osVersion = "12"
         ),
         // 3. Native iOS YouTube App
         ClientConfig(
             clientName = "IOS",
-            clientVersion = "19.09.3",
+            clientVersion = "21.26.4",
             clientNumber = "5",
-            userAgent = "com.google.ios.youtube/19.09.3 (iPhone15,3; U; CPU iOS 17_4 like Mac OS X;)",
+            userAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
             deviceMake = "Apple",
-            deviceModel = "iPhone15,3",
+            deviceModel = "iPhone16,2",
             osName = "iPhone",
-            osVersion = "17.4"
+            osVersion = "18.3.2.22D82"
         )
     )
 
