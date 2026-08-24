@@ -36,7 +36,9 @@ object TrackRepository {
 
         val finalTracks = if (isLocalAudioEnabled) allNative else cloudTracks
         _allTracks.value = finalTracks
-        _likedTracks.value = finalTracks.filter { it.isLiked }
+        val liked = finalTracks.filter { it.isLiked }
+        _likedTracks.value = liked
+        rebuildIndex(finalTracks, liked)
 
         // Background Cloud Sync (only sync cloud tracks to avoid local path pollution)
         try {
@@ -46,6 +48,31 @@ object TrackRepository {
         }
 
         finalTracks
+    }
+
+    private val _cadIdIndex = java.util.concurrent.ConcurrentHashMap<Long, Track>()
+    private val _idIndex = java.util.concurrent.ConcurrentHashMap<Int, Track>()
+    private val _videoIdIndex = java.util.concurrent.ConcurrentHashMap<String, Track>()
+    private val _filepathIndex = java.util.concurrent.ConcurrentHashMap<String, Track>()
+    @Volatile private var _likedIds = emptySet<Int>()
+    @Volatile private var _likedFnvSet = emptySet<Long>()
+
+    private fun rebuildIndex(tracks: List<Track>, liked: List<Track>) {
+        _idIndex.clear()
+        _videoIdIndex.clear()
+        _filepathIndex.clear()
+        _cadIdIndex.clear()
+
+        for (track in tracks) {
+            if (track.id > 0) _idIndex[track.id] = track
+            if (!track.ytmVideoId.isNullOrBlank()) _videoIdIndex[track.ytmVideoId] = track
+            if (track.filepath.isNotBlank()) _filepathIndex[track.filepath] = track
+            val hash = FuzzyTitleMatcher.extractRootHash("${track.title}\u0001${track.artist}")
+            if (hash != 0L) _cadIdIndex[hash] = track
+        }
+
+        _likedIds = liked.map { it.id }.filter { it > 0 }.toSet()
+        _likedFnvSet = liked.map { FuzzyTitleMatcher.extractRootHash("${it.title}\u0001${it.artist}") }.filter { it != 0L }.toSet()
     }
     
     suspend fun getAllTracks(): List<Track> = withContext(Dispatchers.IO) {
@@ -85,11 +112,17 @@ object TrackRepository {
     suspend fun getLikedTracks(userId: Int = 1): List<Track> = withContext(Dispatchers.IO) {
         val liked = NativeBridge.getLikedTracks(userId).map { it.toTrack().copy(isLiked = true) }
         _likedTracks.value = liked
+        _likedIds = liked.map { it.id }.filter { it > 0 }.toSet()
+        _likedFnvSet = liked.map { FuzzyTitleMatcher.extractRootHash("${it.title}\u0001${it.artist}") }.filter { it != 0L }.toSet()
         liked
     }
     
     fun isTrackLiked(track: Track): Boolean {
-        if (track.id > 0 && _likedTracks.value.any { it.id == track.id }) {
+        if (track.id > 0 && _likedIds.contains(track.id)) {
+            return true
+        }
+        val hash = FuzzyTitleMatcher.extractRootHash("${track.title}\u0001${track.artist}")
+        if (hash != 0L && _likedFnvSet.contains(hash)) {
             return true
         }
         return _likedTracks.value.any { liked ->
@@ -99,8 +132,22 @@ object TrackRepository {
 
     fun hydrateTrack(track: Track): Track {
         val liked = isTrackLiked(track)
-        val matchedInDb = if (track.id <= 0) {
-            _allTracks.value.find {
+        val matchedInDb = if (track.id > 0) {
+            _idIndex[track.id] ?: _allTracks.value.find { it.id == track.id }
+        } else {
+            // O(1) Fast paths: Direct VideoId -> Filepath -> FNV-1a Root Hash
+            val byVid = track.ytmVideoId?.let { _videoIdIndex[it] }
+            val byPath = if (track.filepath.isNotBlank()) _filepathIndex[track.filepath] else null
+            val rootHash = FuzzyTitleMatcher.extractRootHash("${track.title}\u0001${track.artist}")
+            val byHash = if (rootHash != 0L) {
+                val candidate = _cadIdIndex[rootHash]
+                // 6-second tolerance check to prevent duration poisoning across remix variations
+                if (candidate != null && (candidate.durationSec <= 0 || track.durationSec <= 0 || kotlin.math.abs(candidate.durationSec - track.durationSec) <= 6)) {
+                    candidate
+                } else null
+            } else null
+
+            byVid ?: byPath ?: byHash ?: _allTracks.value.find {
                 it.id > 0 && (
                     it.filepath == track.filepath ||
                     (it.ytmVideoId != null && track.ytmVideoId != null && it.ytmVideoId == track.ytmVideoId) ||
@@ -112,8 +159,6 @@ object TrackRepository {
                     )
                 )
             }
-        } else {
-            _allTracks.value.find { it.id == track.id }
         }
 
         val resolvedVid = track.ytmVideoId ?: matchedInDb?.ytmVideoId ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
