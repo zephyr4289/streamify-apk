@@ -14,6 +14,7 @@
 #include "../engine/PtpEngine.h"
 #include "../engine/AirDropPhysicsEngine.h"
 #include "../dsp/LufsNormalizer.h"
+#include "../dsp/SoftKneeLimiter.h"
 #include "../dsp/LyricAligner.h"
 
 // Cached Global JNI References for zero lookup overhead
@@ -1176,6 +1177,73 @@ Java_com_streamify_app_data_NativeBridge_rustProcessEqualizerFrame(
         env->ReleaseFloatArrayElements(gains, g, JNI_ABORT);
     }
     return code;
+}
+
+// 1. Thread-safe persistent DSP instances for float mastering (EQ -> LUFS -> Limiter)
+static SoftKneeLimiter* g_floatLimiter = nullptr;
+static LufsNormalizer* g_floatLufs = nullptr;
+static std::mutex g_floatDspMutex;
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_nativeInitAudioDSP(JNIEnv* /* env */, jobject /* this */) {
+    std::lock_guard<std::mutex> lock(g_floatDspMutex);
+    if (!g_floatLimiter) {
+        g_floatLimiter = new SoftKneeLimiter(-1.0f, 2.0f, 20.0f);
+    }
+    if (!g_floatLufs) {
+        g_floatLufs = new LufsNormalizer();
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_nativeResetAudioDSP(JNIEnv* /* env */, jobject /* this */) {
+    std::lock_guard<std::mutex> lock(g_floatDspMutex);
+    if (g_floatLufs) g_floatLufs->reset();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_streamify_app_data_NativeBridge_nativeProcessFloatAudio(
+    JNIEnv* env,
+    jobject /* this */,
+    jobject byte_buffer,
+    jint num_frames,
+    jint channels,
+    jfloatArray eq_gains
+) {
+    if (!byte_buffer || num_frames <= 0 || channels <= 0) return;
+
+    float* pcm_data = reinterpret_cast<float*>(env->GetDirectBufferAddress(byte_buffer));
+    if (pcm_data == nullptr) return;
+
+    int total_samples = num_frames * channels;
+
+    // A. Apply Rust Parametric Studio Equalizer (if 10-band gains provided)
+    if (eq_gains) {
+        jsize gainLen = env->GetArrayLength(eq_gains);
+        if (gainLen == 10) {
+            typedef int32_t (*RustFn)(float*, size_t, size_t, const float*);
+            auto eq_fn = get_rust_symbol<RustFn>("rust_process_equalizer_frame");
+            if (eq_fn) {
+                jfloat* g = env->GetFloatArrayElements(eq_gains, nullptr);
+                eq_fn(pcm_data, total_samples, channels, g);
+                env->ReleaseFloatArrayElements(eq_gains, g, JNI_ABORT);
+            }
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(g_floatDspMutex);
+    if (!g_floatLimiter) {
+        g_floatLimiter = new SoftKneeLimiter(-1.0f, 2.0f, 20.0f);
+    }
+    if (!g_floatLufs) {
+        g_floatLufs = new LufsNormalizer();
+    }
+
+    // B. LUFS Normalization
+    g_floatLufs->processFloats(pcm_data, total_samples, -14.0f);
+
+    // C. Soft-Knee Limiter (Safety ceiling at -1dB)
+    g_floatLimiter->processFloats(pcm_data, total_samples);
 }
 
 extern "C" JNIEXPORT jstring JNICALL

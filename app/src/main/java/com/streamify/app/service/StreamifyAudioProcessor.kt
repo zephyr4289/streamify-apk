@@ -118,31 +118,25 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         // FLOAT input never round-trips through i16 anymore (that injected
         // ditherless quantization into a supposedly-float pipeline).
         if (!is16Bit) {
-            val preGainLin = currentPreGainDb?.let { Math.pow(10.0, it / 20.0).toFloat() }
             nativeOutputBuffer.clear()
-            if (preGainLin != null) {
-                // EXACT PATH: YouTube-told-us gain; RMS engine bypassed.
-                var i = 0
-                while (i < sampleCount) {
-                    val v = inputBuffer.float * preGainLin
-                    nativeOutputBuffer.putFloat(if (v > 1f) 1f else if (v < -1f) -1f else v)
-                    i++
+            nativeOutputBuffer.put(inputBuffer)
+            nativeOutputBuffer.position(0)
+            nativeOutputBuffer.limit(sampleCount * 4)
+
+            val preGainLin = currentPreGainDb?.let { Math.pow(10.0, it / 20.0).toFloat() }
+            if (preGainLin != null && preGainLin != 1.0f) {
+                for (i in 0 until sampleCount) {
+                    val idx = i * 4
+                    val v = nativeOutputBuffer.getFloat(idx) * preGainLin
+                    nativeOutputBuffer.putFloat(idx, if (v > 1f) 1f else if (v < -1f) -1f else v)
                 }
-            } else {
-                // LEGACY PATH: identity copy → native RMS normalization.
-                while (inputBuffer.hasRemaining()) nativeOutputBuffer.putFloat(inputBuffer.float)
-                nativeOutputBuffer.position(0)
-                nativeOutputBuffer.limit(sampleCount * 4)
-                if (normalizerPtr != 0L) {
-                    runCatching {
-                        NativeBridge.nativeApplyNormalization(normalizerPtr, nativeOutputBuffer, numFrames)
-                    }
-                }
-                nativeOutputBuffer.position(0)
-                nativeOutputBuffer.limit(sampleCount * 4)
             }
 
-            postProcessFloat(nativeOutputBuffer, sampleCount, channelCount)
+            // Zero-Copy Native Float32 DSP: EQ -> LUFS Normalization -> Soft-Knee Limiter
+            val gains = if (activeEqEngine == "RUST") eqBandGainsDb else null
+            runCatching {
+                NativeBridge.nativeProcessFloatAudio(nativeOutputBuffer, numFrames, channelCount, gains)
+            }
 
             val out = replaceOutputBuffer(sampleCount * 4)
             nativeOutputBuffer.position(0)

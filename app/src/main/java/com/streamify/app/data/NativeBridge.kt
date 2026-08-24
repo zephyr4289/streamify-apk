@@ -785,6 +785,15 @@ object NativeBridge {
         channelCount: Int
     ): Int
 
+    external fun nativeInitAudioDSP()
+    external fun nativeResetAudioDSP()
+    external fun nativeProcessFloatAudio(
+        byteBuffer: java.nio.ByteBuffer,
+        numFrames: Int,
+        channels: Int,
+        eqGains: FloatArray? = null
+    )
+
     // ═══════════════════════════════════════════════════════════════
     // RUST CORE ENGINE (JNI / FFI)
     // ═══════════════════════════════════════════════════════════════
