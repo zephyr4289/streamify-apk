@@ -203,12 +203,20 @@ fun FullPlayerSheet(
         else -> com.streamify.app.viewmodel.PlaybackButtonState.PAUSED
     }
 
+    var showUpNextSheet by remember { mutableStateOf(false) }
+    var showLyricsSheet by remember { mutableStateOf(false) }
     var showCommentsSheet by remember { mutableStateOf(false) }
     val communityViewModel: CommunityViewModel = viewModel()
     var showRelatedSheet by remember { mutableStateOf(false) }
     var landscapeTab by remember { mutableStateOf(LandscapePlayerTab.UP_NEXT) }
 
     // --- PILLAR 2: LIFO Sub-Sheet Back Trapping ---
+    BackHandler(enabled = showUpNextSheet) {
+        showUpNextSheet = false
+    }
+    BackHandler(enabled = showLyricsSheet) {
+        showLyricsSheet = false
+    }
     BackHandler(enabled = showCommentsSheet) {
         showCommentsSheet = false
     }
@@ -631,14 +639,15 @@ fun FullPlayerSheet(
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .centerInLargeScreen()
-                    .padding(top = 16.dp, bottom = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
                 // --- TOP BAR (Collapse Chevron, Song/Video Switcher, Actions) ---
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer { alpha = chromeAlpha }
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .padding(vertical = 4.dp)
                         .collapseDragZone(collapseDragY, sheetGestureScope, onCollapse),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -677,8 +686,6 @@ fun FullPlayerSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
                 var seekRippleSide by remember { mutableStateOf<Int?>(null) }
                 val seekRippleScope = rememberCoroutineScope()
 
@@ -686,7 +693,8 @@ fun FullPlayerSheet(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
+                        .weight(1f, fill = false)
+                        .heightIn(max = 340.dp)
                         .aspectRatio(animatedAspectRatio)
                         .clip(LocalAppShapes.current.thumbnailLarge)
                         .background(androidx.compose.ui.graphics.Color.Black)
@@ -704,7 +712,7 @@ fun FullPlayerSheet(
                                 onTap = { chromeDimmed = !chromeDimmed },
                                 onLongPress = {
                                     com.streamify.app.util.StreamifyHapticEngine.magneticQueueGrab()
-                                    onLyricsClick?.invoke()
+                                    showLyricsSheet = true
                                 },
                                 onDoubleTap = { offset: Offset ->
                                     val isRightSide = offset.x > (this@pointerInput.size.width / 2f)
@@ -781,15 +789,12 @@ fun FullPlayerSheet(
                     }
                 }
 
-
-                Spacer(modifier = Modifier.height(20.dp))
-
                 // --- METADATA & NEURAL DSP PILL ---
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer { alpha = chromeAlpha }
-                        .padding(horizontal = 24.dp),
+                        .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -830,8 +835,6 @@ fun FullPlayerSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // --- YOUTUBE MUSIC ACTION PILLS RAIL ---
                 YtPlayerActionPills(
                     isLiked = track.isLiked,
@@ -845,166 +848,174 @@ fun FullPlayerSheet(
                     onDownloadClick = { /* Download */ }
                 )
 
-                Spacer(modifier = Modifier.weight(1f))
-
-                // --- PRECISION CANVAS SEEKBAR ---
-                val effectiveDurationMs = if (durationMs > 0) durationMs else (track.durationSec * 1000L)
-                YtPlayerSeekBar(
-                    positionFlow = positionFlow,
-                    durationMs = effectiveDurationMs,
-                    onSeek = onSeek
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // --- PLAYBACK CONTROLS (Shuffle, Prev, 64dp Play/Pause, Next, Repeat) ---
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // --- PRECISION CANVAS SEEKBAR & PLAYBACK CONTROLS ---
+                Column(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    IconButton(onClick = onShuffleToggle) {
-                        Icon(
-                            imageVector = if (isShuffleActive) Icons.Filled.Shuffle else Icons.Outlined.Shuffle,
-                            contentDescription = "Shuffle",
-                            tint = if (isShuffleActive) ActiveControl else TextSecondary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
+                    val effectiveDurationMs = if (durationMs > 0) durationMs else (track.durationSec * 1000L)
+                    YtPlayerSeekBar(
+                        positionFlow = positionFlow,
+                        durationMs = effectiveDurationMs,
+                        onSeek = onSeek
+                    )
 
-                    IconButton(onClick = {
-                        com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
-                        onPrevious()
-                    }) {
-                        Icon(
-                            imageVector = Icons.Filled.SkipPrevious,
-                            contentDescription = "Previous",
-                            tint = TextMain,
-                            modifier = Modifier.size(38.dp)
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // 64dp YouTube Music White Play Button
-                    Box(
+                    Row(
                         modifier = Modifier
-                            .size(64.dp)
-                            .clip(CircleShape)
-                            .background(ActiveControl),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        IconButton(onClick = onShuffleToggle) {
+                            Icon(
+                                imageVector = if (isShuffleActive) Icons.Filled.Shuffle else Icons.Outlined.Shuffle,
+                                contentDescription = "Shuffle",
+                                tint = if (isShuffleActive) ActiveControl else TextSecondary,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+
                         IconButton(onClick = {
-                            com.streamify.app.util.StreamifyHapticEngine.playbackPulse()
-                            onPlayPause()
+                            com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                            onPrevious()
                         }) {
-                            AnimatedContent(
-                                targetState = playbackButtonState,
-                                transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(140)) },
-                                label = "PortraitPlayPauseAnimatedContent"
-                            ) { state ->
-                                when (state) {
-                                    com.streamify.app.viewmodel.PlaybackButtonState.BUFFERING -> {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(28.dp),
-                                            color = TextOnActiveChip,
-                                            strokeWidth = 2.8.dp,
-                                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
-                                        )
-                                    }
-                                    com.streamify.app.viewmodel.PlaybackButtonState.PLAYING -> {
-                                        Icon(
-                                            imageVector = Icons.Filled.Pause,
-                                            contentDescription = "PlayPause",
-                                            tint = TextOnActiveChip,
-                                            modifier = Modifier.size(34.dp)
-                                        )
-                                    }
-                                    com.streamify.app.viewmodel.PlaybackButtonState.PAUSED -> {
-                                        Icon(
-                                            imageVector = Icons.Filled.PlayArrow,
-                                            contentDescription = "PlayPause",
-                                            tint = TextOnActiveChip,
-                                            modifier = Modifier.size(34.dp)
-                                        )
+                            Icon(
+                                imageVector = Icons.Filled.SkipPrevious,
+                                contentDescription = "Previous",
+                                tint = TextMain,
+                                modifier = Modifier.size(38.dp)
+                            )
+                        }
+
+                        // 64dp YouTube Music White Play Button
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(ActiveControl),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            IconButton(onClick = {
+                                com.streamify.app.util.StreamifyHapticEngine.playbackPulse()
+                                onPlayPause()
+                            }) {
+                                AnimatedContent(
+                                    targetState = playbackButtonState,
+                                    transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(140)) },
+                                    label = "PortraitPlayPauseAnimatedContent"
+                                ) { state ->
+                                    when (state) {
+                                        com.streamify.app.viewmodel.PlaybackButtonState.BUFFERING -> {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(28.dp),
+                                                color = TextOnActiveChip,
+                                                strokeWidth = 2.8.dp,
+                                                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                                            )
+                                        }
+                                        com.streamify.app.viewmodel.PlaybackButtonState.PLAYING -> {
+                                            Icon(
+                                                imageVector = Icons.Filled.Pause,
+                                                contentDescription = "PlayPause",
+                                                tint = TextOnActiveChip,
+                                                modifier = Modifier.size(34.dp)
+                                            )
+                                        }
+                                        com.streamify.app.viewmodel.PlaybackButtonState.PAUSED -> {
+                                            Icon(
+                                                imageVector = Icons.Filled.PlayArrow,
+                                                contentDescription = "PlayPause",
+                                                tint = TextOnActiveChip,
+                                                modifier = Modifier.size(34.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    IconButton(onClick = {
-                        com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
-                        onNext()
-                    }) {
-                        Icon(
-                            imageVector = Icons.Filled.SkipNext,
-                            contentDescription = "Next",
-                            tint = TextMain,
-                            modifier = Modifier.size(38.dp)
-                        )
-                    }
+                        IconButton(onClick = {
+                            com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                            onNext()
+                        }) {
+                            Icon(
+                                imageVector = Icons.Filled.SkipNext,
+                                contentDescription = "Next",
+                                tint = TextMain,
+                                modifier = Modifier.size(38.dp)
+                            )
+                        }
 
-                    IconButton(onClick = onRepeatToggle) {
-                        Icon(
-                            imageVector = if (isRepeatActive) Icons.Filled.Repeat else Icons.Outlined.Repeat,
-                            contentDescription = "Repeat",
-                            tint = if (isRepeatActive) ActiveControl else TextSecondary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                }
-
-                // --- IN-PLAYER SWIPE PAGES (Up Next | Lyrics | Related) ---
-                // Professional parity: the three surfaces live INSIDE the player as
-                // swipeable pages instead of navigating away and killing the sheet.
-                val portraitPagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
-                HorizontalPager(
-                    state = portraitPagerState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .heightIn(min = 110.dp)
-                        .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
-                    verticalAlignment = Alignment.Top
-                ) { page ->
-                    when (page) {
-                        0 -> LandscapeQueuePane(
-                            queue = playerState.queue,
-                            currentIndex = playerState.currentIndex,
-                            currentTrack = playerState.currentTrack,
-                            isPlaying = playerState.isPlaying,
-                            onTrackClick = { clicked ->
-                                playerViewModel.playTrack(clicked, playerState.queue)
-                            }
-                        )
-                        1 -> LandscapeLyricsPane(
-                            track = track,
-                            positionFlow = positionFlow,
-                            isPlaying = isPlaying,
-                            onSeek = { posMs ->
-                                if (durationMs > 0) onSeek(posMs.toFloat() / durationMs.toFloat())
-                            }
-                        )
-                        else -> LandscapeRelatedPane(
-                            track = track,
-                            playerViewModel = playerViewModel,
-                            onTrackClick = { clicked ->
-                                playerViewModel.playTrack(clicked, listOf(clicked))
-                            }
-                        )
+                        IconButton(onClick = onRepeatToggle) {
+                            Icon(
+                                imageVector = if (isRepeatActive) Icons.Filled.Repeat else Icons.Outlined.Repeat,
+                                contentDescription = "Repeat",
+                                tint = if (isRepeatActive) ActiveControl else TextSecondary,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // --- BOTTOM TABS (synced with swipe pages; switch in-place) ---
-                val pageTabLabels = listOf("UP NEXT", "LYRICS", "RELATED")
+                // --- BOTTOM TABS (Opens Modal Sheets) ---
                 YtPlayerBottomTabs(
-                    activeTab = pageTabLabels[portraitPagerState.currentPage],
-                    onQueueClick = { sheetGestureScope.launch { portraitPagerState.animateScrollToPage(0) } },
-                    onLyricsClick = { sheetGestureScope.launch { portraitPagerState.animateScrollToPage(1) } },
-                    onRelatedClick = { sheetGestureScope.launch { portraitPagerState.animateScrollToPage(2) } }
+                    activeTab = "",
+                    onQueueClick = { showUpNextSheet = true },
+                    onLyricsClick = { showLyricsSheet = true },
+                    onRelatedClick = { showRelatedSheet = true }
+                )
+            }
+        }
+    }
+
+    if (showUpNextSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showUpNextSheet = false },
+            containerColor = BgBase,
+            scrimColor = Color.Black.copy(alpha = 0.6f),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.85f)
+                    .padding(horizontal = 16.dp)
+            ) {
+                LandscapeQueuePane(
+                    queue = playerState.queue,
+                    currentIndex = playerState.currentIndex,
+                    currentTrack = playerState.currentTrack,
+                    isPlaying = playerState.isPlaying,
+                    onTrackClick = { clicked ->
+                        playerViewModel.playTrack(clicked, playerState.queue)
+                    }
+                )
+            }
+        }
+    }
+
+    if (showLyricsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showLyricsSheet = false },
+            containerColor = BgBase,
+            scrimColor = Color.Black.copy(alpha = 0.6f),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.85f)
+                    .padding(horizontal = 16.dp)
+            ) {
+                LandscapeLyricsPane(
+                    track = track,
+                    positionFlow = positionFlow,
+                    isPlaying = isPlaying,
+                    onSeek = { posMs ->
+                        if (durationMs > 0) onSeek(posMs.toFloat() / durationMs.toFloat())
+                    }
                 )
             }
         }

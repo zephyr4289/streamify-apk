@@ -140,36 +140,36 @@ object YouTubeStreamResolver {
     )
 
     private val CLIENT_TARGETS = listOf(
-        // 1. Meta Quest / Android VR 1.65.10: 100% verified unencrypted direct Opus & AAC CDN streams
+        // 1. Android App: 100% verified direct playback on official/topic music videos
+        ClientConfig(
+            clientName = "ANDROID",
+            clientVersion = "19.09.37",
+            clientNumber = "3",
+            userAgent = "com.google.android.youtube/19.09.37 (Linux; U; Android 14) gzip",
+            osName = "Android",
+            osVersion = "14"
+        ),
+        // 2. Android VR: Direct Opus & AAC CDN streams
         ClientConfig(
             clientName = "ANDROID_VR",
-            clientVersion = "1.65.10",
-            clientNumber = "28",
-            userAgent = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+            clientVersion = "1.57.0",
+            clientNumber = "30",
+            userAgent = "com.google.android.apps.youtube.vr.oculus/1.57.0 (Linux; U; Android 14) gzip",
             deviceMake = "Oculus",
             deviceModel = "Quest 3",
             osName = "Android",
-            osVersion = "12L"
-        ),
-        // 2. Android App: 100% verified direct playback on official/topic music videos
-        ClientConfig(
-            clientName = "ANDROID",
-            clientVersion = "21.26.364",
-            clientNumber = "3",
-            userAgent = "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
-            osName = "Android",
-            osVersion = "11"
+            osVersion = "14"
         ),
         // 3. Native iOS YouTube App
         ClientConfig(
             clientName = "IOS",
-            clientVersion = "21.26.4",
+            clientVersion = "19.09.3",
             clientNumber = "5",
-            userAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+            userAgent = "com.google.ios.youtube/19.09.3 (iPhone15,3; U; CPU iOS 17_4 like Mac OS X;)",
             deviceMake = "Apple",
-            deviceModel = "iPhone16,2",
+            deviceModel = "iPhone15,3",
             osName = "iPhone",
-            osVersion = "18.3.2.22D82"
+            osVersion = "17.4"
         )
     )
 
@@ -438,77 +438,6 @@ object YouTubeStreamResolver {
         resolveStreamJit(track, forceFresh = forceFresh).getOrNull()
     }
 
-    private data class WarmSession(val cookies: String, val visitorId: String, val signatureTimestamp: Int)
-
-    @Volatile private var cachedWarmSession: WarmSession? = null
-    @Volatile private var warmSessionFetchedAtMs: Long = 0L
-    private const val SESSION_TTL_MS = 60 * 60 * 1000L // 1 Hour
-
-    private fun getOrRefreshWarmSession(videoId: String): WarmSession? {
-        val now = System.currentTimeMillis()
-        val current = cachedWarmSession
-        if (current != null && (now - warmSessionFetchedAtMs) < SESSION_TTL_MS) {
-            return current
-        }
-
-        val fresh = warmWatchSession(videoId)
-        if (fresh != null) {
-            cachedWarmSession = fresh
-            warmSessionFetchedAtMs = now
-        }
-        return fresh ?: current
-    }
-
-    private fun warmWatchSession(videoId: String): WarmSession? {
-        try {
-            val warmUrl = "https://www.youtube.com/watch?v=$videoId&bpctr=9999999999&has_verified=1&hl=en"
-            val warmReq = Request.Builder()
-                .url(warmUrl)
-                .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)")
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "en-us,en;q=0.5")
-                .header("Cookie", "PREF=hl=en&tz=UTC; SOCS=CAI")
-                .header("Sec-Fetch-Mode", "navigate")
-                .build()
-
-            NetworkEngine.client.newCall(warmReq).execute().use { resp ->
-                if (!resp.isSuccessful) return null
-                val html = resp.body?.string() ?: return null
-                if (html.isBlank()) return null
-
-                val rawHeaders = resp.headers("Set-Cookie")
-                val cookieJar = mutableListOf("PREF=hl=en&tz=UTC", "SOCS=CAI")
-                val seenNames = mutableSetOf("PREF", "SOCS")
-                for (hdr in rawHeaders) {
-                    val nv = hdr.substringBefore(';').trim()
-                    val name = nv.substringBefore('=').trim()
-                    if (seenNames.add(name)) {
-                        cookieJar.add(nv)
-                    }
-                }
-
-                // Rust Zero-Copy Native Token Extraction + Regex Fallback
-                val rawBytes = html.toByteArray(Charsets.UTF_8)
-                val nativeTokens = com.streamify.app.data.NativeBridge.extractSessionTokens(rawBytes)
-                val visitorId = nativeTokens?.first?.takeIf { it.isNotBlank() } ?: run {
-                    Regex(""""visitorData"\s*:\s*"([^"]+)"""").find(html)?.groupValues?.getOrNull(1) ?: ""
-                }
-                val sts = nativeTokens?.second ?: run {
-                    Regex(""""signatureTimestamp"\s*:\s*(\d+)"""").find(html)?.groupValues?.getOrNull(1)?.toIntOrNull()
-                        ?: currentSignatureTimestamp()
-                }
-
-                return WarmSession(
-                    cookies = cookieJar.joinToString("; "),
-                    visitorId = visitorId,
-                    signatureTimestamp = sts
-                )
-            }
-        } catch (_: Exception) {
-            return null
-        }
-    }
-
     private suspend fun raceClientEndpoints(videoId: String): ResolvedStream? = coroutineScope {
         val winnerDeferred = CompletableDeferred<ResolvedStream?>()
 
@@ -540,9 +469,6 @@ object YouTubeStreamResolver {
 
     private fun executePlayerRequest(videoId: String, config: ClientConfig): ResolvedStream? {
         try {
-            val warmSession = if (config.clientName == "ANDROID_VR") getOrRefreshWarmSession(videoId) else null
-            val effectiveSts = warmSession?.signatureTimestamp ?: currentSignatureTimestamp()
-
             val clientJson = JSONObject().apply {
                 put("clientName", config.clientName)
                 put("clientVersion", config.clientVersion)
@@ -553,7 +479,7 @@ object YouTubeStreamResolver {
                 config.osName?.let { put("osName", it) }
                 config.osVersion?.let { put("osVersion", it) }
                 if (config.clientName.contains("ANDROID", ignoreCase = true)) {
-                    put("androidSdkVersion", if (config.clientName == "ANDROID_VR") 32 else 34)
+                    put("androidSdkVersion", 34)
                 }
             }
 
@@ -566,7 +492,7 @@ object YouTubeStreamResolver {
                 put("racyCheckOk", true)
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
-                        put("signatureTimestamp", effectiveSts)
+                        put("signatureTimestamp", 19850)
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
@@ -579,26 +505,14 @@ object YouTubeStreamResolver {
                 .header("Accept", "*/*")
                 .header("X-YouTube-Client-Name", config.clientNumber)
                 .header("X-YouTube-Client-Version", config.clientVersion)
-                .also { attachYtSession(it) }
+                .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
 
-            if (warmSession != null) {
-                if (warmSession.cookies.isNotBlank()) {
-                    reqBuilder.header("Cookie", warmSession.cookies)
-                }
-                if (warmSession.visitorId.isNotBlank()) {
-                    reqBuilder.header("X-Goog-Visitor-Id", warmSession.visitorId)
-                }
-                reqBuilder.header("Origin", "https://www.youtube.com")
-            } else {
-                if (!config.origin.isNullOrBlank()) {
-                    reqBuilder.header("Origin", config.origin)
-                }
-                if (!config.referer.isNullOrBlank()) {
-                    reqBuilder.header("Referer", config.referer)
-                }
+            if (!config.origin.isNullOrBlank()) {
+                reqBuilder.header("Origin", config.origin)
             }
-
-            reqBuilder.post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+            if (!config.referer.isNullOrBlank()) {
+                reqBuilder.header("Referer", config.referer)
+            }
 
             val request = reqBuilder.build()
 
@@ -625,6 +539,10 @@ object YouTubeStreamResolver {
                 val root = JSONObject(String(rawBytes, Charsets.UTF_8))
                 return parsePlayerResponse(root)
             }
+        } catch (e: Exception) {
+            return null
+        }
+    }
         } catch (e: Exception) {
             return null
         }
