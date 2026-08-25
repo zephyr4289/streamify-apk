@@ -277,9 +277,11 @@ object YouTubeStreamResolver {
 
             if (cleanQuery.isNotBlank()) {
                 val searchMatches = YouTubeMusicSearchApi.search(cleanQuery, maxResults = 5)
-                val topMatch = searchMatches.firstOrNull()
+                val topMatch = searchMatches.firstOrNull {
+                    it.type == com.streamify.app.viewmodel.SearchResultType.SONG || it.type == com.streamify.app.viewmodel.SearchResultType.VIDEO
+                } ?: searchMatches.firstOrNull()
                 if (topMatch != null) {
-                    videoId = extractVideoId(topMatch.url)
+                    videoId = extractVideoId(topMatch.url, topMatch.thumbnail)
                 }
             }
         }

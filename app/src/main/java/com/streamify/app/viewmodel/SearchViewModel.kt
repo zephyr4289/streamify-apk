@@ -292,13 +292,18 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 val directUrl = if (cached != null && !YouTubeStreamResolver.isCdnExpired(cached.streamUrl)) {
                     cached.streamUrl
                 } else {
+                    val fallbackFilepath = when {
+                        videoId != null -> "https://www.youtube.com/watch?v=$videoId"
+                        onlineTrack.url.startsWith("http") -> onlineTrack.url
+                        else -> "ytsearch:${onlineTrack.title} ${onlineTrack.uploader}"
+                    }
                     val candidateTrack = Track(
                         id = 0,
                         title = onlineTrack.title,
                         artist = onlineTrack.uploader,
                         album = "Online Stream",
                         durationSec = onlineTrack.duration,
-                        filepath = if (videoId != null) "https://www.youtube.com/watch?v=$videoId" else onlineTrack.url,
+                        filepath = fallbackFilepath,
                         coverArtPath = onlineTrack.thumbnail,
                         ytmVideoId = videoId
                     )
@@ -307,6 +312,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 }
 
                 if (directUrl.isNotBlank()) {
+                    val resolvedVid = videoId ?: YouTubeStreamResolver.extractVideoId(directUrl, onlineTrack.thumbnail)
                     val trackToPlay = Track(
                         id = -(onlineTrack.url.hashCode()),
                         title = onlineTrack.title,
@@ -319,7 +325,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         key = "",
                         lyricsPath = null,
                         source = "online_stream",
-                        ytmVideoId = videoId
+                        ytmVideoId = resolvedVid
                     )
 
                     // 2. Play tapped track immediately and kick off Continuum Radio Engine
