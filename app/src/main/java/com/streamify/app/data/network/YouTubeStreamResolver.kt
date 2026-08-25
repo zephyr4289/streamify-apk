@@ -136,7 +136,12 @@ object YouTubeStreamResolver {
         val osName: String? = null,
         val osVersion: String? = null,
         val origin: String? = null,
-        val referer: String? = null
+        val referer: String? = null,
+        // Zero-token philosophy (probe-verified 2026-08-24): bare ANDROID/IOS return
+        // direct adaptive formats for LICENSED content, while SAPISIDHASH+Cookie on
+        // those same requests triggers "Sign in to confirm you're not a bot".
+        // Session attach stays available per-profile for opt-in diagnostics only.
+        val attachSession: Boolean = false
     )
 
     private val CLIENT_TARGETS = listOf(
@@ -516,7 +521,7 @@ object YouTubeStreamResolver {
                 .header("Accept", "*/*")
                 .header("X-YouTube-Client-Name", config.clientNumber)
                 .header("X-YouTube-Client-Version", config.clientVersion)
-                .also { attachYtSession(it) }
+                .also { if (config.attachSession) attachYtSession(it) }
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
 
             if (!config.origin.isNullOrBlank()) {
@@ -850,7 +855,7 @@ object YouTubeStreamResolver {
                 .header("Accept", "*/*")
                 .header("X-YouTube-Client-Name", config.clientNumber)
                 .header("X-YouTube-Client-Version", config.clientVersion)
-                .also { attachYtSession(it) }
+                .also { if (config.attachSession) attachYtSession(it) }
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
 
             if (!config.origin.isNullOrBlank()) {
