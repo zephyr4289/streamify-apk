@@ -193,7 +193,13 @@ object YouTubeMusicSearchApi {
                 if (!response.isSuccessful) return emptyList()
 
                 val body = response.body ?: return emptyList()
-                val responseBody = body.string()
+                val encoding = response.header("Content-Encoding", "")
+
+                val responseBody = if ("gzip".equals(encoding, ignoreCase = true)) {
+                    GZIPInputStream(body.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                } else {
+                    body.string()
+                }
                 if (responseBody.isBlank()) return emptyList()
 
                 val root = JSONObject(responseBody)

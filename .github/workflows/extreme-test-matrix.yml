@@ -19,8 +19,30 @@ permissions:
 
 
 jobs:
-  # 1. GATEKEEPER JOB: Compile everything first to save CI minutes
+  # 0. ZERO-WAIT SHIFT-LEFT GATEKEEPER: Verify live Innertube Search -> Player -> CDN Range Probe (<5s)
+  gatekeeper-api-probe:
+    name: "Gatekeeper: Search -> CDN Stream Verification"
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq curl
+
+      - name: 🛡️ Hard End-to-End Search & Stream Resolver Verification
+        run: |
+          chmod +x tools/probe-search-resolver.sh
+          echo "--- Testing Track 1: The Weeknd - Blinding Lights ---"
+          bash tools/probe-search-resolver.sh "The Weeknd Blinding Lights"
+          echo "--- Testing Track 2: Daft Punk - Get Lucky ---"
+          bash tools/probe-search-resolver.sh "Daft Punk Get Lucky"
+          echo "--- Testing Track 3: Travis Scott - SICKO MODE ---"
+          bash tools/probe-search-resolver.sh "Travis Scott SICKO MODE"
+
+  # 1. BUILD JOB: Compile everything only after gatekeeper passes
   build-and-compile:
+    needs: gatekeeper-api-probe
     runs-on: ubuntu-latest
     permissions:
       contents: write
