@@ -338,7 +338,28 @@ object YouTubeStreamResolver {
             )
             return@withContext Result.success(nativeResolved)
         }
-        SLog.w("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R1 MISS vid=$videoId — entering R2 alternate-upload search")
+        SLog.w("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R1 MISS vid=$videoId — entering R-NP (NewPipe + PoToken)")
+
+        // 3.5 Tier R-NP: NewPipe Extractor with BotGuard PO tokens.
+        // Pure-Kotlin path that defeats SABR URL-stripping: the hidden WebView
+        // mints web-client PO tokens, unlocking direct progressive/audio URLs
+        // even for licensed content our bare fleet cannot see.
+        val npResolved = try {
+            resolveViaNewPipe(videoId)
+        } catch (t: Throwable) {
+            SLog.e("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R-NP threw for $videoId: ${t.message}")
+            null
+        }
+        if (npResolved != null && npResolved.streamUrl.isNotBlank()) {
+            StreamEdgeCache.putStream(videoId, npResolved)
+            ConnectionWarmer.preWarmCDN(npResolved.streamUrl)
+            SLog.i(
+                "LadderTrace",
+                "${com.streamify.app.util.Trace.pfx()}R-NP HIT vid=$videoId mime=${npResolved.mimeType.substringBefore(';')} br=${npResolved.bitrate}"
+            )
+            return@withContext Result.success(npResolved)
+        }
+        SLog.w("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R-NP MISS vid=$videoId — entering R2 alternate-upload search")
 
         // 4. Tier 2: Alternate-upload search fallback
         try {
@@ -444,6 +465,60 @@ object YouTubeStreamResolver {
     suspend fun resolveTrackStream(track: com.streamify.app.data.models.Track, forceFresh: Boolean = false): ResolvedStream? = withContext(Dispatchers.IO) {
         resolveStreamJit(track, forceFresh = forceFresh).getOrNull()
     }
+
+    /**
+     * Tier R-NP: resolve through NewPipe Extractor (pure Kotlin) with BotGuard
+     * PO tokens minted in a hidden WebView. Runs after the native fleet race
+     * fails and before the alternate-upload search.
+     */
+    private suspend fun resolveViaNewPipe(videoId: String): ResolvedStream? =
+        withContext(Dispatchers.IO) {
+            com.streamify.app.util.newpipe.NewPipeBootstrap.ensure()
+            val url = "https://www.youtube.com/watch?v=$videoId"
+            SLog.d("ResolveGate", "${com.streamify.app.util.Trace.pfx()}R-NP StreamInfo.getInfo($videoId)")
+
+            val info = org.schabi.newpipe.extractor.stream.StreamInfo.getInfo(url)
+
+            val durationSec = info.duration.toInt().coerceAtLeast(0)
+            val audioStreams = info.audioStreams ?: emptyList<org.schabi.newpipe.extractor.stream.AudioStream>()
+
+            // Perceptual pick: m4a AAC first for ExoPlayer friendliness, then opus,
+            // then anything; within same family prefer higher average bitrate.
+            val best = audioStreams
+                .filter { !it.content.isNullOrBlank() }
+                .maxByOrNull { stream ->
+                    val fmt = runCatching { stream.format }.getOrNull()
+                    val suffix = runCatching { fmt?.suffix }.getOrNull() ?: ""
+                    val family = when {
+                        suffix == "m4a" -> 2000
+                        suffix == "webm" || suffix == "opus" -> 1500
+                        else -> 500
+                    }
+                    val br = runCatching { stream.bitrate }.getOrDefault(0)
+                    family + br / 1000
+                }
+
+            if (best == null) {
+                SLog.w("ResolveGate", "${com.streamify.app.util.Trace.pfx()}R-NP OK status but zero usable audio streams")
+                return@withContext null
+            }
+
+            val mime = when (runCatching { best.format?.suffix }.getOrNull()) {
+                "m4a" -> "audio/mp4"
+                "webm", "opus" -> "audio/webm"
+                else -> "audio/mpeg"
+            }
+            val bitrate = runCatching { best.bitrate }.getOrDefault(0)
+                .takeIf { it > 0 } ?: 128000
+
+            ResolvedStream(
+                streamUrl = best.content,
+                mimeType = mime,
+                bitrate = bitrate,
+                durationSec = durationSec,
+                loudnessDb = null
+            )
+        }
 
     private suspend fun raceClientEndpoints(videoId: String): ResolvedStream? = coroutineScope {
         val winnerDeferred = CompletableDeferred<ResolvedStream?>()
