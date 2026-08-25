@@ -141,7 +141,7 @@ object YouTubeStreamResolver {
         // direct adaptive formats for LICENSED content, while SAPISIDHASH+Cookie on
         // those same requests triggers "Sign in to confirm you're not a bot".
         // Session attach stays available per-profile for opt-in diagnostics only.
-        val attachSession: Boolean = false
+        val attachSession: Boolean = true
     )
 
     private val CLIENT_TARGETS = listOf(
