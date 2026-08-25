@@ -779,7 +779,7 @@ object YouTubeStreamResolver {
                 put("racyCheckOk", true)
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
-                        put("signatureTimestamp", currentSignatureTimestamp())
+                        put("signatureTimestamp", SIGNATURE_TIMESTAMP)
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
