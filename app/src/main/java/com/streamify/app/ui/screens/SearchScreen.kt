@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamify.app.data.models.Track
+import com.streamify.app.data.network.YouTubeStreamResolver
 import com.streamify.app.ui.components.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -511,25 +512,28 @@ fun SearchScreen(
                                         }
                                     }
                                     else -> {
+                                        val videoId = YouTubeStreamResolver.extractVideoId(onlineTrack.url, onlineTrack.thumbnail)
+                                        val watchUrl = if (videoId != null) "https://www.youtube.com/watch?v=$videoId" else onlineTrack.url
                                         val isResolving = resolvingTrackUrl == onlineTrack.url
                                         val trackModel = Track(
-                                            id = (onlineTrack.url.hashCode() and 0x7FFFFFFF),
+                                            id = -(onlineTrack.url.hashCode() and 0x7FFFFFFF),
                                             title = onlineTrack.title,
                                             artist = onlineTrack.uploader,
                                             album = if (onlineTrack.type == com.streamify.app.viewmodel.SearchResultType.VIDEO) "Music Video" else "Streamify Cloud",
-                                            filepath = onlineTrack.url,
+                                            filepath = watchUrl,
                                             durationSec = onlineTrack.duration,
                                             bpm = 0f,
                                             coverArtPath = onlineTrack.thumbnail,
                                             lyricsPath = null,
-                                            source = "online"
+                                            source = "online_stream",
+                                            ytmVideoId = videoId
                                         )
 
                                         var itemWindowPos by remember { mutableStateOf(Offset.Zero) }
 
                                         YtQueueTrackItem(
                                             track = trackModel,
-                                            isPlaying = isResolving || (currentTrack?.filepath == onlineTrack.url),
+                                            isPlaying = isResolving || (currentTrack?.filepath == watchUrl || (videoId != null && currentTrack?.ytmVideoId == videoId)),
                                             showDragHandle = false,
                                             modifier = Modifier.onGloballyPositioned { coords ->
                                                 if (coords.isAttached) {
@@ -564,16 +568,7 @@ fun SearchScreen(
                                                     artist = trackModel.artist,
                                                     art = trackModel.coverArtPath
                                                 )
-                                                viewModel.playOnlineTrack(
-                                                    onlineTrack = onlineTrack,
-                                                    allOnlineResults = onlineMatches,
-                                                    playerViewModel = playerViewModel,
-                                                    ingestionViewModel = ingestionViewModel,
-                                                    context = context,
-                                                    onTrackReady = {
-                                                        quantumController.onTrackReady()
-                                                    }
-                                                )
+                                                onTrackClick(trackModel, listOf(trackModel))
                                             },
                                             onMoreClick = { contextMenuController.show(trackModel, origin = MenuOrigin.SEARCH) }
                                         )
