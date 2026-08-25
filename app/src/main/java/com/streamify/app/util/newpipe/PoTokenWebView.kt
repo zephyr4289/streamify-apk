@@ -207,7 +207,7 @@ class PoTokenWebView private constructor(
                 .url(url)
             httpClient.newCall(requestBuilder.build()).execute().use { response ->
                 if (response.code != 200) throw Exception("Invalid response code: ${response.code}")
-                response.body.string()
+                response.body?.string() ?: throw Exception("Empty BotGuard response body")
             }
         }
 

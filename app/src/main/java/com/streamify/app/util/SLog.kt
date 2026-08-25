@@ -128,7 +128,8 @@ object SLog {
     fun clearMemoryBuffer() = synchronized(bufferLock) { buffer.clear() }
 
     /** Current on-disk session file (may be null before initialize). */
-    fun currentLogFile(): File? = if (this::logDir.isInitialized) File(logDir, SESSION_FILE) takeIf { it.exists() } else null
+    fun currentLogFile(): File? =
+        if (this::logDir.isInitialized) File(logDir, SESSION_FILE).takeIf { it.exists() } else null
 
     fun allLogFiles(): List<File> = if (this::logDir.isInitialized) logDir.listFiles()?.sortedByDescending { it.lastModified() } ?: emptyList() else emptyList()
 

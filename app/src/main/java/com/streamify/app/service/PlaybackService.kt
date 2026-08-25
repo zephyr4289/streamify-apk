@@ -99,10 +99,9 @@ class PlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
 
-        // adb-logcat-grade player telemetry:
-        //  - Media3 EventLogger -> system logcat (full fidelity when debugging over USB)
-        //  - TerminalPlayerListener -> SLog ring/disk (visible in the admin terminal)
-        exoPlayer.addAnalyticsListener(androidx.media3.exoplayer.analytics.EventLogger())
+        // adb-logcat-grade player telemetry: TerminalPlayerListener mirrors
+        // state transitions, PLAYER_ERROR cause chains, LOAD_ERRORs and media
+        // transitions into SLog -> admin terminal (and onward to system logcat).
         exoPlayer.addAnalyticsListener(TerminalPlayerListener())
 
         player = exoPlayer
@@ -362,9 +361,10 @@ private class TerminalPlayerListener : androidx.media3.exoplayer.analytics.Analy
         eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
         state: Int
     ) {
+        val mediaId = eventTime.mediaPeriodId?.mediaId?.toString()
         com.streamify.app.util.SLog.d(
             "ExoEvent",
-            "playbackState=${stateName(state)} mediaId=${eventTime.timeline.getWindow(eventTime.windowIndex, androidx.media3.common.Window()).mediaId}"
+            "playbackState=${stateName(state)} mediaId=$mediaId"
         )
     }
 

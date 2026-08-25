@@ -48,7 +48,7 @@ class NewPipeDownloaderImpl(builder: OkHttpClient.Builder) : Downloader() {
         }
 
         val body = response.body
-        val responseBodyToReturn = body.string()
+        val responseBodyToReturn = body?.string() ?: ""
         val latestUrl = response.request.url.toString()
         return Response(
             response.code, response.message, response.headers.toMultimap(),
