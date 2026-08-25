@@ -757,14 +757,6 @@ object NativeBridge {
     external fun rustCalculateSimilarity(s1: String, s2: String): Float
     external fun rustCompileToSlyr(lrcContent: String): ByteArray?
 
-    /**
-     * PHASE 4 NATIVE ARSENAL: parses an Innertube search/radio response into a
-     * JSON array of ranked candidates in ONE native pass (replaces the
-     * recursive org.json tree-walk, 20-80ms -> ~5ms on little cores).
-     * Input: raw UTF-8 response bytes. Output: JSON array of
-     * {id, title, artist, album, duration_sec, thumbnail_url, score}, or null.
-     */
-    external fun rustParseInnertubeCandidates(jsonBytes: ByteArray): String?
     external fun rustParseYouTubePlaylist(jsonBytes: ByteArray): String?
     external fun rustComputeFftSpectrum(pcmFloats: FloatArray, barCount: Int, outBars: FloatArray): Int
     external fun rustProcessEqualizerFrame(pcmFloats: FloatArray, channels: Int, gains: FloatArray?): Int
@@ -818,142 +810,6 @@ object NativeBridge {
         nativeCalculatePtp(seqId, t0, t1, t2, t3, outResultsUs)
     }
 
-    data class NativeDirectFormat(
-        val url: String,
-        val mime_type: String,
-        val bitrate: Long,
-        val duration_sec: Long,
-        val itag: Int,
-        val loudness_db: Float?
-    )
-
-    data class NativeStreamVerdict(
-        val status: String,
-        val reason: String,
-        val direct_formats: List<NativeDirectFormat>,
-        val ciphered_count: Int
-    )
-
-    fun extractStreamVerdict(responseBytes: ByteArray): NativeStreamVerdict? {
-        val jsonStr = try {
-            nativeExtractStreamVerdict(responseBytes)
-        } catch (e: Throwable) {
-            null
-        } ?: return null
-        return try {
-            val obj = org.json.JSONObject(jsonStr)
-            val status = obj.optString("status", "")
-            val reason = obj.optString("reason", "")
-            val cipheredCount = obj.optInt("ciphered_count", 0)
-            val formatsArr = obj.optJSONArray("direct_formats") ?: org.json.JSONArray()
-            val list = ArrayList<NativeDirectFormat>(formatsArr.length())
-            for (i in 0 until formatsArr.length()) {
-                val fObj = formatsArr.getJSONObject(i)
-                list.add(
-                    NativeDirectFormat(
-                        url = fObj.getString("url"),
-                        mime_type = fObj.optString("mime_type", ""),
-                        bitrate = fObj.optLong("bitrate", 0L),
-                        duration_sec = fObj.optLong("duration_sec", 0L),
-                        itag = fObj.optInt("itag", 0),
-                        loudness_db = if (fObj.has("loudness_db") && !fObj.isNull("loudness_db")) fObj.getDouble("loudness_db").toFloat() else null
-                    )
-                )
-            }
-            NativeStreamVerdict(
-                status = status,
-                reason = reason,
-                direct_formats = list,
-                ciphered_count = cipheredCount
-            )
-        } catch (e: Throwable) {
-            null
-        }
-    }
-
-    data class ExtractedStreamInfo(
-        val stream_url: String,
-        val mime_type: String,
-        val bitrate: Long,
-        val duration_sec: Long,
-        val loudness_db: Float?,
-        val expiration_epoch: Long
-    )
-
-    fun extractStreamInfo(responseBytes: ByteArray): ExtractedStreamInfo? {
-        val jsonStr = try {
-            nativeExtractStreamInfo(responseBytes)
-        } catch (e: Throwable) {
-            null
-        } ?: return null
-        return try {
-            val obj = org.json.JSONObject(jsonStr)
-            ExtractedStreamInfo(
-                stream_url = obj.getString("stream_url"),
-                mime_type = obj.optString("mime_type", ""),
-                bitrate = obj.optLong("bitrate", 0L),
-                duration_sec = obj.optLong("duration_sec", 0L),
-                loudness_db = if (obj.has("loudness_db") && !obj.isNull("loudness_db")) obj.getDouble("loudness_db").toFloat() else null,
-                expiration_epoch = obj.optLong("expiration_epoch", 0L)
-            )
-        } catch (e: Throwable) {
-            null
-        }
-    }
-
-    fun extractSessionTokens(htmlBytes: ByteArray): Pair<String, Int?>? {
-        val jsonStr = try {
-            nativeExtractSessionTokens(htmlBytes)
-        } catch (e: Throwable) {
-            null
-        } ?: return null
-        return try {
-            val obj = org.json.JSONObject(jsonStr)
-            val visitorId = obj.optString("visitor_id", "")
-            val sts = if (obj.has("signature_timestamp") && !obj.isNull("signature_timestamp")) obj.getInt("signature_timestamp") else null
-            visitorId to sts
-        } catch (e: Throwable) {
-            null
-        }
-    }
-
-    fun extractStreamInfoDirect(buffer: java.nio.ByteBuffer, length: Int): ExtractedStreamInfo? {
-        val jsonStr = try {
-            nativeExtractStreamInfoDirect(buffer, length)
-        } catch (e: Throwable) {
-            null
-        } ?: return null
-        return try {
-            val obj = org.json.JSONObject(jsonStr)
-            ExtractedStreamInfo(
-                stream_url = obj.getString("stream_url"),
-                mime_type = obj.optString("mime_type", ""),
-                bitrate = obj.optLong("bitrate", 0L),
-                duration_sec = obj.optLong("duration_sec", 0L),
-                loudness_db = if (obj.has("loudness_db") && !obj.isNull("loudness_db")) obj.getDouble("loudness_db").toFloat() else null,
-                expiration_epoch = obj.optLong("expiration_epoch", 0L)
-            )
-        } catch (e: Throwable) {
-            null
-        }
-    }
-
-    fun extractSessionTokensDirect(buffer: java.nio.ByteBuffer, length: Int): Pair<String, Int?>? {
-        val jsonStr = try {
-            nativeExtractSessionTokensDirect(buffer, length)
-        } catch (e: Throwable) {
-            null
-        } ?: return null
-        return try {
-            val obj = org.json.JSONObject(jsonStr)
-            val visitorId = obj.optString("visitor_id", "")
-            val sts = if (obj.has("signature_timestamp") && !obj.isNull("signature_timestamp")) obj.getInt("signature_timestamp") else null
-            visitorId to sts
-        } catch (e: Throwable) {
-            null
-        }
-    }
-
     fun pinThreadToLittleCores(): Boolean {
         return try {
             nativePinThreadToLittleCores()
@@ -962,11 +818,6 @@ object NativeBridge {
         }
     }
 
-    private external fun nativeExtractStreamVerdict(responseBytes: ByteArray): String?
-    private external fun nativeExtractStreamInfo(responseBytes: ByteArray): String?
-    private external fun nativeExtractSessionTokens(htmlBytes: ByteArray): String?
-    private external fun nativeExtractStreamInfoDirect(buffer: java.nio.ByteBuffer, length: Int): String?
-    private external fun nativeExtractSessionTokensDirect(buffer: java.nio.ByteBuffer, length: Int): String?
     private external fun nativePinThreadToLittleCores(): Boolean
 
     private external fun nativeVerifyPeerConsensus(

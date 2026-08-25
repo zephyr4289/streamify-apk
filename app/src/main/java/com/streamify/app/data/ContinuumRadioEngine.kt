@@ -311,49 +311,9 @@ object ContinuumRadioEngine {
         var nextContinuation: String? = null
         val dynamicBpm = if (seedTrack != null && seedTrack.bpm > 0f) seedTrack.bpm else 120f
 
-        try {
-            // ── TIER: NATIVE RUST PARSE ─────────────────────────────
-            // One JNI crossing replaces the recursive org.json tree-walk for
-            // candidate extraction (~20-80ms -> ~5ms on little cores).
-            // Falls back to the legacy walk on any native failure.
-            var parsedNatively = false
-            if (!rawJson.isNullOrBlank()) {
-                try {
-                    val outJson = NativeBridge.rustParseInnertubeCandidates(rawJson.toByteArray(Charsets.UTF_8))
-                    if (!outJson.isNullOrBlank()) {
-                        val arr = org.json.JSONArray(outJson)
-                        for (i in 0 until arr.length()) {
-                            val c = arr.optJSONObject(i) ?: continue
-                            // Rust returns the raw videoId as `id`; Track.id is
-                            // the app-stable negative hash of it.
-                            val videoId = c.optString("id", "")
-                            if (videoId.isBlank() || videoId.length != 11) continue
-                            tracks.add(
-                                Track(
-                                    id = -(videoId.hashCode()),
-                                    title = c.optString("title", "Unknown Track"),
-                                    artist = c.optString("artist", "Unknown Artist"),
-                                    album = "Streamify Radio",
-                                    durationSec = c.optInt("duration_sec", 0),
-                                    filepath = "https://www.youtube.com/watch?v=$videoId",
-                                    coverArtPath = c.optString("thumbnail_url", "").takeIf { it.isNotBlank() },
-                                    bpm = dynamicBpm,
-                                    key = "",
-                                    lyricsPath = null,
-                                    source = "online_stream"
-                                )
-                            )
-                        }
-                        parsedNatively = tracks.isNotEmpty()
-                    }
-                } catch (_: Throwable) {
-                    parsedNatively = false
-                }
-            }
-
-            if (!parsedNatively) {
-                val candidateNodes = mutableListOf<JSONObject>()
-                findJsonObjects(root, "playlistPanelVideoRenderer", candidateNodes)
+            // Pure Kotlin candidate extraction from Innertube radio playlistPanelVideoRenderer
+            val candidateNodes = mutableListOf<JSONObject>()
+            findJsonObjects(root, "playlistPanelVideoRenderer", candidateNodes)
 
                 for (node in candidateNodes) {
                     val videoId = node.optString("videoId", "")

@@ -624,33 +624,7 @@ object YouTubeStreamResolver {
     }
 
     fun gate(rawBytes: ByteArray, statuses: MutableCollection<String>? = null): Verdict {
-        // Tier 1: Zero-Copy Native Rust Stream Verdict (<1.5ms, 0 JVM GC allocations)
-        val nativeVerdict = try {
-            val v = com.streamify.app.data.NativeBridge.extractStreamVerdict(rawBytes)
-            if (v != null) {
-                if (!v.status.equals("OK", ignoreCase = true) && v.status.isNotBlank()) {
-                    statuses?.add(v.status.uppercase())
-                    Verdict.Gated(v.status, v.reason)
-                } else {
-                    val resolvedList = v.direct_formats.map { df ->
-                        ResolvedStream(
-                            streamUrl = df.url,
-                            mimeType = df.mime_type,
-                            bitrate = df.bitrate.toInt(),
-                            durationSec = df.duration_sec.toInt(),
-                            loudnessDb = df.loudness_db
-                        )
-                    }
-                    Verdict.Ok(resolvedList, v.ciphered_count)
-                }
-            } else null
-        } catch (_: Throwable) {
-            null
-        }
-
-        if (nativeVerdict != null) return nativeVerdict
-
-        // Tier 2: Pure Kotlin JSON Fallback Parser (The 6ffa6c4 safety net on exact same bytes)
+        // Pure Kotlin Innertube JSON Parser (Single Parser, Single Policy, Direct-URL only)
         return kotlinParseVerdict(rawBytes, statuses)
     }
 

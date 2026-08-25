@@ -1,6 +1,5 @@
 package com.streamify.app.data.network
 
-import com.streamify.app.data.NativeBridge
 import com.streamify.app.viewmodel.OnlineSearchResult
 import com.streamify.app.viewmodel.SearchResultType
 import kotlinx.coroutines.Dispatchers
@@ -194,43 +193,10 @@ object YouTubeMusicSearchApi {
                 if (!response.isSuccessful) return emptyList()
 
                 val body = response.body ?: return emptyList()
-                val rawBytes = body.bytes()
-                if (rawBytes.isEmpty()) return emptyList()
+                val responseBody = body.string()
+                if (responseBody.isBlank()) return emptyList()
 
-                // Tier 1: Native SIMD Tree-Walk in Rust (<1ms, zero JVM tree allocations)
-                val nativeCandidates: List<OnlineSearchResult>? = try {
-                    val json = NativeBridge.rustParseInnertubeCandidates(rawBytes)
-                    if (!json.isNullOrBlank()) {
-                        val arr = JSONArray(json)
-                        val list = ArrayList<OnlineSearchResult>(arr.length())
-                        for (i in 0 until arr.length()) {
-                            val item = arr.getJSONObject(i)
-                            val vid = item.optString("id", "")
-                            if (vid.isNotBlank()) {
-                                list.add(
-                                    OnlineSearchResult(
-                                        title = item.optString("title", ""),
-                                        uploader = item.optString("artist", ""),
-                                        url = "https://www.youtube.com/watch?v=$vid",
-                                        duration = item.optInt("duration_sec", 0),
-                                        thumbnail = item.optString("thumbnail_url", ""),
-                                        type = SearchResultType.SONG
-                                    )
-                                )
-                            }
-                        }
-                        if (list.isNotEmpty()) list.take(maxResults) else null
-                    } else null
-                } catch (e: Throwable) {
-                    null
-                }
-
-                if (nativeCandidates != null && nativeCandidates.isNotEmpty()) {
-                    return nativeCandidates
-                }
-
-                // Tier 2: Pure Kotlin Fallback
-                val root = JSONObject(String(rawBytes, Charsets.UTF_8))
+                val root = JSONObject(responseBody)
                 return parseInnertubeResponse(root, maxResults)
             }
         } catch (e: Exception) {
