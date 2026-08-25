@@ -352,8 +352,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             pendingSeekTargetMs = null
 
             when (reason) {
-                Player.MEDIA_ITEM_TRANSITION_REASON_AUTO,
-                Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> {
+                Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> {
+                    // Pre-buffered follower in physical timeline slot 1 transitioned automatically
                     handleAutomaticTimelineTransition()
                 }
                 Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> {
@@ -558,18 +558,25 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             val resumePos = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
             pendingSeekTargetMs = null
             isOptimisticSeeking = false
+
+            // If PlaybackService is actively renewing the CDN token in-place, defer to it
+            val renewalMediaId = com.streamify.app.service.PlaybackService.lastRenewalMediaId
+            val renewalAt = com.streamify.app.service.PlaybackService.lastRenewalAtMs
+            if (renewalMediaId != null && (System.currentTimeMillis() - renewalAt) < 3000L) {
+                return
+            }
+
             val currentT = _playerState.value.currentTrack
             if (currentT != null) {
                 val trackKey = currentT.ytmVideoId ?: "${currentT.title}:${currentT.artist}"
                 val attempts = urlRetryAttempts[trackKey] ?: 0
                 if (attempts >= 2) {
                     urlRetryAttempts.remove(trackKey)
-                    consecutiveDeadSkips++
-                    if (consecutiveDeadSkips >= 3) {
-                        UiEventBus.emitEvent(UiEvent.ShowSnackbar("Multiple tracks unavailable. Advancing queue."))
-                        consecutiveDeadSkips = 0
-                    }
-                    advanceQueue(isUserSkip = false)
+                    _playerState.value = _playerState.value.copy(
+                        isBuffering = false,
+                        isPlaying = false
+                    )
+                    UiEventBus.emitEvent(UiEvent.ShowSnackbar("Playback failed for '${currentT.title}'. Tap to retry."))
                     return
                 }
                 urlRetryAttempts[trackKey] = attempts + 1
@@ -597,20 +604,20 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             }
                         } else {
                             withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                consecutiveDeadSkips++
-                                advanceQueue(isUserSkip = false)
+                                _playerState.value = _playerState.value.copy(isBuffering = false, isPlaying = false)
+                                UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not play '${currentT.title}'. Tap to retry."))
                             }
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            consecutiveDeadSkips++
-                            advanceQueue(isUserSkip = false)
+                            _playerState.value = _playerState.value.copy(isBuffering = false, isPlaying = false)
+                            UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not play '${currentT.title}'. Tap to retry."))
                         }
                     }
                 }
             } else {
-                advanceQueue(isUserSkip = false)
+                _playerState.value = _playerState.value.copy(isBuffering = false, isPlaying = false)
             }
         }
     }
@@ -813,32 +820,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         return false
     }
 
-    private fun sanitizeStreamUri(rawUrl: String): android.net.Uri {
-        return try {
-            if (!rawUrl.contains("range=") && !rawUrl.contains("rn=")) {
-                android.net.Uri.parse(rawUrl)
-            } else {
-                val uri = android.net.Uri.parse(rawUrl)
-                val cleanBuilder = uri.buildUpon().clearQuery()
-                uri.queryParameterNames
-                    ?.filterNot { it.equals("range", ignoreCase = true) || it.equals("rn", ignoreCase = true) }
-                    ?.forEach { key ->
-                        cleanBuilder.appendQueryParameter(key, uri.getQueryParameter(key))
-                    }
-                cleanBuilder.build()
-            }
-        } catch (e: Throwable) {
-            try {
-                android.net.Uri.parse(rawUrl)
-            } catch (ex: Throwable) {
-                android.net.Uri.EMPTY
-            }
-        }
-    }
-
     private fun buildMediaItem(t: Track): MediaItem {
         val uri = if (t.filepath.startsWith("http://") || t.filepath.startsWith("https://")) {
-            sanitizeStreamUri(t.filepath)
+            android.net.Uri.parse(t.filepath)
         } else if (t.filepath.startsWith("file://")) {
             android.net.Uri.parse(t.filepath)
         } else if (t.filepath.isNotBlank() && !t.filepath.startsWith("online://") && !t.filepath.startsWith("ytsearch:")) {
@@ -1296,8 +1280,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(trackToPlay.filepath)
         val isLocalFile = trackToPlay.filepath.startsWith("/") || trackToPlay.filepath.startsWith("file://") || java.io.File(trackToPlay.filepath).exists()
 
+        val knownVideoId = trackToPlay.ytmVideoId?.takeIf { it.isNotBlank() }
+            ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(trackToPlay.filepath, trackToPlay.coverArtPath)
+
         val resolvedTrack = if (isLocalFile || isAlreadyDirectCdn) {
-            trackToPlay
+            trackToPlay.copy(ytmVideoId = knownVideoId ?: trackToPlay.ytmVideoId)
         } else {
             try {
                 withContext(Dispatchers.IO) {
@@ -1305,11 +1292,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     val resolved = res.getOrNull()
                     resolved?.let { com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = it.loudnessDb }
                     if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                        val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(resolved.streamUrl)
-                            ?: trackToPlay.ytmVideoId
-                        trackToPlay.copy(filepath = resolved.streamUrl, ytmVideoId = vid ?: trackToPlay.ytmVideoId)
+                        trackToPlay.copy(filepath = resolved.streamUrl, ytmVideoId = knownVideoId ?: trackToPlay.ytmVideoId)
                     } else {
-                        trackToPlay
+                        trackToPlay.copy(ytmVideoId = knownVideoId ?: trackToPlay.ytmVideoId)
                     }
                 }
             } catch (ce: kotlinx.coroutines.CancellationException) {
