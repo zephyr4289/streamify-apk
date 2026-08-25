@@ -352,7 +352,6 @@ object ContinuumRadioEngine {
                         )
                     )
                 }
-            }
 
             // Extract continuation token
             val continuationNodes = mutableListOf<JSONObject>()
