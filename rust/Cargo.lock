@@ -1156,6 +1156,7 @@ dependencies = [
  "hex",
  "hmac",
  "jni",
+ "libc",
  "lofty",
  "regex",
  "reqwest",

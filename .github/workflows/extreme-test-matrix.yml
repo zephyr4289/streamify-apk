@@ -127,9 +127,11 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git reset --hard HEAD || true
+          git clean -fd || true
           git fetch origin build-logs || true
           if git show-ref --verify --quiet refs/remotes/origin/build-logs; then
-            git checkout -B build-logs origin/build-logs
+            git checkout -f -B build-logs origin/build-logs
           else
             git checkout --orphan build-logs
             git rm -rf . || true
@@ -582,9 +584,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git reset --hard HEAD || true
+          git clean -fd || true
           git fetch origin testing-log || true
           if git show-ref --verify --quiet refs/remotes/origin/testing-log; then
-            git checkout testing-log
+            git checkout -f testing-log
             git pull --rebase origin testing-log || true
           else
             git checkout --orphan testing-log
