@@ -184,6 +184,8 @@ object YouTubeMusicSearchApi {
                 .header("User-Agent", USER_AGENT)
                 .header("Accept", "*/*")
                 .header("Accept-Encoding", "gzip, deflate")
+                .header("X-YouTube-Client-Name", if (isMusic) "67" else "1")
+                .header("X-YouTube-Client-Version", clientVersion)
                 .header("Origin", if (isMusic) "https://music.youtube.com" else "https://www.youtube.com")
                 .header("Referer", if (isMusic) "https://music.youtube.com/" else "https://www.youtube.com/")
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))

@@ -27,9 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq curl
-
       - name: 🛡️ Hard End-to-End Search & Stream Resolver Verification
         run: |
           chmod +x tools/probe-search-resolver.sh

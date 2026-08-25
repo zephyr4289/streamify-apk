@@ -25,6 +25,9 @@ echo "[Step 1] Querying YouTube Music search endpoint..."
 SEARCH_RESP=$(curl -s --compressed --max-time 15 "https://music.youtube.com/youtubei/v1/search" \
   -H "Content-Type: application/json; charset=UTF-8" \
   -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+  -H "Accept: */*" \
+  -H "X-YouTube-Client-Name: 67" \
+  -H "X-YouTube-Client-Version: 1.20240101.01.00" \
   -H "Origin: https://music.youtube.com" \
   -H "Referer: https://music.youtube.com/" \
   --data "$SEARCH_PAYLOAD")
