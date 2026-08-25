@@ -57,6 +57,30 @@ class StreamifyApp : Application(), ImageLoaderFactory {
             "1.0.${com.streamify.app.BuildConfig.VERSION_CODE}"
         )
 
+        // Screen-level lifecycle breadcrumbs for the admin terminal.
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            private fun name(a: android.app.Activity) = a.javaClass.simpleName
+            override fun onActivityCreated(a: android.app.Activity, s: android.os.Bundle?) {
+                com.streamify.app.util.SLog.i("LIFECYCLE", "created ${name(a)}")
+            }
+            override fun onActivityStarted(a: android.app.Activity) {
+                com.streamify.app.util.SLog.i("LIFECYCLE", "started ${name(a)}")
+            }
+            override fun onActivityResumed(a: android.app.Activity) {
+                com.streamify.app.util.SLog.i("LIFECYCLE", "resumed ${name(a)}")
+            }
+            override fun onActivityPaused(a: android.app.Activity) {
+                com.streamify.app.util.SLog.i("LIFECYCLE", "paused ${name(a)}")
+            }
+            override fun onActivityStopped(a: android.app.Activity) {
+                com.streamify.app.util.SLog.i("LIFECYCLE", "stopped ${name(a)}")
+            }
+            override fun onActivitySaveInstanceState(a: android.app.Activity, s: android.os.Bundle) {}
+            override fun onActivityDestroyed(a: android.app.Activity) {
+                com.streamify.app.util.SLog.i("LIFECYCLE", "destroyed ${name(a)}")
+            }
+        })
+
         // 1. Ensure TrackRepository application context and Telemetry Engine are bound
         com.streamify.app.data.TrackRepository.appContext = this
         com.streamify.app.data.YtStatsTelemetryEngine.initFromContext(this)
@@ -157,6 +181,7 @@ class StreamifyApp : Application(), ImageLoaderFactory {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        com.streamify.app.util.SLog.w("LIFECYCLE", "onTrimMemory level=$level")
         if (level >= TRIM_MEMORY_RUNNING_LOW) {
             com.streamify.app.service.ThermalGovernorManager.handleLowMemory(this)
         }

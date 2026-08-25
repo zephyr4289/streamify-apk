@@ -33,6 +33,15 @@ fun AppNavGraph(
     val jamViewModel: JamViewModel = viewModel()
     val communityViewModel: CommunityViewModel = viewModel()
 
+    // Route transitions land in the admin terminal (SLog).
+    androidx.compose.runtime.DisposableEffect(navController) {
+        val listener = androidx.navigation.NavController.OnDestinationChangedListener { _, dest, args ->
+            com.streamify.app.util.SLog.i("NAV", "→ ${dest.route} args=${args?.toString() ?: "{}"}")
+        }
+        navController.addOnDestinationChangedListener(listener)
+        onDispose { navController.removeOnDestinationChangedListener(listener) }
+    }
+
     NavHost(
         navController = navController,
         startDestination = "home",
