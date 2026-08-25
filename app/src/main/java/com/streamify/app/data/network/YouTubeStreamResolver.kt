@@ -1,6 +1,7 @@
 package com.streamify.app.data.network
 
-import android.util.Log
+import com.streamify.app.util.SLog
+import com.streamify.app.util.SLog as Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -287,7 +288,7 @@ object YouTubeStreamResolver {
         }
 
         if (videoId == null) {
-            android.util.Log.e("LadderTrace", "❌ RESOLUTION FAILED for ${track.title} (No videoId found)")
+            SLog.e("LadderTrace", "❌ RESOLUTION FAILED for ${track.title} (No videoId found)")
             return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
         }
 
@@ -319,7 +320,7 @@ object YouTubeStreamResolver {
         if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putStream(videoId, nativeResolved)
             ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
-            android.util.Log.d("StreamifyResolver", "Resolved Tier 1 for ${track.title} ($videoId)")
+            SLog.d("StreamifyResolver", "Resolved Tier 1 for ${track.title} ($videoId)")
             return@withContext Result.success(nativeResolved)
         }
 
@@ -341,7 +342,7 @@ object YouTubeStreamResolver {
                 if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
                     StreamEdgeCache.putStream(candVideoId, retryResolved)
                     ConnectionWarmer.preWarmCDN(retryResolved.streamUrl)
-                    android.util.Log.d("StreamifyResolver", "Resolved Tier 2 fallback for ${track.title} ($candVideoId)")
+                    SLog.d("StreamifyResolver", "Resolved Tier 2 fallback for ${track.title} ($candVideoId)")
 
                     if (track.id > 0) {
                         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
@@ -362,7 +363,7 @@ object YouTubeStreamResolver {
             // R2 search fallback failed
         }
 
-        android.util.Log.e("StreamifyResolver", "Resolution exhausted for ${track.title} - ${track.artist}")
+        SLog.e("StreamifyResolver", "Resolution exhausted for ${track.title} - ${track.artist}")
         return@withContext Result.failure(UnresolvableTrackException("Stream exhaustion for ${track.title} - ${track.artist}"))
     }
 

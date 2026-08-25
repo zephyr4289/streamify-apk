@@ -29,8 +29,17 @@ object ConnectionWarmer {
 
 object NetworkEngine {
 
+    /**
+     * Terminal-visible HTTP logging: one line per request + one per response,
+     * routed into SLog (redaction for auth headers happens inside SLog).
+     */
+    private val httpLogger = okhttp3.logging.HttpLoggingInterceptor { msg ->
+        com.streamify.app.util.SLog.d("HTTP", msg)
+    }.apply { level = okhttp3.logging.HttpLoggingInterceptor.Level.BASIC }
+
     val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .addInterceptor(httpLogger)
             .connectionPool(ConnectionPool(32, 5, TimeUnit.MINUTES))
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectTimeout(5000, TimeUnit.MILLISECONDS)
@@ -42,6 +51,7 @@ object NetworkEngine {
 
     val exoPlayerClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .addInterceptor(httpLogger)
             .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectTimeout(10000, TimeUnit.MILLISECONDS)

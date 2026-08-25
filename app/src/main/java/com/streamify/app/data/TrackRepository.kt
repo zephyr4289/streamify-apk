@@ -1,5 +1,6 @@
 package com.streamify.app.data
 
+import com.streamify.app.util.SLog
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.models.toTrack
 import kotlinx.coroutines.Dispatchers
@@ -95,7 +96,7 @@ object TrackRepository {
         val likedIds = try {
             NativeBridge.getLikedTracks(1).map { it.id }.toSet()
         } catch (t: Throwable) {
-            android.util.Log.e("TrackRepository", "Native liked-tracks fetch failed, degrading", t)
+            SLog.e("TrackRepository", "Native liked-tracks fetch failed, degrading", t)
             emptySet<Int>()
         }
         val directMatches = try {
@@ -106,7 +107,7 @@ object TrackRepository {
             // UnsatisfiedLinkError is an Error, not an Exception — only catch(Throwable)
             // keeps a missing/mismatched native lib from killing the process. Degraded
             // local search falls through to the fuzzy in-memory path below.
-            android.util.Log.e("TrackRepository", "Native search failed, degrading to fuzzy fallback", t)
+            SLog.e("TrackRepository", "Native search failed, degrading to fuzzy fallback", t)
             emptyList()
         }
         if (directMatches.isNotEmpty()) {

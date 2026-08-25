@@ -1,5 +1,6 @@
 package com.streamify.app.viewmodel
 
+import com.streamify.app.util.SLog
 import android.content.ComponentName
 import android.content.Context
 import androidx.lifecycle.ViewModel
@@ -977,7 +978,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 // and completion must never strand the spinner. Known resolution failures
                 // are already routed through registerResolutionFailure() inside
                 // playTrackInternal(); unknown bugs get a safe stop, no auto-advance.
-                android.util.Log.e("PlayerViewModel", "playTrack coroutine died", t)
+                SLog.e("PlayerViewModel", "playTrack coroutine died", t)
                 _playerState.value = _playerState.value.copy(isBuffering = false, isPlaying = false)
                 UiEventBus.emitEvent(UiEvent.ShowSnackbar("Playback error — please try again"))
             }
@@ -1101,7 +1102,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             repository.getEmergencyComfortTrack()
                         }
                         if (comfortTrack != null && comfortTrack.id != curState.currentTrack?.id) {
-                            android.util.Log.d("PlayerViewModel", "⚡ Fast-skip (<10s) on exhausted queue! Triggering comfort anchor: ${comfortTrack.title}")
+                            SLog.d("PlayerViewModel", "⚡ Fast-skip (<10s) on exhausted queue! Triggering comfort anchor: ${comfortTrack.title}")
                             playTrackInternal(comfortTrack, 0, listOf(comfortTrack) + queue.filter { it.id != comfortTrack.id })
                             return@launch
                         }
@@ -1275,7 +1276,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         val vaulted = com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
         val trackToPlay = vaulted ?: track
         if (vaulted != null) {
-            android.util.Log.d("ResolveTrace", "R0 VAULT HIT: ${track.title}")
+            SLog.d("ResolveTrace", "R0 VAULT HIT: ${track.title}")
         }
 
         // 1. FAST-PATH GATE: If trackToPlay.filepath is already a direct playable local file or unexpired CDN stream
@@ -1305,7 +1306,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             } catch (t: Throwable) {
                 // Resolution threw instead of returning null: route through the same
                 // strike system, otherwise exceptions bypass the failure cap entirely.
-                android.util.Log.e("PlayerViewModel", "Stream resolution threw for ${track.title}", t)
+                SLog.e("PlayerViewModel", "Stream resolution threw for ${track.title}", t)
                 withContext(Dispatchers.Main) {
                     _playerState.value = _playerState.value.copy(
                         isBuffering = false,
@@ -1375,7 +1376,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 }
             }
         } else {
-            android.util.Log.e("PlayerViewModel", "Track stream unresolvable for ${track.title}")
+            SLog.e("PlayerViewModel", "Track stream unresolvable for ${track.title}")
             withContext(Dispatchers.Main) {
                 _playerState.value = _playerState.value.copy(
                     isBuffering = false,

@@ -1,5 +1,6 @@
 package com.streamify.app
 
+import com.streamify.app.util.SLog
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -48,7 +49,14 @@ class StreamifyApp : Application(), ImageLoaderFactory {
     }
     override fun onCreate() {
         super.onCreate()
-        
+
+        // 0. SLog FIRST — every subsequent subsystem logs through it.
+        //    Installs the crash hook and starts the disk spool.
+        com.streamify.app.util.SLog.initialize(this)
+        com.streamify.app.util.SLog.logBootBanner(
+            "1.0.${com.streamify.app.BuildConfig.VERSION_CODE}"
+        )
+
         // 1. Ensure TrackRepository application context and Telemetry Engine are bound
         com.streamify.app.data.TrackRepository.appContext = this
         com.streamify.app.data.YtStatsTelemetryEngine.initFromContext(this)
@@ -61,7 +69,7 @@ class StreamifyApp : Application(), ImageLoaderFactory {
                 com.streamify.app.data.DatabaseInitializer.startInitialization(dbFile.absolutePath)
             }
         } catch (e: Throwable) {
-            android.util.Log.e("StreamifyApp", "Failed to schedule NativeBridge Database init", e)
+            SLog.e("StreamifyApp", "Failed to schedule NativeBridge Database init", e)
         }
 
         // 3+4. COLD-START BUDGET: vector-store mmap and the multi-MB ONNX
@@ -75,7 +83,7 @@ class StreamifyApp : Application(), ImageLoaderFactory {
                 vectorBinFile.parentFile?.mkdirs()
                 NativeBridge.initVectorStore(vectorBinFile.absolutePath)
             } catch (e: Throwable) {
-                android.util.Log.e("StreamifyApp", "Failed to initialize NativeBridge VectorStore", e)
+                SLog.e("StreamifyApp", "Failed to initialize NativeBridge VectorStore", e)
             }
 
             // 4. Copy ONNX model from assets if present
@@ -89,14 +97,14 @@ class StreamifyApp : Application(), ImageLoaderFactory {
                             }
                         }
                     } catch (e: Throwable) {
-                        android.util.Log.w("StreamifyApp", "CLAP ONNX model not found in assets, skipping")
+                        SLog.w("StreamifyApp", "CLAP ONNX model not found in assets, skipping")
                     }
                 }
                 if (modelFile.exists()) {
                     NativeBridge.initAudioPipeline(modelFile.absolutePath)
                 }
             } catch (e: Throwable) {
-                android.util.Log.e("StreamifyApp", "Failed to initialize AudioPipeline", e)
+                SLog.e("StreamifyApp", "Failed to initialize AudioPipeline", e)
             }
         }
 
@@ -104,25 +112,25 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         try {
             com.streamify.app.service.AudioDeviceManager.init(this)
         } catch (e: Throwable) {
-            android.util.Log.e("StreamifyApp", "Failed to initialize AudioDeviceManager", e)
+            SLog.e("StreamifyApp", "Failed to initialize AudioDeviceManager", e)
         }
 
         try {
             com.streamify.app.data.remote.SupabaseClient.init(this)
         } catch (e: Throwable) {
-            android.util.Log.e("StreamifyApp", "Failed to initialize SupabaseClient", e)
+            SLog.e("StreamifyApp", "Failed to initialize SupabaseClient", e)
         }
 
         try {
             com.streamify.app.service.OnlineTrackProcessor.init(this)
         } catch (e: Throwable) {
-            android.util.Log.e("StreamifyApp", "Failed to initialize OnlineTrackProcessor", e)
+            SLog.e("StreamifyApp", "Failed to initialize OnlineTrackProcessor", e)
         }
 
         try {
             com.streamify.app.util.StreamifyHapticEngine.init(this)
         } catch (e: Throwable) {
-            android.util.Log.e("StreamifyApp", "Failed to initialize StreamifyHapticEngine", e)
+            SLog.e("StreamifyApp", "Failed to initialize StreamifyHapticEngine", e)
         }
 
         try {

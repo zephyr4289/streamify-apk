@@ -1,7 +1,7 @@
 package com.streamify.app.service
 
 import android.os.SystemClock
-import android.util.Log
+import com.streamify.app.util.SLog as Log
 import com.streamify.app.data.NativeBridge
 import com.streamify.app.data.network.MeshDiscoveryEngine
 import kotlinx.coroutines.*

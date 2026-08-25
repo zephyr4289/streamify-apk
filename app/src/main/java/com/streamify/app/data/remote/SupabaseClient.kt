@@ -1,5 +1,6 @@
 package com.streamify.app.data.remote
 
+import com.streamify.app.util.SLog
 import android.content.Context
 import android.content.SharedPreferences
 import com.streamify.app.BuildConfig
@@ -809,7 +810,7 @@ object SupabaseClient {
             realtimeWebSocket = NetworkEngine.client.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     _isRealtimeConnected.value = true
-                    android.util.Log.i("SupabaseRealtime", "Connected to Supabase Realtime WebSocket")
+                    SLog.i("SupabaseRealtime", "Connected to Supabase Realtime WebSocket")
 
                     // 1. Join user_likes channel
                     val joinLikesMsg = JSONObject().apply {
@@ -970,7 +971,7 @@ object SupabaseClient {
                         }
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("SupabaseRealtime", "CDC Parse error: ${e.message}")
+                    SLog.e("SupabaseRealtime", "CDC Parse error: ${e.message}")
                 }
             }
 

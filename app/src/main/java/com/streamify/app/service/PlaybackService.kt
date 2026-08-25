@@ -99,7 +99,12 @@ class PlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
 
-        
+        // adb-logcat-grade player telemetry:
+        //  - Media3 EventLogger -> system logcat (full fidelity when debugging over USB)
+        //  - TerminalPlayerListener -> SLog ring/disk (visible in the admin terminal)
+        exoPlayer.addAnalyticsListener(androidx.media3.exoplayer.analytics.EventLogger())
+        exoPlayer.addAnalyticsListener(TerminalPlayerListener())
+
         player = exoPlayer
         exoPlayer.setSkipSilenceEnabled(true)
 
@@ -335,6 +340,77 @@ class PlaybackService : MediaSessionService() {
         }
         player = null
         super.onDestroy()
+    }
+}
+
+/**
+ * Compact AnalyticsListener feeding playback internals into SLog so the admin
+ * terminal mirrors what `adb logcat` would show: state transitions, errors,
+ * load failures and track transitions.
+ */
+private class TerminalPlayerListener : androidx.media3.exoplayer.analytics.AnalyticsListener {
+
+    private fun stateName(state: Int): String = when (state) {
+        androidx.media3.common.Player.STATE_IDLE -> "IDLE"
+        androidx.media3.common.Player.STATE_BUFFERING -> "BUFFERING"
+        androidx.media3.common.Player.STATE_READY -> "READY"
+        androidx.media3.common.Player.STATE_ENDED -> "ENDED"
+        else -> "?$state"
+    }
+
+    override fun onPlaybackStateChanged(
+        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+        state: Int
+    ) {
+        com.streamify.app.util.SLog.d(
+            "ExoEvent",
+            "playbackState=${stateName(state)} mediaId=${eventTime.timeline.getWindow(eventTime.windowIndex, androidx.media3.common.Window()).mediaId}"
+        )
+    }
+
+    override fun onPlayerError(
+        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+        error: androidx.media3.common.PlaybackException
+    ) {
+        val causeChain = generateSequence(error.cause) { it.cause }.take(4).joinToString(" <- ") { c ->
+            "${c.javaClass.simpleName}: ${c.message ?: ""}"
+        }
+        com.streamify.app.util.SLog.e(
+            "ExoEvent",
+            "PLAYER_ERROR code=${error.errorCodeName} msg=${error.message} causes=[$causeChain]"
+        )
+    }
+
+    override fun onLoadError(
+        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+        loadEventInfo: androidx.media3.exoplayer.source.LoadEventInfo,
+        mediaLoadData: androidx.media3.exoplayer.source.MediaLoadData,
+        error: java.io.IOException,
+        wasCanceled: Boolean
+    ) {
+        if (!wasCanceled) {
+            com.streamify.app.util.SLog.w(
+                "ExoEvent",
+                "LOAD_ERROR ${error.javaClass.simpleName}: ${error.message ?: ""} uri=${loadEventInfo.uri}"
+            )
+        }
+    }
+
+    override fun onMediaItemTransition(
+        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+        mediaItem: androidx.media3.common.MediaItem?,
+        reason: Int
+    ) {
+        val r = when (reason) {
+            androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> "AUTO"
+            androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> "SEEK"
+            androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> "PLAYLIST_CHANGED"
+            else -> "REPEAT"
+        }
+        com.streamify.app.util.SLog.i(
+            "ExoEvent",
+            "transition=$r mediaId=${mediaItem?.mediaId}"
+        )
     }
 }
 

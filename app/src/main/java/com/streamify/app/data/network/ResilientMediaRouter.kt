@@ -1,6 +1,6 @@
 package com.streamify.app.data.network
 
-import android.util.Log
+import com.streamify.app.util.SLog as Log
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
