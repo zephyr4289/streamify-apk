@@ -82,11 +82,26 @@ object YouTubeStreamResolver {
         val osVersion: String? = null,
         val origin: String? = null,
         val referer: String? = null,
-        val attachSession: Boolean = true
+        // Zero-token fleet (live-probe verified 2026-08-25): bare ANDROID/IOS 21.x
+        // return playable URLs while SAPISIDHASH+Cookie on these clients triggers
+        // bot-walls and stale 19.x fingerprints are rejected with HTTP 400.
+        // Session attach stays opt-in per-profile for diagnostics only.
+        val attachSession: Boolean = false
     )
 
     private val CLIENT_TARGETS = listOf(
-        // 1. Android VR (Meta Quest 3): Unencrypted direct Opus/AAC streams
+        // 1. Android App: probe-verified direct playback on official/topic music videos
+        // Fingerprints restored from build-157 (6ffa6c4) — the last build solving
+        // fast. Stale 19.x clients get HTTP 400 "Precondition check failed".
+        ClientConfig(
+            clientName = "ANDROID",
+            clientVersion = "21.26.364",
+            clientNumber = "3",
+            userAgent = "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
+            osName = "Android",
+            osVersion = "11"
+        ),
+        // 2. Meta Quest / Android VR: Verified unencrypted direct Opus & AAC CDN streams
         ClientConfig(
             clientName = "ANDROID_VR",
             clientVersion = "1.60.19",
@@ -95,40 +110,18 @@ object YouTubeStreamResolver {
             deviceMake = "Oculus",
             deviceModel = "Quest 3",
             osName = "Android",
-            osVersion = "12",
-            attachSession = false
+            osVersion = "12"
         ),
-        // 2. YouTube Music Web Remix (High-fidelity Opus 160kbps with session support)
-        ClientConfig(
-            clientName = "WEB_REMIX",
-            clientVersion = "1.20240815.01.00",
-            clientNumber = "67",
-            userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-            origin = "https://music.youtube.com",
-            referer = "https://music.youtube.com/",
-            attachSession = true
-        ),
-        // 3. Android Music / Official App
-        ClientConfig(
-            clientName = "ANDROID",
-            clientVersion = "19.29.35",
-            clientNumber = "3",
-            userAgent = "com.google.android.youtube/19.29.35 (Linux; U; Android 11) gzip",
-            osName = "Android",
-            osVersion = "11",
-            attachSession = true
-        ),
-        // 4. Native iOS App
+        // 3. Native iOS YouTube App
         ClientConfig(
             clientName = "IOS",
-            clientVersion = "19.29.1",
+            clientVersion = "21.26.4",
             clientNumber = "5",
-            userAgent = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)",
+            userAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
             deviceMake = "Apple",
             deviceModel = "iPhone16,2",
-            osName = "iOS",
-            osVersion = "17.5.1.21F90",
-            attachSession = true
+            osName = "iPhone",
+            osVersion = "18.3.2.22D82"
         )
     )
 
@@ -573,6 +566,32 @@ object YouTubeStreamResolver {
 
             processFormats(streamingData.optJSONArray("adaptiveFormats"))
             processFormats(streamingData.optJSONArray("formats"))
+
+            // MUXED FALLBACK (restored from build-157 / 6ffa6c4): SABR-era responses
+            // strip every adaptiveFormats URL for app clients; the progressive
+            // formats[] array (itag 18/22 muxed) is then the only playable direct
+            // URL. Accept ANY mime here — ExoPlayer plays muxed containers fine and
+            // the audio track inside carries full quality.
+            if (candidateFormats.isEmpty()) {
+                val formats = streamingData.optJSONArray("formats")
+                if (formats != null) {
+                    for (i in 0 until formats.length()) {
+                        val f = formats.getJSONObject(i)
+                        val streamUrl = extractUrlFromFormat(f)
+                        if (streamUrl.isNotBlank()) {
+                            candidateFormats.add(
+                                ResolvedStream(
+                                    streamUrl = streamUrl,
+                                    mimeType = f.optString("mimeType", "video/mp4"),
+                                    bitrate = f.optInt("bitrate", f.optInt("averageBitrate", 0)),
+                                    durationSec = durationSec,
+                                    loudnessDb = null
+                                )
+                            )
+                        }
+                    }
+                }
+            }
 
             return Verdict.Ok(candidateFormats, cipheredCount)
         } catch (e: Exception) {
