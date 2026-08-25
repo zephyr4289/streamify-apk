@@ -270,36 +270,7 @@ impl InnertubeParser {
                 return Some(url.to_string());
             }
         }
-
-        // Extract from signatureCipher or cipher
-        let cipher = f.get("signatureCipher").or_else(|| f.get("cipher")).and_then(|c| c.as_str())?;
-        let mut raw_url = None;
-        let mut sig = None;
-        let mut sp = "sig";
-
-        for part in cipher.split('&') {
-            let mut split = part.splitn(2, '=');
-            let k = split.next()?;
-            let v = split.next()?;
-            let decoded = urlencoding::decode(v).ok()?.into_owned();
-            match k {
-                "url" => raw_url = Some(decoded),
-                "s" => sig = Some(decoded),
-                "sp" => sp = "sig", // Default sig param
-                _ => {}
-            }
-        }
-
-        if let Some(u) = raw_url {
-            if let Some(s) = sig {
-                let sep = if u.contains('?') { '&' } else { '?' };
-                Some(format!("{}{}{}={}", u, sep, sp, s))
-            } else {
-                Some(u)
-            }
-        } else {
-            None
-        }
+        None
     }
 
     pub fn parse_duration_str(s: &str) -> u32 {
