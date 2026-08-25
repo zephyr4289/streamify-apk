@@ -196,7 +196,7 @@ object YouTubeStreamResolver {
     }
 
     private val YT_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
-    private val YT_URL_REGEX = Regex("(?:[?&]v=|/v/|youtu\\.be/|/embed/|/shorts/|/live/|^)([a-zA-Z0-9_-]{11})")
+    private val YT_URL_REGEX = Regex("(?:[?&]v=|/v/|youtu\\.be/|/embed/|/shorts/|/live/|^)([a-zA-Z0-9_-]{11})(?:[&?#/]|$)")
     private val YT_THUMBNAIL_REGEX = Regex("(?:vi|vi_webp)/([a-zA-Z0-9_-]{11})")
 
     fun extractIdFromThumbnail(thumbnailUrl: String?): String? {

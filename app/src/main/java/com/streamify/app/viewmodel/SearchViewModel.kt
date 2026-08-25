@@ -283,26 +283,63 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         speculativePrefetchJob?.cancel()
         prefetchScope.coroutineContext.cancelChildren()
         streamJob?.cancel()
+        streamJob = viewModelScope.launch {
+            _resolvingTrackUrl.value = onlineTrack.url
+            try {
+                // 1. Check if StreamEdgeCache already pre-resolved this candidate (<1ms hit)
+                val videoId = YouTubeStreamResolver.extractVideoId(onlineTrack.url, onlineTrack.thumbnail)
+                val cached = if (videoId != null) StreamEdgeCache.getStream(videoId) else null
+                val directUrl = if (cached != null && !YouTubeStreamResolver.isCdnExpired(cached.streamUrl)) {
+                    cached.streamUrl
+                } else {
+                    val candidateTrack = Track(
+                        id = 0,
+                        title = onlineTrack.title,
+                        artist = onlineTrack.uploader,
+                        album = "Online Stream",
+                        durationSec = onlineTrack.duration,
+                        filepath = if (videoId != null) "https://www.youtube.com/watch?v=$videoId" else onlineTrack.url,
+                        coverArtPath = onlineTrack.thumbnail,
+                        ytmVideoId = videoId
+                    )
+                    val resolveResult = YouTubeStreamResolver.resolveStreamJit(candidateTrack)
+                    resolveResult.getOrNull()?.streamUrl ?: ""
+                }
 
-        val videoId = YouTubeStreamResolver.extractVideoId(onlineTrack.url, onlineTrack.thumbnail)
-        val watchUrl = if (videoId != null) "https://www.youtube.com/watch?v=$videoId" else onlineTrack.url
-        val trackToPlay = Track(
-            id = -(onlineTrack.url.hashCode()),
-            title = onlineTrack.title,
-            artist = onlineTrack.uploader,
-            album = "Online Stream",
-            durationSec = onlineTrack.duration,
-            filepath = watchUrl,
-            coverArtPath = onlineTrack.thumbnail,
-            bpm = 0f,
-            key = "",
-            lyricsPath = null,
-            source = "online_stream",
-            ytmVideoId = videoId
-        )
+                if (directUrl.isNotBlank()) {
+                    val trackToPlay = Track(
+                        id = -(onlineTrack.url.hashCode()),
+                        title = onlineTrack.title,
+                        artist = onlineTrack.uploader,
+                        album = "Online Stream",
+                        durationSec = onlineTrack.duration,
+                        filepath = directUrl,
+                        coverArtPath = onlineTrack.thumbnail,
+                        bpm = 0f,
+                        key = "",
+                        lyricsPath = null,
+                        source = "online_stream",
+                        ytmVideoId = videoId
+                    )
 
-        playerViewModel.playFromSearch(trackToPlay, listOf(trackToPlay))
-        onTrackReady?.invoke()
+                    // 2. Play tapped track immediately and kick off Continuum Radio Engine
+                    playerViewModel.playFromSearch(trackToPlay, listOf(trackToPlay))
+                    withContext(Dispatchers.Main) {
+                        onTrackReady?.invoke()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(context, "Could not resolve audio stream. Please try another track.", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Ignore intentional user cancellation
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                _resolvingTrackUrl.value = null
+            }
+        }
     }
 
     fun importSpotifyPlaylist(

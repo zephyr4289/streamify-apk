@@ -302,8 +302,8 @@ object YouTubeMusicSearchApi {
             val targetUrl = when {
                 watchVideoId != null -> "https://www.youtube.com/watch?v=$watchVideoId"
                 isArtist -> "https://music.youtube.com/channel/$browseId"
-                // Legacy fabrication for album/single cards; R2 ladder rescues these
-                else -> "https://www.youtube.com/watch?v=$browseId"
+                browseId.length == 11 -> "https://www.youtube.com/watch?v=$browseId"
+                else -> "https://music.youtube.com/browse/$browseId"
             }
 
             return OnlineSearchResult(
