@@ -1285,6 +1285,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         // 0. SMART OFFLINE VAULT GATE (0ms instant local playback if pre-cached)
         val vaulted = com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
         val trackToPlay = vaulted ?: track
+        if (vaulted != null) {
+            android.util.Log.d("ResolveTrace", "R0 VAULT HIT: ${track.title}")
+        }
 
         // 1. FAST-PATH GATE: If trackToPlay.filepath is already a direct playable local file or unexpired CDN stream
         val isAlreadyDirectCdn = (trackToPlay.filepath.contains("googlevideo.com") || trackToPlay.filepath.contains(".googlevideo.")) &&

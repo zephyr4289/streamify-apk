@@ -392,6 +392,7 @@ object YouTubeStreamResolver {
             if (cached != null && !isCdnExpired(cached.streamUrl, safetyMarginMs = 600_000L)) {
                 ConnectionWarmer.preWarmCDN(cached.streamUrl)
                 StreamifyCircuitBreaker.recordSuccess(videoId)
+                NegativeResultCache.clear(videoId)
                 return@withContext Result.success(cached)
             }
         } else {
@@ -404,36 +405,80 @@ object YouTubeStreamResolver {
             return@withContext Result.failure(UnresolvableTrackException("Video $videoId is unplayable (circuit open)"))
         }
 
-        // 3. Tier 1: Native HTTP/2 Innertube Multi-Client Race (<80ms)
-
-        val nativeResolved = raceClientEndpoints(videoId)
+        // 3. Tier 1 / R1: Native HTTP/2 Innertube Multi-Client Race (<80ms).
+        // A content-walled ID (full losing race of LOGIN_REQUIRED-class statuses)
+        // is already in the negative cache — route straight to alternate uploads.
+        val skipR1 = NegativeResultCache.isWalled(videoId)
+        if (skipR1) {
+            android.util.Log.d("ResolveTrace", "R1 skipped (known-walled): $videoId → R2")
+        }
+        val nativeResolved = if (skipR1) null else raceClientEndpoints(videoId)
         if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putStream(videoId, nativeResolved)
             ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
             StreamifyCircuitBreaker.recordSuccess(videoId)
+            NegativeResultCache.clear(videoId)
+            android.util.Log.d("ResolveTrace", "R1 HIT: $videoId (${track.title})")
             return@withContext Result.success(nativeResolved)
         }
 
-        // 4. Tier 2: Query YouTube Music Search Match and retry (identity-verified).
+        // 4. Tier 2 / R2: Alternate-upload resolver — the song is not the videoId.
+        // Search the same recording, gate on identity AND duration (kills 10-hour
+        // mixes / sped-up edits), resolve candidates in similarity order, bounded.
         try {
-            val fallbackSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 3)
-            for (candidate in fallbackSearch) {
-                val candVideoId = extractVideoId(candidate.url, candidate.thumbnail)
-                val candOk = com.streamify.app.data.FuzzyTitleMatcher.titlesMatch(track.title, candidate.title) &&
-                        com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(track.artist, candidate.uploader)
-                if (candVideoId != null && candVideoId != videoId && candOk) {
-                    val retryResolved = raceClientEndpoints(candVideoId)
-                    if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
-                        StreamEdgeCache.putStream(candVideoId, retryResolved)
-                        ConnectionWarmer.preWarmCDN(retryResolved.streamUrl)
-                        return@withContext Result.success(retryResolved)
+            android.util.Log.d("ResolveTrace", "R2 alternate search for ${track.title} ($videoId)")
+            val altSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 8)
+            val candidates = altSearch.mapNotNull { c ->
+                val cid = extractVideoId(c.url, c.thumbnail) ?: return@mapNotNull null
+                if (cid == videoId) return@mapNotNull null
+                if (!com.streamify.app.data.FuzzyTitleMatcher.titlesMatch(track.title, c.title)) return@mapNotNull null
+                if (!com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(track.artist, c.uploader)) return@mapNotNull null
+                // Duration agreement only when BOTH sides know it
+                if (!(track.durationSec <= 0 || c.duration <= 0 ||
+                            com.streamify.app.data.FuzzyTitleMatcher.durationMatches(track.durationSec, c.duration))
+                ) return@mapNotNull null
+                val score = maxOf(
+                    com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(track.title.lowercase(), c.title.lowercase()),
+                    com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(track.artist.lowercase(), c.uploader.lowercase())
+                )
+                Triple(cid, score, c)
+            }.sortedByDescending { it.second }.take(5)
+
+            for ((candVideoId, score, cand) in candidates) {
+                if (StreamifyCircuitBreaker.isDefinitivelyDead(candVideoId)) continue
+                if (NegativeResultCache.isWalled(candVideoId)) continue
+                val retryResolved = raceClientEndpoints(candVideoId)
+                if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
+                    StreamEdgeCache.putStream(candVideoId, retryResolved)
+                    ConnectionWarmer.preWarmCDN(retryResolved.streamUrl)
+                    StreamifyCircuitBreaker.recordSuccess(candVideoId)
+                    NegativeResultCache.clear(videoId)
+                    NegativeResultCache.clear(candVideoId)
+                    android.util.Log.d("ResolveTrace", "R2 HIT: alt=$candVideoId for $videoId (${track.title}, score=${"%.2f".format(score)})")
+                    // Re-pin canonical identity to the WORKING upload so future
+                    // plays skip both the walled ID and this entire ladder.
+                    if (track.id > 0) {
+                        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                com.streamify.app.data.TrackRepository.upsertStreamedTrack(
+                                    track.copy(
+                                        filepath = "https://www.youtube.com/watch?v=$candVideoId",
+                                        ytmVideoId = candVideoId
+                                    )
+                                )
+                            } catch (_: Exception) {
+                                // Best-effort DB update
+                            }
+                        }
                     }
+                    return@withContext Result.success(retryResolved)
                 }
             }
         } catch (e: Exception) {
-            // Failed tier 2
+            // Tier 2 failed — fall through to honest exhaustion
         }
 
+        android.util.Log.e("ResolveTrace", "R5 UNAVAILABLE: ${track.title} - ${track.artist} ($videoId)")
         return@withContext Result.failure(UnresolvableTrackException("Stream exhaustion for ${track.title} - ${track.artist}"))
     }
 
@@ -457,10 +502,16 @@ object YouTubeStreamResolver {
     private suspend fun raceClientEndpoints(videoId: String): ResolvedStream? = coroutineScope {
         val winnerDeferred = CompletableDeferred<ResolvedStream?>()
 
+        // Per-race playability status collector. Tripping decisions are AGGREGATE:
+        // a single client reporting LOGIN_REQUIRED (e.g. ANDROID_VR on licensed
+        // content) must never poison the breaker while ANDROID/IOS win the race.
+        val statuses: MutableSet<String> =
+            java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
+
         val jobs = CLIENT_TARGETS.map { config ->
             async(Dispatchers.IO) {
                 try {
-                    val stream = executePlayerRequest(videoId, config)
+                    val stream = executePlayerRequest(videoId, config, statuses)
                     if (stream != null && stream.streamUrl.isNotBlank()) {
                         winnerDeferred.complete(stream)
                     }
@@ -480,10 +531,20 @@ object YouTubeStreamResolver {
 
         val winner = winnerDeferred.await()
         jobs.forEach { if (!it.isCompleted) it.cancel() }
+        if (winner == null && statuses.isNotEmpty() && statuses.all { it != "OK" }) {
+            // The entire race agreed on a wall/death status — this ID is genuinely gated.
+            android.util.Log.w("YouTubeStreamResolver", "Race uniformly walled for $videoId: $statuses")
+            StreamifyCircuitBreaker.tripHard(videoId)
+            NegativeResultCache.mark(videoId, statuses.first())
+        }
         return@coroutineScope winner
     }
 
-    private fun executePlayerRequest(videoId: String, config: ClientConfig): ResolvedStream? {
+    private fun executePlayerRequest(
+        videoId: String,
+        config: ClientConfig,
+        statuses: MutableCollection<String>? = null
+    ): ResolvedStream? {
         try {
             val clientJson = JSONObject().apply {
                 put("clientName", config.clientName)
@@ -554,21 +615,25 @@ object YouTubeStreamResolver {
 
                 // Tier 2: Pure Kotlin JSON Fallback Parser
                 val root = JSONObject(String(rawBytes, Charsets.UTF_8))
-                return parsePlayerResponse(root, videoId)
+                return parsePlayerResponse(root, videoId, statuses)
             }
         } catch (e: Exception) {
             return null
         }
     }
 
-    private fun parsePlayerResponse(root: JSONObject, videoId: String? = null): ResolvedStream? {
+    private fun parsePlayerResponse(
+        root: JSONObject,
+        videoId: String? = null,
+        statuses: MutableCollection<String>? = null
+    ): ResolvedStream? {
         try {
             val playabilityStatus = root.optJSONObject("playabilityStatus")
             val status = playabilityStatus?.optString("status", "")
             if (status != null && !status.equals("OK", ignoreCase = true)) {
-                if (videoId != null && (status.equals("UNPLAYABLE", true) || status.equals("ERROR", true) || status.equals("LOGIN_REQUIRED", true))) {
-                    StreamifyCircuitBreaker.tripHard(videoId)
-                }
+                // Report upward — tripping is decided AGGREGATELY by the race
+                // caller, so one losing client can never poison good IDs.
+                statuses?.add(status.uppercase())
                 return null
             }
 
