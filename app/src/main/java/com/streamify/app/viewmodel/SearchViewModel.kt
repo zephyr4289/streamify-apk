@@ -132,6 +132,12 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             return
         }
 
+        // New user intent -> fresh correlation ID for the whole terminal chain.
+        com.streamify.app.util.SLog.i(
+            "SearchVM",
+            "[${com.streamify.app.util.Trace.new(cleanQuery)}] SEARCH query='$cleanQuery' filter=$filter"
+        )
+
         historyJob = viewModelScope.launch {
             kotlinx.coroutines.delay(1000)
             addQueryToHistory(cleanQuery)
@@ -210,6 +216,13 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 onlineResults = onlineResults,
                 isOnlineLoading = false
             )
+            com.streamify.app.util.SLog.d(
+                "SearchVM",
+                "${com.streamify.app.util.Trace.pfx()}RESULTS ${onlineResults.size} online — top3=" +
+                    onlineResults.take(3).joinToString("|") { r ->
+                        "${YouTubeStreamResolver.extractVideoId(r.url, r.thumbnail) ?: "?"}:${r.title.take(24)}"
+                    }
+            )
 
             // 4. Zero-Disk Speculative In-Memory URL Pre-Resolver (Zero Disk I/O, Zero Contention)
             if (onlineResults.isNotEmpty()) {
@@ -283,6 +296,10 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         speculativePrefetchJob?.cancel()
         prefetchScope.coroutineContext.cancelChildren()
         streamJob?.cancel()
+        com.streamify.app.util.SLog.i(
+            "SearchVM",
+            "${com.streamify.app.util.Trace.pfx()}TAP '${onlineTrack.title}' by ${onlineTrack.uploader} url=${onlineTrack.url}"
+        )
         streamJob = viewModelScope.launch {
             _resolvingTrackUrl.value = onlineTrack.url
             try {

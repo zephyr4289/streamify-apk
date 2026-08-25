@@ -1260,6 +1260,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         isOptimisticSeeking = false
         pendingSeekTargetMs = null
 
+        SLog.i(
+            "PlayerVM",
+            com.streamify.app.util.Trace.pfx() + "PLAY idx=$index '${track.title}' vid=${track.ytmVideoId ?: "?"} path=${track.filepath.take(48)}"
+        )
+
         _playerState.value = _playerState.value.copy(
             currentTrack = track,
             currentIndex = index,

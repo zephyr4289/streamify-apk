@@ -70,6 +70,13 @@ object YouTubeStreamResolver {
     private const val SIGNATURE_TIMESTAMP = 19850
 
     private const val USER_AGENT_ANDROID = "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14; en_US) gzip"
+
+    /** Attached at app start; used by forensics for connectivity snapshots. */
+    @Volatile
+    var appContext: android.content.Context? = null
+
+    private fun formatTs(timeMs: Long): String =
+        java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date(timeMs))
     private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
 
     private data class ClientConfig(
@@ -288,9 +295,14 @@ object YouTubeStreamResolver {
         }
 
         if (videoId == null) {
-            SLog.e("LadderTrace", "❌ RESOLUTION FAILED for ${track.title} (No videoId found)")
+            SLog.e("LadderTrace", "${com.streamify.app.util.Trace.pfx()}❌ RESOLUTION FAILED for ${track.title} (No videoId found)")
+            dumpForensics("no-videoId for '${track.title}'")
             return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
         }
+        com.streamify.app.util.SLog.d(
+            "LadderTrace",
+            "${com.streamify.app.util.Trace.pfx()}resolve start vid=$videoId src=${if (wasUnpinnedSearch) "search" else "pinned"} title='${track.title}' dur=${track.durationSec}"
+        )
 
         // Canonical Pinning: Lock resolved immutable Video ID in DB
         if (wasUnpinnedSearch && track.id > 0) {
@@ -320,22 +332,37 @@ object YouTubeStreamResolver {
         if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putStream(videoId, nativeResolved)
             ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
-            SLog.d("StreamifyResolver", "Resolved Tier 1 for ${track.title} ($videoId)")
+            SLog.d(
+                "LadderTrace",
+                "${com.streamify.app.util.Trace.pfx()}R1 HIT vid=$videoId mime=${nativeResolved.mimeType.substringBefore(';')} br=${nativeResolved.bitrate}"
+            )
             return@withContext Result.success(nativeResolved)
         }
+        SLog.w("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R1 MISS vid=$videoId — entering R2 alternate-upload search")
 
         // 4. Tier 2: Alternate-upload search fallback
         try {
             val altSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 5)
+            var rejects = 0
             val candidates = altSearch.mapNotNull { c ->
                 val cid = extractVideoId(c.url, c.thumbnail) ?: return@mapNotNull null
                 if (cid == videoId) return@mapNotNull null
                 val durationOk = track.durationSec <= 0 || c.duration <= 0 || kotlin.math.abs(track.durationSec - c.duration) <= 8
-                if (!durationOk) return@mapNotNull null
+                if (!durationOk) {
+                    if (rejects < 5) SLog.d("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R2 reject vid=$cid reason=duration(${c.duration}s vs ${track.durationSec}s)")
+                    rejects++
+                    return@mapNotNull null
+                }
                 val titleSim = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(track.title.lowercase(), c.title.lowercase())
-                if (titleSim < 0.25f) return@mapNotNull null
+                if (titleSim < 0.25f) {
+                    if (rejects < 5) SLog.d("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R2 reject vid=$cid reason=titleSim=${"%.2f".format(titleSim)}")
+                    rejects++
+                    return@mapNotNull null
+                }
                 cid to titleSim
             }.sortedByDescending { it.second }.take(3)
+
+            SLog.d("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R2 candidates=${candidates.size} (from ${altSearch.size} results)")
 
             for ((candVideoId, _) in candidates) {
                 val retryResolved = raceClientEndpoints(candVideoId)
@@ -363,9 +390,43 @@ object YouTubeStreamResolver {
             // R2 search fallback failed
         }
 
-        SLog.e("StreamifyResolver", "Resolution exhausted for ${track.title} - ${track.artist}")
+        SLog.e("LadderTrace", "${com.streamify.app.util.Trace.pfx()}EXHAUSTED vid=$videoId '${track.title}' — all tiers failed")
+        dumpForensics("exhaustion for '${track.title}' (lastVid=$videoId)")
         return@withContext Result.failure(UnresolvableTrackException("Stream exhaustion for ${track.title} - ${track.artist}"))
     }
+
+    /**
+     * Failure bundle: environment snapshot + the most diagnostic recent lines.
+     * One greppable block the admin can copy straight from the terminal.
+     */
+    private fun dumpForensics(reason: String) {
+        try {
+            val relevantTags = setOf("LadderTrace", "ResolveGate", "HTTP", "ExoEvent", "SearchVM")
+            val recent = SLog.snapshot().asReversed()
+                .filter { it.tag in relevantTags }
+                .take(40)
+                .asReversed()
+            val sb = StringBuilder()
+            sb.appendLine("${com.streamify.app.util.Trace.pfx()}=== FORENSICS: $reason ===")
+            sb.appendLine("${com.streamify.app.util.Trace.pfx()}env=android${android.os.Build.VERSION.SDK_INT} net=${networkOnline()}")
+            for (e in recent) sb.appendLine("${com.streamify.app.util.Trace.pfx()}| ${formatTs(e.timeMs)} ${e.level}/${e.tag}: ${e.message.take(200)}")
+            sb.appendLine("${com.streamify.app.util.Trace.pfx()}=== END FORENSICS ===")
+            SLog.e("FORENSICS", sb.toString())
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun networkOnline(): String =
+        try {
+            val nm = appContext?.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val net = nm?.activeNetwork
+            val caps = net?.let { nm.getNetworkCapabilities(it) }
+            when {
+                caps == null -> "offline?"
+                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) -> "online"
+                else -> "captive?"
+            }
+        } catch (_: Throwable) { "unknown" }
 
     suspend fun resolveStreamUrl(urlOrId: String, fallbackThumbnail: String? = null, forceFresh: Boolean = false): ResolvedStream? = withContext(Dispatchers.IO) {
         val dummyTrack = com.streamify.app.data.models.Track(
@@ -419,6 +480,7 @@ object YouTubeStreamResolver {
         statuses: MutableCollection<String>? = null
     ): ResolvedStream? {
         try {
+            SLog.d("ResolveGate", "${com.streamify.app.util.Trace.pfx()}race ${config.clientName}/${config.clientVersion} -> $videoId")
             val clientJson = JSONObject().apply {
                 put("clientName", config.clientName)
                 put("clientVersion", config.clientVersion)
@@ -475,15 +537,25 @@ object YouTubeStreamResolver {
 
             // OkHttp Network Transport (Shared Connection Pool + Android OS DNS/IPv6/VPN)
             NetworkEngine.client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
+                if (!response.isSuccessful) {
+                    SLog.w("ResolveGate", "${com.streamify.app.util.Trace.pfx()}race ${config.clientName} HTTP ${response.code}")
+                    return null
+                }
 
                 val rawBytes = response.body?.bytes() ?: return null
                 if (rawBytes.isEmpty()) return null
 
                 val root = JSONObject(String(rawBytes, Charsets.UTF_8))
-                return parsePlayerResponse(root)
+                val parsed = parsePlayerResponse(root)
+                SLog.d(
+                    "ResolveGate",
+                    "${com.streamify.app.util.Trace.pfx()}race ${config.clientName} -> " +
+                        (parsed?.let { "WIN mime=${it.mimeType.substringBefore(';')} br=${it.bitrate}" } ?: "null")
+                )
+                return parsed
             }
         } catch (e: Exception) {
+            SLog.w("ResolveGate", "${com.streamify.app.util.Trace.pfx()}race ${config.clientName} EXC ${e.javaClass.simpleName}: ${e.message ?: ""}")
             return null
         }
     }
@@ -493,15 +565,22 @@ object YouTubeStreamResolver {
             val playabilityStatus = root.optJSONObject("playabilityStatus")
             val status = playabilityStatus?.optString("status", "")
             if (status != null && !status.equals("OK", ignoreCase = true)) {
+                val reason = playabilityStatus.optString("reason", "")
+                SLog.w("ResolveGate", "${com.streamify.app.util.Trace.pfx()}gated status=$status reason='$reason'")
                 return null
             }
 
-            val streamingData = root.optJSONObject("streamingData") ?: return null
+            val streamingData = root.optJSONObject("streamingData") ?: run {
+                SLog.w("ResolveGate", "${com.streamify.app.util.Trace.pfx()}gated status=OK but NO streamingData")
+                return null
+            }
             val durationSec = root.optJSONObject("videoDetails")?.optString("lengthSeconds", "0")?.toIntOrNull() ?: 0
 
             val candidateFormats = mutableListOf<JSONObject>()
 
             // 1. Collect adaptive formats (pure audio streams)
+            var directAudio = 0
+            var urllessAudio = 0
             val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats")
             if (adaptiveFormats != null) {
                 for (i in 0 until adaptiveFormats.length()) {
@@ -511,9 +590,16 @@ object YouTubeStreamResolver {
                     if (mime.startsWith("audio/") && streamUrl.isNotBlank()) {
                         f.put("extractedUrl", streamUrl)
                         candidateFormats.add(f)
+                        directAudio++
+                    } else if (mime.startsWith("audio/")) {
+                        urllessAudio++
                     }
                 }
             }
+            SLog.d(
+                "ResolveGate",
+                "${com.streamify.app.util.Trace.pfx()}parse status=OK adf=${adaptiveFormats?.length() ?: 0} directAudio=$directAudio urllessAudio=$urllessAudio"
+            )
 
             // 2. Fallback to standard progressive formats (itag 18 / 22 carrying stereo AAC audio)
             if (candidateFormats.isEmpty()) {
@@ -528,6 +614,10 @@ object YouTubeStreamResolver {
                         }
                     }
                 }
+                SLog.d(
+                    "ResolveGate",
+                    "${com.streamify.app.util.Trace.pfx()}MUXED_FALLBACK triggered — progressive=${candidateFormats.size} (SABR stripped every adaptive URL)"
+                )
             }
 
             if (candidateFormats.isEmpty()) return null

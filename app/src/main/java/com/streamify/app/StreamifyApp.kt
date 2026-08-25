@@ -56,6 +56,7 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         com.streamify.app.util.SLog.logBootBanner(
             "1.0.${com.streamify.app.BuildConfig.VERSION_CODE}"
         )
+        com.streamify.app.data.network.YouTubeStreamResolver.appContext = this
 
         // Screen-level lifecycle breadcrumbs for the admin terminal.
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
