@@ -323,11 +323,22 @@ object YouTubeMusicSearchApi {
             }
 
             val navEp = cardObj.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0)?.optJSONObject("navigationEndpoint")
+            // Direct-hit first: a Top Hit SONG card carries a real 11-char videoId in
+            // onTap.watchEndpoint. browseEndpoint values are entity IDs (MPREb_… albums,
+            // UC… channels — 17+/24 chars) that can never resolve as streams and must
+            // not shadow the videoId. Length-11 gate blocks truncated-ID false hits.
+            val watchVideoId = cardObj.optJSONObject("onTap")?.optJSONObject("watchEndpoint")
+                ?.optString("videoId", "")?.takeIf { it.length == 11 }
             val browseId = navEp?.optJSONObject("browseEndpoint")?.optString("browseId", "")
                 ?: cardObj.optJSONObject("onTap")?.optJSONObject("watchEndpoint")?.optString("videoId", "") ?: ""
 
             val type = if (isArtist) SearchResultType.ARTIST else SearchResultType.SONG
-            val targetUrl = if (isArtist) "https://music.youtube.com/channel/$browseId" else "https://www.youtube.com/watch?v=$browseId"
+            val targetUrl = when {
+                watchVideoId != null -> "https://www.youtube.com/watch?v=$watchVideoId"
+                isArtist -> "https://music.youtube.com/channel/$browseId"
+                // Legacy fabrication for album/single cards; R2 ladder rescues these
+                else -> "https://www.youtube.com/watch?v=$browseId"
+            }
 
             return OnlineSearchResult(
                 title = SearchResultCleaner.cleanTitle(title),
@@ -359,6 +370,10 @@ object YouTubeMusicSearchApi {
                 subtitleRuns?.optJSONObject(0)?.optString("text", "Artist") ?: "Artist"
             }
 
+            // Direct-hit: song rows carry their playable videoId on the watchEndpoint;
+            // a browse-only reference cannot resolve as a stream.
+            val watchVideoId = itemObj.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")
+                ?.optString("videoId", "")?.takeIf { it.length == 11 }
             val browseEp = itemObj.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
             val browseId = browseEp?.optString("browseId", "") ?: ""
             val pageType = browseEp?.optJSONObject("browseEndpointContextSupportedConfigs")
@@ -383,7 +398,8 @@ object YouTubeMusicSearchApi {
                 SearchResultType.ARTIST -> "https://music.youtube.com/channel/$browseId"
                 SearchResultType.ALBUM -> "https://music.youtube.com/browse/$browseId"
                 SearchResultType.PLAYLIST -> "https://music.youtube.com/playlist?list=${browseId.removePrefix("VL")}"
-                else -> "https://music.youtube.com/browse/$browseId"
+                else -> if (watchVideoId != null) "https://www.youtube.com/watch?v=$watchVideoId"
+                else "https://music.youtube.com/browse/$browseId"
             }
 
             return OnlineSearchResult(
