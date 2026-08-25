@@ -818,6 +818,59 @@ object NativeBridge {
         nativeCalculatePtp(seqId, t0, t1, t2, t3, outResultsUs)
     }
 
+    data class NativeDirectFormat(
+        val url: String,
+        val mime_type: String,
+        val bitrate: Long,
+        val duration_sec: Long,
+        val itag: Int,
+        val loudness_db: Float?
+    )
+
+    data class NativeStreamVerdict(
+        val status: String,
+        val reason: String,
+        val direct_formats: List<NativeDirectFormat>,
+        val ciphered_count: Int
+    )
+
+    fun extractStreamVerdict(responseBytes: ByteArray): NativeStreamVerdict? {
+        val jsonStr = try {
+            nativeExtractStreamVerdict(responseBytes)
+        } catch (e: Throwable) {
+            null
+        } ?: return null
+        return try {
+            val obj = org.json.JSONObject(jsonStr)
+            val status = obj.optString("status", "")
+            val reason = obj.optString("reason", "")
+            val cipheredCount = obj.optInt("ciphered_count", 0)
+            val formatsArr = obj.optJSONArray("direct_formats") ?: org.json.JSONArray()
+            val list = ArrayList<NativeDirectFormat>(formatsArr.length())
+            for (i in 0 until formatsArr.length()) {
+                val fObj = formatsArr.getJSONObject(i)
+                list.add(
+                    NativeDirectFormat(
+                        url = fObj.getString("url"),
+                        mime_type = fObj.optString("mime_type", ""),
+                        bitrate = fObj.optLong("bitrate", 0L),
+                        duration_sec = fObj.optLong("duration_sec", 0L),
+                        itag = fObj.optInt("itag", 0),
+                        loudness_db = if (fObj.has("loudness_db") && !fObj.isNull("loudness_db")) fObj.getDouble("loudness_db").toFloat() else null
+                    )
+                )
+            }
+            NativeStreamVerdict(
+                status = status,
+                reason = reason,
+                direct_formats = list,
+                ciphered_count = cipheredCount
+            )
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
     data class ExtractedStreamInfo(
         val stream_url: String,
         val mime_type: String,
@@ -909,6 +962,7 @@ object NativeBridge {
         }
     }
 
+    private external fun nativeExtractStreamVerdict(responseBytes: ByteArray): String?
     private external fun nativeExtractStreamInfo(responseBytes: ByteArray): String?
     private external fun nativeExtractSessionTokens(htmlBytes: ByteArray): String?
     private external fun nativeExtractStreamInfoDirect(buffer: java.nio.ByteBuffer, length: Int): String?

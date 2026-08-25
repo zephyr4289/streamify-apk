@@ -141,7 +141,7 @@ object YouTubeStreamResolver {
         // direct adaptive formats for LICENSED content, while SAPISIDHASH+Cookie on
         // those same requests triggers "Sign in to confirm you're not a bot".
         // Session attach stays available per-profile for opt-in diagnostics only.
-        val attachSession: Boolean = true
+        val attachSession: Boolean = false
     )
 
     private val CLIENT_TARGETS = listOf(
@@ -399,13 +399,19 @@ object YouTubeStreamResolver {
         }
 
         // 3. Tier 1 / R1: Native HTTP/2 Innertube Multi-Client Race (<80ms).
-        val nativeResolved = raceClientEndpoints(videoId)
-        if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
-            StreamEdgeCache.putStream(videoId, nativeResolved)
-            ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
-            StreamifyCircuitBreaker.recordSuccess(videoId)
-            android.util.Log.d("ResolveTrace", "R1 HIT: $videoId (${track.title})")
-            return@withContext Result.success(nativeResolved)
+        val skipR1 = NegativeResultCache.isWalled(videoId)
+        if (!skipR1) {
+            val nativeResolved = raceClientEndpoints(videoId)
+            if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
+                StreamEdgeCache.putStream(videoId, nativeResolved)
+                ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
+                StreamifyCircuitBreaker.recordSuccess(videoId)
+                NegativeResultCache.clear(videoId)
+                android.util.Log.d("ResolveTrace", "R1 HIT: $videoId (${track.title})")
+                return@withContext Result.success(nativeResolved)
+            }
+        } else {
+            android.util.Log.d("ResolveTrace", "R1 SKIPPED (Walled ID: $videoId) -> Fast routing to R2 ladder")
         }
 
         // 4. Tier 2 / R2: Alternate-upload resolver — the song is not the videoId.
@@ -436,6 +442,8 @@ object YouTubeStreamResolver {
                     StreamEdgeCache.putStream(candVideoId, retryResolved)
                     ConnectionWarmer.preWarmCDN(retryResolved.streamUrl)
                     StreamifyCircuitBreaker.recordSuccess(candVideoId)
+                    NegativeResultCache.clear(candVideoId)
+                    NegativeResultCache.clear(videoId)
                     android.util.Log.d("ResolveTrace", "R2 HIT: alt=$candVideoId for $videoId (${track.title}, score=${"%.2f".format(score)})")
                     // Re-pin canonical identity to the WORKING upload so future
                     // plays skip both the walled ID and this entire ladder.
@@ -588,143 +596,125 @@ object YouTubeStreamResolver {
                 val rawBytes = response.body?.bytes() ?: return null
                 if (rawBytes.isEmpty()) return null
 
-                // Tier 1: Zero-Copy Native Rust Stream Extractor (<1.5ms, 0 JVM GC allocations)
-                val streamInfo = com.streamify.app.data.NativeBridge.extractStreamInfo(rawBytes)
-                if (streamInfo != null && streamInfo.stream_url.isNotBlank()) {
-                    return ResolvedStream(
-                        streamUrl = streamInfo.stream_url,
-                        mimeType = streamInfo.mime_type,
-                        bitrate = streamInfo.bitrate.toInt(),
-                        durationSec = streamInfo.duration_sec.toInt(),
-                        loudnessDb = streamInfo.loudness_db
-                    )
+                val verdict = gate(rawBytes, statuses)
+                return when (verdict) {
+                    is Verdict.Ok -> {
+                        if (verdict.formats.isNotEmpty()) {
+                            verdict.formats.maxByOrNull { f ->
+                                val mime = f.mimeType
+                                if (mime.contains("opus")) 300_000 + f.bitrate
+                                else if (mime.contains("mp4a") || mime.contains("m4a")) 200_000 + f.bitrate
+                                else f.bitrate
+                            } ?: verdict.formats.first()
+                        } else {
+                            null
+                        }
+                    }
+                    is Verdict.Gated -> null
                 }
-
-                // Tier 2: Pure Kotlin JSON Fallback Parser
-                val root = JSONObject(String(rawBytes, Charsets.UTF_8))
-                return parsePlayerResponse(root, videoId, statuses)
             }
         } catch (e: Exception) {
             return null
         }
     }
 
-    private fun parsePlayerResponse(
-        root: JSONObject,
-        videoId: String? = null,
+    sealed interface Verdict {
+        data class Ok(val formats: List<ResolvedStream>, val cipheredCount: Int) : Verdict
+        data class Gated(val status: String, val reason: String) : Verdict
+    }
+
+    fun gate(rawBytes: ByteArray, statuses: MutableCollection<String>? = null): Verdict {
+        // Tier 1: Zero-Copy Native Rust Stream Verdict (<1.5ms, 0 JVM GC allocations)
+        val nativeVerdict = try {
+            val v = com.streamify.app.data.NativeBridge.extractStreamVerdict(rawBytes)
+            if (v != null) {
+                if (!v.status.equals("OK", ignoreCase = true) && v.status.isNotBlank()) {
+                    statuses?.add(v.status.uppercase())
+                    Verdict.Gated(v.status, v.reason)
+                } else {
+                    val resolvedList = v.direct_formats.map { df ->
+                        ResolvedStream(
+                            streamUrl = df.url,
+                            mimeType = df.mime_type,
+                            bitrate = df.bitrate.toInt(),
+                            durationSec = df.duration_sec.toInt(),
+                            loudnessDb = df.loudness_db
+                        )
+                    }
+                    Verdict.Ok(resolvedList, v.ciphered_count)
+                }
+            } else null
+        } catch (_: Throwable) {
+            null
+        }
+
+        if (nativeVerdict != null) return nativeVerdict
+
+        // Tier 2: Pure Kotlin JSON Fallback Parser (The 6ffa6c4 safety net on exact same bytes)
+        return kotlinParseVerdict(rawBytes, statuses)
+    }
+
+    private fun kotlinParseVerdict(
+        rawBytes: ByteArray,
         statuses: MutableCollection<String>? = null
-    ): ResolvedStream? {
+    ): Verdict {
         try {
+            val root = JSONObject(String(rawBytes, Charsets.UTF_8))
             val playabilityStatus = root.optJSONObject("playabilityStatus")
             val status = playabilityStatus?.optString("status", "")
-            if (status != null && !status.equals("OK", ignoreCase = true)) {
-                // Report upward — tripping is decided AGGREGATELY by the race
-                // caller, so one losing client can never poison good IDs.
+            val reason = playabilityStatus?.optString("reason", "") ?: ""
+
+            if (status != null && !status.equals("OK", ignoreCase = true) && status.isNotBlank()) {
                 statuses?.add(status.uppercase())
-                return null
+                return Verdict.Gated(status, reason)
             }
 
-            val streamingData = root.optJSONObject("streamingData") ?: return null
+            val streamingData = root.optJSONObject("streamingData") ?: return Verdict.Gated("NO_STREAMING_DATA", "")
             val durationSec = root.optJSONObject("videoDetails")?.optString("lengthSeconds", "0")?.toIntOrNull() ?: 0
 
-            val candidateFormats = mutableListOf<JSONObject>()
+            val candidateFormats = mutableListOf<ResolvedStream>()
+            var cipheredCount = 0
 
-            // 1. Collect adaptive formats (pure audio streams)
-            val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats")
-            if (adaptiveFormats != null) {
-                for (i in 0 until adaptiveFormats.length()) {
-                    val f = adaptiveFormats.getJSONObject(i)
+            fun processFormats(arr: JSONArray?) {
+                if (arr == null) return
+                for (i in 0 until arr.length()) {
+                    val f = arr.getJSONObject(i)
                     val mime = f.optString("mimeType", "")
+                    val isAudio = mime.startsWith("audio/")
                     val streamUrl = extractUrlFromFormat(f)
-                    if (mime.startsWith("audio/") && streamUrl.isNotBlank()) {
-                        f.put("extractedUrl", streamUrl)
-                        candidateFormats.add(f)
-                    }
-                }
-            }
+                    val isCipher = f.has("signatureCipher") || f.has("cipher")
 
-            // 2. Fallback to standard formats
-            if (candidateFormats.isEmpty()) {
-                val formats = streamingData.optJSONArray("formats")
-                if (formats != null) {
-                    for (i in 0 until formats.length()) {
-                        val f = formats.getJSONObject(i)
-                        val streamUrl = extractUrlFromFormat(f)
-                        if (streamUrl.isNotBlank()) {
-                            f.put("extractedUrl", streamUrl)
-                            candidateFormats.add(f)
+                    if (isAudio && streamUrl.isNotBlank()) {
+                        val bitrate = f.optInt("bitrate", f.optInt("averageBitrate", 160000))
+                        fun fmtLoud(obj: JSONObject): Float? {
+                            obj.optDouble("loudnessDb", Double.NaN).takeIf { !it.isNaN() }?.let { return it.toFloat() }
+                            obj.optJSONObject("volumeNormalizationInfo")?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }?.let { return it.toFloat() }
+                            return null
                         }
+                        val loudness = fmtLoud(f)
+                            ?: root.optJSONObject("playerConfig")?.optJSONObject("audioConfig")
+                                ?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }?.toFloat()
+                        candidateFormats.add(
+                            ResolvedStream(
+                                streamUrl = streamUrl,
+                                mimeType = mime,
+                                bitrate = bitrate,
+                                durationSec = durationSec,
+                                loudnessDb = loudness
+                            )
+                        )
+                    } else if (isAudio && isCipher) {
+                        cipheredCount++
                     }
                 }
             }
 
-            if (candidateFormats.isEmpty()) return null
+            processFormats(streamingData.optJSONArray("adaptiveFormats"))
+            processFormats(streamingData.optJSONArray("formats"))
 
-            // 3. Perceptual Codec Scoring Matrix (Opus 160k > AAC 128k > Low Bitrate)
-            val bestFormat = candidateFormats.maxByOrNull { format ->
-                val itag = format.optInt("itag", 0)
-                val bitrate = format.optInt("bitrate", format.optInt("averageBitrate", 0))
-                val mime = format.optString("mimeType", "")
-
-                when (itag) {
-                    251 -> 1000 + (bitrate / 1000) // WebM Opus (160kbps) - Studio Transparent
-                    140 -> 850 + (bitrate / 1000)  // MP4 AAC (128kbps) - Universal Compatibility
-                    250 -> 800 + (bitrate / 1000)  // WebM Opus (70kbps)
-                    249 -> 750 + (bitrate / 1000)  // WebM Opus (50kbps)
-                    139 -> 600 + (bitrate / 1000)  // MP4 AAC (48kbps)
-                    else -> {
-                        if (mime.contains("audio/webm") || mime.contains("opus")) 700 + (bitrate / 1000)
-                        else if (mime.contains("audio/mp4") || mime.contains("m4a")) 650 + (bitrate / 1000)
-                        else bitrate / 1000
-                    }
-                }
-            } ?: candidateFormats.first()
-
-            val streamUrl = bestFormat.optString("extractedUrl", bestFormat.optString("url", ""))
-            val mimeType = bestFormat.optString("mimeType", "audio/webm")
-            val bitrate = bestFormat.optInt("bitrate", bestFormat.optInt("averageBitrate", 160000))
-
-            if (streamUrl.isNotBlank()) {
-                // ═══ LOUDNESS TRUTH (Phase 1) ═══
-                // Innertube documents per-stream loudness in up to THREE places;
-                // presence varies by client/age of response. Probe all, prefer
-                // the chosen format's own value.
-                fun fmtLoud(f: JSONObject): Float? {
-                    f.optDouble("loudnessDb", Double.NaN).takeIf { !it.isNaN() }?.let { return it.toFloat() }
-                    val vni = f.optJSONObject("volumeNormalizationInfo")
-                    vni?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }?.let { return it.toFloat() }
-                    return null
-                }
-                var loudnessDb: Float? = fmtLoud(bestFormat)
-                if (loudnessDb == null) {
-                    for (i in 0 until candidateFormats.size) {
-                        val found = fmtLoud(candidateFormats[i])
-                        if (found != null) {
-                            loudnessDb = found
-                            break
-                        }
-                    }
-                }
-                if (loudnessDb == null) {
-                    root.optJSONObject("playerConfig")?.optJSONObject("audioConfig")
-                        ?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }
-                        ?.let { loudnessDb = it.toFloat() }
-                }
-                val probeVideoId = root.optJSONObject("videoDetails")?.optString("videoId", "") ?: ""
-                android.util.Log.d("LoudnessProbe",
-                    "videoId=$probeVideoId loudnessDb=$loudnessDb bitrate=$bitrate mime=$mimeType")
-
-                return ResolvedStream(
-                    streamUrl = streamUrl,
-                    mimeType = mimeType,
-                    bitrate = bitrate,
-                    durationSec = durationSec,
-                    loudnessDb = loudnessDb
-                )
-            }
-            return null
+            return Verdict.Ok(candidateFormats, cipheredCount)
         } catch (e: Exception) {
-            return null
+            return Verdict.Gated("PARSE_ERROR", e.message ?: "")
         }
     }
 

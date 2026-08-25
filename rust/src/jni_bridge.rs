@@ -1169,6 +1169,34 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeExtractS
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeExtractStreamVerdict(
+    mut env: JNIEnv,
+    _class: JClass,
+    response_bytes: JByteArray,
+) -> jstring {
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        let bytes = match env.convert_byte_array(&response_bytes) {
+            Ok(b) => b,
+            Err(_) => return None,
+        };
+
+        let raw_str = match std::str::from_utf8(&bytes) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        let verdict = crate::json::InnertubeParser::extract_stream_verdict(raw_str)?;
+        let json_out = serde_json::to_string(&verdict).ok()?;
+        env.new_string(json_out).ok().map(|js| js.into_raw())
+    }));
+
+    match res {
+        Ok(Some(ptr)) => ptr,
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeExtractSessionTokens(
     mut env: JNIEnv,
     _class: JClass,
