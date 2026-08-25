@@ -82,27 +82,11 @@ object YouTubeStreamResolver {
         val osVersion: String? = null,
         val origin: String? = null,
         val referer: String? = null,
-        // Zero-token philosophy (probe-verified 2026-08-24): bare ANDROID/IOS return
-        // direct adaptive formats for LICENSED content, while SAPISIDHASH+Cookie on
-        // those same requests triggers "Sign in to confirm you're not a bot".
-        // Session attach stays available per-profile for opt-in diagnostics only.
-        val attachSession: Boolean = false
+        val attachSession: Boolean = true
     )
 
     private val CLIENT_TARGETS = listOf(
-        // 1. Android App: 100% verified direct playback on official/topic music videos
-        // Fingerprints restored from 6ffa6c4 — the last build with zero-token audio
-        // resolution solving fast. 7a1c9e4 regressed these to stale 19.x clients,
-        // which YouTube answers without adaptiveFormats.
-        ClientConfig(
-            clientName = "ANDROID",
-            clientVersion = "21.26.364",
-            clientNumber = "3",
-            userAgent = "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
-            osName = "Android",
-            osVersion = "11"
-        ),
-        // 2. Meta Quest / Android VR: Verified unencrypted direct Opus & AAC CDN streams
+        // 1. Android VR (Meta Quest 3): Unencrypted direct Opus/AAC streams
         ClientConfig(
             clientName = "ANDROID_VR",
             clientVersion = "1.60.19",
@@ -111,18 +95,40 @@ object YouTubeStreamResolver {
             deviceMake = "Oculus",
             deviceModel = "Quest 3",
             osName = "Android",
-            osVersion = "12"
+            osVersion = "12",
+            attachSession = false
         ),
-        // 3. Native iOS YouTube App
+        // 2. YouTube Music Web Remix (High-fidelity Opus 160kbps with session support)
+        ClientConfig(
+            clientName = "WEB_REMIX",
+            clientVersion = "1.20240815.01.00",
+            clientNumber = "67",
+            userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            origin = "https://music.youtube.com",
+            referer = "https://music.youtube.com/",
+            attachSession = true
+        ),
+        // 3. Android Music / Official App
+        ClientConfig(
+            clientName = "ANDROID",
+            clientVersion = "19.29.35",
+            clientNumber = "3",
+            userAgent = "com.google.android.youtube/19.29.35 (Linux; U; Android 11) gzip",
+            osName = "Android",
+            osVersion = "11",
+            attachSession = true
+        ),
+        // 4. Native iOS App
         ClientConfig(
             clientName = "IOS",
-            clientVersion = "21.26.4",
+            clientVersion = "19.29.1",
             clientNumber = "5",
-            userAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+            userAgent = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X; en_US)",
             deviceMake = "Apple",
             deviceModel = "iPhone16,2",
-            osName = "iPhone",
-            osVersion = "18.3.2.22D82"
+            osName = "iOS",
+            osVersion = "17.5.1.21F90",
+            attachSession = true
         )
     )
 
@@ -313,62 +319,34 @@ object YouTubeStreamResolver {
             StreamEdgeCache.evictStream(videoId)
         }
 
-        // 3. Tier 1 / R1: Native HTTP/2 Innertube Multi-Client Race (<80ms)
-        val skipR1 = ResolverPolicy.useNegativeCache && NegativeResultCache.isWalled(videoId)
-        var r1Verdict = "SKIPPED"
-        var nativeResolved: ResolvedStream? = null
-        if (!skipR1) {
-            nativeResolved = raceClientEndpoints(videoId)
-            if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
-                StreamEdgeCache.putStream(videoId, nativeResolved)
-                ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
-                NegativeResultCache.clear(videoId)
-                r1Verdict = "HIT"
-                android.util.Log.d("LadderTrace", "vid=$videoId r1=HIT r2:cands=0 postGate=0 -> R1_SUCCESS (${track.title})")
-                return@withContext Result.success(nativeResolved)
-            } else {
-                r1Verdict = "MISS"
-                if (ResolverPolicy.useNegativeCache) {
-                    NegativeResultCache.markWalled(videoId)
-                }
-            }
+        // 3. Tier 1: Native HTTP/2 Innertube Multi-Client Race (<80ms)
+        val nativeResolved = raceClientEndpoints(videoId)
+        if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
+            StreamEdgeCache.putStream(videoId, nativeResolved)
+            ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
+            android.util.Log.d("StreamifyResolver", "Resolved Tier 1 for ${track.title} ($videoId)")
+            return@withContext Result.success(nativeResolved)
         }
 
-        // 4. Tier 2 / R2: Alternate-upload resolver with Topic normalization and unknown-pass gates
-        var altSearchSize = 0
-        var postGateSize = 0
+        // 4. Tier 2: Alternate-upload search fallback
         try {
-            val altSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 8)
-            altSearchSize = altSearch.size
-
+            val altSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 5)
             val candidates = altSearch.mapNotNull { c ->
                 val cid = extractVideoId(c.url, c.thumbnail) ?: return@mapNotNull null
                 if (cid == videoId) return@mapNotNull null
-
-                // Unknown (<=0) always passes. Gates reject only PROVABLE mismatches.
-                val durationOk = track.durationSec <= 0 || c.duration <= 0 || kotlin.math.abs(track.durationSec - c.duration) <= 5
+                val durationOk = track.durationSec <= 0 || c.duration <= 0 || kotlin.math.abs(track.durationSec - c.duration) <= 8
                 if (!durationOk) return@mapNotNull null
-
                 val titleSim = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(track.title.lowercase(), c.title.lowercase())
-                if (titleSim < 0.3f) return@mapNotNull null
-
-                val normTrackArtist = track.artist.removeSuffix(" - Topic").removeSuffix(" - VEVO").trim().lowercase()
-                val normCandArtist = c.uploader.removeSuffix(" - Topic").removeSuffix(" - VEVO").trim().lowercase()
-                val artistSim = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(normTrackArtist, normCandArtist)
-
-                val compositeScore = (titleSim * 0.6f) + (artistSim * 0.4f)
-                Triple(cid, compositeScore, c)
+                if (titleSim < 0.25f) return@mapNotNull null
+                cid to titleSim
             }.sortedByDescending { it.second }.take(3)
-            postGateSize = candidates.size
 
-            for ((candVideoId, score, cand) in candidates) {
+            for ((candVideoId, _) in candidates) {
                 val retryResolved = raceClientEndpoints(candVideoId)
                 if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
                     StreamEdgeCache.putStream(candVideoId, retryResolved)
                     ConnectionWarmer.preWarmCDN(retryResolved.streamUrl)
-                    NegativeResultCache.clear(candVideoId)
-                    NegativeResultCache.clear(videoId)
-                    android.util.Log.d("LadderTrace", "vid=$videoId r1=$r1Verdict r2:cands=$altSearchSize postGate=$postGateSize -> R2_HIT ($candVideoId, score=${"%.2f".format(score)})")
+                    android.util.Log.d("StreamifyResolver", "Resolved Tier 2 fallback for ${track.title} ($candVideoId)")
 
                     if (track.id > 0) {
                         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
@@ -386,10 +364,10 @@ object YouTubeStreamResolver {
                 }
             }
         } catch (e: Exception) {
-            // R2 failed
+            // R2 search fallback failed
         }
 
-        android.util.Log.e("LadderTrace", "vid=$videoId r1=$r1Verdict r2:cands=$altSearchSize postGate=$postGateSize -> EXHAUSTED (${track.title})")
+        android.util.Log.e("StreamifyResolver", "Resolution exhausted for ${track.title} - ${track.artist}")
         return@withContext Result.failure(UnresolvableTrackException("Stream exhaustion for ${track.title} - ${track.artist}"))
     }
 
@@ -413,16 +391,10 @@ object YouTubeStreamResolver {
     private suspend fun raceClientEndpoints(videoId: String): ResolvedStream? = coroutineScope {
         val winnerDeferred = CompletableDeferred<ResolvedStream?>()
 
-        // Per-race playability status collector. Tripping decisions are AGGREGATE:
-        // a single client reporting LOGIN_REQUIRED (e.g. ANDROID_VR on licensed
-        // content) must never poison the breaker while ANDROID/IOS win the race.
-        val statuses: MutableSet<String> =
-            java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
-
         val jobs = CLIENT_TARGETS.map { config ->
             async(Dispatchers.IO) {
                 try {
-                    val stream = executePlayerRequest(videoId, config, statuses)
+                    val stream = executePlayerRequest(videoId, config)
                     if (stream != null && stream.streamUrl.isNotBlank()) {
                         winnerDeferred.complete(stream)
                     }
@@ -442,11 +414,6 @@ object YouTubeStreamResolver {
 
         val winner = winnerDeferred.await()
         jobs.forEach { if (!it.isCompleted) it.cancel() }
-        if (winner == null && statuses.isNotEmpty() && statuses.all { it != "OK" }) {
-            // The entire race agreed on a wall/death status — this ID is genuinely gated.
-            android.util.Log.w("YouTubeStreamResolver", "Race uniformly walled for $videoId: $statuses")
-            StreamifyCircuitBreaker.tripHard(videoId)
-        }
         return@coroutineScope winner
     }
 

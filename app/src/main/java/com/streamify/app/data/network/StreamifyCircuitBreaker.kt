@@ -17,42 +17,9 @@ object StreamifyCircuitBreaker {
      * Checks if a video ID is currently tripped.
      * Returns true if we should fast-fail and skip network resolution.
      */
-    fun isDefinitivelyDead(videoId: String): Boolean {
-        if (videoId.isBlank()) return false
-        val trippedAtMs = synchronized(deadTracks) {
-            deadTracks.get(videoId)
-        } ?: return false
+    fun isDefinitivelyDead(videoId: String): Boolean = false
 
-        val elapsed = System.currentTimeMillis() - trippedAtMs
-        if (elapsed >= BACKOFF_DURATION_MS) {
-            synchronized(deadTracks) {
-                deadTracks.remove(videoId)
-            }
-            return false
-        }
-        return true
-    }
+    fun tripHard(videoId: String) {}
 
-    /**
-     * Trips the circuit breaker for a video ID when YouTube explicitly reports
-     * UNPLAYABLE, ERROR, or LOGIN_REQUIRED.
-     */
-    fun tripHard(videoId: String) {
-        if (videoId.isNotBlank()) {
-            synchronized(deadTracks) {
-                deadTracks.put(videoId, System.currentTimeMillis())
-            }
-        }
-    }
-
-    /**
-     * Clears any tripped state upon a successful resolution or playback.
-     */
-    fun recordSuccess(videoId: String) {
-        if (videoId.isNotBlank()) {
-            synchronized(deadTracks) {
-                deadTracks.remove(videoId)
-            }
-        }
-    }
+    fun recordSuccess(videoId: String) {}
 }

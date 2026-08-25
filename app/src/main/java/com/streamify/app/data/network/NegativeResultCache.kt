@@ -21,30 +21,11 @@ object NegativeResultCache {
 
     private val cache = ConcurrentHashMap<String, Entry>()
 
-    fun isWalled(videoId: String?): Boolean {
-        if (videoId.isNullOrBlank()) return false
-        val entry = cache[videoId] ?: return false
-        val now = System.currentTimeMillis()
-        return if (now - entry.walledAt < WALLED_TTL_MS) {
-            true
-        } else {
-            cache.remove(videoId)
-            false
-        }
-    }
+    fun isWalled(videoId: String?): Boolean = false
 
-    fun markWalled(videoId: String?) {
-        if (videoId.isNullOrBlank()) return
-        cache[videoId] = Entry(walledAt = System.currentTimeMillis())
-    }
+    fun markWalled(videoId: String?) {}
 
-    fun clear(videoId: String?) {
-        if (!videoId.isNullOrBlank()) {
-            cache.remove(videoId)
-        }
-    }
+    fun clear(videoId: String?) {}
 
-    fun clearAll() {
-        cache.clear()
-    }
+    fun clearAll() {}
 }

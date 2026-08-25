@@ -1318,7 +1318,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 // Resolution threw instead of returning null: route through the same
                 // strike system, otherwise exceptions bypass the failure cap entirely.
                 android.util.Log.e("PlayerViewModel", "Stream resolution threw for ${track.title}", t)
-                registerResolutionFailure()
+                withContext(Dispatchers.Main) {
+                    _playerState.value = _playerState.value.copy(
+                        isBuffering = false,
+                        isPlaying = false
+                    )
+                    UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not play '${track.title}'. Tap to retry."))
+                }
                 return
             }
         }
@@ -1379,32 +1385,13 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 }
             }
         } else {
-            android.util.Log.e("PlayerViewModel", "Track stream unresolvable for ${track.title}, auto-advancing with backoff")
-            registerResolutionFailure()
-        }
-    }
-
-    /**
-     * Resilient Auto-Advance with Exponential Backoff (sol1.2.3):
-     * Prevents infinite tight loops on dead connections while NEVER locking the user out.
-     */
-    private suspend fun registerResolutionFailure() {
-        consecutiveResolutionFailures++
-        autoAdvanceBackoffMs = if (autoAdvanceBackoffMs == 0L) 500L else (autoAdvanceBackoffMs * 2).coerceAtMost(30_000L)
-        val currentBackoff = autoAdvanceBackoffMs
-        withContext(Dispatchers.Main) {
-            _playerState.value = _playerState.value.copy(isBuffering = false)
-            UiEventBus.emitEvent(UiEvent.ShowSnackbar("Track unavailable. Advancing…"))
-        }
-        viewModelScope.launch {
-            delay(currentBackoff)
-            var waitedMs = 0
-            while (isAdvancing.get() && waitedMs < 10_000) {
-                delay(100)
-                waitedMs += 100
-            }
-            if (!isAdvancing.get()) {
-                advanceQueue(isUserSkip = false)
+            android.util.Log.e("PlayerViewModel", "Track stream unresolvable for ${track.title}")
+            withContext(Dispatchers.Main) {
+                _playerState.value = _playerState.value.copy(
+                    isBuffering = false,
+                    isPlaying = false
+                )
+                UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not resolve '${track.title}'"))
             }
         }
     }
