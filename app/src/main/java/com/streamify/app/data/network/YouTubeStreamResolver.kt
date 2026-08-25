@@ -569,7 +569,13 @@ object YouTubeStreamResolver {
                 put("racyCheckOk", true)
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
-                        put("signatureTimestamp", currentSignatureTimestamp())
+                        // STATIC, client-coupled STS -- do NOT make this dynamic.
+                        // Control experiment (2026-08-24, same phone/network):
+                        // legacy build sending 19850 resolves everything while HEAD
+                        // sending the live web STS (20683) was uniformly rejected --
+                        // an STS far newer than the client fingerprint's era reads
+                        // as a bot signal to the player endpoint.
+                        put("signatureTimestamp", FALLBACK_SIGNATURE_TIMESTAMP)
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
