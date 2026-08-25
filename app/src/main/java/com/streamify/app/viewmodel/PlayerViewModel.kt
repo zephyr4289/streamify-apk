@@ -112,6 +112,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     // Exactly three write sites: reset in playTrack(), reset on success,
     // incremented in registerResolutionFailure(). Nothing else may touch it.
     private var consecutiveResolutionFailures = 0
+    private var autoAdvanceBackoffMs: Long = 0L
     private val maxResolutionFailures = 3
     private var hydrateJob: Job? = null
     private var pendingSeekTargetMs: Long? = null
@@ -930,6 +931,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     fun playTrack(track: Track, queue: List<Track> = listOf(track), autoHydrateRadio: Boolean = true) {
         // Manual entry point = fresh user intent → fresh failure budget.
         consecutiveResolutionFailures = 0
+        autoAdvanceBackoffMs = 0L
         val hydratedTrack = repository.hydrateTrack(track)
         val hydratedQueue = queue.map { qTrack ->
             if (qTrack.id == track.id || (qTrack.title.equals(track.title, ignoreCase = true) && qTrack.artist.equals(track.artist, ignoreCase = true))) {
@@ -1330,7 +1332,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 java.io.File(resolvedTrack.filepath).exists()
 
         if (isPlayable) {
-            consecutiveResolutionFailures = 0 // success resets the strike budget
+            consecutiveResolutionFailures = 0
+            autoAdvanceBackoffMs = 0L
             val mediaItem = buildMediaItem(resolvedTrack)
             withContext(Dispatchers.Main) {
                 try {
@@ -1343,10 +1346,9 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 } catch (e: Throwable) {
                     e.printStackTrace()
                 }
-                val isCtrlBuffering = controller?.let { it.playbackState == androidx.media3.common.Player.STATE_BUFFERING } ?: false
                 _playerState.value = _playerState.value.copy(
                     currentTrack = resolvedTrack,
-                    isBuffering = isCtrlBuffering
+                    isBuffering = false
                 )
             }
 
@@ -1368,9 +1370,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                                         ytmVideoId = finalVid
                                     )
                                 )
-                                // Exact video identity is now pinned: if the initial lyric
-                                // fetch ran without it, this authorized retry upgrades to
-                                // the perfectly synced ATV timed lyrics for that upload.
                                 maybeFetchLyricsForTrack(_playerState.value.currentTrack)
                             }
                         }
@@ -1380,43 +1379,32 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 }
             }
         } else {
-            android.util.Log.e("PlayerViewModel", "Track stream unresolvable for ${track.title}, strike ${consecutiveResolutionFailures + 1}/$maxResolutionFailures")
+            android.util.Log.e("PlayerViewModel", "Track stream unresolvable for ${track.title}, auto-advancing with backoff")
             registerResolutionFailure()
         }
     }
 
     /**
-     * The ONLY failure site for stream resolution. Two callers: the catch around
-     * the resolve step in [playTrackInternal], and its isPlayable == false branch.
-     * Clears the optimistic buffering state and surfaces user feedback, then
-     * either auto-advances (under the strike cap) or locks playback until the
-     * next manual playTrack() resets the budget.
+     * Resilient Auto-Advance with Exponential Backoff (sol1.2.3):
+     * Prevents infinite tight loops on dead connections while NEVER locking the user out.
      */
     private suspend fun registerResolutionFailure() {
         consecutiveResolutionFailures++
-        val underCap = consecutiveResolutionFailures < maxResolutionFailures
+        autoAdvanceBackoffMs = if (autoAdvanceBackoffMs == 0L) 500L else (autoAdvanceBackoffMs * 2).coerceAtMost(30_000L)
+        val currentBackoff = autoAdvanceBackoffMs
         withContext(Dispatchers.Main) {
-            _playerState.value = _playerState.value.copy(isBuffering = false, isPlaying = false)
-            UiEventBus.emitEvent(
-                if (underCap) UiEvent.ShowSnackbar("Track unavailable (${consecutiveResolutionFailures}/$maxResolutionFailures). Advancing…")
-                else UiEvent.ShowSnackbar("Multiple tracks unavailable — playback stopped.")
-            )
+            _playerState.value = _playerState.value.copy(isBuffering = false)
+            UiEventBus.emitEvent(UiEvent.ShowSnackbar("Track unavailable. Advancing…"))
         }
-        if (underCap) {
-            // Deferred advance: when invoked from inside an advanceQueue pass (Paths A-C),
-            // its isAdvancing CAS guard is held until this call stack returns. Awaiting
-            // inline would self-block, so hand off to a concurrent job that waits for
-            // the guard to clear (bounded) and then advances.
-            viewModelScope.launch {
-                delay(250) // let UI state settle before the next resolve attempt
-                var waitedMs = 0
-                while (isAdvancing.get() && waitedMs < 10_000) {
-                    delay(100)
-                    waitedMs += 100
-                }
-                if (!isAdvancing.get()) {
-                    advanceQueue(isUserSkip = false)
-                }
+        viewModelScope.launch {
+            delay(currentBackoff)
+            var waitedMs = 0
+            while (isAdvancing.get() && waitedMs < 10_000) {
+                delay(100)
+                waitedMs += 100
+            }
+            if (!isAdvancing.get()) {
+                advanceQueue(isUserSkip = false)
             }
         }
     }

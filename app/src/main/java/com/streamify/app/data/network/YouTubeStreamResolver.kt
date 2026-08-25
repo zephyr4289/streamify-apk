@@ -60,69 +60,13 @@ object YouTubeStreamResolver {
         }
     }
 
-    // ── Dynamic signatureTimestamp (STS) ────────────────────────────────
-    // A hardcoded STS rots globally the day YouTube bumps its web player —
-    // every resolve starts failing at once. We serve the last-known value
-    // instantly and refresh from the live player bootstrap in the background
-    // at most once per day (retry after 10min on failure).
-    private const val FALLBACK_SIGNATURE_TIMESTAMP = 19850
-    private val STS_TTL_MS = 24 * 60 * 60 * 1000L
-
-    @Volatile private var cachedSts: Int = FALLBACK_SIGNATURE_TIMESTAMP
-    @Volatile private var stsFetchedAtMs: Long = 0L
-    @Volatile private var stsRefreshInFlight: Boolean = false
-
-    fun currentSignatureTimestamp(): Int {
-        if (System.currentTimeMillis() - stsFetchedAtMs >= STS_TTL_MS) {
-            maybeRefreshStsInBackground()
-        }
-        return cachedSts
+    object ResolverPolicy {
+        @Volatile var useNegativeCache = false
+        @Volatile var useCircuitBreaker = false
+        @Volatile var strikeLockEnabled = false
     }
 
-    private fun maybeRefreshStsInBackground() {
-        if (stsRefreshInFlight) return
-        synchronized(this) {
-            if (stsRefreshInFlight) return
-            stsRefreshInFlight = true
-        }
-        kotlin.concurrent.thread(name = "streamify-sts-refresh", isDaemon = true) {
-            try {
-                val htmlReq = Request.Builder()
-                    .url("https://www.youtube.com/")
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                    .build()
-                NetworkEngine.client.newCall(htmlReq).execute().use { resp ->
-                    if (!resp.isSuccessful) return@use
-                    val html = resp.body?.string() ?: return@use
-                    // The bootstrap HTML embeds the versioned player script path.
-                    val playerPath = Regex("""/s/player/[a-zA-Z0-9_-]+/player_ias\.vflset/[a-zA-Z]+/base\.js""")
-                        .find(html)?.value
-                        ?: Regex("""/s/player/[a-zA-Z0-9_-]+/player_ias\.js""").find(html)?.value
-                        ?: return@use
-                    val jsReq = Request.Builder()
-                        .url("https://www.youtube.com$playerPath")
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                        .build()
-                    NetworkEngine.client.newCall(jsReq).execute().use { jsResp ->
-                        if (!jsResp.isSuccessful) return@use
-                        val js = jsResp.body?.string() ?: return@use
-                        val m = Regex(""""signatureTimestamp"\s*:\s*(\d+)""").find(js)
-                        val v = m?.groupValues?.get(1)?.toIntOrNull()
-                        if (v != null && v > 10000) {
-                            cachedSts = v
-                            android.util.Log.i("StreamifyResolver", "Refreshed signatureTimestamp -> $v")
-                        }
-                    }
-                }
-                stsFetchedAtMs = System.currentTimeMillis()
-            } catch (_: Exception) {
-                // Failure: retry in 10 minutes, keep serving last-known value.
-                stsFetchedAtMs = System.currentTimeMillis() - STS_TTL_MS + 10 * 60 * 1000L
-            } finally {
-                stsRefreshInFlight = false
-            }
-        }
-    }
+    private const val SIGNATURE_TIMESTAMP = 19850
 
     private const val USER_AGENT_ANDROID = "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14; en_US) gzip"
     private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
@@ -302,10 +246,9 @@ object YouTubeStreamResolver {
     }
 
     // ========================================================================
-    // INVARIANT 2: UNIFIED JIT 3-TIER STREAM RESOLUTION CASCADE
+    // INVARIANT 2: UNIFIED JIT STREAM RESOLUTION CASCADE (sol1.2.3)
     // ========================================================================
     suspend fun resolveStreamJit(track: com.streamify.app.data.models.Track, forceFresh: Boolean = false): Result<ResolvedStream> = withContext(Dispatchers.IO) {
-        android.util.Log.d("ResolveTrace", "🔍 resolveStreamJit START: ${track.title} | filepath=${track.filepath.take(60)}")
         // Tier 0: Offline Local File Exists
         if (track.filepath.startsWith("/") || track.filepath.startsWith("file://")) {
             val localFile = java.io.File(track.filepath.removePrefix("file://"))
@@ -335,34 +278,7 @@ object YouTubeStreamResolver {
 
             if (cleanQuery.isNotBlank()) {
                 val searchMatches = YouTubeMusicSearchApi.search(cleanQuery, maxResults = 5)
-
-                // Same-recording proof: a candidate may only be pinned when its
-                // title, artist AND duration agree with the requested track.
-                fun isVerifiedMatch(match: com.streamify.app.viewmodel.OnlineSearchResult): Boolean {
-                    val vid = extractVideoId(match.url) ?: return false
-                    // Title + artist must match; duration checked only when BOTH sides know it.
-                    val titleOk = com.streamify.app.data.FuzzyTitleMatcher.titlesMatch(track.title, match.title)
-                    val artistOk = com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(track.artist, match.uploader)
-                    val durOk = track.durationSec <= 0 || match.duration <= 0 ||
-                            com.streamify.app.data.FuzzyTitleMatcher.durationMatches(track.durationSec, match.duration)
-                    return vid.isNotBlank() && titleOk && artistOk && durOk
-                }
-                // Strict Official Audio Filter: Exclude user covers, live recordings, slowed, and remixes
-                val isNoiseFreeTitle = { title: String ->
-                    !title.contains("live", ignoreCase = true) &&
-                            !title.contains("cover", ignoreCase = true) &&
-                            !title.contains("remix", ignoreCase = true) &&
-                            !title.contains("slowed", ignoreCase = true) &&
-                            !title.contains("sped up", ignoreCase = true)
-                }
-
-                val topMatch = searchMatches.firstOrNull { match ->
-                    val isOfficial = match.uploader.contains(track.artist, ignoreCase = true) || match.uploader.contains("Topic", ignoreCase = true)
-                    isOfficial && isNoiseFreeTitle(match.title) && isVerifiedMatch(match)
-                } ?: searchMatches.firstOrNull { match ->
-                    isNoiseFreeTitle(match.title) && isVerifiedMatch(match)
-                } ?: searchMatches.firstOrNull() // Infallible search fallback
-
+                val topMatch = searchMatches.firstOrNull()
                 if (topMatch != null) {
                     videoId = extractVideoId(topMatch.url)
                 }
@@ -370,84 +286,90 @@ object YouTubeStreamResolver {
         }
 
         if (videoId == null) {
-            android.util.Log.e("ResolveTrace", "❌ RESOLUTION FAILED for ${track.title}"); return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
+            android.util.Log.e("LadderTrace", "❌ RESOLUTION FAILED for ${track.title} (No videoId found)")
+            return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
         }
 
-        // Canonical Pinning: Lock resolved immutable Video ID in DB so audio never shifts on future plays
+        // Canonical Pinning: Lock resolved immutable Video ID in DB
         if (wasUnpinnedSearch && track.id > 0) {
             val canonicalWatchUrl = "https://www.youtube.com/watch?v=$videoId"
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                 try {
                     com.streamify.app.data.TrackRepository.upsertStreamedTrack(
-                        track.copy(filepath = canonicalWatchUrl)
+                        track.copy(filepath = canonicalWatchUrl, ytmVideoId = videoId)
                     )
-                } catch (_: Exception) {
-                    // Best-effort DB update
-                }
+                } catch (_: Exception) {}
             }
         }
 
-        // 2. In-Memory LRU Cache with 4-Hour / 600s safety margin (bypassed if forceFresh requested)
+        // 2. In-Memory LRU Cache with 4-Hour safety margin
         if (!forceFresh) {
             val cached = StreamEdgeCache.getStream(videoId)
             if (cached != null && !isCdnExpired(cached.streamUrl, safetyMarginMs = 600_000L)) {
                 ConnectionWarmer.preWarmCDN(cached.streamUrl)
-                StreamifyCircuitBreaker.recordSuccess(videoId)
                 return@withContext Result.success(cached)
             }
         } else {
             StreamEdgeCache.evictStream(videoId)
         }
 
-        // 3. Tier 1 / R1: Native HTTP/2 Innertube Multi-Client Race (<80ms).
-        val skipR1 = NegativeResultCache.isWalled(videoId)
+        // 3. Tier 1 / R1: Native HTTP/2 Innertube Multi-Client Race (<80ms)
+        val skipR1 = ResolverPolicy.useNegativeCache && NegativeResultCache.isWalled(videoId)
+        var r1Verdict = "SKIPPED"
+        var nativeResolved: ResolvedStream? = null
         if (!skipR1) {
-            val nativeResolved = raceClientEndpoints(videoId)
+            nativeResolved = raceClientEndpoints(videoId)
             if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
                 StreamEdgeCache.putStream(videoId, nativeResolved)
                 ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
-                StreamifyCircuitBreaker.recordSuccess(videoId)
                 NegativeResultCache.clear(videoId)
-                android.util.Log.d("ResolveTrace", "R1 HIT: $videoId (${track.title})")
+                r1Verdict = "HIT"
+                android.util.Log.d("LadderTrace", "vid=$videoId r1=HIT r2:cands=0 postGate=0 -> R1_SUCCESS (${track.title})")
                 return@withContext Result.success(nativeResolved)
+            } else {
+                r1Verdict = "MISS"
+                if (ResolverPolicy.useNegativeCache) {
+                    NegativeResultCache.markWalled(videoId)
+                }
             }
-        } else {
-            android.util.Log.d("ResolveTrace", "R1 SKIPPED (Walled ID: $videoId) -> Fast routing to R2 ladder")
         }
 
-        // 4. Tier 2 / R2: Alternate-upload resolver — the song is not the videoId.
-        // Search the same recording, gate on identity AND duration (kills 10-hour
-        // mixes / sped-up edits), resolve candidates in similarity order, bounded.
+        // 4. Tier 2 / R2: Alternate-upload resolver with Topic normalization and unknown-pass gates
+        var altSearchSize = 0
+        var postGateSize = 0
         try {
-            android.util.Log.d("ResolveTrace", "R2 alternate search for ${track.title} ($videoId)")
             val altSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 8)
+            altSearchSize = altSearch.size
+
             val candidates = altSearch.mapNotNull { c ->
                 val cid = extractVideoId(c.url, c.thumbnail) ?: return@mapNotNull null
                 if (cid == videoId) return@mapNotNull null
-                if (!com.streamify.app.data.FuzzyTitleMatcher.titlesMatch(track.title, c.title)) return@mapNotNull null
-                if (!com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(track.artist, c.uploader)) return@mapNotNull null
-                // Duration agreement only when BOTH sides know it
-                if (!(track.durationSec <= 0 || c.duration <= 0 ||
-                            com.streamify.app.data.FuzzyTitleMatcher.durationMatches(track.durationSec, c.duration))
-                ) return@mapNotNull null
-                val score = maxOf(
-                    com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(track.title.lowercase(), c.title.lowercase()),
-                    com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(track.artist.lowercase(), c.uploader.lowercase())
-                )
-                Triple(cid, score, c)
-            }.sortedByDescending { it.second }.take(5)
+
+                // Unknown (<=0) always passes. Gates reject only PROVABLE mismatches.
+                val durationOk = track.durationSec <= 0 || c.duration <= 0 || kotlin.math.abs(track.durationSec - c.duration) <= 5
+                if (!durationOk) return@mapNotNull null
+
+                val titleSim = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(track.title.lowercase(), c.title.lowercase())
+                if (titleSim < 0.3f) return@mapNotNull null
+
+                val normTrackArtist = track.artist.removeSuffix(" - Topic").removeSuffix(" - VEVO").trim().lowercase()
+                val normCandArtist = c.uploader.removeSuffix(" - Topic").removeSuffix(" - VEVO").trim().lowercase()
+                val artistSim = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(normTrackArtist, normCandArtist)
+
+                val compositeScore = (titleSim * 0.6f) + (artistSim * 0.4f)
+                Triple(cid, compositeScore, c)
+            }.sortedByDescending { it.second }.take(3)
+            postGateSize = candidates.size
 
             for ((candVideoId, score, cand) in candidates) {
                 val retryResolved = raceClientEndpoints(candVideoId)
                 if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
                     StreamEdgeCache.putStream(candVideoId, retryResolved)
                     ConnectionWarmer.preWarmCDN(retryResolved.streamUrl)
-                    StreamifyCircuitBreaker.recordSuccess(candVideoId)
                     NegativeResultCache.clear(candVideoId)
                     NegativeResultCache.clear(videoId)
-                    android.util.Log.d("ResolveTrace", "R2 HIT: alt=$candVideoId for $videoId (${track.title}, score=${"%.2f".format(score)})")
-                    // Re-pin canonical identity to the WORKING upload so future
-                    // plays skip both the walled ID and this entire ladder.
+                    android.util.Log.d("LadderTrace", "vid=$videoId r1=$r1Verdict r2:cands=$altSearchSize postGate=$postGateSize -> R2_HIT ($candVideoId, score=${"%.2f".format(score)})")
+
                     if (track.id > 0) {
                         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                             try {
@@ -457,19 +379,17 @@ object YouTubeStreamResolver {
                                         ytmVideoId = candVideoId
                                     )
                                 )
-                            } catch (_: Exception) {
-                                // Best-effort DB update
-                            }
+                            } catch (_: Exception) {}
                         }
                     }
                     return@withContext Result.success(retryResolved)
                 }
             }
         } catch (e: Exception) {
-            // Tier 2 failed — fall through to honest exhaustion
+            // R2 failed
         }
 
-        android.util.Log.e("ResolveTrace", "R5 UNAVAILABLE: ${track.title} - ${track.artist} ($videoId)")
+        android.util.Log.e("LadderTrace", "vid=$videoId r1=$r1Verdict r2:cands=$altSearchSize postGate=$postGateSize -> EXHAUSTED (${track.title})")
         return@withContext Result.failure(UnresolvableTrackException("Stream exhaustion for ${track.title} - ${track.artist}"))
     }
 
@@ -565,7 +485,7 @@ object YouTubeStreamResolver {
                         // sending the live web STS (20683) was uniformly rejected --
                         // an STS far newer than the client fingerprint's era reads
                         // as a bot signal to the player endpoint.
-                        put("signatureTimestamp", FALLBACK_SIGNATURE_TIMESTAMP)
+                        put("signatureTimestamp", SIGNATURE_TIMESTAMP)
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })

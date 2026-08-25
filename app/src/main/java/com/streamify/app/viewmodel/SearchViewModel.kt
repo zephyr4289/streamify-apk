@@ -285,13 +285,14 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         streamJob?.cancel()
 
         val videoId = YouTubeStreamResolver.extractVideoId(onlineTrack.url, onlineTrack.thumbnail)
+        val watchUrl = if (videoId != null) "https://www.youtube.com/watch?v=$videoId" else onlineTrack.url
         val trackToPlay = Track(
             id = -(onlineTrack.url.hashCode()),
             title = onlineTrack.title,
             artist = onlineTrack.uploader,
             album = "Online Stream",
             durationSec = onlineTrack.duration,
-            filepath = onlineTrack.url,
+            filepath = watchUrl,
             coverArtPath = onlineTrack.thumbnail,
             bpm = 0f,
             key = "",
