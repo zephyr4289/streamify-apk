@@ -2,7 +2,7 @@ name: Extreme Test Matrix & Chaos Suite
 
 on:
   push:
-    branches: [ main, streamify-yt-spt ]
+    branches: [ main, streamify-yt-spt, streamify-adblog ]
   pull_request:
     branches: [ main, streamify-yt-spt ]
   schedule:
@@ -213,6 +213,22 @@ jobs:
         with:
           tag_name: canary-build-${{ env.EFFECTIVE_BUILD }}
           name: Streamify Canary ${{ env.EFFECTIVE_BUILD }} (Flagship Test)
+          prerelease: true
+          make_latest: "false"
+          files: streamify.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Admin Build Release
+        if: success() && github.ref == 'refs/heads/streamify-adblog'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: admin-build-${{ env.EFFECTIVE_BUILD }}
+          name: Streamify Admin ${{ env.EFFECTIVE_BUILD }} (Dev Terminal)
+          body: |
+            Admin diagnostics build from `streamify-adblog`.
+            - In-app Developer Terminal (Settings → Developer Terminal, admin login only)
+            - Full search→CDN forensics, touch/nav/lifecycle capture, crash spooling
           prerelease: true
           make_latest: "false"
           files: streamify.apk

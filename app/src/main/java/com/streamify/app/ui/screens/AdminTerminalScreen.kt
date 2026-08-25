@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -134,6 +135,14 @@ fun AdminTerminalScreen(onBack: () -> Unit) {
                         Icon(Icons.Filled.Share, "Share log", tint = TermGreen)
                     }
                     IconButton(onClick = {
+                        scope.launch {
+                            val result = saveLogToDownloads(context, SLog.snapshotFormatted())
+                            snackbar.showSnackbar(result)
+                        }
+                    }) {
+                        Icon(Icons.Filled.Download, "Save to Downloads", tint = TermGreen)
+                    }
+                    IconButton(onClick = {
                         SLog.clearMemoryBuffer()
                         rendered = emptyList()
                         scope.launch { snackbar.showSnackbar("Buffer cleared (disk spool kept)") }
@@ -244,3 +253,42 @@ fun AdminTerminalScreen(onBack: () -> Unit) {
 
 private fun formatTs(timeMs: Long): String =
     java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date(timeMs))
+
+/**
+ * Writes the full log buffer into the phone's OFFICIAL Downloads folder.
+ *  - API 29+: MediaStore.Downloads (no storage permission required)
+ *  - API 26-28: direct public Downloads path (works on legacy-storage devices;
+ *    surfaces a clear error otherwise)
+ */
+private fun saveLogToDownloads(context: android.content.Context, text: String): String {
+    val fileName = "Streamify-log-${
+        java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+    }.log"
+    return try {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain")
+                put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: return "❌ Could not create Downloads entry"
+            resolver.openOutputStream(uri)?.use { out -> out.write(text.toByteArray()) }
+                ?: return "❌ Failed to open output stream"
+            values.clear()
+            values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            "✅ Saved to Download/$fileName (${text.length} chars)"
+        } else {
+            @Suppress("DEPRECATION")
+            val dir = android.os.Environment
+                .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            dir.mkdirs()
+            java.io.File(dir, fileName).writeText(text)
+            "✅ Saved to Download/$fileName"
+        }
+    } catch (t: Throwable) {
+        "❌ Save failed: ${t.message ?: t.javaClass.simpleName}"
+    }
+}
