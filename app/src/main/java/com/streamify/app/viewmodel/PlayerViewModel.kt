@@ -50,7 +50,9 @@ data class PlayerState(
     val sleepTimerMinutesLeft: Int? = null,
     val sleepTimerEndTrack: Boolean = false,
     val isAutoPlayEnabled: Boolean = true,
-    val isVideoMode: Boolean = false
+    val isVideoMode: Boolean = false,
+    /** Last fatal playback/resolution error for UI surfaces. Null = healthy. */
+    val lastError: String? = null
 ) {
     val buttonState: PlaybackButtonState
         get() = when {
@@ -574,7 +576,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     urlRetryAttempts.remove(trackKey)
                     _playerState.value = _playerState.value.copy(
                         isBuffering = false,
-                        isPlaying = false
+                        isPlaying = false,
+                        lastError = "Playback failed for '${currentT.title}' after ${attempts + 1} attempts (player error)"
                     )
                     UiEventBus.emitEvent(UiEvent.ShowSnackbar("Playback failed for '${currentT.title}'. Tap to retry."))
                     return
@@ -1306,7 +1309,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 withContext(Dispatchers.Main) {
                     _playerState.value = _playerState.value.copy(
                         isBuffering = false,
-                        isPlaying = false
+                        isPlaying = false,
+                        lastError = "Could not play '${track.title}': ${t.message ?: "resolution error"}"
                     )
                     UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not play '${track.title}'. Tap to retry."))
                 }
@@ -1339,7 +1343,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 }
                 _playerState.value = _playerState.value.copy(
                     currentTrack = resolvedTrack,
-                    isBuffering = false
+                    isBuffering = false,
+                    lastError = null
                 )
             }
 
@@ -1374,7 +1379,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             withContext(Dispatchers.Main) {
                 _playerState.value = _playerState.value.copy(
                     isBuffering = false,
-                    isPlaying = false
+                    isPlaying = false,
+                    lastError = "Could not resolve '${track.title}' — all resolver tiers exhausted"
                 )
                 UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not resolve '${track.title}'"))
             }

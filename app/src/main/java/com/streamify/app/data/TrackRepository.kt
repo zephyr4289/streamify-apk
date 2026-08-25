@@ -168,12 +168,19 @@ object TrackRepository {
             byVid ?: byPath ?: byHash ?: _allTracks.value.find {
                 it.id > 0 && (
                     it.filepath == track.filepath ||
+                    // Identity guard: two tracks carrying DIFFERENT explicit video
+                    // IDs are provably different recordings — never let weak fuzzy
+                    // matching merge them (poisoned-pin protection: adopting the
+                    // wrong row's id lets vault-swaps serve wrong audio and lets
+                    // registerStreamedTrack overwrite another song's canonical pin).
                     (it.ytmVideoId != null && track.ytmVideoId != null && it.ytmVideoId == track.ytmVideoId) ||
                     (
                         com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist) &&
                         // Artist gate: title-only fuzzy matching used to merge
                         // different artists' same-titled songs into one identity.
-                        com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(it.artist, track.artist)
+                        com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(it.artist, track.artist) &&
+                        // Same rule inside the fuzzy branch: conflicting explicit IDs veto the merge.
+                        (it.ytmVideoId == null || track.ytmVideoId == null || it.ytmVideoId == track.ytmVideoId)
                     )
                 )
             }
