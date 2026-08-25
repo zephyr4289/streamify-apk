@@ -1,0 +1,26 @@
+name: Resolver Client Canary
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 6 * * *" # daily; registry rot is detected before users feel it
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe bare-client × content matrix
+        run: bash tools/probe-clients.sh dQw4w9WgXcQ 4NRXx6U8ABQ
+
+      - name: Assert licensed-content survivors exist
+        run: |
+          OUT=$(bash tools/probe-clients.sh 4NRXx6U8ABQ)
+          echo "$OUT"
+          # At least one client must return OK with both itag 251 and 140 present.
+          if ! echo "$OUT" | awk '$3=="OK" && $4 ~ /^[1-9]/' | grep -q .; then
+            echo "::error::No bare client resolves licensed content anymore — resolver registry needs rotation."
+            exit 1
+          fi
