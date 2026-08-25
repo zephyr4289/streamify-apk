@@ -392,32 +392,18 @@ object YouTubeStreamResolver {
             if (cached != null && !isCdnExpired(cached.streamUrl, safetyMarginMs = 600_000L)) {
                 ConnectionWarmer.preWarmCDN(cached.streamUrl)
                 StreamifyCircuitBreaker.recordSuccess(videoId)
-                NegativeResultCache.clear(videoId)
                 return@withContext Result.success(cached)
             }
         } else {
             StreamEdgeCache.evictStream(videoId)
         }
 
-        // Fast-fail if circuit breaker knows this video ID is definitively unplayable
-        if (StreamifyCircuitBreaker.isDefinitivelyDead(videoId)) {
-            android.util.Log.w("YouTubeStreamResolver", "Circuit breaker active for dead videoId: $videoId")
-            return@withContext Result.failure(UnresolvableTrackException("Video $videoId is unplayable (circuit open)"))
-        }
-
         // 3. Tier 1 / R1: Native HTTP/2 Innertube Multi-Client Race (<80ms).
-        // A content-walled ID (full losing race of LOGIN_REQUIRED-class statuses)
-        // is already in the negative cache — route straight to alternate uploads.
-        val skipR1 = NegativeResultCache.isWalled(videoId)
-        if (skipR1) {
-            android.util.Log.d("ResolveTrace", "R1 skipped (known-walled): $videoId → R2")
-        }
-        val nativeResolved = if (skipR1) null else raceClientEndpoints(videoId)
+        val nativeResolved = raceClientEndpoints(videoId)
         if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putStream(videoId, nativeResolved)
             ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
             StreamifyCircuitBreaker.recordSuccess(videoId)
-            NegativeResultCache.clear(videoId)
             android.util.Log.d("ResolveTrace", "R1 HIT: $videoId (${track.title})")
             return@withContext Result.success(nativeResolved)
         }
@@ -445,15 +431,11 @@ object YouTubeStreamResolver {
             }.sortedByDescending { it.second }.take(5)
 
             for ((candVideoId, score, cand) in candidates) {
-                if (StreamifyCircuitBreaker.isDefinitivelyDead(candVideoId)) continue
-                if (NegativeResultCache.isWalled(candVideoId)) continue
                 val retryResolved = raceClientEndpoints(candVideoId)
                 if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
                     StreamEdgeCache.putStream(candVideoId, retryResolved)
                     ConnectionWarmer.preWarmCDN(retryResolved.streamUrl)
                     StreamifyCircuitBreaker.recordSuccess(candVideoId)
-                    NegativeResultCache.clear(videoId)
-                    NegativeResultCache.clear(candVideoId)
                     android.util.Log.d("ResolveTrace", "R2 HIT: alt=$candVideoId for $videoId (${track.title}, score=${"%.2f".format(score)})")
                     // Re-pin canonical identity to the WORKING upload so future
                     // plays skip both the walled ID and this entire ladder.
@@ -535,7 +517,6 @@ object YouTubeStreamResolver {
             // The entire race agreed on a wall/death status — this ID is genuinely gated.
             android.util.Log.w("YouTubeStreamResolver", "Race uniformly walled for $videoId: $statuses")
             StreamifyCircuitBreaker.tripHard(videoId)
-            NegativeResultCache.mark(videoId, statuses.first())
         }
         return@coroutineScope winner
     }
@@ -748,38 +729,7 @@ object YouTubeStreamResolver {
     }
 
     private fun extractUrlFromFormat(format: JSONObject): String {
-        val directUrl = format.optString("url", "")
-        if (directUrl.isNotBlank()) {
-            return directUrl
-        }
-
-        // Check for signatureCipher or cipher
-        val cipher = format.optString("signatureCipher", format.optString("cipher", ""))
-        if (cipher.isNotBlank()) {
-            try {
-                val params = cipher.split("&").associate { param ->
-                    val pair = param.split("=", limit = 2)
-                    if (pair.size == 2) {
-                        pair[0] to java.net.URLDecoder.decode(pair[1], "UTF-8")
-                    } else {
-                        "" to ""
-                    }
-                }
-                val rawUrl = params["url"]
-                if (!rawUrl.isNullOrBlank()) {
-                    val sig = params["s"]
-                    val sp = params["sp"] ?: "sig"
-                    return if (!sig.isNullOrBlank()) {
-                        if (rawUrl.contains("?")) "$rawUrl&$sp=$sig" else "$rawUrl?$sp=$sig"
-                    } else {
-                        rawUrl
-                    }
-                }
-            } catch (e: Exception) {
-                // Ignore cipher parsing error
-            }
-        }
-        return ""
+        return format.optString("url", "")
     }
 
 
