@@ -310,12 +310,12 @@ object ContinuumRadioEngine {
         val tracks = mutableListOf<Track>()
         var nextContinuation: String? = null
         val dynamicBpm = if (seedTrack != null && seedTrack.bpm > 0f) seedTrack.bpm else 120f
-
+        try {
             // Pure Kotlin candidate extraction from Innertube radio playlistPanelVideoRenderer
             val candidateNodes = mutableListOf<JSONObject>()
             findJsonObjects(root, "playlistPanelVideoRenderer", candidateNodes)
 
-                for (node in candidateNodes) {
+            for (node in candidateNodes) {
                     val videoId = node.optString("videoId", "")
                     if (videoId.isBlank()) continue
 
