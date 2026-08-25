@@ -614,7 +614,38 @@ object YouTubeStreamResolver {
     }
 
     private fun extractUrlFromFormat(format: JSONObject): String {
-        return format.optString("url", "")
+        val directUrl = format.optString("url", "")
+        if (directUrl.isNotBlank()) {
+            return directUrl
+        }
+
+        // Check for signatureCipher or cipher
+        val cipher = format.optString("signatureCipher", format.optString("cipher", ""))
+        if (cipher.isNotBlank()) {
+            try {
+                val params = cipher.split("&").associate { param ->
+                    val pair = param.split("=", limit = 2)
+                    if (pair.size == 2) {
+                        pair[0] to java.net.URLDecoder.decode(pair[1], "UTF-8")
+                    } else {
+                        "" to ""
+                    }
+                }
+                val rawUrl = params["url"]
+                if (!rawUrl.isNullOrBlank()) {
+                    val sig = params["s"]
+                    val sp = params["sp"] ?: "sig"
+                    return if (!sig.isNullOrBlank()) {
+                        if (rawUrl.contains("?")) "$rawUrl&$sp=$sig" else "$rawUrl?$sp=$sig"
+                    } else {
+                        rawUrl
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore cipher parsing error
+            }
+        }
+        return ""
     }
 
 
