@@ -477,101 +477,42 @@ object YouTubeStreamResolver {
                 val rawBytes = response.body?.bytes() ?: return null
                 if (rawBytes.isEmpty()) return null
 
-                val verdict = gate(rawBytes, statuses)
-                return when (verdict) {
-                    is Verdict.Ok -> {
-                        if (verdict.formats.isNotEmpty()) {
-                            verdict.formats.maxByOrNull { f ->
-                                val mime = f.mimeType
-                                if (mime.contains("opus")) 300_000 + f.bitrate
-                                else if (mime.contains("mp4a") || mime.contains("m4a")) 200_000 + f.bitrate
-                                else f.bitrate
-                            } ?: verdict.formats.first()
-                        } else {
-                            null
-                        }
-                    }
-                    is Verdict.Gated -> null
-                }
+                val root = JSONObject(String(rawBytes, Charsets.UTF_8))
+                return parsePlayerResponse(root)
             }
         } catch (e: Exception) {
             return null
         }
     }
 
-    sealed interface Verdict {
-        data class Ok(val formats: List<ResolvedStream>, val cipheredCount: Int) : Verdict
-        data class Gated(val status: String, val reason: String) : Verdict
-    }
-
-    fun gate(rawBytes: ByteArray, statuses: MutableCollection<String>? = null): Verdict {
-        // Pure Kotlin Innertube JSON Parser (Single Parser, Single Policy, Direct-URL only)
-        return kotlinParseVerdict(rawBytes, statuses)
-    }
-
-    private fun kotlinParseVerdict(
-        rawBytes: ByteArray,
-        statuses: MutableCollection<String>? = null
-    ): Verdict {
+    private fun parsePlayerResponse(root: JSONObject): ResolvedStream? {
         try {
-            val root = JSONObject(String(rawBytes, Charsets.UTF_8))
             val playabilityStatus = root.optJSONObject("playabilityStatus")
             val status = playabilityStatus?.optString("status", "")
-            val reason = playabilityStatus?.optString("reason", "") ?: ""
-
-            if (status != null && !status.equals("OK", ignoreCase = true) && status.isNotBlank()) {
-                statuses?.add(status.uppercase())
-                return Verdict.Gated(status, reason)
+            if (status != null && !status.equals("OK", ignoreCase = true)) {
+                return null
             }
 
-            val streamingData = root.optJSONObject("streamingData") ?: return Verdict.Gated("NO_STREAMING_DATA", "")
+            val streamingData = root.optJSONObject("streamingData") ?: return null
             val durationSec = root.optJSONObject("videoDetails")?.optString("lengthSeconds", "0")?.toIntOrNull() ?: 0
 
-            val candidateFormats = mutableListOf<ResolvedStream>()
-            var cipheredCount = 0
+            val candidateFormats = mutableListOf<JSONObject>()
 
-            fun processFormats(arr: JSONArray?) {
-                if (arr == null) return
-                for (i in 0 until arr.length()) {
-                    val f = arr.getJSONObject(i)
+            // 1. Collect adaptive formats (pure audio streams)
+            val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats")
+            if (adaptiveFormats != null) {
+                for (i in 0 until adaptiveFormats.length()) {
+                    val f = adaptiveFormats.getJSONObject(i)
                     val mime = f.optString("mimeType", "")
-                    val isAudio = mime.startsWith("audio/")
                     val streamUrl = extractUrlFromFormat(f)
-                    val isCipher = f.has("signatureCipher") || f.has("cipher")
-
-                    if (isAudio && streamUrl.isNotBlank()) {
-                        val bitrate = f.optInt("bitrate", f.optInt("averageBitrate", 160000))
-                        fun fmtLoud(obj: JSONObject): Float? {
-                            obj.optDouble("loudnessDb", Double.NaN).takeIf { !it.isNaN() }?.let { return it.toFloat() }
-                            obj.optJSONObject("volumeNormalizationInfo")?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }?.let { return it.toFloat() }
-                            return null
-                        }
-                        val loudness = fmtLoud(f)
-                            ?: root.optJSONObject("playerConfig")?.optJSONObject("audioConfig")
-                                ?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }?.toFloat()
-                        candidateFormats.add(
-                            ResolvedStream(
-                                streamUrl = streamUrl,
-                                mimeType = mime,
-                                bitrate = bitrate,
-                                durationSec = durationSec,
-                                loudnessDb = loudness
-                            )
-                        )
-                    } else if (isAudio && isCipher) {
-                        cipheredCount++
+                    if (mime.startsWith("audio/") && streamUrl.isNotBlank()) {
+                        f.put("extractedUrl", streamUrl)
+                        candidateFormats.add(f)
                     }
                 }
             }
 
-            processFormats(streamingData.optJSONArray("adaptiveFormats"))
-            processFormats(streamingData.optJSONArray("formats"))
-
-            // MUXED FALLBACK (restored from build-157 / 6ffa6c4): SABR-era responses
-            // strip every adaptiveFormats URL for app clients; the progressive
-            // formats[] array (itag 18/22 muxed) is then the only playable direct
-            // URL. Accept ANY mime here — ExoPlayer plays muxed containers fine and
-            // the audio track inside carries full quality.
+            // 2. Fallback to standard progressive formats (itag 18 / 22 carrying stereo AAC audio)
             if (candidateFormats.isEmpty()) {
                 val formats = streamingData.optJSONArray("formats")
                 if (formats != null) {
@@ -579,23 +520,62 @@ object YouTubeStreamResolver {
                         val f = formats.getJSONObject(i)
                         val streamUrl = extractUrlFromFormat(f)
                         if (streamUrl.isNotBlank()) {
-                            candidateFormats.add(
-                                ResolvedStream(
-                                    streamUrl = streamUrl,
-                                    mimeType = f.optString("mimeType", "video/mp4"),
-                                    bitrate = f.optInt("bitrate", f.optInt("averageBitrate", 0)),
-                                    durationSec = durationSec,
-                                    loudnessDb = null
-                                )
-                            )
+                            f.put("extractedUrl", streamUrl)
+                            candidateFormats.add(f)
                         }
                     }
                 }
             }
 
-            return Verdict.Ok(candidateFormats, cipheredCount)
+            if (candidateFormats.isEmpty()) return null
+
+            // 3. Perceptual Codec Scoring Matrix (Opus 160k > AAC 128k > Low Bitrate > Progressive Containers)
+            val bestFormat = candidateFormats.maxByOrNull { format ->
+                val itag = format.optInt("itag", 0)
+                val bitrate = format.optInt("bitrate", format.optInt("averageBitrate", 0))
+                val mime = format.optString("mimeType", "")
+
+                when (itag) {
+                    251 -> 1000 + (bitrate / 1000) // WebM Opus (160kbps) - Studio Transparent
+                    140 -> 850 + (bitrate / 1000)  // MP4 AAC (128kbps) - Universal Compatibility
+                    250 -> 800 + (bitrate / 1000)  // WebM Opus (70kbps)
+                    249 -> 750 + (bitrate / 1000)  // WebM Opus (50kbps)
+                    139 -> 600 + (bitrate / 1000)  // MP4 AAC (48kbps)
+                    22  -> 500 + (bitrate / 1000)  // 720p HD MP4 (AAC 192kbps)
+                    18  -> 400 + (bitrate / 1000)  // 360p MP4 (AAC 96kbps)
+                    else -> {
+                        if (mime.contains("audio/webm") || mime.contains("opus")) 700 + (bitrate / 1000)
+                        else if (mime.contains("audio/mp4") || mime.contains("m4a")) 650 + (bitrate / 1000)
+                        else bitrate / 1000
+                    }
+                }
+            } ?: candidateFormats.first()
+
+            val streamUrl = bestFormat.optString("extractedUrl", bestFormat.optString("url", ""))
+            val mimeType = bestFormat.optString("mimeType", "audio/webm")
+            val bitrate = bestFormat.optInt("bitrate", bestFormat.optInt("averageBitrate", 160000))
+
+            fun fmtLoud(obj: JSONObject): Float? {
+                obj.optDouble("loudnessDb", Double.NaN).takeIf { !it.isNaN() }?.let { return it.toFloat() }
+                obj.optJSONObject("volumeNormalizationInfo")?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }?.let { return it.toFloat() }
+                return null
+            }
+            val loudness = fmtLoud(bestFormat)
+                ?: root.optJSONObject("playerConfig")?.optJSONObject("audioConfig")
+                    ?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }?.toFloat()
+
+            if (streamUrl.isNotBlank()) {
+                return ResolvedStream(
+                    streamUrl = streamUrl,
+                    mimeType = mimeType,
+                    bitrate = bitrate,
+                    durationSec = durationSec,
+                    loudnessDb = loudness
+                )
+            }
+            return null
         } catch (e: Exception) {
-            return Verdict.Gated("PARSE_ERROR", e.message ?: "")
+            return null
         }
     }
 

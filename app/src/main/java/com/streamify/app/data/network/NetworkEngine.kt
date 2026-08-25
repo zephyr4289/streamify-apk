@@ -40,21 +40,8 @@ object NetworkEngine {
             .build()
     }
 
-    val prioritizedInterceptor = Interceptor { chain ->
-        val request = chain.request()
-        val newRequest = if (request.url.host.contains("googlevideo.com")) {
-            request.newBuilder()
-                .header("X-Streamify-Priority", "CRITICAL")
-                .build()
-        } else {
-            request
-        }
-        chain.proceed(newRequest)
-    }
-
     val exoPlayerClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .addInterceptor(prioritizedInterceptor)
             .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .connectTimeout(10000, TimeUnit.MILLISECONDS)
