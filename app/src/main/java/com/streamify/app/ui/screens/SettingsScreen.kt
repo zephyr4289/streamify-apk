@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Download
@@ -57,7 +58,8 @@ fun SettingsScreen(
     onNavigateToProfile: () -> Unit = {},
     onNavigateToWrapped: () -> Unit = {},
     onNavigateToCommunity: () -> Unit = {},
-    onNavigateToProfileSelection: () -> Unit = {}
+    onNavigateToProfileSelection: () -> Unit = {},
+    onNavigateToTerminal: () -> Unit = {}
 ) {
     val playerState by playerViewModel.playerState.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -288,6 +290,20 @@ fun SettingsScreen(
                                     Icon(Icons.Filled.AdminPanelSettings, contentDescription = null, tint = androidx.compose.ui.graphics.Color.Black)
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text("Open Admin Command Center", style = StreamifyType.TitleSmall, color = androidx.compose.ui.graphics.Color.Black)
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = onNavigateToTerminal,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Terminal,
+                                        contentDescription = null,
+                                        tint = androidx.compose.ui.graphics.Color(0xFF4AF626)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Developer Terminal (live logs)", style = StreamifyType.TitleSmall)
                                 }
                             }
                         }

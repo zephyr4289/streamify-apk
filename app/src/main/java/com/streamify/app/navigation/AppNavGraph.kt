@@ -220,7 +220,13 @@ fun AppNavGraph(
                 onNavigateToProfile = { navController.navigate("profile") },
                 onNavigateToWrapped = { navController.navigate("wrapped") },
                 onNavigateToCommunity = { navController.navigate("community") },
-                onNavigateToProfileSelection = { navController.navigate("profile_selection") }
+                onNavigateToProfileSelection = { navController.navigate("profile_selection") },
+                onNavigateToTerminal = { navController.navigate("admin_terminal") }
+            )
+        }
+        composable("admin_terminal") {
+            com.streamify.app.ui.screens.AdminTerminalScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable("profile_selection") {
