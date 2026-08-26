@@ -76,7 +76,8 @@ This tracking checklist monitors the authoring of comprehensive, industrial-grad
   - [x] K.3 MiniPlayer, FullPlayer & Gesture Kinematics
   - [x] K.4 Dynamic Palette Extraction & Backdrop Shader Meshes
 
-- [ ] **Phase L: Server-Side Infrastructure, Supabase Realtime & Security Model** (`docs/12_SERVER_SECURITY_ENGINE.md`)
-  - [ ] L.1 Postgres Row-Level Security, Migrations & Fencing Tokens
-  - [ ] L.2 Phoenix WebSocket Realtime Multiplexing
-  - [ ] L.3 Cryptographic Identity, JWTs & Tamper Verification
+- [x] **Phase L: Server-Side Infrastructure, Supabase Realtime & Security Model** (`docs/12_SERVER_SECURITY_ENGINE.md`)
+  - [x] L.1 Postgres Row-Level Security, Migrations & Fencing Tokens
+  - [x] L.2 Distributed Jam Session Lease & Takeover RPC Protocols
+  - [x] L.3 pgvector 512-D HNSW Cosine Similarity & Match Engine
+  - [x] L.4 Supabase Realtime Broadcast Channels & CDC Engine
