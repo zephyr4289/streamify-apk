@@ -640,7 +640,8 @@ fun FullPlayerSheet(
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .centerInLargeScreen()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // --- TOP BAR (Collapse Chevron, Song/Video Switcher, Actions) ---
                 Row(
@@ -692,10 +693,10 @@ fun FullPlayerSheet(
                 // --- HERO DYNAMIC MORPHING ALBUM ARTWORK / HARDWARE VIDEO SURFACE ---
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxWidth(if (isVideoMode) 1f else 0.88f)
                         .weight(1f, fill = false)
-                        .heightIn(max = 340.dp)
-                        .aspectRatio(animatedAspectRatio)
+                        .heightIn(max = 300.dp)
+                        .aspectRatio(animatedAspectRatio, matchHeightConstraintsFirst = true)
                         .clip(LocalAppShapes.current.thumbnailLarge)
                         .background(androidx.compose.ui.graphics.Color.Black)
                         .graphicsLayer {
