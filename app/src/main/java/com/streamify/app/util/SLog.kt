@@ -4,187 +4,322 @@ import android.content.Context
 import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * SLog — application-wide logging facade with in-app terminal support.
+ * SLog — application-wide logging facade with OPT-IN diagnostic capture.
  *
- * Drop-in replacement for [android.util.Log]: identical method signatures, so
- * call sites only change their import (`import com.streamify.app.util.SLog as Log`).
- * Every entry is simultaneously:
- *   1. Forwarded to android.util.Log (adb logcat stays fully functional)
- *   2. Appended to a bounded in-memory ring buffer (read live by AdminTerminalScreen)
- *   3. Spooled to rotating session files under filesDir/logs/ (survives restarts,
- *      cleared on data wipe)
+ * ── OFF (default for every user) ──────────────────────────────────────────
+ * append() = one volatile read + forward to android.util.Log. Zero allocation,
+ * zero locks, zero disk I/O. Touch/nav/HTTP/lifecycle logging costs ~nothing.
  *
- * Sensitive material (SAPISIDHASH headers, cookies, CDN signature params) is
- * redacted at append time.
+ * ── ON (user toggles it in Settings; self-disables after 2h) ──────────────
+ * Frames are written into ONE pre-allocated DirectByteBuffer (off the GC heap):
+ *   [int len][long tsMs][byte level][short tagLen][tag utf8][short msgLen][msg utf8][int MAGIC]
+ * Appends perform no Java-object allocation beyond the byte[] copies of the
+ * tag/message themselves. Formatting + credential redaction happen at READ
+ * time (viewer / export / batched disk flusher) — never on the hot path.
+ *
+ * Disk spool only runs while capture is enabled; buffer auto-wipes and the
+ * direct buffer is released when disabled.
  */
 object SLog {
 
-    // ------------------------------------------------------------------ model
-
+    // -------------------------------------------------------------- levels
     const val LEVEL_V = 'V'
     const val LEVEL_D = 'D'
     const val LEVEL_I = 'I'
     const val LEVEL_W = 'W'
     const val LEVEL_E = 'E'
-    const val LEVEL_F = 'F' // fatal / crash
+    const val LEVEL_F = 'F'
 
-    data class Entry(
-        val timeMs: Long,
-        val level: Char,
-        val tag: String,
-        val message: String
-    )
-
-    private val buffer = ArrayDeque<Entry>()
-    private val bufferLock = Any()
-    private var bufferCap = 8000
-
-    private val tailFlowInternal = kotlinx.coroutines.flow.MutableSharedFlow<Entry>(
-        replay = 256, extraBufferCapacity = 4096
-    )
-    val tail: kotlinx.coroutines.flow.SharedFlow<Entry> get() = tailFlowInternal
-
-    // ------------------------------------------------------------------ disk
-
-    private const val LOG_DIR = "logs"
+    private const val TAG_INIT = "SLog"
+    private const val SESSION_FILE = "session-current.log"
     private const val MAX_FILE_BYTES = 5L * 1024 * 1024
     private const val ROTATE_KEEP = 2
-    private val diskQueue = Channel<String>(Channel.UNLIMITED)
-    private val writerStarted = AtomicBoolean(false)
+    private const val RING_CAPACITY = 4 * 1024 * 1024 // 4MB off-heap
+    private const val FRAME_MAGIC = 0x534C4F47.toInt() // 'SLOG'
+    private const val AUTO_OFF_MS = 2L * 60 * 60 * 1000 // 2 hours
+    private const val MAX_TAG = 64
+    private const val MAX_MSG = 3072
+
+    // -------------------------------------------------------------- state
+    @Volatile
+    var captureEnabled: Boolean = false
+        private set
+
+    private var appContext: Context? = null
+    private var prefs: android.content.SharedPreferences? = null
+    private val armingLock = Any()
+    private var autoOffJob: Job? = null
+    private var flushJob: Job? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Off-heap ring (created on arm, released on disarm)
+    private var ring: ByteBuffer? = null
+    private val ringLock = Any()
+    private var writeOffset = 0
+    private var validBytes = 0
+    private val frameListeners = CopyOnWriteArraySet<() -> Unit>()
+
     private lateinit var logDir: File
     private val tsFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
+    private val started = AtomicBoolean(false)
 
-    // ------------------------------------------------------------------ init
+    // Precompiled redaction patterns — applied at READ time only.
+    private val RX_SAPISID = Regex("(SAPISIDHASH\\s)[A-Za-z0-9_]+")
+    private val RX_COOKIE = Regex("(?i)(cookie:\\s*?)[^\\n]{8,}")
+    private val RX_SIG = Regex("(?i)((?:signature|sig|s)=)[^&\\s\"']+")
 
-    fun initialize(context: Context, capacity: Int = 8000) {
-        bufferCap = capacity.coerceIn(1000, 50_000)
-        logDir = File(context.filesDir, LOG_DIR).apply { mkdirs() }
+    fun redact(msg: String): String {
+        if (!msg.contains("SAPISID") && !msg.contains("Cookie", ignoreCase = true) &&
+            !msg.contains("signature=", ignoreCase = true)
+        ) return msg
+        return msg
+            .replace(RX_SAPISID, "$1<redacted>")
+            .replace(RX_COOKIE, "$1<redacted>")
+            .replace(RX_SIG, "$1<redacted>")
+    }
+
+    // ------------------------------------------------------------ lifecycle
+
+    fun initialize(context: Context) {
+        if (!started.compareAndSet(false, true)) return
+        appContext = context.applicationContext
+        prefs = context.getSharedPreferences("diagnostic_logging", Context.MODE_PRIVATE)
+        logDir = File(context.filesDir, "logs").apply { mkdirs() }
         installCrashHook()
-        if (writerStarted.compareAndSet(false, true)) {
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                for (line in diskQueue) {
-                    writeToDisk(line)
-                }
-            }
+        i(TAG_INIT, "SLog ready — capture=$captureEnabled (opt-in)")
+        runCatching {
+            logBootBanner("1.0.${context.packageManager.getPackageInfo(context.packageName, 0).versionName}")
         }
-        i(TAG_INIT, "SLog initialized — cap=$bufferCap entries")
-        i(
-            TAG_INIT,
-            "device=${Build.MANUFACTURER} ${Build.MODEL} sdk=${Build.VERSION.SDK_INT} " +
-                "app=${context.packageName}"
-        )
+        // Restore user intent across launches; each launch arms a fresh 2h window.
+        if (prefs!!.getBoolean("enabled", false)) setCaptureEnabled(true, persist = false)
     }
 
-    /** Boot banner with the app version once BuildConfig is available. */
-    fun logBootBanner(appVersion: String) {
-        i(TAG_INIT, "boot versionName=$appVersion")
+    /** Boot banner with explicit version string. */
+    fun logBootBanner(versionName: String) {
+        i(TAG_INIT, "boot version=$versionName device=${Build.MANUFACTURER} ${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
     }
 
-    // ------------------------------------------------------------- public api
-    // Signatures mirror android.util.Log exactly (return Int like Log does).
+    // ---------------------------------------------------------- public api
+    // Identical signatures to android.util.Log — drop-in facade.
 
-    fun v(tag: String, msg: String): Int = append(LEVEL_V, tag, msg).also { android.util.Log.v(safeTag(tag), msg) }
-    fun v(tag: String, msg: String, tr: Throwable?): Int = append(LEVEL_V, tag, msg + fmt(tr)).also { android.util.Log.v(safeTag(tag), msg, tr) }
-    fun d(tag: String, msg: String): Int = append(LEVEL_D, tag, msg).also { android.util.Log.d(safeTag(tag), msg) }
-    fun d(tag: String, msg: String, tr: Throwable?): Int = append(LEVEL_D, tag, msg + fmt(tr)).also { android.util.Log.d(safeTag(tag), msg, tr) }
-    fun i(tag: String, msg: String): Int = append(LEVEL_I, tag, msg).also { android.util.Log.i(safeTag(tag), msg) }
-    fun i(tag: String, msg: String, tr: Throwable?): Int = append(LEVEL_I, tag, msg + fmt(tr)).also { android.util.Log.i(safeTag(tag), msg, tr) }
-    fun w(tag: String, msg: String): Int = append(LEVEL_W, tag, msg).also { android.util.Log.w(safeTag(tag), msg) }
-    fun w(tag: String, msg: String, tr: Throwable?): Int = append(LEVEL_W, tag, msg + fmt(tr)).also { android.util.Log.w(safeTag(tag), msg, tr) }
-    fun e(tag: String, msg: String): Int = append(LEVEL_E, tag, msg).also { android.util.Log.e(safeTag(tag), msg) }
-    fun e(tag: String, msg: String, tr: Throwable?): Int = append(LEVEL_E, tag, msg + fmt(tr)).also { android.util.Log.e(safeTag(tag), msg, tr) }
-    fun wtf(tag: String, msg: String): Int = append(LEVEL_F, tag, msg).also { android.util.Log.wtf(safeTag(tag), msg) }
+    fun v(tag: String, msg: String): Int { android.util.Log.v(tag, msg); return append(LEVEL_V, tag, msg) }
+    fun v(tag: String, msg: String, tr: Throwable?): Int { android.util.Log.v(tag, msg, tr); return append(LEVEL_V, tag, msg + fmt(tr)) }
+    fun d(tag: String, msg: String): Int { android.util.Log.d(tag, msg); return append(LEVEL_D, tag, msg) }
+    fun d(tag: String, msg: String, tr: Throwable?): Int { android.util.Log.d(tag, msg, tr); return append(LEVEL_D, tag, msg + fmt(tr)) }
+    fun i(tag: String, msg: String): Int { android.util.Log.i(tag, msg); return append(LEVEL_I, tag, msg) }
+    fun i(tag: String, msg: String, tr: Throwable?): Int { android.util.Log.i(tag, msg, tr); return append(LEVEL_I, tag, msg + fmt(tr)) }
+    fun w(tag: String, msg: String): Int { android.util.Log.w(tag, msg); return append(LEVEL_W, tag, msg) }
+    fun w(tag: String, msg: String, tr: Throwable?): Int { android.util.Log.w(tag, msg, tr); return append(LEVEL_W, tag, msg + fmt(tr)) }
+    fun e(tag: String, msg: String): Int { android.util.Log.e(tag, msg); return append(LEVEL_E, tag, msg) }
+    fun e(tag: String, msg: String, tr: Throwable?): Int { android.util.Log.e(tag, msg, tr); return append(LEVEL_E, tag, msg + fmt(tr)) }
+    fun wtf(tag: String, msg: String): Int { android.util.Log.wtf(tag, msg); return append(LEVEL_F, tag, msg) }
 
-    /**
-     * Convenience: replaces bare `printStackTrace()` calls with a contextual
-     * warning carrying the throwable through the whole pipeline.
-     */
+    /** Replaces bare printStackTrace() with contextual capture. */
     fun st(tag: String, context: String, tr: Throwable?) {
         w(tag, "$context — ${tr?.javaClass?.simpleName}: ${tr?.message}", tr)
     }
 
-    // ------------------------------------------------------------- accessors
+    // ------------------------------------------------------ capture toggle
 
-    /** Snapshot of the ring buffer, oldest first. */
-    fun snapshot(): List<Entry> = synchronized(bufferLock) { buffer.toList() }
-
-    /** Entire buffer formatted logcat-style — used by the terminal Copy button. */
-    fun snapshotFormatted(): String = synchronized(bufferLock) {
-        val sb = StringBuilder(buffer.size * 80)
-        for (e in buffer) sb.append(format(e)).append('\n')
-        sb.toString()
+    /**
+     * Arms/disarms diagnostic capture. When armed: allocates the 4MB off-heap
+     * ring, starts the batched disk flusher, schedules the 2h auto-shutoff.
+     */
+    fun setCaptureEnabled(enable: Boolean, persist: Boolean = true) {
+        synchronized(armingLock) {
+            if (enable == captureEnabled) return
+            if (enable) {
+                ring = ByteBuffer.allocateDirect(RING_CAPACITY).order(ByteOrder.LITTLE_ENDIAN)
+                writeOffset = 0
+                validBytes = 0
+                captureEnabled = true
+                if (persist) prefs?.edit()?.putBoolean("enabled", true)?.apply()
+                startFlusher()
+                scheduleAutoOff()
+                i(TAG_INIT, "capture ARMED — auto-off in 2h")
+            } else {
+                captureEnabled = false
+                autoOffJob?.cancel(); autoOffJob = null
+                if (persist) prefs?.edit()?.putBoolean("enabled", false)?.apply()
+                stopFlusherAndDrain()
+                synchronized(ringLock) {
+                    ring = null
+                    writeOffset = 0
+                    validBytes = 0
+                }
+                frameListeners.clear()
+                i(TAG_INIT, "capture DISARMED — ring wiped")
+            }
+        }
     }
 
-    fun clearMemoryBuffer() = synchronized(bufferLock) { buffer.clear() }
-
-    /** Current on-disk session file (may be null before initialize). */
-    fun currentLogFile(): File? =
-        if (this::logDir.isInitialized) File(logDir, SESSION_FILE).takeIf { it.exists() } else null
-
-    fun allLogFiles(): List<File> = if (this::logDir.isInitialized) logDir.listFiles()?.sortedByDescending { it.lastModified() } ?: emptyList() else emptyList()
-
-    // ------------------------------------------------------------ internals
-
-    private const val TAG_INIT = "SLog"
-    private const val SESSION_FILE = "session-current.log"
-
-    private fun safeTag(tag: String): String = if (tag.length <= 23) tag else tag.substring(0, 23)
-
-    private fun append(level: Char, rawTag: String, rawMsg: String): Int {
-        val entry = Entry(System.currentTimeMillis(), level, rawTag, redact(rawMsg))
-        synchronized(bufferLock) {
-            if (buffer.size >= bufferCap) buffer.removeFirst()
-            buffer.addLast(entry)
-        }
-        tailFlowInternal.tryEmit(entry)
-        if (writerStarted.get()) {
-            diskQueue.trySend(format(entry))
-        }
-        return 0
+    fun remainingCaptureMs(): Long {
+        val end = armedUntilMs
+        return if (captureEnabled && end > 0) (end - System.currentTimeMillis()).coerceAtLeast(0) else 0
     }
+
+    @Volatile private var armedUntilMs = 0L
+
+    private fun scheduleAutoOff() {
+        armedUntilMs = System.currentTimeMillis() + AUTO_OFF_MS
+        autoOffJob?.cancel()
+        autoOffJob = scope.launch {
+            delay(AUTO_OFF_MS)
+            if (captureEnabled) {
+                w(TAG_INIT, "auto-shutoff after 2h — disarming capture")
+                setCaptureEnabled(false, persist = true)
+            }
+        }
+    }
+
+    // ------------------------------------------------------------- hot path
 
     private fun fmt(tr: Throwable?): String =
         if (tr == null) "" else "\n${android.util.Log.getStackTraceString(tr)}"
 
-    private fun format(e: Entry): String =
-        "${tsFormat.format(Date(e.timeMs))} ${e.level}/${safeTag(e.tag)}: ${e.message}"
+    private fun append(level: Char, tag: String, message: String): Int {
+        if (!captureEnabled) return 0 // OFF: this is the entire cost.
+        writeFrame(level, tag.take(MAX_TAG), message.take(MAX_MSG))
+        notifyFrameListeners()
+        return 0
+    }
 
-    /**
-     * Redacts credentials before any persistence/display:
-     *  - SAPISIDHASH <sha-token>
-     *  - Cookie header values
-     *  - googlevideo signature params
-     */
-    private fun redact(msg: String): String {
-        if (!msg.contains("SAPISID") && !msg.contains("Cookie", ignoreCase = true) &&
-            !msg.contains("signature=", ignoreCase = true)
-        ) return msg
-        var out = msg
-        out = out.replace(Regex("(SAPISIDHASH\\s)[A-Za-z0-9_]+"), "$1<redacted>")
-        out = out.replace(Regex("(?i)(cookie:\\s*?)[^\\n]{8,}"), "$1<redacted>")
-        out = out.replace(Regex("(?i)((?:signature|sig|s)=)[^&\\s\"']+"), "$1<redacted>")
+    private fun writeFrame(level: Char, tag: String, msg: String) {
+        val r = ring ?: return
+        val tagB = tag.toByteArray(Charsets.UTF_8)
+        val msgB = msg.toByteArray(Charsets.UTF_8)
+        val payloadLen = 8 + 1 + 2 + tagB.size + 2 + msgB.size
+        val frameLen = 4 + payloadLen + 4
+
+        synchronized(ringLock) {
+            // wrap pad: sentinel len=0 tells the decoder to jump to start
+            if (writeOffset + frameLen > RING_CAPACITY) {
+                if (writeOffset + 4 <= RING_CAPACITY) {
+                    r.putInt(writeOffset, 0)
+                }
+                writeOffset = 0
+            }
+            if (frameLen > RING_CAPACITY) return // oversized guard
+
+            var p = writeOffset
+            r.putInt(p, payloadLen); p += 4
+            r.putLong(p, System.currentTimeMillis()); p += 8
+            r.put(p, level.code.toByte()); p += 1
+            r.putShort(p, tagB.size.toShort()); p += 2
+            r.position(p); r.put(tagB); p += tagB.size
+            r.putShort(p, msgB.size.toShort()); p += 2
+            r.position(p); r.put(msgB); p += msgB.size
+            r.putInt(p, FRAME_MAGIC); p += 4
+
+            writeOffset = p
+            validBytes = (validBytes + frameLen).coerceAtMost(RING_CAPACITY)
+        }
+    }
+
+    // ------------------------------------------------------------ listeners
+
+    fun addFrameListener(l: () -> Unit) { frameListeners.add(l) }
+    fun removeFrameListener(l: () -> Unit) { frameListeners.remove(l) }
+
+    private fun notifyFrameListeners() {
+        if (frameListeners.isEmpty()) return
+        for (l in frameListeners) runCatching { l() }
+    }
+
+    // ------------------------------------------------------- viewer/export
+
+    /** Decodes up to [max] most recent frames as formatted, redacted lines. */
+    fun snapshotLines(max: Int = 2000): List<String> {
+        val out = ArrayList<String>(minOf(max, 512))
+        synchronized(ringLock) {
+            val r = ring ?: return out
+            var remaining = validBytes
+            var pos = if (validBytes < RING_CAPACITY) 0 else writeOffset // oldest
+            var safety = 0
+            while (remaining > 0 && out.size < max && safety++ < 200_000) {
+                if (pos + 4 > RING_CAPACITY) pos = 0
+                val len = r.getInt(pos)
+                if (len == 0) { pos = 0; continue }             // wrap pad
+                if (len <= 0 || len > remaining || pos + 4 + len > RING_CAPACITY) break
+                var p = pos + 4
+                val ts = r.getLong(p); p += 8
+                val lvl = r.get(p).toInt().toChar(); p += 1
+                val tagLen = r.getShort(p).toInt(); p += 2
+                val tagB = ByteArray(tagLen); r.position(p); r.get(tagB); p += tagLen
+                val msgLen = r.getShort(p).toInt(); p += 2
+                val msgB = ByteArray(msgLen); r.position(p); r.get(msgB); p += msgLen
+                if (r.getInt(p) != FRAME_MAGIC) break           // torn/overwritten
+                remaining -= len + 8
+                pos = p + 4
+                out.add(formatLine(ts, lvl, String(tagB, Charsets.UTF_8), String(msgB, Charsets.UTF_8)))
+            }
+        }
         return out
     }
 
-    // -------------------------------------------------------------- disk io
+    /** Entire decodable buffer, formatted + redacted — used by Copy/Download. */
+    fun exportAll(): String {
+        val sb = StringBuilder(1 shl 16)
+        for (line in snapshotLines(Int.MAX_VALUE)) sb.append(line).append('\n')
+        return sb.toString()
+    }
 
-    private fun writeToDisk(line: String) {
+    fun clearBuffer() {
+        synchronized(ringLock) {
+            validBytes = 0
+            writeOffset = 0
+        }
+    }
+
+    private fun formatLine(ts: Long, lvl: Char, tag: String, msg: String): String =
+        "${tsFormat.format(Date(ts))} $lvl/${tag}: ${redact(msg)}"
+
+    // --------------------------------------------------------- disk spool
+
+    private fun startFlusher() {
+        flushJob?.cancel()
+        flushJob = scope.launch {
+            val sb = StringBuilder(4096)
+            while (isActive && captureEnabled) {
+                delay(250)
+                drainToDisk(sb)
+            }
+        }
+    }
+
+    private suspend fun stopFlusherAndDrain() {
+        flushJob?.cancel()
+        flushJob?.join()
+        // final synchronous drain of whatever remains
+        withContext(Dispatchers.IO) { drainToDisk(StringBuilder(4096)) }
+    }
+
+    private fun drainToDisk(sb: StringBuilder) {
         try {
+            val lines = snapshotLines(Int.MAX_VALUE)
+            if (lines.isEmpty()) return
             val f = File(logDir, SESSION_FILE)
             if (f.exists() && f.length() > MAX_FILE_BYTES) rotate()
-            f.appendText(line + "\n")
+            sb.setLength(0)
+            for (l in lines) sb.append(l).append('\n')
+            f.appendText(sb.toString())
         } catch (_: Throwable) {
-            // Never let logging kill the app.
         }
     }
 
@@ -201,13 +336,11 @@ object SLog {
         }
     }
 
-    /** Synchronous best-effort dump used by the crash hook (no coroutine hop). */
-    private fun flushDiskQueueSync() {
-        while (true) {
-            val line = diskQueue.tryReceive().getOrNull() ?: break
-            writeToDisk(line)
-        }
-    }
+    fun currentLogFile(): File? =
+        if (this::logDir.isInitialized) File(logDir, SESSION_FILE).takeIf { it.exists() } else null
+
+    fun allLogFiles(): List<File> =
+        if (this::logDir.isInitialized) logDir.listFiles()?.sortedByDescending { it.lastModified() } ?: emptyList() else emptyList()
 
     // ---------------------------------------------------------- crash hook
 
@@ -215,9 +348,14 @@ object SLog {
         val prior = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             try {
-                append(LEVEL_F, "CRASH", "uncaught on thread=${t.name}: ${e.javaClass.name}: ${e.message}")
-                append(LEVEL_F, "CRASH", android.util.Log.getStackTraceString(e))
-                flushDiskQueueSync()
+                // Always visible in logcat:
+                android.util.Log.e("CRASH", "uncaught on ${t.name}", e)
+                // And into the spool if the user opted in:
+                if (captureEnabled) {
+                    e("CRASH", "uncaught on thread=${t.name}: ${e.javaClass.name}: ${e.message}")
+                    e("CRASH", android.util.Log.getStackTraceString(e))
+                }
+                synchronized(armingLock) { runCatching { drainToDisk(StringBuilder(1024)) } }
             } catch (_: Throwable) {
             }
             prior?.uncaughtException(t, e)

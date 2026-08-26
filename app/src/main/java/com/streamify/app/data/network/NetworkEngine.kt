@@ -35,7 +35,14 @@ object NetworkEngine {
      */
     private val httpLogger = okhttp3.logging.HttpLoggingInterceptor { msg ->
         com.streamify.app.util.SLog.d("HTTP", msg)
-    }.apply { level = okhttp3.logging.HttpLoggingInterceptor.Level.BASIC }
+    }.apply { level = okhttp3.logging.HttpLoggingInterceptor.Level.NONE }
+
+    /** Diagnostic-capture toggle flips HTTP tracing without rebuilding clients. */
+    fun setHttpTracing(on: Boolean) {
+        httpLogger.level =
+            if (on) okhttp3.logging.HttpLoggingInterceptor.Level.BASIC
+            else okhttp3.logging.HttpLoggingInterceptor.Level.NONE
+    }
 
     val client: OkHttpClient by lazy {
         OkHttpClient.Builder()

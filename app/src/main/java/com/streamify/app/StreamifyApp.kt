@@ -61,6 +61,11 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         // Remote fleet adaptation: pull release-free client overrides (2KB JSON).
         com.streamify.app.util.FleetConfig.initialize(this)
 
+        // HTTP wire tracing follows the user's diagnostic-logging toggle.
+        com.streamify.app.data.network.NetworkEngine.setHttpTracing(
+            com.streamify.app.util.SLog.captureEnabled
+        )
+
         // Screen-level lifecycle breadcrumbs for the admin terminal.
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private fun name(a: android.app.Activity) = a.javaClass.simpleName

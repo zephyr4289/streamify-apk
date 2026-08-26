@@ -79,9 +79,6 @@ object YouTubeStreamResolver {
     /** Attached at app start; used by forensics for connectivity snapshots. */
     @Volatile
     var appContext: android.content.Context? = null
-
-    private fun formatTs(timeMs: Long): String =
-        java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date(timeMs))
     private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
 
     private data class ClientConfig(
@@ -453,15 +450,14 @@ object YouTubeStreamResolver {
      */
     private fun dumpForensics(reason: String) {
         try {
-            val relevantTags = setOf("LadderTrace", "ResolveGate", "HTTP", "ExoEvent", "SearchVM")
-            val recent = SLog.snapshot().asReversed()
-                .filter { it.tag in relevantTags }
-                .take(40)
-                .asReversed()
+            val relevantTags = listOf("LadderTrace", "ResolveGate", "HTTP", "ExoEvent", "SearchVM")
+            val recent = SLog.snapshotLines(400)
+                .filter { line -> relevantTags.any { t -> "/$t:" in line } }
+                .takeLast(40)
             val sb = StringBuilder()
             sb.appendLine("${com.streamify.app.util.Trace.pfx()}=== FORENSICS: $reason ===")
             sb.appendLine("${com.streamify.app.util.Trace.pfx()}env=android${android.os.Build.VERSION.SDK_INT} net=${networkOnline()}")
-            for (e in recent) sb.appendLine("${com.streamify.app.util.Trace.pfx()}| ${formatTs(e.timeMs)} ${e.level}/${e.tag}: ${e.message.take(200)}")
+            for (line in recent) sb.appendLine("${com.streamify.app.util.Trace.pfx()}| ${line.take(240)}")
             sb.appendLine("${com.streamify.app.util.Trace.pfx()}=== END FORENSICS ===")
             SLog.e("FORENSICS", sb.toString())
         } catch (_: Throwable) {

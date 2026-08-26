@@ -291,20 +291,24 @@ fun SettingsScreen(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text("Open Admin Command Center", style = StreamifyType.TitleSmall, color = androidx.compose.ui.graphics.Color.Black)
                                 }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedButton(
-                                    onClick = onNavigateToTerminal,
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Terminal,
-                                        contentDescription = null,
-                                        tint = androidx.compose.ui.graphics.Color(0xFF4AF626)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Developer Terminal (live logs)", style = StreamifyType.TitleSmall)
-                                }
+                            }
+
+                            // Diagnostic Terminal — available to EVERYONE.
+                            // Capture is opt-in (switch inside the terminal) and
+                            // self-disables after 2 hours.
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = onNavigateToTerminal,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    Icons.Filled.Terminal,
+                                    contentDescription = null,
+                                    tint = androidx.compose.ui.graphics.Color(0xFF4AF626)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Diagnostic Terminal", style = StreamifyType.TitleSmall)
                             }
                         }
                     }

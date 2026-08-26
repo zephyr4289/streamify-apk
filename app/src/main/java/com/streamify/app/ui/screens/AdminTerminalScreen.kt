@@ -23,16 +23,17 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.streamify.app.data.remote.SupabaseClient
 import com.streamify.app.util.SLog
 import kotlinx.coroutines.launch
 
 private val TermBg = Color(0xFF0A0E0A)
 private val TermBar = Color(0xFF101510)
 private val TermGreen = Color(0xFF4AF626)
+private val TermDim = Color(0xFF6B7A6B)
 
 private fun levelColor(level: Char): Color = when (level) {
     'V' -> Color(0xFF8A8F8A)
@@ -45,50 +46,43 @@ private fun levelColor(level: Char): Color = when (level) {
 }
 
 /**
- * Admin-only live terminal mirroring every SLog line (which is all of them —
- * the whole app logs through SLog). Supports level/tag/text filtering,
- * auto-scroll with drag-pause, and one-tap copy of the ENTIRE buffer in
- * logcat format for pasting into bug reports.
+ * Diagnostic Terminal — available to every user. Capture is OFF by default and
+ * costs nothing until armed; the switch arms a 4MB off-heap ring that auto-
+ * disarms after 2 hours. Copy / Download / Share export the entire buffer.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminTerminalScreen(onBack: () -> Unit) {
-    // Defense in depth: nav gating is checked at the call site too.
-    if (!SupabaseClient.isAdmin) {
-        Box(Modifier.fillMaxSize().background(TermBg), contentAlignment = Alignment.Center) {
-            Text("ACCESS DENIED", color = Color(0xFFFF5370), fontFamily = FontFamily.Monospace)
-        }
-        return
-    }
-
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
-    // Render window: newest entries, capped so Compose never lays out 8k rows.
-    var rendered by remember { mutableStateOf(SLog.snapshot().takeLast(1000)) }
-    var paused by remember { mutableStateOf(false) }
-
+    var enabled by remember { mutableStateOf(SLog.captureEnabled) }
+    var rendered by remember { mutableStateOf(SLog.snapshotLines(1000)) }
+    var remainingMin by remember { mutableStateOf(SLog.remainingCaptureMs() / 60000) }
     var filterLevels by remember { mutableStateOf(setOf('V', 'D', 'I', 'W', 'E', 'F')) }
     var query by remember { mutableStateOf("") }
+    var paused by remember { mutableStateOf(false) }
 
-    fun applyFilter(list: List<SLog.Entry>) = list.filter { e ->
-        e.level in filterLevels &&
-            (query.isBlank() || e.message.contains(query, true) || e.tag.contains(query, true))
-    }
-
-    LaunchedEffect(Unit) {
-        SLog.tail.collect { e ->
-            if (!paused) {
-                rendered = (rendered + e).takeLast(1000)
-            }
+    // Live tail only while armed; poll keeps it simple & allocation-light.
+    LaunchedEffect(enabled) {
+        if (!enabled) return@LaunchedEffect
+        while (true) {
+            rendered = SLog.snapshotLines(1000)
+            remainingMin = (SLog.remainingCaptureMs() / 60000).toInt()
+            delay(500)
         }
     }
 
-    val visible = remember(rendered, filterLevels, query) { applyFilter(rendered) }
+    val visible = remember(rendered, filterLevels, query) {
+        rendered.filter { e ->
+            e.length > 20 && e[20] in filterLevels &&
+                (query.isBlank() || e.contains(query, true))
+        }
+    }
     val listState = rememberLazyListState()
-    LaunchedEffect(visible.size) {
+    LaunchedEffect(visible.size, enabled) {
         if (!paused && visible.isNotEmpty()) listState.animateScrollToItem(visible.size - 1)
     }
 
@@ -101,60 +95,80 @@ fun AdminTerminalScreen(onBack: () -> Unit) {
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onBack) { Text("< back", color = TermGreen, fontFamily = FontFamily.Monospace) }
+                    TextButton(onClick = onBack) {
+                        Text("< back", color = TermGreen, fontFamily = FontFamily.Monospace)
+                    }
                     Spacer(Modifier.width(6.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             "streamify://terminal",
-                            color = TermGreen,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 14.sp
+                            color = TermGreen, fontFamily = FontFamily.Monospace, fontSize = 14.sp
                         )
                         Text(
-                            "${SLog.snapshot().size} buffered · showing ${visible.size}",
-                            color = Color(0xFF6B7A6B),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp
+                            when {
+                                enabled -> "${rendered.size} lines · auto-off ${remainingMin}m"
+                                else -> "capture off — flip the switch to start"
+                            },
+                            color = TermDim, fontFamily = FontFamily.Monospace, fontSize = 10.sp
                         )
                     }
-                    IconButton(onClick = {
-                        val text = SLog.snapshotFormatted()
-                        clipboard.setText(AnnotatedString(text))
-                        scope.launch { snackbar.showSnackbar("Copied ${text.length} chars (${SLog.snapshot().size} lines)") }
-                    }) {
-                        Icon(Icons.Filled.ContentCopy, "Copy entire log", tint = TermGreen)
-                    }
-                    IconButton(onClick = {
-                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(android.content.Intent.EXTRA_TEXT, SLog.snapshotFormatted())
-                            putExtra(android.content.Intent.EXTRA_SUBJECT, "Streamify log ${System.currentTimeMillis()}")
-                        }
-                        context.startActivity(android.content.Intent.createChooser(send, "Share log"))
-                    }) {
-                        Icon(Icons.Filled.Share, "Share log", tint = TermGreen)
-                    }
-                    IconButton(onClick = {
-                        scope.launch {
-                            val result = saveLogToDownloads(context, SLog.snapshotFormatted())
-                            snackbar.showSnackbar(result)
-                        }
-                    }) {
-                        Icon(Icons.Filled.Download, "Save to Downloads", tint = TermGreen)
-                    }
-                    IconButton(onClick = {
-                        SLog.clearMemoryBuffer()
-                        rendered = emptyList()
-                        scope.launch { snackbar.showSnackbar("Buffer cleared (disk spool kept)") }
-                    }) {
-                        Icon(Icons.Filled.Delete, "Clear buffer", tint = Color(0xFF9AA89A))
+                        Switch(
+                            checked = enabled,
+                            onCheckedChange = { on ->
+                                SLog.setCaptureEnabled(on)
+                                com.streamify.app.data.network.NetworkEngine.setHttpTracing(on)
+                                enabled = on
+                                if (!on) rendered = emptyList()
+                                scope.launch {
+                                    snackbar.showSnackbar(if (on) "Logging ON — auto-stops in 2h" else "Logging OFF")
+                                }
+                            },
+                            colors = SwitchDefaults.colors(checkedTrackColor = TermGreen)
+                        )
+                    if (enabled) {
+                        IconButton(onClick = {
+                            val text = SLog.exportAll()
+                            clipboard.setText(AnnotatedString(text))
+                            scope.launch { snackbar.showSnackbar("Copied ${text.length} chars") }
+                        }) { Icon(Icons.Filled.ContentCopy, "Copy log", tint = TermGreen) }
+                        IconButton(onClick = {
+                            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_TEXT, SLog.exportAll())
+                            }
+                            context.startActivity(android.content.Intent.createChooser(send, "Share log"))
+                        }) { Icon(Icons.Filled.Share, "Share log", tint = TermGreen) }
+                        IconButton(onClick = {
+                            scope.launch {
+                                val r = saveLogToDownloads(context, SLog.exportAll())
+                                snackbar.showSnackbar(r)
+                            }
+                        }) { Icon(Icons.Filled.Download, "Save to Downloads", tint = TermGreen) }
+                        IconButton(onClick = {
+                            SLog.clearBuffer(); rendered = emptyList()
+                            scope.launch { snackbar.showSnackbar("Buffer cleared") }
+                        }) { Icon(Icons.Filled.Delete, "Clear", tint = Color(0xFF9AA89A)) }
                     }
                 }
             }
         }
     ) { padding ->
+        if (!enabled) {
+            Box(Modifier.padding(padding).fillMaxSize().background(TermBg), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                    Text("⏻", color = TermDim, fontSize = 42.sp, fontFamily = FontFamily.Monospace)
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Diagnostic capture is off.\nFlip the switch above to record app activity\n(search → stream resolution, errors, touches).\nAuto-stops after 2 hours.",
+                        color = TermDim, fontSize = 13.sp, lineHeight = 19.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+            return@Scaffold
+        }
+
         Column(Modifier.padding(padding).fillMaxSize().background(TermBg)) {
-            // ---- filter row ----
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -164,9 +178,7 @@ fun AdminTerminalScreen(onBack: () -> Unit) {
                     val active = lvl in filterLevels
                     FilterChip(
                         selected = active,
-                        onClick = {
-                            filterLevels = if (active) filterLevels - lvl else filterLevels + lvl
-                        },
+                        onClick = { filterLevels = if (active) filterLevels - lvl else filterLevels + lvl },
                         label = { Text("$lvl", fontFamily = FontFamily.Monospace, fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             containerColor = TermBar,
@@ -183,8 +195,8 @@ fun AdminTerminalScreen(onBack: () -> Unit) {
                     textStyle = LocalTextStyle.current.copy(color = TermGreen, fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                     trailingIcon = {
                         if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(Icons.Filled.Clear, null, tint = Color(0xFF51604F), modifier = Modifier.height(16.dp))
+                            IconButton(onClick = { query = "" }, Modifier.height(16.dp)) {
+                                Icon(Icons.Filled.Clear, null, tint = Color(0xFF51604F), Modifier.height(14.dp))
                             }
                         }
                     },
@@ -197,51 +209,39 @@ fun AdminTerminalScreen(onBack: () -> Unit) {
                 )
             }
 
-            // ---- pause banner ----
-            if (paused) {
-                Text(
-                    "// autoscroll paused — scroll to bottom edge to resume",
-                    color = Color(0xFFFFB74D),
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(horizontal = 10.dp)
-                )
-            }
-
-            // ---- log stream ----
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().background(TermBg).padding(horizontal = 8.dp)
             ) {
-                items(visible) { e ->
+                items(visible.size) { i ->
+                    val line = visible[i]
+                    val lvl = if (line.length > 20) line[20] else 'I'
                     Text(
                         text = buildAnnotatedString {
-                            withStyle(SpanStyle(color = Color(0xFF51604F))) {
-                                append("${formatTs(e.timeMs)} ")
+                            withStyle(SpanStyle(color = Color(0xFF51604F))) { append(line.take(20)) }
+                            withStyle(SpanStyle(color = levelColor(lvl), fontWeight = FontWeight.Bold)) {
+                                append(line.drop(20).takeWhile { it != '/' } + "/")
                             }
-                            withStyle(SpanStyle(color = levelColor(e.level), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)) {
-                                append("${e.level}/")
+                            val rest = line.dropWhile { it != '/' }.drop(1)
+                            val tagEnd = rest.indexOf(':')
+                            if (tagEnd > 0) {
+                                withStyle(SpanStyle(color = Color(0xFF7FBF7F))) { append(rest.take(tagEnd + 1)) }
+                                withStyle(SpanStyle(color = Color(0xFFD7E8D7))) { append(rest.drop(tagEnd + 1)) }
+                            } else {
+                                withStyle(SpanStyle(color = Color(0xFFD7E8D7))) { append(rest) }
                             }
-                            withStyle(SpanStyle(color = Color(0xFF7FBF7F))) { append(e.tag) }
-                            withStyle(SpanStyle(color = Color(0xFFD7E8D7))) { append(": ${e.message}") }
                         },
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp, lineHeight = 15.sp, fontFamily = FontFamily.Monospace,
                         modifier = Modifier.padding(vertical = 1.dp)
                     )
                 }
                 item {
-                    // Pause autoscroll whenever the user drags away from the bottom.
                     LaunchedEffect(listState.isScrollInProgress) {
                         if (listState.isScrollInProgress) {
                             val last = visible.size - 1
-                            val atBottom = listState.layoutInfo.visibleItemsInfo.any { it.index >= last }
-                            if (!atBottom && !paused) paused = true
+                            if (!listState.layoutInfo.visibleItemsInfo.any { it.index >= last } && !paused) paused = true
                         } else if (paused) {
-                            val info = listState.layoutInfo.visibleItemsInfo
-                            val last = visible.size - 1
-                            if (info.any { it.index >= last }) paused = false
+                            if (listState.layoutInfo.visibleItemsInfo.any { it.index >= visible.size - 1 }) paused = false
                         }
                     }
                     Text("", Modifier.height(8.dp))
@@ -251,15 +251,6 @@ fun AdminTerminalScreen(onBack: () -> Unit) {
     }
 }
 
-private fun formatTs(timeMs: Long): String =
-    java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date(timeMs))
-
-/**
- * Writes the full log buffer into the phone's OFFICIAL Downloads folder.
- *  - API 29+: MediaStore.Downloads (no storage permission required)
- *  - API 26-28: direct public Downloads path (works on legacy-storage devices;
- *    surfaces a clear error otherwise)
- */
 private fun saveLogToDownloads(context: android.content.Context, text: String): String {
     val fileName = "Streamify-log-${
         java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
@@ -274,7 +265,7 @@ private fun saveLogToDownloads(context: android.content.Context, text: String): 
             val resolver = context.contentResolver
             val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: return "❌ Could not create Downloads entry"
-            resolver.openOutputStream(uri)?.use { out -> out.write(text.toByteArray()) }
+            resolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
                 ?: return "❌ Failed to open output stream"
             values.clear()
             values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
@@ -282,8 +273,7 @@ private fun saveLogToDownloads(context: android.content.Context, text: String): 
             "✅ Saved to Download/$fileName (${text.length} chars)"
         } else {
             @Suppress("DEPRECATION")
-            val dir = android.os.Environment
-                .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
             dir.mkdirs()
             java.io.File(dir, fileName).writeText(text)
             "✅ Saved to Download/$fileName"
