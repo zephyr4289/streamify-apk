@@ -67,7 +67,12 @@ object YouTubeStreamResolver {
         @Volatile var strikeLockEnabled = false
     }
 
-    private const val SIGNATURE_TIMESTAMP = 19850
+    /** Baked-in fallback; FleetConfig may override at runtime (release-free adaptation). */
+    private const val DEFAULT_SIGNATURE_TIMESTAMP = 19850
+    @Volatile
+    var signatureTimestampOverride: Int? = null
+    private fun signatureTimestamp(): Int =
+        com.streamify.app.util.FleetConfig.signatureTimestamp(DEFAULT_SIGNATURE_TIMESTAMP)
 
     private const val USER_AGENT_ANDROID = "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14; en_US) gzip"
 
@@ -97,7 +102,7 @@ object YouTubeStreamResolver {
         val attachSession: Boolean = false
     )
 
-    private val CLIENT_TARGETS = listOf(
+    private fun defaultAudioTargets() = listOf(
         // 1. Android App: probe-verified direct playback on official/topic music videos
         // Fingerprints restored from build-157 (6ffa6c4) — the last build solving
         // fast. Stale 19.x clients get HTTP 400 "Precondition check failed".
@@ -131,6 +136,32 @@ object YouTubeStreamResolver {
             osName = "iPhone",
             osVersion = "18.3.2.22D82"
         )
+    )
+
+    // Release-free adaptation: FleetConfig (remote JSON, canary-maintained)
+    // overrides the fleet when present; baked defaults remain the fallback.
+    private fun audioTargets(): List<ClientConfig> =
+        com.streamify.app.util.FleetConfig.audioTargets(defaultAudioTargets().map { it.toSpec() })
+            .map { it.toClientConfig() }
+
+    private fun videoTargets(): List<ClientConfig> =
+        com.streamify.app.util.FleetConfig.videoTargets(defaultVideoTargets().map { it.toSpec() })
+            .map { it.toClientConfig() }
+
+    private fun ClientConfig.toSpec() = com.streamify.app.util.FleetConfig.ClientSpec(
+        clientName, clientVersion, clientNumber, userAgent,
+        deviceMake, deviceModel, osName, osVersion
+    )
+
+    private fun com.streamify.app.util.FleetConfig.ClientSpec.toClientConfig() = ClientConfig(
+        clientName = clientName,
+        clientVersion = clientVersion,
+        clientNumber = clientNumber,
+        userAgent = userAgent,
+        deviceMake = deviceMake,
+        deviceModel = deviceModel,
+        osName = osName,
+        osVersion = osVersion
     )
 
     // ========================================================================
@@ -523,7 +554,7 @@ object YouTubeStreamResolver {
     private suspend fun raceClientEndpoints(videoId: String): ResolvedStream? = coroutineScope {
         val winnerDeferred = CompletableDeferred<ResolvedStream?>()
 
-        val jobs = CLIENT_TARGETS.map { config ->
+        val jobs = audioTargets().map { config ->
             async(Dispatchers.IO) {
                 try {
                     val stream = executePlayerRequest(videoId, config)
@@ -585,7 +616,7 @@ object YouTubeStreamResolver {
                         // sending the live web STS (20683) was uniformly rejected --
                         // an STS far newer than the client fingerprint's era reads
                         // as a bot signal to the player endpoint.
-                        put("signatureTimestamp", SIGNATURE_TIMESTAMP)
+                        put("signatureTimestamp", signatureTimestamp())
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
@@ -783,7 +814,7 @@ object YouTubeStreamResolver {
     }
 
 
-    private val VIDEO_CLIENT_TARGETS = listOf(
+    private fun defaultVideoTargets() = listOf(
         ClientConfig(
             clientName = "ANDROID",
             clientVersion = "21.26.364",
@@ -862,7 +893,7 @@ object YouTubeStreamResolver {
     private suspend fun raceClientVideoEndpoints(videoId: String): ResolvedStream? = coroutineScope {
         val winnerDeferred = CompletableDeferred<ResolvedStream?>()
 
-        val jobs = VIDEO_CLIENT_TARGETS.map { config ->
+        val jobs = videoTargets().map { config ->
             async(Dispatchers.IO) {
                 try {
                     val stream = executeVideoPlayerRequest(videoId, config)
@@ -913,7 +944,7 @@ object YouTubeStreamResolver {
                 put("racyCheckOk", true)
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
-                        put("signatureTimestamp", SIGNATURE_TIMESTAMP)
+                        put("signatureTimestamp", signatureTimestamp())
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })

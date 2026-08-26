@@ -58,6 +58,9 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         )
         com.streamify.app.data.network.YouTubeStreamResolver.appContext = this
 
+        // Remote fleet adaptation: pull release-free client overrides (2KB JSON).
+        com.streamify.app.util.FleetConfig.initialize(this)
+
         // Screen-level lifecycle breadcrumbs for the admin terminal.
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private fun name(a: android.app.Activity) = a.javaClass.simpleName
