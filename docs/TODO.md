@@ -14,12 +14,12 @@ This tracking checklist monitors the authoring of comprehensive, industrial-grad
   - [x] A.5 Parallel Segmented Downloader & SHA-256 Integrity Verification
   - [x] A.6 Canonical Identity Gates & Resilient Media Routing
 
-- [ ] **Phase B: Digital Signal Processing (DSP), Loudness & Gapless Audio Engine** (`docs/02_DSP_ACOUSTIC_ENGINE.md`)
-  - [ ] B.1 EBU R128 Loudness Normalizer (K-Weighting, Gated Energy, Momentary/Short/Integrated)
-  - [ ] B.2 True-Peak Soft-Knee Limiter (Lookahead Buffer & THD Attenuation)
-  - [ ] B.3 Equal-Power Sine/Cosine Crossfader & Harmonic Key/BPM Matching
-  - [ ] B.4 KissFFT Spectral Processing & Sub-band Analysis
-  - [ ] B.5 Beat-Synchronized Acoustic Haptics Subsystem
+- [x] **Phase B: Digital Signal Processing (DSP), Loudness & Gapless Audio Engine** (`docs/02_DSP_ACOUSTIC_ENGINE.md`)
+  - [x] B.1 EBU R128 Loudness Normalizer (K-Weighting, Gated Energy, Momentary/Short/Integrated)
+  - [x] B.2 True-Peak Soft-Knee Limiter (Lookahead Buffer & THD Attenuation)
+  - [x] B.3 Equal-Power Sine/Cosine Crossfader & Harmonic Key/BPM Matching
+  - [x] B.4 KissFFT Spectral Processing & Sub-band Analysis
+  - [x] B.5 Beat-Synchronized Acoustic Haptics Subsystem
 
 - [ ] **Phase C: Phoneme Lyrics Engine, Dynamic Time Warping (DTW) & Canvas** (`docs/03_LYRICS_ALIGNMENT_ENGINE.md`)
   - [ ] C.1 Multiformat Parser (LRC, TTML, Syllable JSON, Kanji/Hanja Romanization)
