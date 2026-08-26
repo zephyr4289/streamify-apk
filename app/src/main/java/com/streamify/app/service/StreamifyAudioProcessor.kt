@@ -20,6 +20,15 @@ import java.nio.ByteOrder
  * CONTRACT: queueInput always consumes the whole input buffer and always
  * produces output (pure-Kotlin i16->f32 fallback if the native pass fails),
  * so a native failure can never stall or glitch the Media3 sink.
+ *
+ * ENCODING CONTRACT: the processor's OUTPUT encoding always mirrors its INPUT
+ * encoding. Downstream of any user processor, media3 1.2.1 chains its internal
+ * SilenceSkippingAudioProcessor and SonicAudioProcessor — both accept ONLY
+ * 16-bit PCM and throw UnhandledAudioFormatException on float input (they sit
+ * in the pipeline even when inactive). Advertising float here used to kill
+ * every stream with ERROR_CODE_AUDIO_TRACK_INIT_FAILED -> silent docked
+ * player. DSP still runs internally at f32; conversion back happens at the
+ * buffer edge.
  */
 class StreamifyAudioProcessor : BaseAudioProcessor() {
 
@@ -46,6 +55,14 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
 
         /** PHASE 2 SAFETY: soft-knee ceiling after every gain stage. */
         @Volatile var limiterEnabled: Boolean = false // opt-in after device testing
+
+        /**
+         * GLOBAL DSP BYPASS:
+         * When true, all audio frames pass through 100% bit-exact and unaltered.
+         * Temporarily active while DSP v2 (biquad acoustic cleanup, BS.1770-4
+         * K-weighting calibration, and true-peak limiter overhaul) is developed.
+         */
+        @Volatile var DSP_BYPASS: Boolean = true
     }
 
     private var statePtr: Long = 0L
@@ -59,15 +76,30 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
     private var scratchFloats: FloatArray = FloatArray(4096)
 
     init {
-        statePtr = try {
-            NativeBridge.nativeInitDsp()
-        } catch (_: Throwable) {
-            0L
+        ensureNativeHandles()
+    }
+
+    /**
+     * Lazily (re-)initializes native DSP state. This processor is a process-
+     * lifetime singleton (companion val in PlaybackService), but [release]
+     * zeroes the native pointers on service teardown. Without re-init, every
+     * subsequent service incarnation would silently run the degraded
+     * pure-Kotlin fallback forever.
+     */
+    private fun ensureNativeHandles() {
+        if (statePtr == 0L) {
+            statePtr = try {
+                NativeBridge.nativeInitDsp()
+            } catch (_: Throwable) {
+                0L
+            }
         }
-        normalizerPtr = try {
-            NativeBridge.nativeInitNormalizer(0.25f)
-        } catch (_: Throwable) {
-            0L
+        if (normalizerPtr == 0L) {
+            normalizerPtr = try {
+                NativeBridge.nativeInitNormalizer(0.25f)
+            } catch (_: Throwable) {
+                0L
+            }
         }
     }
 
@@ -77,15 +109,20 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         ) {
             return AudioFormat.NOT_SET
         }
+        ensureNativeHandles()
         currentFormat = inputAudioFormat
         // PHASE 2: route EQ ownership by stream sample rate (native biquad
         // coefficients are designed at 44.1k).
         activeEqEngine =
             if (inputAudioFormat.sampleRate == 44_100) "RUST" else "SYSTEM"
+        // OUTPUT = INPUT encoding. media3 1.2.1's internal silence-skip/sonic
+        // processors downstream are 16-bit-only and throw on float regardless
+        // of whether they are active. f32 mastering happens internally; the
+        // final quantization back to i16 is a single clamped pass per buffer.
         return AudioFormat(
             inputAudioFormat.sampleRate,
             inputAudioFormat.channelCount,
-            C.ENCODING_PCM_FLOAT
+            inputAudioFormat.encoding
         )
     }
 
@@ -93,13 +130,21 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         val remainingBytes = inputBuffer.remaining()
         if (remainingBytes == 0) return
 
+        // Global DSP bypass fast-path: zero allocations, 100% bit-exact passthrough
+        if (DSP_BYPASS) {
+            val out = replaceOutputBuffer(remainingBytes)
+            out.put(inputBuffer)
+            out.flip()
+            return
+        }
+
         val channelCount = currentFormat.channelCount.coerceAtLeast(1)
         val is16Bit = currentFormat.encoding == C.ENCODING_PCM_16BIT
         val bytesPerFrame = if (is16Bit) channelCount * 2 else channelCount * 4
         val numFrames = remainingBytes / bytesPerFrame
         if (numFrames <= 0) {
             // Sub-frame tail (<1 frame): consume it as silence-equivalent passthrough.
-            consumeAsFloat(inputBuffer, remainingBytes, channelCount, is16Bit)
+            consumeTail(inputBuffer, remainingBytes, channelCount, is16Bit)
             return
         }
 
@@ -161,17 +206,37 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
 
         if (result == 0) {
             postProcessFloat(nativeOutputBuffer, sampleCount, channelCount)
-
-            val out = replaceOutputBuffer(sampleCount * 4)
-            nativeOutputBuffer.position(0)
-            nativeOutputBuffer.limit(sampleCount * 4)
-            out.put(nativeOutputBuffer)
-            out.flip()
+            emitProcessedOutput(sampleCount)
         } else {
             // Native failed: still emit clean audio via pure-Kotlin conversion
             // so the sink never starves. Rewind what we consumed from the copy.
-            consumeAsFloatFromNativeInput(sampleCount, channelCount)
+            emitFallbackOutput(sampleCount)
         }
+    }
+
+    /** Output byte count for [sampleCount] samples under the declared output encoding. */
+    private fun declaredOutputBytes(sampleCount: Int): Int =
+        if (currentFormat.encoding == C.ENCODING_PCM_FLOAT) sampleCount * 4 else sampleCount * 2
+
+    /**
+     * Emits the [sampleCount] processed f32 samples sitting in nativeOutputBuffer
+     * in the configured output encoding. On 16-bit streams this is the final
+     * f32->i16 quantization stage: single clamped pass, zero allocations — safe
+     * for the real-time audio thread.
+     */
+    private fun emitProcessedOutput(sampleCount: Int) {
+        val out = replaceOutputBuffer(declaredOutputBytes(sampleCount))
+        nativeOutputBuffer.position(0)
+        nativeOutputBuffer.limit(sampleCount * 4)
+        if (currentFormat.encoding == C.ENCODING_PCM_FLOAT) {
+            out.put(nativeOutputBuffer)
+        } else {
+            repeat(sampleCount) {
+                val v = nativeOutputBuffer.float
+                out.putShort((v.coerceIn(-1f, 1f) * 32767f).toInt().toShort())
+            }
+        }
+        out.flip()
     }
 
     /**
@@ -221,24 +286,35 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         buffer.limit(sampleCount * 4)
     }
 
-    /** Fallback: convert the staged i16 copy in nativeInputBuffer to f32 output. */
-    private fun consumeAsFloatFromNativeInput(sampleCount: Int, channelCount: Int) {
-        val out = replaceOutputBuffer(sampleCount * 4)
+    /** Fallback: convert the staged i16 copy in nativeInputBuffer to the declared output encoding. */
+    private fun emitFallbackOutput(sampleCount: Int) {
+        val out = replaceOutputBuffer(declaredOutputBytes(sampleCount))
         nativeInputBuffer.position(0)
         nativeInputBuffer.limit(sampleCount * 2)
+        val asFloat = currentFormat.encoding == C.ENCODING_PCM_FLOAT
         repeat(sampleCount) {
-            out.putFloat(nativeInputBuffer.short.toFloat() / 32767.0f)
+            val f = nativeInputBuffer.short.toFloat() / 32767.0f
+            if (asFloat) {
+                out.putFloat(f)
+            } else {
+                out.putShort((f.coerceIn(-1f, 1f) * 32767f).toInt().toShort())
+            }
         }
         out.flip()
     }
 
     /** Consume arbitrary remainder (sub-frame tail) with best-effort conversion. */
-    private fun consumeAsFloat(input: ByteBuffer, byteCount: Int, channelCount: Int, is16Bit: Boolean) {
+    private fun consumeTail(input: ByteBuffer, byteCount: Int, channelCount: Int, is16Bit: Boolean) {
         val samples = if (is16Bit) byteCount / 2 else byteCount / 4
-        val out = replaceOutputBuffer(samples * 4)
+        val asFloat = currentFormat.encoding == C.ENCODING_PCM_FLOAT
+        val out = replaceOutputBuffer(if (asFloat) samples * 4 else samples * 2)
         repeat(samples) {
             val f = if (is16Bit) input.short.toFloat() / 32767.0f else input.float
-            out.putFloat(f)
+            if (asFloat) {
+                out.putFloat(f)
+            } else {
+                out.putShort((f.coerceIn(-1f, 1f) * 32767f).toInt().toShort())
+            }
         }
         // Contract: ALWAYS leave the input fully consumed.
         input.position(input.limit())

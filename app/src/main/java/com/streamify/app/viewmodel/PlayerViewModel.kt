@@ -1361,12 +1361,17 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             autoAdvanceBackoffMs = 0L
             val mediaItem = buildMediaItem(resolvedTrack)
             withContext(Dispatchers.Main) {
+                // Silent-skip guard: a dead/failing MediaSession bind used to fall
+                // through here with zero feedback — track docked, no error, ever.
+                var sessionBindFailed = false
                 try {
                     val ctrl = controller ?: try { controllerFuture?.get() } catch (_: Throwable) { null }
                     if (ctrl != null) {
                         ctrl.setMediaItem(mediaItem, 0L)
                         ctrl.prepare()
                         ctrl.play()
+                    } else {
+                        sessionBindFailed = true
                     }
                 } catch (e: Throwable) {
                     e.printStackTrace()
@@ -1374,8 +1379,12 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                 _playerState.value = _playerState.value.copy(
                     currentTrack = resolvedTrack,
                     isBuffering = false,
-                    lastError = null
+                    lastError = if (sessionBindFailed) "Player engine unavailable" else null
                 )
+                if (sessionBindFailed) {
+                    SLog.e("PlayerViewModel", "controller NULL after resolve — MediaSession bind failed, cannot start '${track.title}'")
+                    UiEventBus.emitEvent(UiEvent.ShowSnackbar("Player engine unavailable — restart the app"))
+                }
             }
 
             // 2. Arm background lookahead pre-buffer for slot 1 (track N+1)

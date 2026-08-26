@@ -58,6 +58,28 @@ class PlaybackService : MediaSessionService() {
         DolbySpatialManager.init(this)
         AudioDeviceManager.init(this)
 
+        // ─── AUDIO RENDER CHAIN (DIRECT CDN STREAMING) ──────────────────────────────
+        // NOTE: Custom fused StreamifyAudioProcessor (loudnessDb pre-gain →
+        // LUFS normalization → Soft-Knee limiter → Rust parametric EQ) is
+        // TEMPORARILY DISABLED.
+        //
+        // WHY DISABLED:
+        // 1. Hardcoded biquad low-shelf (+6dB @ 80Hz) and Haas 3D delay effect
+        //    in `rust/src/audio_dsp.rs` introduce severe phase cancellation,
+        //    mono-compatibility issues, and comb filtering artifacts on modern masters.
+        // 2. Dynamic LUFS RMS normalizer requires recalibration of attack/release
+        //    envelopes and true-peak calculation to avoid pumping and harmonic distortion.
+        //
+        // CURRENT STATE:
+        // Streams are fed directly from MediaCodec into DefaultAudioSink → AudioTrack.
+        // Delivers pristine, unaltered 100% bit-exact CDN audio with zero latency
+        // and universal device/Bluetooth compatibility.
+        //
+        // TODO (DSP V2 DEVELOPMENT ROADMAP):
+        // - Strip static low-shelf / Haas spatializer from `audio_dsp.rs`; make EQ purely user-driven.
+        // - Re-implement ITU-R BS.1770-4 K-weighting LUFS metering in C++20 / Rust SIMD.
+        // - Introduce an opt-in "Audiophile Mastering" toggle in Settings before re-enabling.
+        // ─────────────────────────────────────────────────────────────────────────────
         val renderersFactory = DefaultRenderersFactory(this)
 
         val audioLoadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
@@ -349,6 +371,10 @@ class PlaybackService : MediaSessionService() {
         EqualizerManager.release()
         preBufferManager?.release()
         preBufferManager = null
+        // Free the DSP native handles. Only StreamifyAudioProcessor holds any
+        // (custom release()); Sync/Crossfade are pure-Kotlin helpers with
+        // process lifetime — media3's AudioProcessor interface has no release().
+        runCatching { streamifyProcessor.release() }
         mediaSession?.run {
             player.release()
             release()

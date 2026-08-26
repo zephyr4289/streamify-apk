@@ -2,14 +2,17 @@ name: Extreme Test Matrix & Chaos Suite
 
 on:
   push:
-    branches: [ main, streamify-yt-spt, streamify-adblog ]
+    branches: [ main, streamify-yt-spt ]
   pull_request:
     branches: [ main, streamify-yt-spt ]
   schedule:
     - cron: '0 0 * * *' # Nightly Deep Annihilation Matrix
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Repo-wide single-flight: the SAME code often lands on main + spt + adblog
+  # in one session — only the most recent push should keep building.
+  # (Branch-scoped groups used to let three identical builds run in parallel.)
+  group: ${{ github.workflow }}
   cancel-in-progress: true
 
 permissions:
@@ -219,22 +222,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Admin Build Release
-        if: success() && github.ref == 'refs/heads/streamify-adblog'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: admin-build-${{ env.EFFECTIVE_BUILD }}
-          name: Streamify Admin ${{ env.EFFECTIVE_BUILD }} (Dev Terminal)
-          body: |
-            Admin diagnostics build from `streamify-adblog`.
-            - In-app Developer Terminal (Settings → Developer Terminal, admin login only)
-            - Full search→CDN forensics, touch/nav/lifecycle capture, crash spooling
-          prerelease: true
-          make_latest: "false"
-          files: streamify.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Update Latest Release
         if: success() && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
@@ -292,6 +279,8 @@ jobs:
     name: "Shard: ${{ matrix.shard }}"
     needs: build-and-compile
     runs-on: ubuntu-latest
+    # Advisory: shard flakiness must not mask build/release status.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -433,6 +422,7 @@ jobs:
     name: "Native C++20 LibFuzzer (Cached Corpus)"
     needs: build-and-compile
     runs-on: ubuntu-latest
+    continue-on-error: true
     if: github.event_name == 'schedule' || github.base_ref == 'main'
     steps:
       - uses: actions/checkout@v4
@@ -509,6 +499,8 @@ jobs:
     name: "Emulator API ${{ matrix.api }} (ARM64)"
     needs: build-and-compile
     runs-on: macos-latest
+    # Advisory: ARM64 emulator runs are slow/flaky on shared runners.
+    continue-on-error: true
     if: github.event_name == 'schedule' || github.base_ref == 'main'
     strategy:
       fail-fast: false

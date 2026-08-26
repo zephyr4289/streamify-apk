@@ -224,12 +224,17 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                     }
             )
 
-            // 4. Zero-Disk Speculative In-Memory URL Pre-Resolver (Zero Disk I/O, Zero Contention)
+            // 4. Speculative In-Memory URL Pre-Resolver — BURST-GATED.
+            // Was: parallel resolveStreamJit × top-3 per search (~12 upstream
+            // calls/query with the client race). Now: a single prefetch of the
+            // top result, and only after the user pauses 500ms on this query —
+            // rapid typing/debounced streams no longer hammer the endpoints.
             if (onlineResults.isNotEmpty()) {
                 speculativePrefetchJob?.cancel()
                 prefetchScope.coroutineContext.cancelChildren()
                 speculativePrefetchJob = prefetchScope.launch {
-                    val candidates = onlineResults.take(3)
+                    kotlinx.coroutines.delay(500) // pause-gate: typing continued? then this dies with the next search
+                    val candidates = onlineResults.take(1)
                     candidates.forEach { candidate ->
                         launch {
                             try {
