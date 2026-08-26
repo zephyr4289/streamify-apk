@@ -21,10 +21,10 @@ This tracking checklist monitors the authoring of comprehensive, industrial-grad
   - [x] B.4 KissFFT Spectral Processing & Sub-band Analysis
   - [x] B.5 Beat-Synchronized Acoustic Haptics Subsystem
 
-- [ ] **Phase C: Phoneme Lyrics Engine, Dynamic Time Warping (DTW) & Canvas** (`docs/03_LYRICS_ALIGNMENT_ENGINE.md`)
-  - [ ] C.1 Multiformat Parser (LRC, TTML, Syllable JSON, Kanji/Hanja Romanization)
-  - [ ] C.2 Dynamic Time Warping (DTW) Audio-to-Phoneme Alignment
-  - [ ] C.3 120 FPS Fluid Shaded Lyrics Canvas & Kinematic Scrolling
+- [x] **Phase C: Phoneme Lyrics Engine, Dynamic Time Warping (DTW) & Canvas** (`docs/03_LYRICS_ALIGNMENT_ENGINE.md`)
+  - [x] C.1 Multiformat Parser (LRC, TTML, Syllable JSON, Kanji/Hanja Romanization)
+  - [x] C.2 Dynamic Time Warping (DTW) Audio-to-Phoneme Alignment
+  - [x] C.3 120 FPS Fluid Shaded Lyrics Canvas & Kinematic Scrolling
 
 - [ ] **Phase D: Neural ML, CLAP ONNX Embeddings & Continuum Radio Engine** (`docs/04_NEURAL_CONTINUUM_ENGINE.md`)
   - [ ] D.1 ONNX Runtime & CLAP 512-D Acoustic Feature Extraction
