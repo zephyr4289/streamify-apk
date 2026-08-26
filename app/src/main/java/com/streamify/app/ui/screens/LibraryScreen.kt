@@ -304,11 +304,23 @@ fun LibraryScreen(
         val likedTracks = (uiState as? LibraryUiState.Success)?.likedTracks ?: emptyList()
         val currentPlaylist = playlists.find { it.id == selectedPlaylistId }
 
+        // O(n) membership via HashSet — the previous List.contains inside a
+        // per-composition filter was O(n·m): 5k library x 300-song playlist =
+        // 1.5M boxed equals on EVERY recomposition of this scope.
+        val playlistTrackIds = remember(selectedPlaylistId, playlists) {
+            currentPlaylist?.trackIds?.toHashSet()
+        }
+        val playlistTracks = when {
+            selectedPlaylistId == "liked_songs" -> likedTracks
+            playlistTrackIds != null -> allTracks.filter { it.id in playlistTrackIds }
+            else -> emptyList()
+        }
+
         PlaylistDetailScreen(
             playlistId = selectedPlaylistId!!,
             playlistName = if (selectedPlaylistId == "liked_songs") "Liked Music" else (currentPlaylist?.name ?: "Playlist"),
             playlistDescription = currentPlaylist?.description ?: "",
-            playlistTracks = if (selectedPlaylistId == "liked_songs") likedTracks else allTracks.filter { currentPlaylist?.trackIds?.contains(it.id) == true },
+            playlistTracks = playlistTracks,
             playerViewModel = playerViewModel,
             onBack = { selectedPlaylistId = null },
             onTrackClick = onTrackClick
@@ -468,6 +480,13 @@ fun LibraryScreen(
                         if (lastSlash != -1) path.substring(0, lastSlash) else "Unknown Folder"
                     }
                 }
+
+                // Hoisted out of LazyColumn scopes: allocating these inside the
+                // builder re-ran them (and re-triggered item diffing) on every
+                // parent recomposition.
+                val albumKeys = remember(albums) { albums.keys.toList() }
+                val artistKeys = remember(artists) { artists.keys.toList() }
+                val folderKeys = remember(folders) { folders.keys.toList() }
 
                 val screenConfig = LocalScreenConfiguration.current
                 val gridColumns = remember(screenConfig.widthDp) {
@@ -642,7 +661,7 @@ fun LibraryScreen(
                                 }
                             } else {
                                 items(
-                                    items = albums.keys.toList(),
+                                    items = albumKeys,
                                     key = { "album_$it" }
                                 ) { albumName ->
                                     val albumTrackList = albums[albumName] ?: emptyList()
@@ -694,7 +713,7 @@ fun LibraryScreen(
                                 }
                             } else {
                                 items(
-                                    items = artists.keys.toList(),
+                                    items = artistKeys,
                                     key = { "artist_$it" }
                                 ) { artistName ->
                                     val artistTrackList = artists[artistName] ?: emptyList()
@@ -773,7 +792,7 @@ fun LibraryScreen(
                                 }
                             } else {
                                 items(
-                                    items = folders.keys.toList(),
+                                    items = folderKeys,
                                     key = { "folder_$it" }
                                 ) { folderPath ->
                                     val folderTracks = folders[folderPath] ?: emptyList()

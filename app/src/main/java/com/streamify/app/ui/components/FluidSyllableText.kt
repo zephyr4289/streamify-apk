@@ -1,121 +1,112 @@
 package com.streamify.app.ui.components
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.streamify.app.ui.theme.TextMain
-import com.streamify.app.ui.theme.TextTertiary
+import android.graphics.Paint
+import android.graphics.Typeface
 
 /**
- * 120 FPS Zero-Allocation Syllable-by-Syllable Karaoke Text Renderer.
- * Employs CompositingStrategy.Offscreen, BlendMode.SrcIn, TextLayoutResult bounding box extraction,
- * and an 18px soft feathered horizontal gradient sweep with 0 bytes allocated per frame.
+ * Karaoke sweep renderer.
+ *
+ * PERF CONTRACT: the playhead is supplied as a PROVIDER and is only ever read
+ * inside the draw phase. Compose invalidates just this node's redraw when the
+ * underlying state ticks — zero recomposition, zero per-frame allocation.
  */
+@Composable
+fun FluidSyllableText(
+    text: String,
+    progressFractionProvider: () -> Float, // [0..1], read in draw phase only
+    isActiveLine: Boolean,
+    baseColor: Color = Color(0x66FFFFFF),
+    highlightColor: Color = Color(0xFFFFFFFF),
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val fontSizePx = with(density) { 24.sp.toPx() }
+
+    // Reusable text paint; re-created only when metrics actually change.
+    val textPaint = remember(fontSizePx) {
+        Paint().apply {
+            isAntiAlias = true
+            textSize = fontSizePx
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+    }
+    // Cache glyph measurement per text content (was re-measured every frame).
+    val measuredWidth = remember(text, fontSizePx) { textPaint.measureText(text) }
+
+    val baseArgb = remember(baseColor, isActiveLine) {
+        (if (isActiveLine) baseColor else Color(0x33FFFFFF)).toArgb()
+    }
+    val highlightArgb = remember(highlightColor) { highlightColor.toArgb() }
+
+    Canvas(
+        modifier = modifier.fillMaxWidth().height(48.dp)
+    ) {
+        val canvasHeight = size.height
+        val textY = canvasHeight / 2f + (fontSizePx / 3f)
+
+        // 1. Base un-highlighted pass.
+        textPaint.color = baseArgb
+        drawContext.canvas.nativeCanvas.drawText(text, 0f, textY, textPaint)
+
+        // 2. Clipped highlight sweep — playhead read happens HERE, in draw.
+        val progress = progressFractionProvider()
+        if (isActiveLine && progress > 0f) {
+            val currentSweepX = (measuredWidth * progress).coerceIn(0f, measuredWidth)
+            clipRect(
+                left = 0f,
+                top = 0f,
+                right = currentSweepX,
+                bottom = canvasHeight
+            ) {
+                textPaint.color = highlightArgb
+                drawContext.canvas.nativeCanvas.drawText(text, 0f, textY, textPaint)
+            }
+        }
+    }
+}
+
 @Composable
 fun FluidSyllableText(
     text: String,
     lineStartMs: Long,
     lineEndMs: Long,
-    currentPlaybackMs: Long,
+    playbackMsProvider: () -> Long, // read in draw phase ONLY — never in composition
     isActive: Boolean,
     isPast: Boolean,
-    onClick: () -> Unit,
+    onClick: () -> Unit = {},
     modifier: Modifier = Modifier,
-    syllableCount: Int = 1
+    baseColor: Color = Color(0x66FFFFFF),
+    highlightColor: Color = Color(0xFFFFFFFF)
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-
-    val targetScale by animateFloatAsState(
-        targetValue = if (isActive) 1.05f else 1.0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "fluidScale"
+    FluidSyllableText(
+        text = text,
+        progressFractionProvider = {
+            if (isActive) {
+                val duration = (lineEndMs - lineStartMs).coerceAtLeast(1L)
+                ((playbackMsProvider() - lineStartMs).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+            } else if (isPast) {
+                1f
+            } else {
+                0f
+            }
+        },
+        isActiveLine = isActive,
+        baseColor = if (isPast) Color(0xAAFFFFFF) else baseColor,
+        highlightColor = highlightColor,
+        modifier = modifier.clickable { onClick() }
     )
-
-    // Calculate fraction across active line
-    val lineDuration = (lineEndMs - lineStartMs).coerceAtLeast(1L)
-    val elapsed = (currentPlaybackMs - lineStartMs).coerceIn(0L, lineDuration)
-    val sweepFraction = when {
-        isPast -> 1.0f
-        isActive -> elapsed.toFloat() / lineDuration.toFloat()
-        else -> 0.0f
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp, horizontal = 24.dp)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
-            .graphicsLayer {
-                scaleX = targetScale
-                scaleY = targetScale
-                transformOrigin = TransformOrigin(0f, 0.5f)
-                compositingStrategy = CompositingStrategy.Offscreen
-            }
-            .drawWithContent {
-                // 1. Draw base text in dim color (#55FFFFFF / TextTertiary)
-                drawContent()
-
-                // 2. If active or past, apply BlendMode.SrcIn horizontal gradient sweep
-                if (sweepFraction > 0.0f && textLayoutResult != null) {
-                    val layout = textLayoutResult!!
-                    val totalWidth = size.width
-                    val currentSweepX = totalWidth * sweepFraction
-                    val featherWidth = 18.dp.toPx()
-
-                    // Draw solid white mask up to currentSweepX with 18px feather
-                    val brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.White,
-                            Color.White,
-                            Color.Transparent
-                        ),
-                        startX = 0f,
-                        endX = (currentSweepX + featherWidth).coerceAtMost(totalWidth + featherWidth),
-                        tileMode = TileMode.Clamp
-                    )
-
-                    drawRect(
-                        brush = brush,
-                        topLeft = Offset.Zero,
-                        size = Size(totalWidth, size.height),
-                        blendMode = BlendMode.SrcIn
-                    )
-                }
-            }
-    ) {
-        Text(
-            text = text,
-            fontSize = 24.sp,
-            fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
-            color = if (isPast) TextMain else if (isActive) TextTertiary else TextTertiary.copy(alpha = 0.4f),
-            lineHeight = 34.sp,
-            textAlign = TextAlign.Start,
-            onTextLayout = { textLayoutResult = it },
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
 }

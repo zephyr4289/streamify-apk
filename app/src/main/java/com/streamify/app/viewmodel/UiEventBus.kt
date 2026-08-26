@@ -1,5 +1,6 @@
 package com.streamify.app.viewmodel
 
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
@@ -8,10 +9,18 @@ sealed class UiEvent {
 }
 
 object UiEventBus {
-    private val _events = MutableSharedFlow<UiEvent>()
+    // Buffered + DROP_OLDEST: the old zero-buffer flow SUSPENDED emitters when
+    // no collector was attached (e.g. during splash/onboarding) and dropped
+    // events under burst. Emitters are now never blocked; collectors see the
+    // most recent events.
+    private val _events = MutableSharedFlow<UiEvent>(
+        replay = 0,
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val events = _events.asSharedFlow()
 
-    suspend fun emitEvent(event: UiEvent) {
-        _events.emit(event)
+    fun emitEvent(event: UiEvent) {
+        _events.tryEmit(event)
     }
 }

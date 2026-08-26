@@ -26,6 +26,20 @@ data class LyricsData(
         fun parseLrc(lrcContent: String): LyricsData {
             if (lrcContent.isBlank()) return LyricsData(emptyList(), isSynced = false)
 
+            // Tier 1: High-Performance SLYR Binary compilation in Rust (<0.2ms)
+            try {
+                val slyrBytes = com.streamify.app.data.NativeBridge.rustCompileToSlyr(lrcContent)
+                if (slyrBytes != null && slyrBytes.size >= 32) {
+                    val parsed = parseSlyrBinary(slyrBytes)
+                    if (parsed != null && parsed.lines.isNotEmpty()) {
+                        return parsed
+                    }
+                }
+            } catch (_: Throwable) {
+                // Fallback to pure Kotlin parsing
+            }
+
+            // Tier 2: Pure Kotlin LRC parser
             // 1. Extract Global Header Offset
             var offsetMs = 0L
             offsetRegex.find(lrcContent)?.let {
@@ -149,6 +163,48 @@ data class LyricsData(
                 }
             }
             return sb.toString().trim()
+        }
+
+        private fun parseSlyrBinary(bytes: ByteArray): LyricsData? {
+            if (bytes.size < 32) return null
+            val buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            val magic = buf.int
+            if (magic != 0x52594C53 && buf.getInt(0) != 0x534C5952) return null
+            val version = buf.short.toInt() and 0xFFFF
+            val lineCount = buf.short.toInt() and 0xFFFF
+            val syllableCount = buf.int
+            val textPoolLen = buf.int
+            val vocalOffsetMs = buf.int.toLong()
+            val flags = buf.int
+            buf.position(32)
+
+            val lineHeaders = ArrayList<Triple<Long, Long, Int>>(lineCount)
+            for (i in 0 until lineCount) {
+                if (buf.remaining() < 16) return null
+                val startMs = buf.int.toLong()
+                val endMs = buf.int.toLong()
+                val sylStartIdx = buf.short.toInt() and 0xFFFF
+                val sylCount = buf.short.toInt() and 0xFFFF
+                val textOffset = buf.int
+                lineHeaders.add(Triple(startMs, endMs, textOffset))
+            }
+
+            val textPoolStart = 32 + (lineCount * 16) + (syllableCount * 16)
+            if (textPoolStart > bytes.size) return null
+
+            val lines = ArrayList<LyricsLine>(lineCount)
+            for (header in lineHeaders) {
+                val textStart = textPoolStart + header.third
+                var textEnd = textStart
+                while (textEnd < bytes.size && bytes[textEnd] != 0.toByte()) {
+                    textEnd++
+                }
+                val lineText = if (textEnd > textStart) String(bytes, textStart, textEnd - textStart, Charsets.UTF_8) else ""
+                val duration = (header.second - header.first).coerceAtLeast(1200L)
+                lines.add(LyricsLine(timeMs = header.first, text = lineText, syllables = emptyList(), durationMs = duration))
+            }
+
+            return if (lines.isNotEmpty()) LyricsData(lines = lines, isSynced = true, globalOffsetMs = vocalOffsetMs) else null
         }
     }
 }

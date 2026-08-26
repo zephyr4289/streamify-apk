@@ -49,12 +49,77 @@ import com.streamify.app.util.PermissionHelper
 import com.streamify.app.viewmodel.PlayerViewModel
 import com.streamify.app.viewmodel.UiEvent
 import com.streamify.app.viewmodel.UiEventBus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+
+    // Touch telemetry: every DOWN/UP is logged with coordinates; MOVE events
+    // are throttled to one per 250ms so drags stay visible without flooding.
+    private var lastMoveLogMs: Long = 0L
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN ->
+                com.streamify.app.util.SLog.v("TOUCH", "DOWN x=${ev.x.toInt()} y=${ev.y.toInt()} pointers=${ev.pointerCount}")
+            android.view.MotionEvent.ACTION_UP ->
+                com.streamify.app.util.SLog.v("TOUCH", "UP   x=${ev.x.toInt()} y=${ev.y.toInt()}")
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val now = System.currentTimeMillis()
+                if (now - lastMoveLogMs >= 250) {
+                    lastMoveLogMs = now
+                    com.streamify.app.util.SLog.v("TOUCH", "MOVE x=${ev.x.toInt()} y=${ev.y.toInt()}")
+                }
+            }
+            android.view.MotionEvent.ACTION_CANCEL ->
+                com.streamify.app.util.SLog.v("TOUCH", "CANCEL")
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleSpotifyCallback(intent)
+    }
+
+    private fun handleSpotifyCallback(intent: android.content.Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "streamify" && uri.host == "jam") {
+            val code = uri.lastPathSegment?.uppercase()?.takeIf { it.length == 6 }
+            if (code != null) {
+                com.streamify.app.jam.JamEngine.pendingInviteCode = code
+                com.streamify.app.jam.JamEngine.inviteNavigationEvents.tryEmit(code)
+            }
+            return
+        }
+        if (uri.scheme == "streamify" && (uri.host == "callback" || uri.host == "spotify-auth")) {
+            val authCode = uri.getQueryParameter("code")
+            val error = uri.getQueryParameter("error")
+            if (!authCode.isNullOrEmpty()) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    val spotifyAuth = com.streamify.app.data.remote.SpotifyAuthManager(this@MainActivity)
+                    val dbPath = getDatabasePath("streamify_universal.db").absolutePath
+                    spotifyAuth.handleAuthCallback(authCode, dbPath) { count ->
+                        if (count >= 0) {
+                            android.widget.Toast.makeText(this@MainActivity, "Spotify connected! Synced $count tracks into your taste profile 🎵", android.widget.Toast.LENGTH_SHORT).show()
+                        } else {
+                            android.widget.Toast.makeText(this@MainActivity, "Spotify connected successfully! 🎵", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            } else if (!error.isNullOrEmpty()) {
+                android.widget.Toast.makeText(this, "Spotify auth note: $error", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleSpotifyCallback(intent)
+        com.streamify.app.data.models.AppMode.initialize(this)
 
         setContent {
             val audioPrefs = remember { getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE) }
@@ -79,6 +144,8 @@ class MainActivity : ComponentActivity() {
             }
 
             val authState by AuthManager.authState.collectAsState()
+
+
             LaunchedEffect(authState) {
                 val user = com.streamify.app.data.remote.SupabaseClient.currentUser.value
                 if (user != null) {
@@ -104,6 +171,19 @@ class MainActivity : ComponentActivity() {
 
                 var isSplashDone by remember { mutableStateOf(false) }
 
+                // POST-FIRST-FRAME INIT: heavy subsystem hydration happens
+                // AFTER the splash hands off, so time-to-interactive is bounded
+                // by the brand animation alone — not library scans or network.
+                LaunchedEffect(isSplashDone) {
+                    if (!isSplashDone) return@LaunchedEffect
+                    withContext(Dispatchers.IO) {
+                        playerViewModel.initialize(this@MainActivity)
+                        com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
+                        com.streamify.app.data.TrackRepository.getAllTracks()
+                    }
+                    com.streamify.app.data.remote.StreamifyUpdateManager.checkForUpdates(this@MainActivity)
+                }
+
                 // Dynamic Full-Player Overlay & Dock State
                 var isPlayerExpanded by remember { mutableStateOf(false) }
 
@@ -112,29 +192,52 @@ class MainActivity : ComponentActivity() {
                 val dockPositionState = remember { mutableStateOf(Offset.Zero) }
                 val contextMenuController = remember { com.streamify.app.ui.components.TrackContextMenuController() }
 
-                // --- PILLAR 4: Root Safe Harbor & Double-Back-to-Exit Guard ---
+                // --- Root Back Policy: professional stack-walking navigation ---
+                // Priority order:
+                //   1. Full player sheet open      -> collapse the sheet
+                //   2. Deeper in the back stack    -> natural popBackStack() walk
+                //      (e.g. artist -> search -> home, instead of snapping to home)
+                //   3. Already at root destination -> double-back-to-exit guard
                 var lastBackPressedTime by remember { mutableStateOf(0L) }
+                LaunchedEffect(Unit) {
+                    val dm = this@MainActivity.resources.displayMetrics
+                    quantumController.initMetrics(dm.widthPixels.toFloat(), dm.heightPixels.toFloat(), dm.density)
+                }
+
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route ?: "home"
+                val currentRoute = navBackStackEntry?.destination?.route
 
                 BackHandler(enabled = true) {
-                    if (isPlayerExpanded) {
-                        isPlayerExpanded = false
-                    } else if (currentRoute != "home") {
-                        navController.navigate("home") {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    } else {
-                        val now = System.currentTimeMillis()
-                        if (now - lastBackPressedTime < 2000) {
-                            this@MainActivity.finish()
-                        } else {
-                            lastBackPressedTime = now
-                            android.widget.Toast.makeText(this@MainActivity, "Press back again to exit", android.widget.Toast.LENGTH_SHORT).show()
+                    when {
+                        isPlayerExpanded -> isPlayerExpanded = false
+                        navController.previousBackStackEntry != null -> navController.popBackStack()
+                        else -> {
+                            val now = System.currentTimeMillis()
+                            if (now - lastBackPressedTime < 2000L) {
+                                this@MainActivity.finish()
+                            } else {
+                                lastBackPressedTime = now
+                                android.widget.Toast.makeText(this@MainActivity, "Press back again to exit", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
+                }
+
+                // Dock visibility policy (professional music apps):
+                //   Nav tabs     -> only on top-level tab destinations
+                //   Mini-player  -> everywhere except immersive full-screen routes
+                val topLevelRoutes = remember { setOf("home", "search", "library", "downloads") }
+                val immersiveRoutes = remember { setOf("queue", "lyrics", "jam", "profile_selection") }
+
+                // Jam invite deep links (streamify://jam/CODE) jump straight into the room.
+                LaunchedEffect(Unit) {
+                    com.streamify.app.jam.JamEngine.inviteNavigationEvents.collect {
+                        navController.navigate("jam")
+                    }
+                }
+                var miniDockDismissedForTrack by remember { mutableStateOf<Int?>(null) }
+                LaunchedEffect(playerState.currentTrack?.id) {
+                    miniDockDismissedForTrack = null
                 }
 
                 LaunchedEffect(playerState.currentTrack) {
@@ -146,12 +249,21 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(playerState.currentTrack?.coverArtPath) {
                     val path = playerState.currentTrack?.coverArtPath
                     if (path != null) {
-                        val request = ImageRequest.Builder(context)
-                            .data(path)
-                            .allowHardware(false)
-                            .build()
-                        val result = (Coil.imageLoader(context).execute(request) as? SuccessResult)?.drawable
-                        val bitmap = (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                        // PERF v2 B2 — SINGLE DECODE: reuse the flight token's
+                        // pre-decoded artwork when it belongs to this track.
+                        val cached = quantumController.consumeArtBitmapIfMatched(path)
+                        val bitmap = cached ?: run {
+                            val request = ImageRequest.Builder(context)
+                                .data(path)
+                                .allowHardware(false)
+                                // Palette only samples ~112²; decoding full-res art
+                                // (up to 36MB software bitmap) caused GC cliffs on
+                                // exactly the moment the player opens.
+                                .size(128)
+                                .build()
+                            val result = (Coil.imageLoader(context).execute(request) as? SuccessResult)?.drawable
+                            (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                        }
                         if (bitmap != null) {
                             androidx.palette.graphics.Palette.from(bitmap)
                                 .resizeBitmapArea(112 * 112)
@@ -169,14 +281,14 @@ class MainActivity : ComponentActivity() {
                 if (!isSplashDone) {
                     PrismaticSplashScreen(
                         onPreWarmComplete = {
+                            // CRITICAL PATH ONLY: everything here must finish
+                            // before the first interactive frame. Library scans,
+                            // repo hydration and the update network check are
+                            // deferred to post-first-frame background work.
                             val prefs = getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
                             com.streamify.app.service.CrossfadeAudioProcessor.crossfadeDurationMs =
                                 (prefs.getFloat("crossfade_val", 0f) * 1000).toLong()
                             AuthManager.init(this@MainActivity)
-                            playerViewModel.initialize(this@MainActivity)
-                            com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
-                            com.streamify.app.data.TrackRepository.getAllTracks()
-                            com.streamify.app.data.remote.StreamifyUpdateManager.checkForUpdates(this@MainActivity)
                         },
                         onAnimationComplete = {
                             isSplashDone = true
@@ -213,9 +325,9 @@ class MainActivity : ComponentActivity() {
                         label = "dockAlpha"
                     )
 
-                    val progress = if (playerState.duration > 0)
-                        playerState.currentPosition.toFloat() / playerState.duration.toFloat()
-                    else 0f
+                    // PERF: position/progress are HOT (5Hz). They are passed as
+                    // flows and collected at the LEAF nodes only — reading them
+                    // here would recompose this entire tree every tick.
 
                     CompositionLocalProvider(
                         LocalQuantumController provides quantumController,
@@ -239,50 +351,65 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 bottomBar = {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .graphicsLayer { this.alpha = dockAlpha }
-                                            .windowInsetsPadding(WindowInsets.navigationBars)
-                                            .centerInLargeScreen()
-                                            .onGloballyPositioned { coordinates ->
-                                                val pos = coordinates.positionInWindow()
-                                                dockPositionState.value = Offset(
-                                                    pos.x + (coordinates.size.width / 2f),
-                                                    pos.y + 28f
+                                    val showNavTabs = (currentRoute ?: "home") in topLevelRoutes
+                                    // Swipe-down dismissal is scoped to the current track:
+                                    // the dock auto-restores when a new track starts.
+                                    val dismissedForTrack = miniDockDismissedForTrack != null &&
+                                            miniDockDismissedForTrack == playerState.currentTrack?.id
+                                    val showMiniPlayerDock = hasTrack && !dismissedForTrack &&
+                                            (currentRoute == null || currentRoute !in immersiveRoutes)
+                                    if (showNavTabs || showMiniPlayerDock) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .graphicsLayer { this.alpha = dockAlpha }
+                                                .windowInsetsPadding(WindowInsets.navigationBars)
+                                                .centerInLargeScreen()
+                                                .onGloballyPositioned { coordinates ->
+                                                    val pos = coordinates.positionInWindow()
+                                                    dockPositionState.value = Offset(
+                                                        pos.x + (coordinates.size.width / 2f),
+                                                        pos.y + 28f
+                                                    )
+                                                }
+                                        ) {
+                                            // Docked Mini-Player (Directly above BottomNav with zero overlap)
+                                            AnimatedVisibility(
+                                                visible = showMiniPlayerDock && quantumController.dockReadyForUI,
+                                                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(200)),
+                                                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(200))
+                                            ) {
+                                                MiniPlayerBar(
+                                                    track = playerState.currentTrack,
+                                                    isPlaying = playerState.isPlaying,
+                                                    progressFlow = playerViewModel.progressFraction,
+                                                    isBuffering = playerState.isBuffering,
+                                                    onPlayPause = { playerViewModel.togglePlayPause() },
+                                                    onNext = { playerViewModel.skipNext() },
+                                                    onPrevious = { playerViewModel.skipPrevious() },
+                                                    onExpand = { isPlayerExpanded = true },
+                                                    onToggleLike = { playerViewModel.toggleLike() },
+                                                    onSwipeDown = {
+                                                        miniDockDismissedForTrack = playerState.currentTrack?.id
+                                                    },
+                                                    tokenController = quantumController
                                                 )
                                             }
-                                    ) {
-                                        // Docked Mini-Player (Directly above BottomNav with zero overlap)
-                                        AnimatedVisibility(
-                                            visible = hasTrack,
-                                            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(200)),
-                                            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(200))
-                                        ) {
-                                            MiniPlayerBar(
-                                                track = playerState.currentTrack,
-                                                isPlaying = playerState.isPlaying,
-                                                progress = progress,
-                                                onPlayPause = { playerViewModel.togglePlayPause() },
-                                                onNext = { playerViewModel.skipNext() },
-                                                onPrevious = { playerViewModel.skipPrevious() },
-                                                onExpand = { isPlayerExpanded = true },
-                                                onToggleLike = { playerViewModel.toggleLike() },
-                                                tokenController = quantumController
-                                            )
-                                        }
 
-                                        // Docked Bottom Navigation (100% accessible at all times)
-                                        YtBottomNavBar(
-                                            currentRoute = currentRoute,
-                                            onNavigate = { route ->
-                                                navController.navigate(route) {
-                                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                                    launchSingleTop = true
-                                                    restoreState = true
-                                                }
+                                            // Docked Bottom Navigation (top-level tab destinations only)
+                                            if (showNavTabs) {
+                                                YtBottomNavBar(
+                                                    currentRoute = currentRoute,
+                                                    onNavigate = { route ->
+                                                        navController.navigate(route) {
+                                                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                                            launchSingleTop = true
+                                                            restoreState = true
+                                                        }
+                                                    }
+                                                )
                                             }
-                                        )
+                                        }
                                     }
                                 },
                                 containerColor = BgBase
@@ -341,9 +468,10 @@ class MainActivity : ComponentActivity() {
                             FullPlayerSheet(
                                 track = playerState.currentTrack,
                                 isPlaying = playerState.isPlaying,
-                                progress = progress,
+                                positionFlow = playerViewModel.positionMs,
+                                progressFlow = playerViewModel.progressFraction,
+                                isBuffering = playerState.isBuffering,
                                 durationMs = playerState.duration,
-                                currentPositionMs = playerState.currentPosition,
                                 isShuffleActive = playerState.isShuffleActive,
                                 isRepeatActive = playerState.isRepeatActive,
                                 dominantColor = dominantColor,
@@ -386,6 +514,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            com.streamify.app.service.ThermalGovernorManager.handleLowMemory(this)
+        }
+    }
+
+    override fun onDestroy() {
+        try {
+            val dbPath = getDatabasePath("streamify_universal.db").absolutePath
+            com.streamify.app.data.NativeBridge.shutdown(dbPath)
+        } catch (e: Throwable) {
+            // Ignore
+        }
+        super.onDestroy()
+    }
 }
 
 private fun enqueueMediaScan(context: android.content.Context) {

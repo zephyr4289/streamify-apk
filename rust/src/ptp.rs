@@ -1,4 +1,39 @@
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct PtpPacket {
+    pub sequence_id: u32,
+    pub t0_origin_send: u64,      // Client departure
+    pub t1_host_receive: u64,     // Host arrival
+    pub t2_host_transmit: u64,    // Host departure
+    pub t3_client_receive: u64,   // Client arrival
+}
+
+pub struct PtpEngine;
+
+impl PtpEngine {
+    /// Computes hardware network delay (delta) and clock offset (theta) in microseconds
+    pub fn calculate_offset_and_delay(packet: &PtpPacket) -> (i64, i64) {
+        let t0 = packet.t0_origin_send as i64;
+        let t1 = packet.t1_host_receive as i64;
+        let t2 = packet.t2_host_transmit as i64;
+        let t3 = packet.t3_client_receive as i64;
+
+        let theta_offset_us = ((t1 - t0) + (t2 - t3)) / 2;
+        let delta_delay_us = ((t3 - t0) - (t2 - t1)) / 2;
+
+        (theta_offset_us, delta_delay_us)
+    }
+
+    pub fn get_system_micros() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_micros() as u64)
+            .unwrap_or(0)
+    }
+}
 
 pub struct PtpFilter {
     clock_offset_nanos: AtomicI64,

@@ -1,5 +1,6 @@
 package com.streamify.app.data
 
+import com.streamify.app.util.SLog
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.models.toTrack
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,7 @@ object TrackRepository {
     val likedTracks: StateFlow<List<Track>> = _likedTracks.asStateFlow()
 
     suspend fun refresh(): List<Track> = withContext(Dispatchers.IO) {
+        DatabaseInitializer.ensureInitialized()
         val prefs = appContext?.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
         val isLocalAudioEnabled = prefs?.getBoolean("enable_local_audio", false) ?: false
 
@@ -36,7 +38,9 @@ object TrackRepository {
 
         val finalTracks = if (isLocalAudioEnabled) allNative else cloudTracks
         _allTracks.value = finalTracks
-        _likedTracks.value = finalTracks.filter { it.isLiked }
+        val liked = finalTracks.filter { it.isLiked }
+        _likedTracks.value = liked
+        rebuildIndex(finalTracks, liked)
 
         // Background Cloud Sync (only sync cloud tracks to avoid local path pollution)
         try {
@@ -46,6 +50,31 @@ object TrackRepository {
         }
 
         finalTracks
+    }
+
+    private val _cadIdIndex = java.util.concurrent.ConcurrentHashMap<Long, Track>()
+    private val _idIndex = java.util.concurrent.ConcurrentHashMap<Int, Track>()
+    private val _videoIdIndex = java.util.concurrent.ConcurrentHashMap<String, Track>()
+    private val _filepathIndex = java.util.concurrent.ConcurrentHashMap<String, Track>()
+    @Volatile private var _likedIds = emptySet<Int>()
+    @Volatile private var _likedFnvSet = emptySet<Long>()
+
+    private fun rebuildIndex(tracks: List<Track>, liked: List<Track>) {
+        _idIndex.clear()
+        _videoIdIndex.clear()
+        _filepathIndex.clear()
+        _cadIdIndex.clear()
+
+        for (track in tracks) {
+            if (track.id > 0) _idIndex[track.id] = track
+            if (!track.ytmVideoId.isNullOrBlank()) _videoIdIndex[track.ytmVideoId] = track
+            if (track.filepath.isNotBlank()) _filepathIndex[track.filepath] = track
+            val hash = FuzzyTitleMatcher.extractRootHash("${track.title}\u0001${track.artist}")
+            if (hash != 0L) _cadIdIndex[hash] = track
+        }
+
+        _likedIds = liked.map { it.id }.filter { it > 0 }.toSet()
+        _likedFnvSet = liked.map { FuzzyTitleMatcher.extractRootHash("${it.title}\u0001${it.artist}") }.filter { it != 0L }.toSet()
     }
     
     suspend fun getAllTracks(): List<Track> = withContext(Dispatchers.IO) {
@@ -60,9 +89,26 @@ object TrackRepository {
     }
     
     suspend fun searchTracks(query: String): List<Track> = withContext(Dispatchers.IO) {
-        val likedIds = NativeBridge.getLikedTracks(1).map { it.id }.toSet()
-        val directMatches = NativeBridge.searchTracks(query).map { native ->
-            native.toTrack().copy(isLiked = likedIds.contains(native.id))
+        // Close the init race honestly: wait for the native DB instead of racing it.
+        // ensureInitialized() is an idempotent shared CompletableDeferred that always
+        // completes (even if initDatabase failed), so this never hangs.
+        DatabaseInitializer.ensureInitialized()
+        val likedIds = try {
+            NativeBridge.getLikedTracks(1).map { it.id }.toSet()
+        } catch (t: Throwable) {
+            SLog.e("TrackRepository", "Native liked-tracks fetch failed, degrading", t)
+            emptySet<Int>()
+        }
+        val directMatches = try {
+            NativeBridge.searchTracks(query).map { native ->
+                native.toTrack().copy(isLiked = likedIds.contains(native.id))
+            }
+        } catch (t: Throwable) {
+            // UnsatisfiedLinkError is an Error, not an Exception — only catch(Throwable)
+            // keeps a missing/mismatched native lib from killing the process. Degraded
+            // local search falls through to the fuzzy in-memory path below.
+            SLog.e("TrackRepository", "Native search failed, degrading to fuzzy fallback", t)
+            emptyList()
         }
         if (directMatches.isNotEmpty()) {
             return@withContext directMatches
@@ -85,11 +131,17 @@ object TrackRepository {
     suspend fun getLikedTracks(userId: Int = 1): List<Track> = withContext(Dispatchers.IO) {
         val liked = NativeBridge.getLikedTracks(userId).map { it.toTrack().copy(isLiked = true) }
         _likedTracks.value = liked
+        _likedIds = liked.map { it.id }.filter { it > 0 }.toSet()
+        _likedFnvSet = liked.map { FuzzyTitleMatcher.extractRootHash("${it.title}\u0001${it.artist}") }.filter { it != 0L }.toSet()
         liked
     }
     
     fun isTrackLiked(track: Track): Boolean {
-        if (track.id > 0 && _likedTracks.value.any { it.id == track.id }) {
+        if (track.id > 0 && _likedIds.contains(track.id)) {
+            return true
+        }
+        val hash = FuzzyTitleMatcher.extractRootHash("${track.title}\u0001${track.artist}")
+        if (hash != 0L && _likedFnvSet.contains(hash)) {
             return true
         }
         return _likedTracks.value.any { liked ->
@@ -99,25 +151,53 @@ object TrackRepository {
 
     fun hydrateTrack(track: Track): Track {
         val liked = isTrackLiked(track)
-        val matchedInDb = if (track.id <= 0) {
-            _allTracks.value.find { 
+        val matchedInDb = if (track.id > 0) {
+            _idIndex[track.id] ?: _allTracks.value.find { it.id == track.id }
+        } else {
+            // O(1) Fast paths: Direct VideoId -> Filepath -> FNV-1a Root Hash
+            val byVid = track.ytmVideoId?.let { _videoIdIndex[it] }
+            val byPath = if (track.filepath.isNotBlank()) _filepathIndex[track.filepath] else null
+            val rootHash = FuzzyTitleMatcher.extractRootHash("${track.title}\u0001${track.artist}")
+            val byHash = if (rootHash != 0L) {
+                val candidate = _cadIdIndex[rootHash]
+                // 6-second tolerance check to prevent duration poisoning across remix variations
+                if (candidate != null && (candidate.durationSec <= 0 || track.durationSec <= 0 || kotlin.math.abs(candidate.durationSec - track.durationSec) <= 6)) {
+                    candidate
+                } else null
+            } else null
+
+            byVid ?: byPath ?: byHash ?: _allTracks.value.find {
                 it.id > 0 && (
-                    it.filepath == track.filepath || 
-                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
+                    it.filepath == track.filepath ||
+                    // Identity guard: two tracks carrying DIFFERENT explicit video
+                    // IDs are provably different recordings — never let weak fuzzy
+                    // matching merge them (poisoned-pin protection: adopting the
+                    // wrong row's id lets vault-swaps serve wrong audio and lets
+                    // registerStreamedTrack overwrite another song's canonical pin).
+                    (it.ytmVideoId != null && track.ytmVideoId != null && it.ytmVideoId == track.ytmVideoId) ||
+                    (
+                        com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist) &&
+                        // Artist gate: title-only fuzzy matching used to merge
+                        // different artists' same-titled songs into one identity.
+                        com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(it.artist, track.artist) &&
+                        // Same rule inside the fuzzy branch: conflicting explicit IDs veto the merge.
+                        (it.ytmVideoId == null || track.ytmVideoId == null || it.ytmVideoId == track.ytmVideoId)
+                    )
                 )
             }
-        } else {
-            _allTracks.value.find { it.id == track.id }
         }
+
+        val resolvedVid = track.ytmVideoId ?: matchedInDb?.ytmVideoId ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
 
         return if (matchedInDb != null) {
             track.copy(
                 id = matchedInDb.id,
                 coverArtPath = if (!matchedInDb.coverArtPath.isNullOrBlank()) matchedInDb.coverArtPath else track.coverArtPath,
-                isLiked = liked
+                isLiked = liked,
+                ytmVideoId = resolvedVid
             )
         } else {
-            track.copy(isLiked = liked)
+            track.copy(isLiked = liked, ytmVideoId = resolvedVid)
         }
     }
 
@@ -127,14 +207,25 @@ object TrackRepository {
         addToDefaultPlaylist: Boolean = false
     ): Track = withContext(Dispatchers.IO) {
         val albumName = if (track.album.isNotBlank() && !track.album.equals("Single", ignoreCase = true)) track.album else "Streamify"
-        var canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
-        if (canonicalPath.startsWith("ytsearch:") || canonicalPath.isBlank()) {
-            val cid = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(track)
-            if (cid.length == 11 && cid != "dQw4w9WgXcQ") {
-                canonicalPath = "https://www.youtube.com/watch?v=$cid"
+
+        // 1. Guard against canonical overwrites: prioritize explicit ytmVideoId or extracted ID
+        val existingVideoId = track.ytmVideoId?.takeIf { com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(it) != null }
+            ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+
+        var canonicalPath = if (!existingVideoId.isNullOrBlank()) {
+            "https://www.youtube.com/watch?v=$existingVideoId"
+        } else {
+            var path = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
+            if (path.startsWith("ytsearch:") || path.isBlank()) {
+                val cid = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(track)
+                if (cid.length == 11 && cid != "dQw4w9WgXcQ") {
+                    path = "https://www.youtube.com/watch?v=$cid"
+                }
             }
+            path
         }
-        val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
+
+        val videoId = existingVideoId ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
         val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
 
 
@@ -168,7 +259,8 @@ object TrackRepository {
             coverArtPath = sanitizedCover,
             album = albumName,
             source = "online_stream",
-            isLiked = isLikedInDb
+            isLiked = isLikedInDb,
+            ytmVideoId = videoId
         )
 
         if (savedId > 0) {
@@ -312,14 +404,23 @@ object TrackRepository {
     }
 
     suspend fun upsertStreamedTrack(track: Track): Int = withContext(Dispatchers.IO) {
-        var canonicalPath = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
-        if (canonicalPath.startsWith("ytsearch:") || canonicalPath.isBlank()) {
-            val cid = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(track)
-            if (cid.length == 11 && cid != "dQw4w9WgXcQ") {
-                canonicalPath = "https://www.youtube.com/watch?v=$cid"
+        val existingVideoId = track.ytmVideoId?.takeIf { com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(it) != null }
+            ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+
+        var canonicalPath = if (!existingVideoId.isNullOrBlank()) {
+            "https://www.youtube.com/watch?v=$existingVideoId"
+        } else {
+            var path = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(track.filepath, track.title, track.artist, track.coverArtPath)
+            if (path.startsWith("ytsearch:") || path.isBlank()) {
+                val cid = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(track)
+                if (cid.length == 11 && cid != "dQw4w9WgXcQ") {
+                    path = "https://www.youtube.com/watch?v=$cid"
+                }
             }
+            path
         }
-        val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
+
+        val videoId = existingVideoId ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalPath, track.coverArtPath)
         val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
 
 
@@ -334,7 +435,7 @@ object TrackRepository {
             bpm = track.bpm,
             key = track.key
         )
-        val sanitizedTrack = track.copy(id = id, filepath = canonicalPath, coverArtPath = sanitizedCover)
+        val sanitizedTrack = track.copy(id = id, filepath = canonicalPath, coverArtPath = sanitizedCover, ytmVideoId = videoId)
         // Also mirror to Supabase cloud catalog asynchronously
         try {
             com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(sanitizedTrack)
@@ -421,6 +522,15 @@ object TrackRepository {
             seedTrack = seedTrack,
             limit = limit
         )
+    }
+
+    suspend fun getEmergencyComfortTrack(): Track? = withContext(Dispatchers.IO) {
+        val liked = getLikedTracks(1)
+        if (liked.isNotEmpty()) {
+            liked.shuffled().firstOrNull()
+        } else {
+            getTopPlayedTracks(10).shuffled().firstOrNull()
+        }
     }
 
     fun hardResetState() {

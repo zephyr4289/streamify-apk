@@ -61,6 +61,10 @@ class ScheduledAudioScheduler(
                         }
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Cancelled (superseded or aborted): MUST rethrow — swallowing
+                // it made cancel() trigger immediate playback.
+                throw e
             } catch (e: Exception) {
                 // If scheduled execution fails, fallback to immediate playback
                 withContext(Dispatchers.Main) {
@@ -73,5 +77,9 @@ class ScheduledAudioScheduler(
 
     fun cancel() {
         scheduledJob?.cancel()
+    }
+
+    fun release() {
+        scope.cancel()
     }
 }

@@ -7,6 +7,7 @@ import com.streamify.app.data.models.LyricsData
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.LyricsResolver
+import com.streamify.app.data.network.YouTubeStreamResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -28,13 +29,52 @@ object LyricsCacheManager {
 
     // In-memory pinned cache for active and lookahead tracks (Direct ByteBuffers)
     private val memorySlyrCache = ConcurrentHashMap<String, ByteBuffer>()
+    private var currentlyPlayingTrackIdStr: String? = null
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 4: PINNED MEMORY STORE & DRIFT CALIBRATION
+    // ═══════════════════════════════════════════════════════════════
+    fun pinTrack(trackId: String, rawSlyrBytes: ByteArray) {
+        currentlyPlayingTrackIdStr = trackId
+        val directBuffer = ByteBuffer.allocateDirect(rawSlyrBytes.size).apply {
+            order(ByteOrder.nativeOrder())
+            put(rawSlyrBytes)
+            flip()
+        }
+        memorySlyrCache[trackId] = directBuffer
+    }
+
+    fun getActiveLineIndex(trackId: String, playheadMs: Long): Int {
+        val buffer = memorySlyrCache[trackId] ?: return -1
+        val rawArray = ByteArray(buffer.remaining())
+        val position = buffer.position()
+        buffer.get(rawArray)
+        buffer.position(position)
+
+        return NativeBridge.findActiveSlyrLine(rawArray, rawArray.size, playheadMs.toInt())
+    }
+
+    fun calibrateDrift(vocalEnergy100Hz: FloatArray, lyricOnsets100Hz: FloatArray): Int {
+        return NativeBridge.calculateDriftOffset(
+            vocalEnergy100Hz, vocalEnergy100Hz.size,
+            lyricOnsets100Hz, lyricOnsets100Hz.size
+        )
+    }
+
+    fun evictUnpinned() {
+        memorySlyrCache.keys.removeIf { it != currentlyPlayingTrackIdStr }
+    }
 
     // Bluetooth latency offset cache (milliseconds)
     @Volatile
     private var bluetoothDelayMs: Int = 0
 
     private fun getTrackHash(title: String, artist: String): String {
-        val input = "$title - $artist".lowercase()
+        // Sanitized canonical keys: raw metadata noise ("(Official Video)", "- Topic", "Remastered")
+        // must not fork separate cache slots for the same underlying song.
+        val safeTitle = LyricsResolver.sanitizeCacheKeyTitle(title)
+        val safeArtist = LyricsResolver.sanitizeCacheKeyArtist(artist)
+        val input = "$safeTitle - $safeArtist".lowercase()
         val md = MessageDigest.getInstance("MD5")
         return md.digest(input.toByteArray()).joinToString("") { "%02x".format(it) }
     }
@@ -122,7 +162,19 @@ object LyricsCacheManager {
         null
     }
 
-    suspend fun getOrFetchLyrics(context: Context, track: Track): List<LyricsLine> = withContext(Dispatchers.IO) {
+    /**
+     * Loads lyrics for a track: DB path → companion .lrc → disk LRU cache → network.
+     *
+     * @param allowNetwork when false, only local sources are consulted. UI surfaces
+     * (nav graph, player sheets) MUST pass false — PlayerViewModel is the single
+     * network fetch owner, which prevents duplicate racing requests and guarantees
+     * the exact pinned videoId is used for resolution.
+     */
+    suspend fun getOrFetchLyrics(
+        context: Context,
+        track: Track,
+        allowNetwork: Boolean = true
+    ): List<LyricsLine> = withContext(Dispatchers.IO) {
         // 1. Check if track already has explicit lyricsPath
         if (!track.lyricsPath.isNullOrBlank()) {
             val file = File(track.lyricsPath)
@@ -160,21 +212,28 @@ object LyricsCacheManager {
             }
         }
 
-        // 4. Asynchronously fetch from Native Kotlin Multi-Provider LyricsResolver (<100ms)
-        try {
-            val lrcContent = LyricsResolver.fetchSyncedLyrics(track.title, track.artist, track.durationSec)
-            if (!lrcContent.isNullOrBlank()) {
-                cachedFile.writeText(lrcContent)
+        // 4. Network fetch from the Multi-Provider LyricsResolver (identity-verified).
+        // The exact pinned videoId is forwarded so YTM ATV timed lyrics resolve
+        // against the actual playing upload instead of a fuzzy text-search guess.
+        if (allowNetwork) {
+            try {
+                val vid = track.ytmVideoId
+                    ?: YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+                    ?: ""
+                val lrcContent = LyricsResolver.fetchSyncedLyrics(track.title, track.artist, track.durationSec, vid)
+                if (!lrcContent.isNullOrBlank()) {
+                    cachedFile.writeText(lrcContent)
 
-                // If this is a local track, write companion .lrc
-                if (track.filepath.isNotBlank() && !track.filepath.startsWith("http")) {
-                    saveCompanionLyrics(track.filepath, lrcContent)
+                    // If this is a local track, write companion .lrc
+                    if (track.filepath.isNotBlank() && !track.filepath.startsWith("http")) {
+                        saveCompanionLyrics(track.filepath, lrcContent)
+                    }
+
+                    return@withContext LyricsData.parseLrc(lrcContent).lines
                 }
-
-                return@withContext LyricsData.parseLrc(lrcContent).lines
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
 
         emptyList()
@@ -199,6 +258,24 @@ object LyricsCacheManager {
             // 1. Write to local app disk LRU cache
             val cachedFile = getCachedLyricsFile(context, track.title, track.artist)
             cachedFile.writeText(lrcContent)
+
+            // 1b. SHADOWING FIX (L1): the player's fetch pipeline mirrors lyrics
+            // to Downloads/.Streamify/lyrics/{id}.lrc and stamps it as
+            // track.lyricsPath — getOrFetchLyrics prefers THAT path first.
+            // Keep the mirror byte-identical so a saved sync is never silently
+            // shadowed by a stale unshifted original within the same session.
+            if (track.id > 0) {
+                try {
+                    val mirror = java.io.File(
+                        java.io.File(
+                            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                            ".Streamify/lyrics"
+                        ),
+                        "${track.id}.lrc"
+                    )
+                    if (mirror.exists()) mirror.writeText(lrcContent)
+                } catch (_: Exception) { }
+            }
 
             // 2. Clear memory SLYR cache for this track so fresh buffer is recomputed
             val hash = getTrackHash(track.title, track.artist)

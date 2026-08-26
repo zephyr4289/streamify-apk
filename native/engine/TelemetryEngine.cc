@@ -1,6 +1,6 @@
 #include "TelemetryEngine.h"
 #include "StreamifyDB.h"
-#include <android/log.h>
+#include "../util/stlog.h"
 #include <cmath>
 
 #define LOG_TAG "TelemetryEngine"

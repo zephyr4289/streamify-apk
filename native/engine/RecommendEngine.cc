@@ -145,6 +145,11 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
 
     std::unordered_set<int> candidate_ids_added;
 
+    // HOISTED out of the candidate loop: this query is IDENTICAL for every
+    // candidate (same anchor, same limit) but was previously re-executed —
+    // statement prepare + full scan — once per candidate (~100x per call).
+    const std::vector<int> cooccur_for_anchor = db.getCooccurrenceCandidates(currentTrackId, 10);
+
     if (!nearestResults.empty()) {
         for (const auto& res : nearestResults) {
             auto candidateTrack = db.getTrackByVectorOffset(res.vector_offset);
@@ -203,8 +208,7 @@ std::vector<Recommendation> RecommendEngine::getNextTracks(int currentTrackId, c
 
             // Project Nexus & Chronos: Co-occurrence graph boost & Satiation burnout penalty
             float cooccur_boost = 0.0f;
-            auto cooccurList = db.getCooccurrenceCandidates(currentTrackId, 10);
-            if (std::find(cooccurList.begin(), cooccurList.end(), track_id) != cooccurList.end()) {
+            if (std::find(cooccur_for_anchor.begin(), cooccur_for_anchor.end(), track_id) != cooccur_for_anchor.end()) {
                 cooccur_boost = 0.35f;
             }
             float satiation_penalty = ChronosProfiler::getInstance().calculateSatiationPenalty(track_id, std::time(nullptr) * 1000LL);

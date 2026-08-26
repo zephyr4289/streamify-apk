@@ -30,7 +30,8 @@ fun TrackListItem(
     onClick: () -> Unit,
     onOptionsClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isPlaying: Boolean = false
+    isPlaying: Boolean = false,
+    isBuffering: Boolean = false
 ) {
     Row(
         modifier = modifier
@@ -64,7 +65,16 @@ fun TrackListItem(
                         .background(StreamifyColors.BgBase.copy(alpha = 0.6f), StreamifyShapes.MiniPlayerShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    NowPlayingIndicator()
+                    if (isBuffering) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = StreamifyColors.Primary,
+                            strokeWidth = 2.dp,
+                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                        )
+                    } else {
+                        NowPlayingIndicator()
+                    }
                 }
             }
         }
@@ -146,7 +156,8 @@ fun SwipeableTrackListItem(
     onSwipeQueue: (() -> Unit)? = null,
     onSwipeLike: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    isPlaying: Boolean = false
+    isPlaying: Boolean = false,
+    isBuffering: Boolean = false
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val dismissState = androidx.compose.material3.rememberSwipeToDismissBoxState(
@@ -206,7 +217,8 @@ fun SwipeableTrackListItem(
             onClick = onClick,
             onOptionsClick = onOptionsClick,
             modifier = modifier.background(StreamifyColors.BgBase),
-            isPlaying = isPlaying
+            isPlaying = isPlaying,
+            isBuffering = isBuffering
         )
     }
 }

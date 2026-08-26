@@ -25,11 +25,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track
+import com.streamify.app.service.LyricOffsetStore
 import com.streamify.app.service.LyricPlaybackController
 import com.streamify.app.ui.components.YtLyricsHeader
 import com.streamify.app.ui.components.YtSyllableLine
 import com.streamify.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -37,7 +39,10 @@ import kotlinx.coroutines.withContext
 fun LyricsScreen(
     track: Track? = null,
     lyrics: List<LyricsLine>,
-    currentPositionMs: Long,
+    // HOT flow: seeded into the lyric clock via snapshotFlow — the screen's
+    // composition never recomposes for playhead ticks.
+    positionFlow: StateFlow<Long>,
+    isPlaying: Boolean = true,
     dominantColor: Color = BgBase,
     onSeek: (Long) -> Unit,
     onClose: (() -> Unit)? = null
@@ -51,8 +56,16 @@ fun LyricsScreen(
     // 1. 120 FPS Sub-Frame Continuous Frame-Clock Controller
     val lyricController = remember { LyricPlaybackController() }
 
-    LaunchedEffect(currentPositionMs) {
-        lyricController.targetPositionMs = currentPositionMs
+    // L2: per-track persisted offsets — nudges survive navigation & restarts
+    LaunchedEffect(track?.id, track?.title, track?.artist) {
+        lyricController.bindTrack(LyricOffsetStore.keyOfTrack(track))
+    }
+
+    LaunchedEffect(positionFlow, isPlaying) {
+        lyricController.isPlaying = isPlaying
+        positionFlow.collect { pos ->
+            lyricController.targetPositionMs = pos
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -254,7 +267,8 @@ fun LyricsScreen(
                             text = line.text,
                             lineStartMs = line.timeMs,
                             lineEndMs = nextLineTime,
-                            currentPlaybackMs = lyricController.interpolatedPosMs,
+                            // Draw-phase-only read: rows never recompose per frame.
+                            playbackMsProvider = { lyricController.interpolatedPosMs },
                             isActive = isActive,
                             isPast = isPast,
                             onClick = { onSeek(line.timeMs) }

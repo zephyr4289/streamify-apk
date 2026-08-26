@@ -270,36 +270,7 @@ impl InnertubeParser {
                 return Some(url.to_string());
             }
         }
-
-        // Extract from signatureCipher or cipher
-        let cipher = f.get("signatureCipher").or_else(|| f.get("cipher")).and_then(|c| c.as_str())?;
-        let mut raw_url = None;
-        let mut sig = None;
-        let mut sp = "sig";
-
-        for part in cipher.split('&') {
-            let mut split = part.splitn(2, '=');
-            let k = split.next()?;
-            let v = split.next()?;
-            let decoded = urlencoding::decode(v).ok()?.into_owned();
-            match k {
-                "url" => raw_url = Some(decoded),
-                "s" => sig = Some(decoded),
-                "sp" => sp = "sig", // Default sig param
-                _ => {}
-            }
-        }
-
-        if let Some(u) = raw_url {
-            if let Some(s) = sig {
-                let sep = if u.contains('?') { '&' } else { '?' };
-                Some(format!("{}{}{}={}", u, sep, sp, s))
-            } else {
-                Some(u)
-            }
-        } else {
-            None
-        }
+        None
     }
 
     pub fn parse_duration_str(s: &str) -> u32 {
@@ -320,4 +291,213 @@ impl InnertubeParser {
             _ => 0,
         }
     }
+
+    pub fn extract_best_stream_info(raw_json: &str) -> Option<ExtractedStreamInfo> {
+        let root: Value = serde_json::from_str(raw_json).ok()?;
+
+        let loudness_db = root
+            .pointer("/playerConfig/audioConfig/loudnessDb")
+            .and_then(|v| v.as_f64())
+            .map(|f| f as f32);
+
+        let mut formats_list = Vec::new();
+        if let Some(adaptive) = root.pointer("/streamingData/adaptiveFormats").and_then(|v| v.as_array()) {
+            formats_list.extend(adaptive.iter().cloned());
+        }
+        if let Some(formats) = root.pointer("/streamingData/formats").and_then(|v| v.as_array()) {
+            formats_list.extend(formats.iter().cloned());
+        }
+
+        let mut candidate_streams = Vec::new();
+        for f in &formats_list {
+            if let Some(url) = Self::extract_format_url(f) {
+                let mime_type = f.get("mimeType").and_then(|m| m.as_str()).unwrap_or("").to_string();
+                let bitrate = f.get("bitrate").and_then(|b| b.as_u64()).unwrap_or(0) as u32;
+                let itag = f.get("itag").and_then(|i| i.as_u64()).unwrap_or(0) as u32;
+                let is_audio = mime_type.starts_with("audio/");
+                let approx_duration_ms = f
+                    .get("approxDurationMs")
+                    .and_then(|d| d.as_str())
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(0);
+
+                let is_opus = mime_type.contains("opus") || itag == 251;
+                let is_aac = mime_type.contains("mp4a") || itag == 140;
+
+                // Priority score: Audio Opus > Audio AAC > other audio > video
+                let priority: u32 = if is_opus {
+                    300_000 + bitrate
+                } else if is_aac {
+                    200_000 + bitrate
+                } else if is_audio {
+                    100_000 + bitrate
+                } else {
+                    bitrate
+                };
+
+                let expire_epoch = url
+                    .split('?')
+                    .nth(1)
+                    .unwrap_or("")
+                    .split('&')
+                    .find(|p| p.starts_with("expire="))
+                    .and_then(|p| p.strip_prefix("expire="))
+                    .and_then(|e| e.parse::<u64>().ok())
+                    .unwrap_or(0);
+
+                candidate_streams.push((
+                    priority,
+                    ExtractedStreamInfo {
+                        stream_url: url,
+                        mime_type,
+                        bitrate,
+                        duration_sec: approx_duration_ms / 1000,
+                        loudness_db,
+                        expiration_epoch: expire_epoch,
+                    },
+                ));
+            }
+        }
+
+        candidate_streams.sort_by(|a, b| b.0.cmp(&a.0));
+        candidate_streams.into_iter().next().map(|(_, stream)| stream)
+    }
+
+    pub fn extract_stream_verdict(raw_json: &str) -> Option<StreamVerdict> {
+        let root: Value = serde_json::from_str(raw_json).ok()?;
+
+        let status = root
+            .pointer("/playabilityStatus/status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let reason = root
+            .pointer("/playabilityStatus/reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let loudness_db = root
+            .pointer("/playerConfig/audioConfig/loudnessDb")
+            .and_then(|v| v.as_f64())
+            .map(|f| f as f32);
+
+        let mut formats_list = Vec::new();
+        if let Some(adaptive) = root.pointer("/streamingData/adaptiveFormats").and_then(|v| v.as_array()) {
+            formats_list.extend(adaptive.iter().cloned());
+        }
+        if let Some(formats) = root.pointer("/streamingData/formats").and_then(|v| v.as_array()) {
+            formats_list.extend(formats.iter().cloned());
+        }
+
+        let mut direct_formats = Vec::new();
+        let mut ciphered_count = 0u32;
+
+        for f in &formats_list {
+            let mime_type = f.get("mimeType").and_then(|m| m.as_str()).unwrap_or("").to_string();
+            let is_audio = mime_type.starts_with("audio/");
+
+            if let Some(url) = f.get("url").and_then(|u| u.as_str()) {
+                if !url.is_empty() && is_audio {
+                    let bitrate = f.get("bitrate").and_then(|b| b.as_u64()).unwrap_or(0) as u32;
+                    let itag = f.get("itag").and_then(|i| i.as_u64()).unwrap_or(0) as u32;
+                    let approx_duration_ms = f
+                        .get("approxDurationMs")
+                        .and_then(|d| d.as_str())
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(0);
+
+                    let format_loudness = f
+                        .get("loudnessDb")
+                        .and_then(|v| v.as_f64())
+                        .map(|v| v as f32)
+                        .or(loudness_db);
+
+                    direct_formats.push(DirectFormat {
+                        url: url.to_string(),
+                        mime_type,
+                        bitrate,
+                        duration_sec: approx_duration_ms / 1000,
+                        itag,
+                        loudness_db: format_loudness,
+                    });
+                }
+            } else if (f.get("signatureCipher").is_some() || f.get("cipher").is_some()) && is_audio {
+                ciphered_count += 1;
+            }
+        }
+
+        // Sort direct formats: Opus (251) > AAC (140) > highest bitrate
+        direct_formats.sort_by(|a, b| {
+            let a_score = if a.itag == 251 || a.mime_type.contains("opus") { 300_000 + a.bitrate }
+                          else if a.itag == 140 || a.mime_type.contains("mp4a") { 200_000 + a.bitrate }
+                          else { a.bitrate };
+            let b_score = if b.itag == 251 || b.mime_type.contains("opus") { 300_000 + b.bitrate }
+                          else if b.itag == 140 || b.mime_type.contains("mp4a") { 200_000 + b.bitrate }
+                          else { b.bitrate };
+            b_score.cmp(&a_score)
+        });
+
+        Some(StreamVerdict {
+            status,
+            reason,
+            direct_formats,
+            ciphered_count,
+        })
+    }
+
+    pub fn extract_session_tokens(html: &str) -> Option<ExtractedSessionTokens> {
+        let visitor_id = regex::Regex::new(r#""visitorData"\s*:\s*"([^"]+)""#)
+            .ok()?
+            .captures(html)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+
+        let sts = regex::Regex::new(r#""signatureTimestamp"\s*:\s*(\d+)"#)
+            .ok()?
+            .captures(html)
+            .and_then(|cap| cap.get(1))
+            .and_then(|m| m.as_str().parse::<u32>().ok());
+
+        Some(ExtractedSessionTokens {
+            visitor_id,
+            signature_timestamp: sts,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectFormat {
+    pub url: String,
+    pub mime_type: String,
+    pub bitrate: u32,
+    pub duration_sec: u32,
+    pub itag: u32,
+    pub loudness_db: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamVerdict {
+    pub status: String,
+    pub reason: String,
+    pub direct_formats: Vec<DirectFormat>,
+    pub ciphered_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedStreamInfo {
+    pub stream_url: String,
+    pub mime_type: String,
+    pub bitrate: u32,
+    pub duration_sec: u32,
+    pub loudness_db: Option<f32>,
+    pub expiration_epoch: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedSessionTokens {
+    pub visitor_id: String,
+    pub signature_timestamp: Option<u32>,
 }

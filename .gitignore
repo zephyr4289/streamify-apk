@@ -42,3 +42,16 @@ Cargo.lock
 *.jks
 *.keystore
 !app/debug.keystore
+
+# Scratch Plans
+nano/
+
+# Testing & Diagnostics
+test-build.log
+test-log.md
+test-results/
+test_results/
+reports/
+*.log
+!docs/*.md
+test_lyrics_benchmark/

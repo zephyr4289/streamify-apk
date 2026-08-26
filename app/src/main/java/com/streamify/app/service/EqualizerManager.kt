@@ -72,8 +72,10 @@ object EqualizerManager {
         initSession(audioSessionId)
     }
 
+    @Synchronized
     fun initSession(audioSessionId: Int) {
         release()
+        if (audioSessionId <= 0) return
         try {
             equalizer = Equalizer(0, audioSessionId)
             bassBoost = BassBoost(0, audioSessionId)
@@ -131,11 +133,9 @@ object EqualizerManager {
             val db = if (i < preset.bandDbs.size) preset.bandDbs[i] else 0
             val levelMb = (db * 100).toShort().coerceIn(minEqLevel, maxEqLevel)
             currentBands[i] = currentBands[i].copy(level = levelMb)
-            try {
-                equalizer?.setBandLevel(i.toShort(), levelMb)
-            } catch (e: Exception) {}
         }
         _bands.value = currentBands
+        applyBandGains(currentBands)
 
         setBassStrength(preset.bassStrength)
         setVirtualizerStrength(preset.virtualizerStrength)
@@ -162,15 +162,40 @@ object EqualizerManager {
         virtualizer?.enabled = enabled
     }
 
+    /**
+     * PHASE 2 EQ ENGINE ROUTING: on 44.1 kHz streams the Rust float parametric
+     * biquads own equalization (gains published to the render processor, and
+     * the system effect is bypassed to prevent double-EQ). Every other sample
+     * rate keeps the legacy system-Equalizer path unchanged.
+     */
+    private fun applyBandGains(currentBands: List<EqBand>) {
+        val rustOwns = StreamifyAudioProcessor.activeEqEngine == "RUST"
+        for (i in currentBands.indices) {
+            val levelMb = currentBands[i].level
+            if (rustOwns) continue // published wholesale below
+            try { equalizer?.setBandLevel(i.toShort(), levelMb) } catch (_: Exception) {}
+        }
+        if (rustOwns && currentBands.isNotEmpty()) {
+            val gains = FloatArray(currentBands.size.coerceAtMost(10)) { i ->
+                currentBands[i].level / 100f   // milliBel → dB
+            }
+            StreamifyAudioProcessor.eqBandGainsDb = if (gains.size == 10) gains else gains.copyOf(10)
+        }
+    }
+
     fun setBandLevel(bandIndex: Short, level: Short) {
         try {
             _activePresetName.value = "Custom"
             prefs?.edit()?.putString("active_preset", "Custom")?.apply()
-            equalizer?.setBandLevel(bandIndex, level)
+            val rustOwns = StreamifyAudioProcessor.activeEqEngine == "RUST"
+            if (!rustOwns) {
+                try { equalizer?.setBandLevel(bandIndex, level) } catch (_: Exception) {}
+            }
             val current = _bands.value.toMutableList()
             if (bandIndex < current.size) {
                 current[bandIndex.toInt()] = current[bandIndex.toInt()].copy(level = level)
                 _bands.value = current
+                applyBandGains(current)
             }
         } catch (e: Exception) { e.printStackTrace() }
     }
@@ -187,11 +212,17 @@ object EqualizerManager {
         try { virtualizer?.setStrength(strength) } catch (e: Exception) {}
     }
 
+    @Synchronized
     fun release() {
-        equalizer?.release()
-        bassBoost?.release()
-        virtualizer?.release()
-        loudnessEnhancer?.release()
+        val effects = listOf(equalizer, bassBoost, virtualizer, loudnessEnhancer)
+        effects.forEach { effect ->
+            runCatching {
+                if (effect?.enabled == true) {
+                    effect.enabled = false
+                }
+                effect?.release()
+            }
+        }
         equalizer = null
         bassBoost = null
         virtualizer = null

@@ -28,6 +28,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.streamify.app.jam.JamEngine
 import com.streamify.app.ui.components.YtActiveEqualizer
 import com.streamify.app.ui.components.YtThumbnail
 import com.streamify.app.ui.theme.*
@@ -47,6 +49,20 @@ fun JamSessionScreen(
     var inputRoomCode by remember { mutableStateOf("") }
     var showAddSongSheet by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
+
+    // Invite deep link: streamify://jam/CODE — auto-populate and auto-join.
+    LaunchedEffect(Unit) {
+        JamEngine.pendingInviteCode?.let { code ->
+            inputRoomCode = code
+        }
+    }
+    LaunchedEffect(jamState) {
+        val pending = JamEngine.pendingInviteCode ?: return@LaunchedEffect
+        if (jamState is JamUiState.Idle && pending.isNotBlank()) {
+            JamEngine.pendingInviteCode = null
+            jamViewModel.joinJam(pending, playerViewModel)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -109,7 +125,7 @@ fun JamSessionScreen(
                     // Start Jam Room Button
                     Button(
                         onClick = {
-                            jamViewModel.startJam(playerState.currentTrack, playerState.currentPosition)
+                            jamViewModel.startJam(playerState.currentTrack, playerViewModel.currentPositionMs())
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ActiveControl),
                         shape = RoundedCornerShape(24.dp),
@@ -201,6 +217,9 @@ fun JamSessionScreen(
             is JamUiState.Active -> {
                 val session = state.session
                 val jamQueue by jamViewModel.jamQueue.collectAsState()
+                val roomMembers by jamViewModel.members.collectAsState()
+                val connStatus by jamViewModel.connStatus.collectAsState()
+                val controlPolicy by jamViewModel.policy.collectAsState()
 
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     // Active Room Banner Card
@@ -221,6 +240,34 @@ fun JamSessionScreen(
                                 ),
                                 color = Primary
                             )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            // Lockstep connection telemetry
+                            Surface(
+                                color = when (connStatus) {
+                                    JamEngine.ConnStatus.LIVE -> Color(0xFF10B981).copy(alpha = 0.15f)
+                                    JamEngine.ConnStatus.DEGRADED -> Color(0xFFF59E0B).copy(alpha = 0.18f)
+                                    JamEngine.ConnStatus.OFFLINE -> Color(0xFFEF4444).copy(alpha = 0.16f)
+                                },
+                                shape = RoundedCornerShape(20.dp)
+                            ) {
+                                Text(
+                                    text = when (connStatus) {
+                                        JamEngine.ConnStatus.LIVE -> "● LOCKSTEP LIVE"
+                                        JamEngine.ConnStatus.DEGRADED -> "● RECOVERING CLOCK…"
+                                        JamEngine.ConnStatus.OFFLINE -> "○ OFFLINE"
+                                    },
+                                    style = LocalAppTypography.current.songArtist.copy(
+                                        fontSize = 10.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold
+                                    ),
+                                    color = when (connStatus) {
+                                        JamEngine.ConnStatus.LIVE -> Color(0xFF10B981)
+                                        JamEngine.ConnStatus.DEGRADED -> Color(0xFFF59E0B)
+                                        JamEngine.ConnStatus.OFFLINE -> Color(0xFFEF4444)
+                                    },
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                )
+                            }
 
                             Spacer(modifier = Modifier.height(6.dp))
 
@@ -514,40 +561,148 @@ fun JamSessionScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    val participants = session.participantIds.ifEmpty { listOf("Host") }
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        items(participants) { participant ->
+                    // Live presence roster (Lockstep Engine): avatars, host crown, self tag
+                    val roster = if (roomMembers.isEmpty())
+                        listOf(JamEngine.Member(session.hostUserId, "Host", null, true, 0L))
+                    else roomMembers.sortedByDescending { it.isHost }
+
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        items(roster, key = { it.userId }) { m ->
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(BgSurfaceElevated)
-                                        .border(1.5.dp, Primary, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = participant.take(1).uppercase(),
-                                        color = TextMain,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp
-                                    )
+                                Box {
+                                    if (!m.avatarUrl.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = m.avatarUrl,
+                                            contentDescription = m.name,
+                                            modifier = Modifier
+                                                .size(52.dp)
+                                                .clip(CircleShape)
+                                                .border(
+                                                    if (m.isHost) 2.dp else 1.dp,
+                                                    if (m.isHost) Primary else TextTertiary,
+                                                    CircleShape
+                                                )
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(52.dp)
+                                                .clip(CircleShape)
+                                                .background(BgSurfaceElevated)
+                                                .border(
+                                                    if (m.isHost) 2.dp else 1.dp,
+                                                    if (m.isHost) Primary else TextTertiary,
+                                                    CircleShape
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = m.name.take(1).uppercase(),
+                                                color = TextMain,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 18.sp
+                                            )
+                                        }
+                                    }
+                                    if (m.isHost) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .size(20.dp)
+                                                .clip(CircleShape)
+                                                .background(Primary),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(text = "★", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                        }
+                                    }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = if (participant == session.hostUserId) "Host" else "Listener",
-                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 10.sp),
-                                    color = TextSecondary
+                                    text = m.name.ifBlank { "Listener" },
+                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                                    fontWeight = if (m.userId == session.hostUserId) FontWeight.Bold else FontWeight.Normal,
+                                    color = TextMain,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                                Text(
+                                    text = when {
+                                        m.isHost -> "HOST"
+                                        m.userId == com.streamify.app.data.remote.SupabaseClient.currentUser.value?.id -> "YOU"
+                                        else -> "LISTENER"
+                                    },
+                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 9.sp, letterSpacing = 0.8.sp),
+                                    color = if (m.isHost) Primary else TextSecondary
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // INVITE + CONTROL POLICY row (Spotify-grade room management)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                val text = jamViewModel.inviteShareText()
+                                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(android.content.Intent.EXTRA_TEXT, text)
+                                }
+                                context.startActivity(
+                                    android.content.Intent.createChooser(send, "Invite to Jam")
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Primary, contentColor = Color.White),
+                            shape = RoundedCornerShape(24.dp),
+                            modifier = Modifier.weight(1f).height(48.dp)
+                        ) {
+                            Icon(Icons.Filled.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("INVITE", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        if (state.isHost) {
+                            Surface(
+                                onClick = { jamViewModel.cycleControlPolicy() },
+                                color = if (controlPolicy == JamEngine.ControlPolicy.EVERYONE)
+                                    Color(0xFF10B981).copy(alpha = 0.15f)
+                                else Primary.copy(alpha = 0.16f),
+                                shape = RoundedCornerShape(24.dp),
+                                modifier = Modifier.weight(1f).height(48.dp)
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Text(
+                                        text = if (controlPolicy == JamEngine.ControlPolicy.EVERYONE) "EVERYONE CONTROLS" else "HOST CONTROLS",
+                                        fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp,
+                                        color = if (controlPolicy == JamEngine.ControlPolicy.EVERYONE) Color(0xFF10B981) else Primary
+                                    )
+                                    Text(
+                                        text = "tap to switch",
+                                        fontSize = 9.sp, color = TextSecondary
+                                    )
+                                }
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     // Leave Session Button
                     OutlinedButton(
-                        onClick = { jamViewModel.leaveJam() },
+                        onClick = { jamViewModel.leaveJam(endForEveryone = state.isHost) },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Primary),
                         shape = RoundedCornerShape(24.dp),
                         modifier = Modifier

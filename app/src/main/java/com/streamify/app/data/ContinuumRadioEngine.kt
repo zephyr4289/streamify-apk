@@ -97,6 +97,11 @@ object ContinuumRadioEngine {
     suspend fun startRadio(seedTrack: Track): List<Track> = withContext(Dispatchers.IO) {
         clearRadio()
         val vId = com.streamify.app.data.network.CanonicalSeedResolver.resolveToCanonicalId(seedTrack)
+        if (vId.length != 11) {
+            // No verified canonical seed → refuse to build a radio around an
+            // arbitrary/different recording.
+            return@withContext emptyList()
+        }
         playedVideoIds.add(vId)
         val seedHash = FuzzyTitleMatcher.extractRootHash(seedTrack.title)
         if (seedHash != 0L) playedRootHashes.add(seedHash)
@@ -205,6 +210,17 @@ object ContinuumRadioEngine {
         return emptyList()
     }
 
+    /**
+     * Stateless single radio page fetch — exposes the /next continuation chain
+     * to OnlineRadioEngine so ultra-long sessions can chain infinite batches
+     * without touching this object's UI-facing radio context.
+     */
+    suspend fun fetchRadioPage(
+        videoId: String,
+        continuationToken: String?,
+        seedTrack: Track? = null
+    ): Pair<List<Track>, String?> = executeNextRequest(videoId, continuationToken, seedTrack)
+
     private fun executeNextRequest(videoId: String, continuationToken: String?, seedTrack: Track? = null): Pair<List<Track>, String?> {
         // Tier 1: Try ANDROID_MUSIC client
         val androidResult = executeInnertubeNextCall(
@@ -283,59 +299,59 @@ object ContinuumRadioEngine {
                 }
 
                 val root = JSONObject(responseBody)
-                return parseNextResponse(root, seedTrack)
+                return parseNextResponse(root, responseBody, seedTrack)
             }
         } catch (e: Exception) {
             return Pair(emptyList(), null)
         }
     }
 
-    private fun parseNextResponse(root: JSONObject, seedTrack: Track? = null): Pair<List<Track>, String?> {
+    private fun parseNextResponse(root: JSONObject, rawJson: String?, seedTrack: Track? = null): Pair<List<Track>, String?> {
         val tracks = mutableListOf<Track>()
         var nextContinuation: String? = null
         val dynamicBpm = if (seedTrack != null && seedTrack.bpm > 0f) seedTrack.bpm else 120f
-
         try {
+            // Pure Kotlin candidate extraction from Innertube radio playlistPanelVideoRenderer
             val candidateNodes = mutableListOf<JSONObject>()
             findJsonObjects(root, "playlistPanelVideoRenderer", candidateNodes)
 
             for (node in candidateNodes) {
-                val videoId = node.optString("videoId", "")
-                if (videoId.isBlank()) continue
+                    val videoId = node.optString("videoId", "")
+                    if (videoId.isBlank()) continue
 
-                val titleObj = node.optJSONObject("title")
-                val title = titleObj?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-                    ?: titleObj?.optString("simpleText", "Unknown Track") ?: "Unknown Track"
+                    val titleObj = node.optJSONObject("title")
+                    val title = titleObj?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                        ?: titleObj?.optString("simpleText", "Unknown Track") ?: "Unknown Track"
 
-                val bylineObj = node.optJSONObject("longBylineText") ?: node.optJSONObject("shortBylineText")
-                val artist = bylineObj?.optJSONArray("runs")?.optJSONObject(0)?.optString("text", "Unknown Artist")
-                    ?: "Unknown Artist"
+                    val bylineObj = node.optJSONObject("longBylineText") ?: node.optJSONObject("shortBylineText")
+                    val artist = bylineObj?.optJSONArray("runs")?.optJSONObject(0)?.optString("text", "Unknown Artist")
+                        ?: "Unknown Artist"
 
-                val durationText = node.optJSONObject("lengthText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
-                    ?: node.optJSONObject("lengthText")?.optString("simpleText", "3:30") ?: "3:30"
-                val durationSec = parseDurationText(durationText)
+                    val durationText = node.optJSONObject("lengthText")?.optJSONArray("runs")?.optJSONObject(0)?.optString("text")
+                        ?: node.optJSONObject("lengthText")?.optString("simpleText", "3:30") ?: "3:30"
+                    val durationSec = parseDurationText(durationText)
 
-                val thumbnailArray = node.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
-                val thumbnail = if (thumbnailArray != null && thumbnailArray.length() > 0) {
-                    thumbnailArray.optJSONObject(thumbnailArray.length() - 1)?.optString("url", "") ?: ""
-                } else ""
+                    val thumbnailArray = node.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+                    val thumbnail = if (thumbnailArray != null && thumbnailArray.length() > 0) {
+                        thumbnailArray.optJSONObject(thumbnailArray.length() - 1)?.optString("url", "") ?: ""
+                    } else ""
 
-                tracks.add(
-                    Track(
-                        id = -(videoId.hashCode()),
-                        title = title,
-                        artist = artist,
-                        album = "Streamify Radio",
-                        durationSec = durationSec,
-                        filepath = "https://www.youtube.com/watch?v=$videoId",
-                        coverArtPath = thumbnail.takeIf { it.isNotBlank() },
-                        bpm = dynamicBpm,
-                        key = "",
-                        lyricsPath = null,
-                        source = "online_stream"
+                    tracks.add(
+                        Track(
+                            id = -(videoId.hashCode()),
+                            title = title,
+                            artist = artist,
+                            album = "Streamify Radio",
+                            durationSec = durationSec,
+                            filepath = "https://www.youtube.com/watch?v=$videoId",
+                            coverArtPath = thumbnail.takeIf { it.isNotBlank() },
+                            bpm = dynamicBpm,
+                            key = "",
+                            lyricsPath = null,
+                            source = "online_stream"
+                        )
                     )
-                )
-            }
+                }
 
             // Extract continuation token
             val continuationNodes = mutableListOf<JSONObject>()

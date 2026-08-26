@@ -33,6 +33,15 @@ fun AppNavGraph(
     val jamViewModel: JamViewModel = viewModel()
     val communityViewModel: CommunityViewModel = viewModel()
 
+    // Route transitions land in the admin terminal (SLog).
+    androidx.compose.runtime.DisposableEffect(navController) {
+        val listener = androidx.navigation.NavController.OnDestinationChangedListener { _, dest, args ->
+            com.streamify.app.util.SLog.i("NAV", "→ ${dest.route} args=${args?.toString() ?: "{}"}")
+        }
+        navController.addOnDestinationChangedListener(listener)
+        onDispose { navController.removeOnDestinationChangedListener(listener) }
+    }
+
     NavHost(
         navController = navController,
         startDestination = "home",
@@ -68,7 +77,7 @@ fun AppNavGraph(
                 communityViewModel = communityViewModel,
                 dominantColor = dominantColor,
                 onTrackClick = { track, _ ->
-                    playerViewModel.playTrack(track, listOf(track), autoHydrateRadio = true)
+                    playerViewModel.playSingleTrack(track)
                 },
                 onSearchClick = {
                     navController.navigate("search")
@@ -91,16 +100,16 @@ fun AppNavGraph(
         composable("search") {
             SearchScreen(
                 playerViewModel = playerViewModel,
-                onTrackClick = { track, allTracks ->
-                    playerViewModel.playTrack(track, allTracks)
+                onTrackClick = { track, _ ->
+                    playerViewModel.playSingleTrack(track)
                 }
             )
         }
         composable("library") {
             LibraryScreen(
                 playerViewModel = playerViewModel,
-                onTrackClick = { track, allTracks ->
-                    playerViewModel.playTrack(track, allTracks)
+                onTrackClick = { track, _ ->
+                    playerViewModel.playSingleTrack(track)
                 },
                 onSettingsClick = {
                     navController.navigate("settings")
@@ -181,7 +190,10 @@ fun AppNavGraph(
             androidx.compose.runtime.LaunchedEffect(playerState.currentTrack) {
                 val track = playerState.currentTrack
                 if (track != null) {
-                    lyricsLines = com.streamify.app.data.LyricsCacheManager.getOrFetchLyrics(context, track)
+                    // Cache-only load: PlayerViewModel is the single network fetch owner.
+                    // When it lands lyrics it updates currentTrack, which re-fires this
+                    // effect and hydrates the freshly written file.
+                    lyricsLines = com.streamify.app.data.LyricsCacheManager.getOrFetchLyrics(context, track, allowNetwork = false)
                 } else {
                     lyricsLines = emptyList()
                 }
@@ -190,7 +202,7 @@ fun AppNavGraph(
             LyricsScreen(
                 track = playerState.currentTrack,
                 lyrics = lyricsLines,
-                currentPositionMs = playerState.currentPosition,
+                positionFlow = playerViewModel.positionMs,
                 dominantColor = dominantColor,
                 onSeek = { ms -> playerViewModel.seekTo(ms) },
                 onClose = { navController.popBackStack() }
@@ -207,7 +219,23 @@ fun AppNavGraph(
                 onNavigateToAdmin = { navController.navigate("admin") },
                 onNavigateToProfile = { navController.navigate("profile") },
                 onNavigateToWrapped = { navController.navigate("wrapped") },
-                onNavigateToCommunity = { navController.navigate("community") }
+                onNavigateToCommunity = { navController.navigate("community") },
+                onNavigateToProfileSelection = { navController.navigate("profile_selection") },
+                onNavigateToTerminal = { navController.navigate("admin_terminal") }
+            )
+        }
+        composable("admin_terminal") {
+            com.streamify.app.ui.screens.AdminTerminalScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("profile_selection") {
+            ProfileSelectionScreen(
+                onProfileConfigured = { mode ->
+                    navController.navigate("home") {
+                        popUpTo("profile_selection") { inclusive = true }
+                    }
+                }
             )
         }
         composable("jam") {
@@ -258,7 +286,7 @@ fun AppNavGraph(
                 allTracks = libraryState,
                 playerViewModel = playerViewModel,
                 onBack = { navController.popBackStack() },
-                onTrackClick = { track, list -> playerViewModel.playTrack(track, list) }
+                onTrackClick = { track, _ -> playerViewModel.playSingleTrack(track) }
             )
         }
         composable("album/{albumName}") { backStackEntry ->
@@ -269,7 +297,7 @@ fun AppNavGraph(
                 allTracks = libraryState,
                 playerViewModel = playerViewModel,
                 onBack = { navController.popBackStack() },
-                onTrackClick = { track, list -> playerViewModel.playTrack(track, list) }
+                onTrackClick = { track, list -> playerViewModel.playCollection(list, list.indexOf(track).coerceAtLeast(0)) }
             )
         }
     }

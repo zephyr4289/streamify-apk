@@ -4,8 +4,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -18,25 +18,58 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.streamify.app.ui.theme.*
 import com.streamify.app.util.DurationFormatter
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
  * Clean, Responsive YouTube Music Style Player Seekbar with Universal Tap & Drag Scrubbing.
+ *
+ * PERF: subscribes to the hot position flow at THIS leaf only — the parent
+ * sheet never recomposes for playhead ticks.
  */
 @Composable
 fun YtPlayerSeekBar(
-    progress: Float,
+    positionFlow: StateFlow<Long>,
     durationMs: Long,
-    currentPositionMs: Long,
     onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier,
     activeColor: Color = ActiveControl,
     trackColor: Color = Divider
 ) {
     val scope = rememberCoroutineScope()
+    val positionState by positionFlow.collectAsState()
     var isDragging by remember { mutableStateOf(false) }
-    var dragProgress by remember { mutableFloatStateOf(0f) }
-    val currentProgress = if (isDragging) dragProgress else progress.coerceIn(0f, 1f)
+    var dragPositionMs by remember { mutableLongStateOf(0L) }
+    var latchedPositionMs by remember { mutableStateOf<Long?>(null) }
+    val currentOnSeek by rememberUpdatedState(onSeek)
+
+    // Clear UI latch when external playback position converges near the target
+    LaunchedEffect(Unit) {
+        snapshotFlow { positionState }.collect { live ->
+            latchedPositionMs?.let { latched ->
+                if (kotlin.math.abs(live - latched) < 400L) {
+                    latchedPositionMs = null
+                }
+            }
+        }
+    }
+
+    val totalDuration = if (durationMs > 0L) durationMs else 1000L
+    val displayPosition by remember {
+        derivedStateOf {
+            when {
+                isDragging -> dragPositionMs
+                latchedPositionMs != null -> latchedPositionMs!!
+                else -> positionState
+            }
+        }
+    }
+
+    val currentProgress by remember {
+        derivedStateOf {
+            (displayPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+        }
+    }
 
     // Hardware-Accelerated Animatable Thumb Physics
     val thumbScale = remember { Animatable(1f) }
@@ -49,59 +82,99 @@ fun YtPlayerSeekBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(38.dp)
+                .height(44.dp)
                 .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        down.consume()
-                        isDragging = true
-                        var targetProgress = (down.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                        dragProgress = targetProgress
-                        com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
-                        scope.launch {
-                            thumbScale.animateTo(
-                                targetValue = 2.0f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMedium
+                    detectTapGestures(
+                        onPress = {
+                            scope.launch {
+                                thumbScale.animateTo(
+                                    targetValue = 1.8f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
                                 )
-                            )
+                            }
+                            tryAwaitRelease()
+                            scope.launch {
+                                thumbScale.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
+                                )
+                            }
+                        },
+                        onTap = { offset ->
+                            val targetFrac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            val targetMs = (targetFrac * totalDuration).toLong()
+                            latchedPositionMs = targetMs
+                            com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
+                            currentOnSeek(targetFrac)
                         }
-
-                        val pointerId = down.id
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                            if (change.pressed) {
-                                change.consume()
-                                val newProgress = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                val prevStep = (targetProgress * 30).toInt()
-                                val newStep = (newProgress * 30).toInt()
-                                if (prevStep != newStep) {
-                                    com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
-                                }
-                                targetProgress = newProgress
-                                dragProgress = newProgress
-                            } else {
-                                // Pointer lifted (Up)
-                                change.consume()
-                                break
+                    )
+                }
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            isDragging = true
+                            val startFrac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            dragPositionMs = (startFrac * totalDuration).toLong()
+                            latchedPositionMs = dragPositionMs
+                            com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
+                            scope.launch {
+                                thumbScale.animateTo(
+                                    targetValue = 2.0f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
+                                )
+                            }
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            val curFrac = (dragPositionMs.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                            val newFrac = (curFrac + (dragAmount.x / size.width.toFloat())).coerceIn(0f, 1f)
+                            val prevStep = (curFrac * 30).toInt()
+                            val newStep = (newFrac * 30).toInt()
+                            if (prevStep != newStep) {
+                                com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
+                            }
+                            dragPositionMs = (newFrac * totalDuration).toLong()
+                            latchedPositionMs = dragPositionMs
+                        },
+                        onDragEnd = {
+                            val finalTargetMs = dragPositionMs
+                            val finalFrac = (finalTargetMs.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                            latchedPositionMs = finalTargetMs
+                            isDragging = false
+                            currentOnSeek(finalFrac)
+                            scope.launch {
+                                thumbScale.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
+                                )
+                            }
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                            latchedPositionMs = null
+                            scope.launch {
+                                thumbScale.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    )
+                                )
                             }
                         }
-
-                        // Commit seek on release (tap or drag release)
-                        isDragging = false
-                        onSeek(targetProgress)
-                        scope.launch {
-                            thumbScale.animateTo(
-                                targetValue = 1f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMedium
-                                )
-                            )
-                        }
-                    }
+                    )
                 }
         ) {
             Canvas(
@@ -159,11 +232,8 @@ fun YtPlayerSeekBar(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val totalDuration = if (durationMs > 0) durationMs else 1000L
-            val currentPos = if (isDragging) (dragProgress * totalDuration).toLong() else currentPositionMs
-
             Text(
-                text = DurationFormatter.formatMs(currentPos),
+                text = DurationFormatter.formatMs(displayPosition),
                 style = LocalAppTypography.current.seekbarTime,
                 color = TextSecondary
             )
@@ -175,6 +245,7 @@ fun YtPlayerSeekBar(
         }
     }
 }
+
 
 
 

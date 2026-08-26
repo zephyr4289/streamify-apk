@@ -1,36 +1,30 @@
 #pragma once
-
+#include <cstddef>
 #include <cstdint>
-#include <cmath>
-#include <vector>
-
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
-#include <arm_neon.h>
-#endif
-
-namespace streamify {
-namespace dsp {
 
 class SoftKneeLimiter {
 public:
-    SoftKneeLimiter(float threshold = 0.90f, float kneeWidth = 0.15f);
+    SoftKneeLimiter(float threshold_db = -0.5f, float knee_width_db = 2.0f, float ratio = 20.0f);
+    void processInterleavedSIMD(float* pcm_samples, size_t total_samples);
 
+    // Backward compatibility helpers
+    void reset();
     void setParameters(float threshold, float kneeWidth);
-
-    // In-place limiter for 32-bit float PCM buffers
     void processFloats(float* buffer, int numSamples);
-
-    // Ultra-fast in-place limiter for 16-bit signed PCM buffers using 12-bit LUT & SIMD
     void processShorts(int16_t* buffer, int numSamples);
 
 private:
-    void rebuildLut();
-
-    float threshold_;
-    float kneeWidth_;
-    static constexpr int LUT_SIZE = 4096;
-    int16_t lutShort_[LUT_SIZE + 1];
+    float threshold_db_;
+    float knee_width_db_;
+    float ratio_;
+    float attack_coeff_;
+    float release_coeff_;
+    float envelope_db_;
+    float computeGain(float input_db);
 };
 
-} // namespace dsp
-} // namespace streamify
+namespace streamify {
+namespace dsp {
+using SoftKneeLimiter = ::SoftKneeLimiter;
+}
+}

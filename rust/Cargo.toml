@@ -14,10 +14,19 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 lofty = "0.21"
 ureq = { version = "2.10", features = ["json", "tls"] }
+sha1 = "0.10"
+hex = "0.4"
+rusqlite = { version = "0.31", features = ["bundled"] }
+jni = { version = "0.21", default-features = false }
 sha2 = "0.10"
 hmac = "0.12"
 regex = "1.10"
 urlencoding = "2.1"
+tokio = { version = "1.38", features = ["rt-multi-thread", "sync", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json"] }
+strsim = "0.11"
+libc = "0.2"
+
 
 [dev-dependencies]
 tempfile = "3.10"
@@ -26,5 +35,7 @@ tempfile = "3.10"
 opt-level = 3
 lto = true
 codegen-units = 1
-panic = "abort"
+# unwind (not abort): JNI/FFI entry points rely on catch_unwind shields to
+# convert panics into error codes instead of aborting the host Android process.
+panic = "unwind"
 strip = true

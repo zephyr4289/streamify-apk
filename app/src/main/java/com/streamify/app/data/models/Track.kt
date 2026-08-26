@@ -33,7 +33,9 @@ data class Track(
     val isLiked: Boolean = false,
     val isProcessed: Boolean = false,
     val genre: String = "",
-    val playCount: Int = 0
+    val playCount: Int = 0,
+    val isrc: String? = null,
+    val ytmVideoId: String? = null
 ) {
     val filePath: String get() = filepath
 }

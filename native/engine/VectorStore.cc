@@ -1,19 +1,92 @@
 #include "VectorStore.h"
 #include <cmath>
-#if defined(__ARM_NEON)
-#include <arm_neon.h>
-#elif defined(__AVX__) || defined(__AVX2__)
-#include <immintrin.h>
-#endif
-#include <fstream>
 #include <algorithm>
-#include <iostream>
-#include <mutex>
-#include <shared_mutex>
+#include <queue>
+#include <fstream>
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#endif
 
 VectorStore& VectorStore::getInstance() {
     static VectorStore instance;
     return instance;
+}
+
+VectorStore::VectorStore() {
+    records_.reserve(10000);
+}
+
+void VectorStore::insert(uint64_t track_id, const float* embedding_data) {
+    VectorRecord record;
+    record.track_id = track_id;
+    float sum_sq = 0.0f;
+    for (size_t i = 0; i < VECTOR_DIM; ++i) {
+        record.embedding[i] = embedding_data[i];
+        sum_sq += embedding_data[i] * embedding_data[i];
+    }
+    record.norm = std::sqrt(sum_sq);
+    records_.push_back(record);
+}
+
+float VectorStore::computeCosineSimilarityNEON(const float* a, const float* b, float norm_b) {
+    float dot = 0.0f;
+    float norm_a_sq = 0.0f;
+    size_t i = 0;
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    float32x4_t dot_vec = vdupq_n_f32(0.0f);
+    float32x4_t norm_a_vec = vdupq_n_f32(0.0f);
+    for (; i + 4 <= VECTOR_DIM; i += 4) {
+        float32x4_t va = vld1q_f32(a + i);
+        float32x4_t vb = vld1q_f32(b + i);
+        dot_vec = vmlaq_f32(dot_vec, va, vb);
+        norm_a_vec = vmlaq_f32(norm_a_vec, va, va);
+    }
+    dot = vgetq_lane_f32(dot_vec, 0) + vgetq_lane_f32(dot_vec, 1) +
+          vgetq_lane_f32(dot_vec, 2) + vgetq_lane_f32(dot_vec, 3);
+    norm_a_sq = vgetq_lane_f32(norm_a_vec, 0) + vgetq_lane_f32(norm_a_vec, 1) +
+                vgetq_lane_f32(norm_a_vec, 2) + vgetq_lane_f32(norm_a_vec, 3);
+#endif
+
+    for (; i < VECTOR_DIM; ++i) {
+        dot += a[i] * b[i];
+        norm_a_sq += a[i] * a[i];
+    }
+
+    float norm_a = std::sqrt(norm_a_sq);
+    if (norm_a <= 1e-6f || norm_b <= 1e-6f) return 0.0f;
+    return dot / (norm_a * norm_b);
+}
+
+std::vector<QueryResult> VectorStore::queryTopK(const float* target_embedding, size_t k) const {
+    auto comp = [](const QueryResult& a, const QueryResult& b) {
+        return a.similarity > b.similarity; // Min-heap
+    };
+    std::priority_queue<QueryResult, std::vector<QueryResult>, decltype(comp)> min_heap(comp);
+
+    for (const auto& record : records_) {
+        float sim = computeCosineSimilarityNEON(target_embedding, record.embedding, record.norm);
+        if (min_heap.size() < k) {
+            min_heap.push({record.track_id, sim});
+        } else if (sim > min_heap.top().similarity) {
+            min_heap.pop();
+            min_heap.push({record.track_id, sim});
+        }
+    }
+
+    std::vector<QueryResult> results;
+    results.reserve(min_heap.size());
+    while (!min_heap.empty()) {
+        results.push_back(min_heap.top());
+        min_heap.pop();
+    }
+    std::reverse(results.begin(), results.end());
+    return results;
+}
+
+void VectorStore::clear() {
+    records_.clear();
 }
 
 bool VectorStore::init(const std::string& bin_path, int dim) {
@@ -21,154 +94,89 @@ bool VectorStore::init(const std::string& bin_path, int dim) {
     bin_path_ = bin_path;
     dim_ = dim;
     vector_data_.clear();
-    
-    std::ifstream file(bin_path_, std::ios::binary | std::ios::ate);
-    if (file.is_open()) {
-        std::streamsize size = file.tellg();
-        file.seekg(0, std::ios::beg);
-        size_t total_floats = size / sizeof(float);
-        size_t valid_floats = (total_floats / dim_) * dim_;
-        vector_data_.resize(valid_floats);
-        file.read(reinterpret_cast<char*>(vector_data_.data()), valid_floats * sizeof(float));
+
+    std::ifstream file(bin_path, std::ios::binary);
+    if (!file.is_open()) return true;
+
+    file.seekg(0, std::ios::end);
+    size_t size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    if (size > 0 && size % sizeof(float) == 0) {
+        vector_data_.resize(size / sizeof(float));
+        file.read(reinterpret_cast<char*>(vector_data_.data()), size);
     }
     return true;
 }
 
+int VectorStore::addVector(const std::vector<float>& vec) {
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+    if (vec.size() != static_cast<size_t>(dim_)) return -1;
+    int offset = static_cast<int>(vector_data_.size() / dim_);
+    vector_data_.insert(vector_data_.end(), vec.begin(), vec.end());
+    save();
+    return offset;
+}
+
 void VectorStore::save() {
-    std::ofstream file(bin_path_, std::ios::binary);
-    if (file.is_open()) {
+    if (bin_path_.empty()) return;
+    std::ofstream file(bin_path_, std::ios::binary | std::ios::trunc);
+    if (file.is_open() && !vector_data_.empty()) {
         file.write(reinterpret_cast<const char*>(vector_data_.data()), vector_data_.size() * sizeof(float));
     }
 }
 
-int VectorStore::addVector(const std::vector<float>& vec) {
-    if (vec.size() != static_cast<size_t>(dim_)) {
-        return -1;
+std::vector<SearchResult> VectorStore::searchNearest(const std::vector<float>& query_vec, int top_k) {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    std::vector<SearchResult> results;
+    if (query_vec.size() != static_cast<size_t>(dim_) || vector_data_.empty()) return results;
+
+    int total_vectors = static_cast<int>(vector_data_.size() / dim_);
+    results.reserve(total_vectors);
+
+    float q_norm = 0.0f;
+    for (float v : query_vec) q_norm += v * v;
+    q_norm = std::sqrt(q_norm);
+    if (q_norm < 1e-6f) return results;
+
+    for (int i = 0; i < total_vectors; ++i) {
+        const float* vec_ptr = &vector_data_[i * dim_];
+        float dot = 0.0f;
+        float v_norm = 0.0f;
+        for (int d = 0; d < dim_; ++d) {
+            dot += query_vec[d] * vec_ptr[d];
+            v_norm += vec_ptr[d] * vec_ptr[d];
+        }
+        v_norm = std::sqrt(v_norm);
+        float sim = (v_norm > 1e-6f) ? (dot / (q_norm * v_norm)) : 0.0f;
+        results.push_back({i, sim});
     }
-    std::unique_lock<std::shared_mutex> lock(mutex_);
-    int offset = vector_data_.size() / dim_;
-    vector_data_.insert(vector_data_.end(), vec.begin(), vec.end());
-    
-    std::ofstream file(bin_path_, std::ios::binary | std::ios::app);
-    if (file.is_open()) {
-        file.write(reinterpret_cast<const char*>(vec.data()), vec.size() * sizeof(float));
+
+    std::partial_sort(results.begin(), results.begin() + std::min<size_t>(top_k, results.size()), results.end(),
+        [](const SearchResult& a, const SearchResult& b) { return a.similarity > b.similarity; });
+
+    if (results.size() > static_cast<size_t>(top_k)) {
+        results.resize(top_k);
     }
-    return offset;
+    return results;
+}
+
+std::vector<SearchResult> VectorStore::searchNearest(int target_offset, int top_k) {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    if (target_offset < 0 || target_offset * dim_ + dim_ > static_cast<int>(vector_data_.size())) {
+        return {};
+    }
+    std::vector<float> query_vec(vector_data_.begin() + target_offset * dim_, vector_data_.begin() + (target_offset + 1) * dim_);
+    return searchNearest(query_vec, top_k);
 }
 
 std::vector<float> VectorStore::getVectorAt(int offset) {
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    if (offset < 0 || static_cast<size_t>(offset * dim_ + dim_) > vector_data_.size()) return {};
-    auto start = vector_data_.begin() + offset * dim_;
-    return std::vector<float>(start, start + dim_);
+    if (offset < 0 || offset * dim_ + dim_ > static_cast<int>(vector_data_.size())) return {};
+    return std::vector<float>(vector_data_.begin() + offset * dim_, vector_data_.begin() + (offset + 1) * dim_);
 }
 
 int VectorStore::getVectorCount() {
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    return vector_data_.size() / dim_;
-}
-
-std::vector<SearchResult> VectorStore::searchNearest(int target_offset, int top_k) {
-    auto vec = getVectorAt(target_offset);
-    if (vec.empty()) return {};
-    return searchNearest(vec, top_k);
-}
-
-std::vector<SearchResult> VectorStore::searchNearest(const std::vector<float>& query_vec, int top_k) {
-    std::shared_lock<std::shared_mutex> lock(mutex_);
-    int num_vectors = vector_data_.size() / dim_;
-    std::vector<SearchResult> results(num_vectors);
-
-    if (num_vectors == 0 || query_vec.size() != static_cast<size_t>(dim_)) {
-        return {};
-    }
-
-    const float* q = query_vec.data();
-    const float* data = vector_data_.data();
-
-#if defined(__ARM_NEON)
-    for (int i = 0; i < num_vectors; ++i) {
-        const float* v = data + i * dim_;
-        
-        // Prefetch next vector into L1 CPU cache
-        if (i + 1 < num_vectors) {
-            __builtin_prefetch(data + (i + 1) * dim_, 0, 1);
-        }
-
-        float32x4_t sum0 = vdupq_n_f32(0.0f);
-        float32x4_t sum1 = vdupq_n_f32(0.0f);
-        float32x4_t sum2 = vdupq_n_f32(0.0f);
-        float32x4_t sum3 = vdupq_n_f32(0.0f);
-        
-        int j = 0;
-        // 4x unrolled NEON SIMD loop (16 floats per step)
-        for (; j <= dim_ - 16; j += 16) {
-            sum0 = vmlaq_f32(sum0, vld1q_f32(q + j), vld1q_f32(v + j));
-            sum1 = vmlaq_f32(sum1, vld1q_f32(q + j + 4), vld1q_f32(v + j + 4));
-            sum2 = vmlaq_f32(sum2, vld1q_f32(q + j + 8), vld1q_f32(v + j + 8));
-            sum3 = vmlaq_f32(sum3, vld1q_f32(q + j + 12), vld1q_f32(v + j + 12));
-        }
-
-        float32x4_t total_sum = vaddq_f32(vaddq_f32(sum0, sum1), vaddq_f32(sum2, sum3));
-        for (; j <= dim_ - 4; j += 4) {
-            total_sum = vmlaq_f32(total_sum, vld1q_f32(q + j), vld1q_f32(v + j));
-        }
-        
-        float dot = vgetq_lane_f32(total_sum, 0) + vgetq_lane_f32(total_sum, 1) + 
-                    vgetq_lane_f32(total_sum, 2) + vgetq_lane_f32(total_sum, 3);
-                    
-        for (; j < dim_; ++j) {
-            dot += q[j] * v[j];
-        }
-        
-        if (std::isnan(dot) || std::isinf(dot)) dot = -1.0f;
-        results[i] = {i, dot};
-    }
-#elif defined(__AVX__) || defined(__AVX2__)
-    for (int i = 0; i < num_vectors; ++i) {
-        const float* v = data + i * dim_;
-        __m256 sum_vec = _mm256_setzero_ps();
-        
-        int j = 0;
-        for (; j <= dim_ - 8; j += 8) {
-            __m256 a = _mm256_loadu_ps(q + j);
-            __m256 b = _mm256_loadu_ps(v + j);
-            sum_vec = _mm256_add_ps(sum_vec, _mm256_mul_ps(a, b));
-        }
-        
-        float temp[8];
-        _mm256_storeu_ps(temp, sum_vec);
-        float dot = temp[0] + temp[1] + temp[2] + temp[3] + temp[4] + temp[5] + temp[6] + temp[7];
-        
-        for (; j < dim_; ++j) {
-            dot += q[j] * v[j];
-        }
-        
-        if (std::isnan(dot) || std::isinf(dot)) dot = -1.0f;
-        results[i] = {i, dot};
-    }
-#else
-    for (int i = 0; i < num_vectors; ++i) {
-        const float* v = data + i * dim_;
-        float dot = 0.0f;
-        for (int j = 0; j < dim_; ++j) {
-            dot += q[j] * v[j];
-        }
-        if (std::isnan(dot) || std::isinf(dot)) dot = -1.0f;
-        results[i] = {i, dot};
-    }
-#endif
-
-    std::partial_sort(results.begin(), 
-                      results.begin() + std::min(top_k, static_cast<int>(results.size())), 
-                      results.end(), 
-                      [](const SearchResult& a, const SearchResult& b) {
-                          return a.similarity > b.similarity;
-                      });
-                      
-    if (results.size() > static_cast<size_t>(top_k)) {
-        results.resize(top_k);
-    }
-    
-    return results;
+    return dim_ > 0 ? static_cast<int>(vector_data_.size() / dim_) : 0;
 }

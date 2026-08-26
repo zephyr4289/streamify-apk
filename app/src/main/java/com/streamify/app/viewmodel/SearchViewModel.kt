@@ -132,24 +132,23 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
             return
         }
 
+        // New user intent -> fresh correlation ID for the whole terminal chain.
+        com.streamify.app.util.SLog.i(
+            "SearchVM",
+            "[${com.streamify.app.util.Trace.new(cleanQuery)}] SEARCH query='$cleanQuery' filter=$filter"
+        )
+
         historyJob = viewModelScope.launch {
             kotlinx.coroutines.delay(1000)
             addQueryToHistory(cleanQuery)
         }
 
         searchJob = viewModelScope.launch {
-            // 200ms keystroke debounce to prevent SQLite and network thrashing
-            kotlinx.coroutines.delay(200)
-
-            // Signal orchestrator to prioritize search over background AI ingestion
-            com.streamify.app.data.NativeBridge.setHighPriorityActive(true)
-
-            // 1. Instantaneous Local Search (Sub-millisecond JNI + Fuzzy Fallback)
+            // 1. Instantaneous Local Search & LRU Cache Hit (0ms Delay)
             val localResults = if (filter == "All" || filter == "Songs") {
-                repository.searchTracks(cleanQuery)
+                withContext(Dispatchers.IO) { repository.searchTracks(cleanQuery) }
             } else emptyList()
 
-            // 2. Check In-Memory LRU Cache for Instant Online Results (0ms)
             val cachedOnline = searchCache.get(cacheKey)
             if (cachedOnline != null) {
                 _uiState.value = SearchUiState.Success(
@@ -160,11 +159,18 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 return@launch
             }
 
+            // Emit instant local results immediately while online search is debounced
             _uiState.value = SearchUiState.Success(
                 localResults = localResults,
                 onlineResults = emptyList(),
                 isOnlineLoading = true
             )
+
+            // 2. Tight 60ms keystroke debounce for remote cloud search
+            kotlinx.coroutines.delay(60)
+
+            // Signal orchestrator to prioritize search over background AI ingestion
+            com.streamify.app.data.NativeBridge.setHighPriorityActive(true)
 
             // 3. Ultra-Fast Sub-100ms Parametric Innertube & Python Search Pipeline
             val onlineResults = withContext(Dispatchers.IO) {
@@ -189,11 +195,11 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         }
                     } else emptyList()
 
-                    val combined = if (semanticResults.isNotEmpty()) {
-                        (semanticResults + searchResult).distinctBy { it.url.ifBlank { it.title } }
-                    } else {
-                        searchResult
-                    }
+                    // Unconditional dedupe: repeated videoIds across Innertube shelves and
+                    // identical iTunes title+artist entries share a URL/composite key, which
+                    // crashes LazyColumn ("key was already used") at render time.
+                    val combined = (semanticResults + searchResult)
+                        .distinctBy { it.url.ifBlank { "${it.title}_${it.uploader}" } }
 
                     rankSearchResults(combined, cleanQuery)
                 } catch (e: Exception) {
@@ -210,26 +216,39 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 onlineResults = onlineResults,
                 isOnlineLoading = false
             )
+            com.streamify.app.util.SLog.d(
+                "SearchVM",
+                "${com.streamify.app.util.Trace.pfx()}RESULTS ${onlineResults.size} online — top3=" +
+                    onlineResults.take(3).joinToString("|") { r ->
+                        "${YouTubeStreamResolver.extractVideoId(r.url, r.thumbnail) ?: "?"}:${r.title.take(24)}"
+                    }
+            )
 
-            // 4. Zero-Disk Speculative In-Memory URL Pre-Resolver (Zero Disk I/O, Zero Contention)
+            // 4. Speculative In-Memory URL Pre-Resolver — BURST-GATED.
+            // Was: parallel resolveStreamJit × top-3 per search (~12 upstream
+            // calls/query with the client race). Now: a single prefetch of the
+            // top result, and only after the user pauses 500ms on this query —
+            // rapid typing/debounced streams no longer hammer the endpoints.
             if (onlineResults.isNotEmpty()) {
                 speculativePrefetchJob?.cancel()
                 prefetchScope.coroutineContext.cancelChildren()
                 speculativePrefetchJob = prefetchScope.launch {
-                    val candidates = onlineResults.take(3)
+                    kotlinx.coroutines.delay(500) // pause-gate: typing continued? then this dies with the next search
+                    val candidates = onlineResults.take(1)
                     candidates.forEach { candidate ->
                         launch {
                             try {
+                                val vidId = YouTubeStreamResolver.extractVideoId(candidate.url, candidate.thumbnail)
                                 val tempTrack = Track(
                                     id = 0,
                                     title = candidate.title,
                                     artist = candidate.uploader,
                                     filepath = candidate.url,
-                                    coverArtPath = candidate.thumbnail
+                                    coverArtPath = candidate.thumbnail,
+                                    ytmVideoId = vidId
                                 )
                                 val resolved = YouTubeStreamResolver.resolveStreamJit(tempTrack).getOrNull()
                                 if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                                    val vidId = YouTubeStreamResolver.extractVideoId(candidate.url, candidate.thumbnail)
                                     if (vidId != null) {
                                         StreamEdgeCache.putStream(vidId, resolved)
                                     }
@@ -282,6 +301,10 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         speculativePrefetchJob?.cancel()
         prefetchScope.coroutineContext.cancelChildren()
         streamJob?.cancel()
+        com.streamify.app.util.SLog.i(
+            "SearchVM",
+            "${com.streamify.app.util.Trace.pfx()}TAP '${onlineTrack.title}' by ${onlineTrack.uploader} url=${onlineTrack.url}"
+        )
         streamJob = viewModelScope.launch {
             _resolvingTrackUrl.value = onlineTrack.url
             try {
@@ -291,20 +314,27 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 val directUrl = if (cached != null && !YouTubeStreamResolver.isCdnExpired(cached.streamUrl)) {
                     cached.streamUrl
                 } else {
+                    val fallbackFilepath = when {
+                        videoId != null -> "https://www.youtube.com/watch?v=$videoId"
+                        onlineTrack.url.startsWith("http") -> onlineTrack.url
+                        else -> "ytsearch:${onlineTrack.title} ${onlineTrack.uploader}"
+                    }
                     val candidateTrack = Track(
                         id = 0,
                         title = onlineTrack.title,
                         artist = onlineTrack.uploader,
                         album = "Online Stream",
                         durationSec = onlineTrack.duration,
-                        filepath = onlineTrack.url,
-                        coverArtPath = onlineTrack.thumbnail
+                        filepath = fallbackFilepath,
+                        coverArtPath = onlineTrack.thumbnail,
+                        ytmVideoId = videoId
                     )
                     val resolveResult = YouTubeStreamResolver.resolveStreamJit(candidateTrack)
                     resolveResult.getOrNull()?.streamUrl ?: ""
                 }
 
                 if (directUrl.isNotBlank()) {
+                    val resolvedVid = videoId ?: YouTubeStreamResolver.extractVideoId(directUrl, onlineTrack.thumbnail)
                     val trackToPlay = Track(
                         id = -(onlineTrack.url.hashCode()),
                         title = onlineTrack.title,
@@ -316,7 +346,8 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                         bpm = 0f,
                         key = "",
                         lyricsPath = null,
-                        source = "online_stream"
+                        source = "online_stream",
+                        ytmVideoId = resolvedVid
                     )
 
                     // 2. Play tapped track immediately and kick off Continuum Radio Engine

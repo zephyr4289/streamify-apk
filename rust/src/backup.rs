@@ -88,14 +88,14 @@ impl BackupArchiveEngine {
             if b == b'"' {
                 in_quotes = !in_quotes;
             } else if b == b',' && !in_quotes {
-                let slice = &line[start..i].trim().trim_matches('"');
+                let slice = line[start..i].trim().trim_matches('"');
                 fields.push(slice);
                 start = i + 1;
             }
         }
 
         if start < line.len() {
-            let slice = &line[start..].trim().trim_matches('"');
+            let slice = line[start..].trim().trim_matches('"');
             fields.push(slice);
         }
 

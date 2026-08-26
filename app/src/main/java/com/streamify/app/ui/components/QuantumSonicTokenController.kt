@@ -6,6 +6,12 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import android.graphics.Bitmap
+import android.graphics.Paint
+import android.os.Handler
+import android.os.Looper
+import androidx.compose.ui.graphics.toArgb
+import kotlinx.coroutines.launch
 import androidx.compose.ui.geometry.Offset
 import com.streamify.app.data.NativeBridge
 import kotlin.math.*
@@ -57,14 +63,61 @@ class QuantumSonicTokenController {
     // 0: x, 1: y, 2: z, 3: vx, 4: vy, 5: vz, 6: stretch_parallel, 7: stretch_perp, 8: rotation_rad, 9: pitch_deg, 10: roll_deg, 11: impact_progress, 12: is_docked, 13: is_ready_to_dock
     private val physicsBuffer = FloatArray(14)
 
-    // Adaptive Fluid Splashing Particles: Scaled dynamically based on hardware capabilities
+    // Adaptive Fluid Splashing Particles: Scaled dynamically based on hardware capabilities (Plan 25)
     val particleCount: Int = when {
-        Runtime.getRuntime().availableProcessors() >= 8 -> 128
-        Runtime.getRuntime().availableProcessors() >= 6 -> 96
-        else -> 48
+        Runtime.getRuntime().availableProcessors() >= 8 -> 64
+        Runtime.getRuntime().availableProcessors() >= 6 -> 48
+        else -> 32
     }
-    val particleBuffer = FloatArray(128 * 6)
+    val particleBuffer = FloatArray(64 * 6)
     private var particlesSpawned = false
+
+    // ═══ PERF PLAN v2 additions ═══
+    /** True whenever the dock UI may compose/enter — gated OFF during flight
+     *  so MiniPlayerBar's entrance never collides with impact bloom frames. */
+    var dockReadyForUI by mutableStateOf(true)
+        private set
+
+    /** Pre-decoded flight artwork (Coil, software config for canvas draw). */
+    @Volatile var artBitmap: Bitmap? = null
+        private set
+
+    @Volatile private var artBitmapKey: String? = null
+
+    /** Returns and clears the cached artwork when it belongs to [key]. */
+    fun consumeArtBitmapIfMatched(key: String?): Bitmap? = synchronized(this) {
+        if (key != null && key == artBitmapKey) {
+            val b = artBitmap
+            artBitmap = null
+            b
+        } else null
+    }
+
+    var cardWidthPx: Float = 320f
+        private set
+    var cardHeightPx: Float = 160f
+        private set
+    var screenWidthPx: Float = 1080f
+        private set
+    var enable3D: Boolean = true
+        private set
+
+    lateinit var titlePaint: Paint
+        private set
+    lateinit var statusPaint: Paint
+        private set
+
+    val isRenderable: Boolean
+        get() = stage == TokenStage.FLYING || stage == TokenStage.IMPACT
+
+    /** Captured once from Activity metrics (replaces BoxWithConstraints). */
+    fun initMetrics(widthPx: Float, heightPx: Float, density: Float) {
+        screenWidthPx = widthPx
+        screenDensity = density
+        enable3D = Runtime.getRuntime().availableProcessors() >= 6
+    }
+
+    private var screenDensity: Float = 3f
 
 
     fun triggerFlight(
@@ -111,8 +164,52 @@ class QuantumSonicTokenController {
         pitchDeg = 0f
         rollDeg = 0f
         impactProgress = 0f
+
+        // PERF v2: metrics + chrome paints baked ONCE here (no BoxWithConstraints,
+        // no AsyncImage cold-start inside the animation envelope).
+        cardHeightPx = 60f * screenDensity
+        cardWidthPx = ((screenWidthPx * 0.88f)).coerceIn(280f * screenDensity, 560f * screenDensity)
+
+        titlePaint = Paint().apply {
+            isAntiAlias = true
+            color = com.streamify.app.ui.theme.TextMain.toArgb()
+            textSize = 14f * screenDensity
+            isFakeBoldText = true
+        }
+        statusPaint = Paint().apply {
+            isAntiAlias = true
+            color = com.streamify.app.ui.theme.Primary.toArgb()
+            textSize = 11f * screenDensity
+        }
+
+        dockReadyForUI = false
+        artBitmap = null
+        artBitmapKey = art
+        decodeArtAsync(art)
+
+        telemetryStatus = "Connecting to Streamify..."
         frameTick++
         stage = TokenStage.FLYING
+    }
+
+    private fun decodeArtAsync(artUrl: String?) {
+        val ctx = com.streamify.app.data.TrackRepository.appContext ?: return
+        if (artUrl.isNullOrBlank()) return
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val request = coil.request.ImageRequest.Builder(ctx)
+                    .data(artUrl)
+                    .size(92)
+                    .allowHardware(false)   // must survive native-canvas draw
+                    .build()
+                val result = coil.Coil.imageLoader(ctx).execute(request)
+                val bmp = ((result as? coil.request.SuccessResult)?.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                if (bmp != null && artBitmapKey == artUrl) {
+                    artBitmap = bmp
+                    frameTick++   // swap placeholder ring → bitmap in draw phase
+                }
+            } catch (_: Exception) { }
+        }
     }
 
     /**
@@ -141,19 +238,10 @@ class QuantumSonicTokenController {
     fun stepSimulation(dt: Float) {
         if (stage == TokenStage.IDLE || stage == TokenStage.DONE) return
 
-        val safeDt = dt.coerceIn(0.001f, 0.05f)
+        val safeDt = dt.coerceIn(0.001f, 0.033f)
         flightTime += safeDt
-
-        val newStatus = when {
-            stage == TokenStage.IMPACT || stage == TokenStage.DONE -> "Coupled • Ready"
-            physicsBuffer[13] > 0.5f -> "Coupling audio pipeline..."
-            flightTime > 1.0f -> "Resolving audio stream..."
-            flightTime > 0.35f -> "Loading audio pipeline..."
-            else -> "Connecting to Streamify..."
-        }
-        if (telemetryStatus != newStatus) {
-            telemetryStatus = newStatus
-        }
+        // PERF v2 B4: status text is frozen during flight — its mutations used
+        // to recompose the card subtree inside the critical early frames.
 
         try {
             NativeBridge.stepAirDropPhysics(
@@ -182,7 +270,17 @@ class QuantumSonicTokenController {
             stage = TokenStage.IMPACT
             telemetryStatus = "Coupled • Ready"
             spawnFluidParticles()
-            com.streamify.app.util.StreamifyHapticEngine.tokenImpact()
+            // B3: haptic fires NEXT frame tick — off the state-mutation frame.
+            Handler(Looper.getMainLooper()).postDelayed({
+                com.streamify.app.util.StreamifyHapticEngine.tokenImpact()
+            }, 16)
+        }
+
+        // B1: dock UI (MiniPlayerBar enter) waits until bloom tail frames.
+        if (!dockReadyForUI &&
+            (stage == TokenStage.DONE ||
+             (stage == TokenStage.IMPACT && impactProgress >= 0.35f))) {
+            dockReadyForUI = true
         }
 
         if (stage == TokenStage.IMPACT) {
@@ -330,6 +428,8 @@ class QuantumSonicTokenController {
 
     fun reset() {
         stage = TokenStage.IDLE
+        dockReadyForUI = true
+        artBitmap = null
     }
 }
 

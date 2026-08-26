@@ -15,7 +15,30 @@ import kotlinx.coroutines.withContext
 
 class PlaybackService : MediaSessionService() {
     companion object {
+        // LEGACY objects kept alive only for non-chain consumers:
+        //  - syncAudioProcessor: Jam lockstep hardware-latency compensation
+        //    (PlayerViewModel.getAcousticPositionMs)
+        //  - crossfadeAudioProcessor companion: user's crossfade pref storage
+        // They are NO LONGER in the render chain — see streamifyProcessor.
         val syncAudioProcessor: SyncAudioProcessor = SyncAudioProcessor()
+        val crossfadeAudioProcessor: CrossfadeAudioProcessor = CrossfadeAudioProcessor()
+
+        /**
+         * THE render-path processor: one fused native pass per buffer.
+         * Old chain was [RustDsp, MeshPcm, Crossfade, Sync] = 5 copies +
+         * 3 JNI crossings + a Kotlin sample loop on the real-time thread.
+         */
+        val streamifyProcessor: StreamifyAudioProcessor = StreamifyAudioProcessor()
+
+        // ── CIRCUIT BREAKER (single-owner error recovery) ──
+        // Set when THIS service initiates a CDN token renewal for the current
+        // item (position-preserving replaceMediaItem). The ViewModel-level
+        // error listener checks these to stay hands-off instead of running its
+        // own re-resolve-and-reset-to-zero path concurrently (the old dual
+        // engine ping-ponged progress resets on flaky CDN URLs).
+        @Volatile var lastRenewalMediaId: String? = null
+        @Volatile var lastRenewalAtMs: Long = 0L
+
         val isBuffering = kotlinx.coroutines.flow.MutableStateFlow(false)
         @Volatile var onSeekNextListener: (() -> Unit)? = null
         @Volatile var onSeekPrevListener: (() -> Unit)? = null
@@ -27,20 +50,40 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+        } catch (_: Throwable) {}
         DolbySpatialManager.init(this)
+        AudioDeviceManager.init(this)
 
+        // DSP RENDER CHAIN (restored — was severed in 6a3d82a): the fused
+        // StreamifyAudioProcessor (loudnessDb pre-gain → LUFS normalize →
+        // soft-knee limiter → Rust parametric EQ) is attached to the actual
+        // audio sink, so online streams are mastered, not raw CDN.
         val renderersFactory = object : DefaultRenderersFactory(this) {
+            @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
             override fun buildAudioSink(
                 context: android.content.Context,
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean
-            ): androidx.media3.exoplayer.audio.AudioSink? {
-                return DefaultAudioSink.Builder(context)
+            ): androidx.media3.exoplayer.audio.AudioSink {
+                return DefaultAudioSink.Builder(this@PlaybackService)
                     .setEnableFloatOutput(true)
-                    .setAudioProcessors(arrayOf(CrossfadeAudioProcessor(), syncAudioProcessor, MeshPcmAudioProcessor()))
+                    .setAudioProcessors(arrayOf(streamifyProcessor))
                     .build()
             }
         }
+
+        val audioLoadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 2500,
+                /* maxBufferMs = */ 30000,
+                /* bufferForPlaybackMs = */ 500,
+                /* bufferForPlaybackAfterRebufferMs = */ 1000
+            )
+            .setTargetBufferBytes(C.LENGTH_UNSET)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
 
         val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
             com.streamify.app.data.network.NetworkEngine.exoPlayerClient
@@ -66,20 +109,32 @@ class PlaybackService : MediaSessionService() {
                 .setSpatializationBehavior(C.SPATIALIZATION_BEHAVIOR_AUTO)
                 .build(), true
             )
+            .setLoadControl(audioLoadControl)
             .setHandleAudioBecomingNoisy(true)
             .setPauseAtEndOfMediaItems(false)
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
 
-        
+        // adb-logcat-grade player telemetry: TerminalPlayerListener mirrors
+        // state transitions, PLAYER_ERROR cause chains, LOAD_ERRORs and media
+        // transitions into SLog -> admin terminal (and onward to system logcat).
+        exoPlayer.addAnalyticsListener(TerminalPlayerListener())
+
         player = exoPlayer
         exoPlayer.setSkipSilenceEnabled(true)
+
+        AudioDeviceManager.onHeadsetDisconnectedListener = {
+            if (exoPlayer.isPlaying) {
+                exoPlayer.pause()
+            }
+        }
         
-        preBufferManager = PredictivePreBufferManager(exoPlayer, audioCache)
-        exoPlayer.addListener(preBufferManager!!)
+        preBufferManager = PredictivePreBufferManager(this)
 
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
             private var lastPlayStartMs: Long = 0L
+            private var lastCountedMediaId: String? = null
+            private var lastCountedAtMs: Long = 0L
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 val now = System.currentTimeMillis()
@@ -95,6 +150,10 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                runCatching {
+                    com.streamify.app.data.NativeBridge.nativeResetAudioDSP()
+                }
+
                 val now = System.currentTimeMillis()
                 if (lastPlayStartMs > 0L) {
                     val deltaSec = ((now - lastPlayStartMs) / 1000L).coerceAtLeast(0L)
@@ -109,7 +168,16 @@ class PlaybackService : MediaSessionService() {
                     val artist = mediaItem.mediaMetadata.artist?.toString() ?: ""
                     val cover = mediaItem.mediaMetadata.artworkUri?.toString() ?: ""
                     val path = mediaItem.localConfiguration?.uri?.toString() ?: ""
-                    if (title.isNotBlank()) {
+                    // STATS OVERHAUL: this listener is the SINGLE writer for
+                    // listening seconds AND play counts. Real listen length is
+                    // passed so sub-10s blips never inflate Top Songs, and
+                    // same-track re-preparations (CDN 403 renewal) are deduped.
+                    val nowMs = System.currentTimeMillis()
+                    val isRenewalReplay = mediaItem.mediaId == lastCountedMediaId &&
+                            (nowMs - lastCountedAtMs) < 1500L
+                    if (title.isNotBlank() && !isRenewalReplay) {
+                        lastCountedMediaId = mediaItem.mediaId
+                        lastCountedAtMs = nowMs
                         val track = com.streamify.app.data.models.Track(
                             id = mediaItem.mediaId.toIntOrNull() ?: 0,
                             title = title,
@@ -117,7 +185,10 @@ class PlaybackService : MediaSessionService() {
                             filepath = path,
                             coverArtPath = cover
                         )
-                        com.streamify.app.data.YtStatsTelemetryEngine.recordTrackPlay(track)
+                        val listenedForThisPlay =
+                            ((nowMs - (lastPlayStartMs.takeIf { it > 0 } ?: nowMs)) / 1000L)
+                                .coerceIn(0L, 3600L)
+                        com.streamify.app.data.YtStatsTelemetryEngine.recordTrackPlay(track, listenedForThisPlay)
                     }
                 }
             }
@@ -148,6 +219,11 @@ class PlaybackService : MediaSessionService() {
                     val mediaId = currentItem?.mediaId ?: mediaUri
 
                     if (mediaId.isNotBlank()) {
+                        // Announce ownership BEFORE the async renewal so the
+                        // ViewModel listener defers to this path.
+                        lastRenewalMediaId = mediaId
+                        lastRenewalAtMs = System.currentTimeMillis()
+
                         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                             try {
                                 val fresh = YouTubeStreamResolver.resolveStreamUrl(mediaId, forceFresh = true)
@@ -175,19 +251,27 @@ class PlaybackService : MediaSessionService() {
         val forwardingPlayer = object : androidx.media3.common.ForwardingPlayer(exoPlayer) {
             override fun getAvailableCommands(): androidx.media3.common.Player.Commands {
                 return super.getAvailableCommands().buildUpon()
-                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
-                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_MEDIA_ITEM)
                     .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                     .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_BACK)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_FORWARD)
                     .build()
             }
 
             override fun isCommandAvailable(command: Int): Boolean {
                 return when (command) {
+                    androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                    androidx.media3.common.Player.COMMAND_SEEK_TO_MEDIA_ITEM,
                     androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT,
                     androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS,
                     androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                    androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> true
+                    androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                    androidx.media3.common.Player.COMMAND_SEEK_BACK,
+                    androidx.media3.common.Player.COMMAND_SEEK_FORWARD -> true
                     else -> super.isCommandAvailable(command)
                 }
             }
@@ -230,14 +314,19 @@ class PlaybackService : MediaSessionService() {
                 session: MediaSession,
                 controller: MediaSession.ControllerInfo
             ): MediaSession.ConnectionResult {
-                val customCommands = session.player.availableCommands.buildUpon()
-                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
-                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
+                val availablePlayerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_MEDIA_ITEM)
                     .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                     .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_BACK)
+                    .add(androidx.media3.common.Player.COMMAND_SEEK_FORWARD)
                     .build()
+
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                    .setAvailablePlayerCommands(customCommands)
+                    .setAvailablePlayerCommands(availablePlayerCommands)
                     .build()
             }
         }
@@ -255,8 +344,14 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        AudioDeviceManager.release(this)
+        EqualizerManager.release()
         preBufferManager?.release()
         preBufferManager = null
+        // Free the DSP native handles (was leaking two per process).
+        runCatching { streamifyProcessor.release() }
+        runCatching { syncAudioProcessor.release() }
+        runCatching { crossfadeAudioProcessor.release() }
         mediaSession?.run {
             player.release()
             release()
@@ -264,6 +359,78 @@ class PlaybackService : MediaSessionService() {
         }
         player = null
         super.onDestroy()
+    }
+}
+
+/**
+ * Compact AnalyticsListener feeding playback internals into SLog so the admin
+ * terminal mirrors what `adb logcat` would show: state transitions, errors,
+ * load failures and track transitions.
+ */
+private class TerminalPlayerListener : androidx.media3.exoplayer.analytics.AnalyticsListener {
+
+    private fun stateName(state: Int): String = when (state) {
+        androidx.media3.common.Player.STATE_IDLE -> "IDLE"
+        androidx.media3.common.Player.STATE_BUFFERING -> "BUFFERING"
+        androidx.media3.common.Player.STATE_READY -> "READY"
+        androidx.media3.common.Player.STATE_ENDED -> "ENDED"
+        else -> "?$state"
+    }
+
+    override fun onPlaybackStateChanged(
+        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+        state: Int
+    ) {
+        val periodId = eventTime.mediaPeriodId?.periodUid?.toString() ?: eventTime.mediaPeriodId?.toString()
+        com.streamify.app.util.SLog.d(
+            "ExoEvent",
+            "playbackState=${stateName(state)} periodId=$periodId"
+        )
+    }
+
+    override fun onPlayerError(
+        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+        error: androidx.media3.common.PlaybackException
+    ) {
+        val causeChain = generateSequence(error.cause) { it.cause }.take(4).joinToString(" <- ") { c ->
+            "${c.javaClass.simpleName}: ${c.message ?: ""}"
+        }
+        com.streamify.app.util.SLog.e(
+            "ExoEvent",
+            "PLAYER_ERROR code=${error.errorCodeName} msg=${error.message} causes=[$causeChain]"
+        )
+    }
+
+    override fun onLoadError(
+        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+        loadEventInfo: androidx.media3.exoplayer.source.LoadEventInfo,
+        mediaLoadData: androidx.media3.exoplayer.source.MediaLoadData,
+        error: java.io.IOException,
+        wasCanceled: Boolean
+    ) {
+        if (!wasCanceled) {
+            com.streamify.app.util.SLog.w(
+                "ExoEvent",
+                "LOAD_ERROR ${error.javaClass.simpleName}: ${error.message ?: ""} uri=${loadEventInfo.uri}"
+            )
+        }
+    }
+
+    override fun onMediaItemTransition(
+        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+        mediaItem: androidx.media3.common.MediaItem?,
+        reason: Int
+    ) {
+        val r = when (reason) {
+            androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> "AUTO"
+            androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> "SEEK"
+            androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> "PLAYLIST_CHANGED"
+            else -> "REPEAT"
+        }
+        com.streamify.app.util.SLog.i(
+            "ExoEvent",
+            "transition=$r mediaId=${mediaItem?.mediaId}"
+        )
     }
 }
 

@@ -4,7 +4,7 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
-import android.util.Log
+import com.streamify.app.util.SLog as Log
 import com.streamify.app.data.remote.SupabaseClient
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow

@@ -69,7 +69,68 @@ class HomeViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 // =========================================================================
-                // PIPELINE A: CLOUD DISCOVERY (ALWAYS ONLINE, NEVER GATED ON SQLITE)
+                // STAGE 1: LOCAL PERSONALIZATION FAST-PATH (<5ms Instant Render)
+                // =========================================================================
+                val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                val rawSessionRecs = try { repository.getSessionRecommendations(30) } catch (e: Exception) { emptyList() }
+                val rawCircadian = try { repository.getCircadianRecommendations(currentHour, 20) } catch (e: Exception) { emptyList() }
+                val rawLongRecs = try { repository.getLongTermRecommendations(userId = 1, limit = 30) } catch (e: Exception) { emptyList() }
+                val topPlayed = try { repository.getTopPlayedTracks(20) } catch (e: Exception) { emptyList() }
+                val recent = allTracks.takeLast(6)
+
+                val slotName = repository.getCircadianSlot(currentHour)
+                val slotTitle = when (slotName) {
+                    "MORNING" -> "Morning Energy • Wake & Move"
+                    "AFTERNOON" -> "Afternoon Flow • Focus & Lo-Fi"
+                    "EVENING" -> "Evening Horizon • Golden Hour Unwind"
+                    else -> "Late Night Drift • Deep Chill"
+                }
+
+                val hydrateList: (List<Track>) -> List<Track> = { list -> list.map { repository.hydrateTrack(it) } }
+
+                val localSessionRecs = ReRanker.reRank(
+                    candidates = rawSessionRecs.ifEmpty { allTracks },
+                    maxPerArtist = 2,
+                    explorationRatio = 0.15f,
+                    explorationPool = allTracks,
+                    limit = 12
+                )
+                val localCircadianRecs = ReRanker.reRank(
+                    candidates = rawCircadian.ifEmpty { allTracks },
+                    maxPerArtist = 2,
+                    explorationRatio = 0.15f,
+                    explorationPool = allTracks,
+                    limit = 12
+                )
+                val localMadeForYou = ReRanker.reRank(
+                    candidates = rawLongRecs.ifEmpty { allTracks },
+                    maxPerArtist = 2,
+                    explorationRatio = 0.20f,
+                    explorationPool = allTracks,
+                    limit = 12
+                )
+
+                // If local data exists, paint the UI immediately!
+                if (allTracks.isNotEmpty() || topPlayed.isNotEmpty() || rawSessionRecs.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        _uiState.value = HomeUiState.Success(
+                            hybridRecommendations = emptyList(),
+                            sessionRecommendations = hydrateList(localSessionRecs),
+                            circadianRecommendations = hydrateList(localCircadianRecs),
+                            circadianSlotTitle = slotTitle,
+                            madeForYou = hydrateList(localMadeForYou),
+                            onlineDiscoveries = emptyList(),
+                            recent = hydrateList(recent),
+                            topPlayed = hydrateList(topPlayed.take(8)),
+                            allTracks = allTracks,
+                            trending = emptyList(),
+                            heavyRotation = hydrateList(topPlayed.take(8))
+                        )
+                    }
+                }
+
+                // =========================================================================
+                // STAGE 2: PROGRESSIVE CLOUD STREAM & HYBRID DISCOVERY
                 // =========================================================================
                 val cloudSeeds = listOf("Top Hits", "Trending Hits", "Synthwave", "Lo-Fi Beats", "Indie Chill")
                 val deferredCloudSeeds = cloudSeeds.map { seed ->
@@ -91,7 +152,8 @@ class HomeViewModel(
                                         key = "C",
                                         lyricsPath = null,
                                         source = "online_stream",
-                                        isLiked = repository.isTrackLiked(Track(title = res.title, artist = res.uploader))
+                                        isLiked = repository.isTrackLiked(Track(title = res.title, artist = res.uploader)),
+                                        ytmVideoId = vid
                                     )
                                     repository.hydrateTrack(trackObj)
                                 }
@@ -122,25 +184,7 @@ class HomeViewModel(
 
                 val cloudDiscoveryPool = deferredCloudSeeds.awaitAll().flatten().distinctBy { "${it.title}:::${it.artist}".lowercase() }
 
-                // =========================================================================
-                // PIPELINE B: LOCAL PERSONALIZATION (C++ NATIVE SIMD ENGINE)
-                // =========================================================================
-                val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                val rawSessionRecs = try { repository.getSessionRecommendations(30) } catch (e: Exception) { emptyList() }
-                val rawCircadian = try { repository.getCircadianRecommendations(currentHour, 20) } catch (e: Exception) { emptyList() }
-                val rawLongRecs = try { repository.getLongTermRecommendations(userId = 1, limit = 30) } catch (e: Exception) { emptyList() }
-                val topPlayed = try { repository.getTopPlayedTracks(20) } catch (e: Exception) { emptyList() }
-                val recent = allTracks.takeLast(6)
-
-                val slotName = repository.getCircadianSlot(currentHour)
-                val slotTitle = when (slotName) {
-                    "MORNING" -> "Morning Energy • Wake & Move"
-                    "AFTERNOON" -> "Afternoon Flow • Focus & Lo-Fi"
-                    "EVENING" -> "Evening Horizon • Golden Hour Unwind"
-                    else -> "Late Night Drift • Deep Chill"
-                }
-
-                // 1. Session Recommendations (EMA V_session)
+                // 1. Session Recommendations (EMA V_session) with Cloud blend
                 val sessionCandidates = if (rawSessionRecs.isNotEmpty()) rawSessionRecs else (allTracks + cloudDiscoveryPool).distinctBy { it.id }
                 val sessionRecs = ReRanker.reRank(
                     candidates = sessionCandidates,
@@ -170,7 +214,7 @@ class HomeViewModel(
                     limit = 12
                 )
 
-                // 4. Multi-Seed Ensemble & Hybrid Radar (Last.fm Graph x On-Device SIMD)
+                // 4. Multi-Seed Ensemble & Hybrid Radar
                 val distinctSeeds = ReRanker.getDistinctGenreSeeds(sessionRecs.ifEmpty { cloudDiscoveryPool }, limit = 3)
                 val semaphore = Semaphore(6)
                 val hybridRecs = if (distinctSeeds.isNotEmpty()) {
@@ -206,7 +250,7 @@ class HomeViewModel(
                     }
                 } else emptyList()
 
-                // 5. Online 2-Hop Graph Discovery Across Diverse Artists (Bounded Parallel Racing)
+                // 5. Online 2-Hop Graph Discovery Across Diverse Artists
                 val topArtists = ReRanker.extractTopArtists(sessionRecs.ifEmpty { madeForYou.ifEmpty { cloudDiscoveryPool } }, limit = 4)
                 val onlineDiscoveries = coroutineScope {
                     val deferredArtists = topArtists.map { artist ->
@@ -230,7 +274,8 @@ class HomeViewModel(
                                                     key = "",
                                                     lyricsPath = null,
                                                     source = "online_stream",
-                                                    isLiked = repository.isTrackLiked(Track(title = item.title, artist = item.uploader))
+                                                    isLiked = repository.isTrackLiked(Track(title = item.title, artist = item.uploader)),
+                                                    ytmVideoId = vid
                                                 )
                                                 repository.hydrateTrack(trackObj)
                                             }
@@ -264,7 +309,6 @@ class HomeViewModel(
                 }
 
                 val finalDisplayPool = if (allTracks.isNotEmpty()) allTracks else cloudDiscoveryPool
-                val hydrateList: (List<Track>) -> List<Track> = { list -> list.map { repository.hydrateTrack(it) } }
 
                 withContext(Dispatchers.Main) {
                     _uiState.value = HomeUiState.Success(
@@ -282,8 +326,10 @@ class HomeViewModel(
                     )
                 }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    _uiState.value = HomeUiState.Error(e.message ?: "Failed to generate recommendations")
+                if (_uiState.value !is HomeUiState.Success) {
+                    withContext(Dispatchers.Main) {
+                        _uiState.value = HomeUiState.Error(e.message ?: "Failed to generate recommendations")
+                    }
                 }
             }
         }

@@ -1,5 +1,7 @@
 package com.streamify.app.data.network
 
+import com.streamify.app.util.SLog
+import com.streamify.app.util.SLog as Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -10,6 +12,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -19,7 +22,9 @@ data class ResolvedStream(
     val streamUrl: String,
     val mimeType: String,
     val bitrate: Int,
-    val durationSec: Int
+    val durationSec: Int,
+    /** YouTube's own loudness measurement for this exact stream (dB, rel −14 LUFS ref). */
+    val loudnessDb: Float? = null
 )
 
 data class ThumbnailDescriptor(
@@ -33,7 +38,47 @@ class UnresolvableTrackException(msg: String = "Unable to resolve playable audio
 object YouTubeStreamResolver {
 
     private const val INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player"
+
+    // AUTHENTICATED RESOLUTION HOOK (2026 bot-wall): set once at app start.
+    // Returns (sapisidhashHeader, rawCookies). When present, both player
+    // executors attach Authorization/Cookie/X-Origin — the only combination
+    // that still returns adaptiveFormats.
+    @Volatile
+    var ytSessionProvider: (() -> Pair<String, String>)? = null
+
+    private fun attachYtSession(builder: Request.Builder) {
+        val session = try { ytSessionProvider?.invoke() } catch (_: Throwable) { null } ?: return
+        val (auth, cookies) = session
+        if (!auth.isNullOrBlank()) {
+            builder.header(
+                "Authorization",
+                if (auth.startsWith("SAPISIDHASH")) auth else "SAPISIDHASH $auth"
+            )
+            builder.header("X-Origin", "https://music.youtube.com")
+        }
+        if (!cookies.isNullOrBlank()) {
+            builder.header("Cookie", cookies)
+        }
+    }
+
+    object ResolverPolicy {
+        @Volatile var useNegativeCache = false
+        @Volatile var useCircuitBreaker = false
+        @Volatile var strikeLockEnabled = false
+    }
+
+    /** Baked-in fallback; FleetConfig may override at runtime (release-free adaptation). */
+    private const val DEFAULT_SIGNATURE_TIMESTAMP = 19850
+    @Volatile
+    var signatureTimestampOverride: Int? = null
+    private fun signatureTimestamp(): Int =
+        com.streamify.app.util.FleetConfig.signatureTimestamp(DEFAULT_SIGNATURE_TIMESTAMP)
+
     private const val USER_AGENT_ANDROID = "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 14; en_US) gzip"
+
+    /** Attached at app start; used by forensics for connectivity snapshots. */
+    @Volatile
+    var appContext: android.content.Context? = null
     private val JSON_MEDIA_TYPE = "application/json; charset=UTF-8".toMediaType()
 
     private data class ClientConfig(
@@ -46,11 +91,18 @@ object YouTubeStreamResolver {
         val osName: String? = null,
         val osVersion: String? = null,
         val origin: String? = null,
-        val referer: String? = null
+        val referer: String? = null,
+        // Zero-token fleet (live-probe verified 2026-08-25): bare ANDROID/IOS 21.x
+        // return playable URLs while SAPISIDHASH+Cookie on these clients triggers
+        // bot-walls and stale 19.x fingerprints are rejected with HTTP 400.
+        // Session attach stays opt-in per-profile for diagnostics only.
+        val attachSession: Boolean = false
     )
 
-    private val CLIENT_TARGETS = listOf(
-        // 1. Android App: 100% verified direct playback on official/topic music videos
+    private fun defaultAudioTargets() = listOf(
+        // 1. Android App: probe-verified direct playback on official/topic music videos
+        // Fingerprints restored from build-157 (6ffa6c4) — the last build solving
+        // fast. Stale 19.x clients get HTTP 400 "Precondition check failed".
         ClientConfig(
             clientName = "ANDROID",
             clientVersion = "21.26.364",
@@ -83,6 +135,32 @@ object YouTubeStreamResolver {
         )
     )
 
+    // Release-free adaptation: FleetConfig (remote JSON, canary-maintained)
+    // overrides the fleet when present; baked defaults remain the fallback.
+    private fun audioTargets(): List<ClientConfig> =
+        com.streamify.app.util.FleetConfig.audioTargets(defaultAudioTargets().map { it.toSpec() })
+            .map { it.toClientConfig() }
+
+    private fun videoTargets(): List<ClientConfig> =
+        com.streamify.app.util.FleetConfig.videoTargets(defaultVideoTargets().map { it.toSpec() })
+            .map { it.toClientConfig() }
+
+    private fun ClientConfig.toSpec() = com.streamify.app.util.FleetConfig.ClientSpec(
+        clientName, clientVersion, clientNumber, userAgent,
+        deviceMake, deviceModel, osName, osVersion
+    )
+
+    private fun com.streamify.app.util.FleetConfig.ClientSpec.toClientConfig() = ClientConfig(
+        clientName = clientName,
+        clientVersion = clientVersion,
+        clientNumber = clientNumber,
+        userAgent = userAgent,
+        deviceMake = deviceMake,
+        deviceModel = deviceModel,
+        osName = osName,
+        osVersion = osVersion
+    )
+
     // ========================================================================
     // INVARIANT 1: STORAGE GATEKEEPER & IDENTITY SANITIZATION
     // ========================================================================
@@ -106,23 +184,22 @@ object YouTubeStreamResolver {
 
 
     fun sanitizeCoverUrl(rawUrl: String?, videoId: String?): String? {
+        val effectiveVid = videoId ?: extractVideoId(rawUrl ?: "")
         if (rawUrl.isNullOrBlank()) {
-            return videoId?.let { "https://i.ytimg.com/vi/$it/sddefault.jpg" }
+            return effectiveVid?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" }
         }
         val trimmed = rawUrl.trim()
         return when {
             trimmed.contains("mzstatic.com") -> trimmed.replace(Regex("\\d+x\\d+bb"), "1400x1400bb")
             trimmed.contains("googleusercontent.com") || trimmed.contains("ggpht.com") -> {
-                if (trimmed.contains("=")) {
-                    trimmed.replace(Regex("=w\\d+-h\\d+.*"), "=w800-h800-l90-rj").replace(Regex("=s\\d+.*"), "=s800")
-                } else {
-                    "$trimmed=w800-h800-l90-rj"
-                }
+                val cleanBase = trimmed.substringBefore("=")
+                "$cleanBase=w1200-h1200-l90-rj"
             }
-            trimmed.contains("googlevideo.com") -> videoId?.let { "https://i.ytimg.com/vi/$it/sddefault.jpg" }
-            trimmed.contains("ytimg.com") -> {
-                if (trimmed.endsWith("/default.jpg") || trimmed.endsWith("/mqdefault.jpg")) {
-                    trimmed.replace(Regex("/(m?q)?default\\.jpg"), "/hqdefault.jpg")
+            trimmed.contains("googlevideo.com") -> effectiveVid?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" }
+            trimmed.contains("ytimg.com") || trimmed.contains("vi_webp") -> {
+                val vid = Regex("(?<=/vi/|/vi_webp/)[a-zA-Z0-9_-]{11}").find(trimmed)?.value ?: effectiveVid
+                if (vid != null) {
+                    "https://i.ytimg.com/vi/$vid/maxresdefault.jpg"
                 } else {
                     trimmed
                 }
@@ -143,7 +220,8 @@ object YouTubeStreamResolver {
         artist: String
     ): ThumbnailDescriptor {
         val sanitizedPrimary = sanitizeCoverUrl(rawUrl, videoId)
-        val secondaryUrl = videoId?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+        val vid = videoId ?: extractVideoId(rawUrl ?: "")
+        val secondaryUrl = vid?.let { "https://i.ytimg.com/vi/$it/hq720.jpg" }
         val proceduralSeed = (title.trim().lowercase() + artist.trim().lowercase()).hashCode()
 
         return ThumbnailDescriptor(
@@ -153,21 +231,32 @@ object YouTubeStreamResolver {
         )
     }
 
-    fun extractVideoId(urlOrId: String, fallbackThumbnail: String? = null): String? {
-        val trimmed = urlOrId.trim()
-        if (trimmed.startsWith("ytsearch:") || trimmed.startsWith("online://")) {
-            return null
-        }
-        if (trimmed.length == 11 && !trimmed.contains("/") && !trimmed.contains("?") && !trimmed.contains("&") && !trimmed.contains(".")) {
-            return trimmed
-        }
-        val matchWatch = Regex("(?:[?&]v=|youtu\\.be/|/embed/|/live/|^)([a-zA-Z0-9_-]{11})").find(trimmed)
-        if (matchWatch != null) return matchWatch.groupValues[1]
+    private val YT_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
+    private val YT_URL_REGEX = Regex("(?:[?&]v=|/v/|youtu\\.be/|/embed/|/shorts/|/live/|^)([a-zA-Z0-9_-]{11})(?:[&?#/]|$)")
+    private val YT_THUMBNAIL_REGEX = Regex("(?:vi|vi_webp)/([a-zA-Z0-9_-]{11})")
 
-        val matchYtImg = Regex("i\\.ytimg\\.com/vi(_webp)?/([a-zA-Z0-9_-]{11})").find(trimmed)
-        if (matchYtImg != null) return matchYtImg.groupValues[2]
+    fun extractIdFromThumbnail(thumbnailUrl: String?): String? {
+        if (thumbnailUrl.isNullOrBlank()) return null
+        return YT_THUMBNAIL_REGEX.find(thumbnailUrl)?.groupValues?.getOrNull(1)
+    }
 
-        return null
+    fun extractVideoId(urlOrId: String?, fallbackThumbnail: String? = null): String? {
+        if (urlOrId.isNullOrBlank()) return extractIdFromThumbnail(fallbackThumbnail)
+        val cleanInput = urlOrId.trim()
+        if (cleanInput.startsWith("ytsearch:") || cleanInput.startsWith("online://")) {
+            return extractIdFromThumbnail(fallbackThumbnail)
+        }
+        // 1. Direct 11-character video ID
+        if (YT_ID_REGEX.matches(cleanInput)) {
+            return cleanInput
+        }
+        // 2. Standard YouTube URL patterns
+        val match = YT_URL_REGEX.find(cleanInput)?.groupValues?.getOrNull(1)
+        if (match != null && YT_ID_REGEX.matches(match)) {
+            return match
+        }
+        // 3. Fallback to thumbnail URL if input is a CDN URL (googlevideo.com) or custom scheme
+        return extractIdFromThumbnail(fallbackThumbnail)
     }
 
     fun getCanonicalWatchUrl(urlOrId: String, fallbackThumbnail: String? = null): String? {
@@ -192,7 +281,7 @@ object YouTubeStreamResolver {
     }
 
     // ========================================================================
-    // INVARIANT 2: UNIFIED JIT 3-TIER STREAM RESOLUTION CASCADE
+    // INVARIANT 2: UNIFIED JIT STREAM RESOLUTION CASCADE (sol1.2.3)
     // ========================================================================
     suspend fun resolveStreamJit(track: com.streamify.app.data.models.Track, forceFresh: Boolean = false): Result<ResolvedStream> = withContext(Dispatchers.IO) {
         // Tier 0: Offline Local File Exists
@@ -211,7 +300,8 @@ object YouTubeStreamResolver {
         }
 
         // 1. Determine Video ID (or search online if missing/unresolved)
-        var videoId = extractVideoId(track.filepath, track.coverArtPath)
+        var videoId = track.ytmVideoId?.takeIf { YT_ID_REGEX.matches(it) }
+            ?: extractVideoId(track.filepath, track.coverArtPath)
         var wasUnpinnedSearch = false
         if (videoId == null) {
             val cleanQuery = if (track.filepath.startsWith("ytsearch:")) {
@@ -223,50 +313,42 @@ object YouTubeStreamResolver {
 
             if (cleanQuery.isNotBlank()) {
                 val searchMatches = YouTubeMusicSearchApi.search(cleanQuery, maxResults = 5)
-                // Strict Official Audio Filter: Exclude user covers, live recordings, slowed, and remixes
-                val topMatch = searchMatches.firstOrNull { match ->
-                    val isOfficial = match.uploader.contains(track.artist, ignoreCase = true) || match.uploader.contains("Topic", ignoreCase = true)
-                    val isCleanTitle = !match.title.contains("live", ignoreCase = true) &&
-                                       !match.title.contains("cover", ignoreCase = true) &&
-                                       !match.title.contains("remix", ignoreCase = true) &&
-                                       !match.title.contains("slowed", ignoreCase = true) &&
-                                       !match.title.contains("sped up", ignoreCase = true)
-                    isOfficial && isCleanTitle && com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(track.title, track.artist, match.title, match.uploader)
-                } ?: searchMatches.firstOrNull { match ->
-                    val isCleanTitle = !match.title.contains("live", ignoreCase = true) &&
-                                       !match.title.contains("cover", ignoreCase = true) &&
-                                       !match.title.contains("remix", ignoreCase = true)
-                    isCleanTitle && com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(track.title, track.artist, match.title, match.uploader)
+                val topMatch = searchMatches.firstOrNull {
+                    it.type == com.streamify.app.viewmodel.SearchResultType.SONG || it.type == com.streamify.app.viewmodel.SearchResultType.VIDEO
                 } ?: searchMatches.firstOrNull()
-
                 if (topMatch != null) {
-                    videoId = extractVideoId(topMatch.url)
+                    videoId = extractVideoId(topMatch.url, topMatch.thumbnail)
                 }
             }
         }
 
         if (videoId == null) {
+            SLog.e("LadderTrace", "${com.streamify.app.util.Trace.pfx()}❌ RESOLUTION FAILED for ${track.title} (No videoId found)")
+            dumpForensics("no-videoId for '${track.title}'")
             return@withContext Result.failure(UnresolvableTrackException("No video ID could be found for ${track.title}"))
         }
+        com.streamify.app.util.SLog.d(
+            "LadderTrace",
+            "${com.streamify.app.util.Trace.pfx()}resolve start vid=$videoId src=${if (wasUnpinnedSearch) "search" else "pinned"} title='${track.title}' dur=${track.durationSec}"
+        )
 
-        // Canonical Pinning: Lock resolved immutable Video ID in DB so audio never shifts on future plays
+        // Canonical Pinning: Lock resolved immutable Video ID in DB
         if (wasUnpinnedSearch && track.id > 0) {
             val canonicalWatchUrl = "https://www.youtube.com/watch?v=$videoId"
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                 try {
                     com.streamify.app.data.TrackRepository.upsertStreamedTrack(
-                        track.copy(filepath = canonicalWatchUrl)
+                        track.copy(filepath = canonicalWatchUrl, ytmVideoId = videoId)
                     )
-                } catch (_: Exception) {
-                    // Best-effort DB update
-                }
+                } catch (_: Exception) {}
             }
         }
 
-        // 2. In-Memory LRU Cache with 4-Hour / 600s safety margin (bypassed if forceFresh requested)
+        // 2. In-Memory LRU Cache with 4-Hour safety margin
         if (!forceFresh) {
             val cached = StreamEdgeCache.getStream(videoId)
             if (cached != null && !isCdnExpired(cached.streamUrl, safetyMarginMs = 600_000L)) {
+                ConnectionWarmer.preWarmCDN(cached.streamUrl)
                 return@withContext Result.success(cached)
             }
         } else {
@@ -274,32 +356,125 @@ object YouTubeStreamResolver {
         }
 
         // 3. Tier 1: Native HTTP/2 Innertube Multi-Client Race (<80ms)
-
         val nativeResolved = raceClientEndpoints(videoId)
         if (nativeResolved != null && nativeResolved.streamUrl.isNotBlank()) {
             StreamEdgeCache.putStream(videoId, nativeResolved)
+            ConnectionWarmer.preWarmCDN(nativeResolved.streamUrl)
+            SLog.d(
+                "LadderTrace",
+                "${com.streamify.app.util.Trace.pfx()}R1 HIT vid=$videoId mime=${nativeResolved.mimeType.substringBefore(';')} br=${nativeResolved.bitrate}"
+            )
             return@withContext Result.success(nativeResolved)
         }
+        SLog.w("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R1 MISS vid=$videoId — entering R-NP (NewPipe + PoToken)")
 
-        // 4. Tier 2: Query YouTube Music Search Match and retry
+        // 3.5 Tier R-NP: NewPipe Extractor with BotGuard PO tokens.
+        // Pure-Kotlin path that defeats SABR URL-stripping: the hidden WebView
+        // mints web-client PO tokens, unlocking direct progressive/audio URLs
+        // even for licensed content our bare fleet cannot see.
+        val npResolved = try {
+            resolveViaNewPipe(videoId)
+        } catch (t: Throwable) {
+            SLog.e("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R-NP threw for $videoId: ${t.message}")
+            null
+        }
+        if (npResolved != null && npResolved.streamUrl.isNotBlank()) {
+            StreamEdgeCache.putStream(videoId, npResolved)
+            ConnectionWarmer.preWarmCDN(npResolved.streamUrl)
+            SLog.i(
+                "LadderTrace",
+                "${com.streamify.app.util.Trace.pfx()}R-NP HIT vid=$videoId mime=${npResolved.mimeType.substringBefore(';')} br=${npResolved.bitrate}"
+            )
+            return@withContext Result.success(npResolved)
+        }
+        SLog.w("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R-NP MISS vid=$videoId — entering R2 alternate-upload search")
+
+        // 4. Tier 2: Alternate-upload search fallback
         try {
-            val fallbackSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 3)
-            for (candidate in fallbackSearch) {
-                val candVideoId = extractVideoId(candidate.url, candidate.thumbnail)
-                if (candVideoId != null && candVideoId != videoId) {
-                    val retryResolved = raceClientEndpoints(candVideoId)
-                    if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
-                        StreamEdgeCache.putStream(candVideoId, retryResolved)
-                        return@withContext Result.success(retryResolved)
+            val altSearch = YouTubeMusicSearchApi.search("${track.title} ${track.artist}", maxResults = 5)
+            var rejects = 0
+            val candidates = altSearch.mapNotNull { c ->
+                val cid = extractVideoId(c.url, c.thumbnail) ?: return@mapNotNull null
+                if (cid == videoId) return@mapNotNull null
+                val durationOk = track.durationSec <= 0 || c.duration <= 0 || kotlin.math.abs(track.durationSec - c.duration) <= 8
+                if (!durationOk) {
+                    if (rejects < 5) SLog.d("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R2 reject vid=$cid reason=duration(${c.duration}s vs ${track.durationSec}s)")
+                    rejects++
+                    return@mapNotNull null
+                }
+                val titleSim = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(track.title.lowercase(), c.title.lowercase())
+                if (titleSim < 0.25f) {
+                    if (rejects < 5) SLog.d("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R2 reject vid=$cid reason=titleSim=${"%.2f".format(titleSim)}")
+                    rejects++
+                    return@mapNotNull null
+                }
+                cid to titleSim
+            }.sortedByDescending { it.second }.take(3)
+
+            SLog.d("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R2 candidates=${candidates.size} (from ${altSearch.size} results)")
+
+            for ((candVideoId, _) in candidates) {
+                val retryResolved = raceClientEndpoints(candVideoId)
+                if (retryResolved != null && retryResolved.streamUrl.isNotBlank()) {
+                    StreamEdgeCache.putStream(candVideoId, retryResolved)
+                    ConnectionWarmer.preWarmCDN(retryResolved.streamUrl)
+                    SLog.d("StreamifyResolver", "Resolved Tier 2 fallback for ${track.title} ($candVideoId)")
+
+                    if (track.id > 0) {
+                        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                com.streamify.app.data.TrackRepository.upsertStreamedTrack(
+                                    track.copy(
+                                        filepath = "https://www.youtube.com/watch?v=$candVideoId",
+                                        ytmVideoId = candVideoId
+                                    )
+                                )
+                            } catch (_: Exception) {}
+                        }
                     }
+                    return@withContext Result.success(retryResolved)
                 }
             }
         } catch (e: Exception) {
-            // Failed tier 2
+            // R2 search fallback failed
         }
 
+        SLog.e("LadderTrace", "${com.streamify.app.util.Trace.pfx()}EXHAUSTED vid=$videoId '${track.title}' — all tiers failed")
+        dumpForensics("exhaustion for '${track.title}' (lastVid=$videoId)")
         return@withContext Result.failure(UnresolvableTrackException("Stream exhaustion for ${track.title} - ${track.artist}"))
     }
+
+    /**
+     * Failure bundle: environment snapshot + the most diagnostic recent lines.
+     * One greppable block the admin can copy straight from the terminal.
+     */
+    private fun dumpForensics(reason: String) {
+        try {
+            val relevantTags = listOf("LadderTrace", "ResolveGate", "HTTP", "ExoEvent", "SearchVM")
+            val recent = SLog.snapshotLines(400)
+                .filter { line -> relevantTags.any { t -> "/$t:" in line } }
+                .takeLast(40)
+            val sb = StringBuilder()
+            sb.appendLine("${com.streamify.app.util.Trace.pfx()}=== FORENSICS: $reason ===")
+            sb.appendLine("${com.streamify.app.util.Trace.pfx()}env=android${android.os.Build.VERSION.SDK_INT} net=${networkOnline()}")
+            for (line in recent) sb.appendLine("${com.streamify.app.util.Trace.pfx()}| ${line.take(240)}")
+            sb.appendLine("${com.streamify.app.util.Trace.pfx()}=== END FORENSICS ===")
+            SLog.e("FORENSICS", sb.toString())
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun networkOnline(): String =
+        try {
+            val nm = appContext?.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val net = nm?.activeNetwork
+            val caps = net?.let { nm.getNetworkCapabilities(it) }
+            when {
+                caps == null -> "offline?"
+                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) -> "online"
+                else -> "captive?"
+            }
+        } catch (_: Throwable) { "unknown" }
 
     suspend fun resolveStreamUrl(urlOrId: String, fallbackThumbnail: String? = null, forceFresh: Boolean = false): ResolvedStream? = withContext(Dispatchers.IO) {
         val dummyTrack = com.streamify.app.data.models.Track(
@@ -318,10 +493,64 @@ object YouTubeStreamResolver {
         resolveStreamJit(track, forceFresh = forceFresh).getOrNull()
     }
 
+    /**
+     * Tier R-NP: resolve through NewPipe Extractor (pure Kotlin) with BotGuard
+     * PO tokens minted in a hidden WebView. Runs after the native fleet race
+     * fails and before the alternate-upload search.
+     */
+    private suspend fun resolveViaNewPipe(videoId: String): ResolvedStream? =
+        withContext(Dispatchers.IO) {
+            com.streamify.app.util.newpipe.NewPipeBootstrap.ensure()
+            val url = "https://www.youtube.com/watch?v=$videoId"
+            SLog.d("ResolveGate", "${com.streamify.app.util.Trace.pfx()}R-NP StreamInfo.getInfo($videoId)")
+
+            val info = org.schabi.newpipe.extractor.stream.StreamInfo.getInfo(url)
+
+            val durationSec = info.duration.toInt().coerceAtLeast(0)
+            val audioStreams = info.audioStreams ?: emptyList<org.schabi.newpipe.extractor.stream.AudioStream>()
+
+            // Perceptual pick: m4a AAC first for ExoPlayer friendliness, then opus,
+            // then anything; within same family prefer higher average bitrate.
+            val best = audioStreams
+                .filter { !it.content.isNullOrBlank() }
+                .maxByOrNull { stream ->
+                    val fmt = runCatching { stream.format }.getOrNull()
+                    val suffix = runCatching { fmt?.suffix }.getOrNull() ?: ""
+                    val family = when {
+                        suffix == "m4a" -> 2000
+                        suffix == "webm" || suffix == "opus" -> 1500
+                        else -> 500
+                    }
+                    val br = runCatching { stream.bitrate }.getOrDefault(0)
+                    family + br / 1000
+                }
+
+            if (best == null) {
+                SLog.w("ResolveGate", "${com.streamify.app.util.Trace.pfx()}R-NP OK status but zero usable audio streams")
+                return@withContext null
+            }
+
+            val mime = when (runCatching { best.format?.suffix }.getOrNull()) {
+                "m4a" -> "audio/mp4"
+                "webm", "opus" -> "audio/webm"
+                else -> "audio/mpeg"
+            }
+            val bitrate = runCatching { best.bitrate }.getOrDefault(0)
+                .takeIf { it > 0 } ?: 128000
+
+            ResolvedStream(
+                streamUrl = best.content,
+                mimeType = mime,
+                bitrate = bitrate,
+                durationSec = durationSec,
+                loudnessDb = null
+            )
+        }
+
     private suspend fun raceClientEndpoints(videoId: String): ResolvedStream? = coroutineScope {
         val winnerDeferred = CompletableDeferred<ResolvedStream?>()
 
-        val jobs = CLIENT_TARGETS.map { config ->
+        val jobs = audioTargets().map { config ->
             async(Dispatchers.IO) {
                 try {
                     val stream = executePlayerRequest(videoId, config)
@@ -347,8 +576,13 @@ object YouTubeStreamResolver {
         return@coroutineScope winner
     }
 
-    private fun executePlayerRequest(videoId: String, config: ClientConfig): ResolvedStream? {
+    private fun executePlayerRequest(
+        videoId: String,
+        config: ClientConfig,
+        statuses: MutableCollection<String>? = null
+    ): ResolvedStream? {
         try {
+            SLog.d("ResolveGate", "${com.streamify.app.util.Trace.pfx()}race ${config.clientName}/${config.clientVersion} -> $videoId")
             val clientJson = JSONObject().apply {
                 put("clientName", config.clientName)
                 put("clientVersion", config.clientVersion)
@@ -372,7 +606,13 @@ object YouTubeStreamResolver {
                 put("racyCheckOk", true)
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
-                        put("signatureTimestamp", 19850)
+                        // STATIC, client-coupled STS -- do NOT make this dynamic.
+                        // Control experiment (2026-08-24, same phone/network):
+                        // legacy build sending 19850 resolves everything while HEAD
+                        // sending the live web STS (20683) was uniformly rejected --
+                        // an STS far newer than the client fingerprint's era reads
+                        // as a bot signal to the player endpoint.
+                        put("signatureTimestamp", signatureTimestamp())
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
@@ -385,6 +625,7 @@ object YouTubeStreamResolver {
                 .header("Accept", "*/*")
                 .header("X-YouTube-Client-Name", config.clientNumber)
                 .header("X-YouTube-Client-Version", config.clientVersion)
+                .also { if (config.attachSession) attachYtSession(it) }
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
 
             if (!config.origin.isNullOrBlank()) {
@@ -396,17 +637,27 @@ object YouTubeStreamResolver {
 
             val request = reqBuilder.build()
 
+            // OkHttp Network Transport (Shared Connection Pool + Android OS DNS/IPv6/VPN)
             NetworkEngine.client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
+                if (!response.isSuccessful) {
+                    SLog.w("ResolveGate", "${com.streamify.app.util.Trace.pfx()}race ${config.clientName} HTTP ${response.code}")
+                    return null
+                }
 
-                val body = response.body ?: return null
-                val responseBody = body.string()
+                val rawBytes = response.body?.bytes() ?: return null
+                if (rawBytes.isEmpty()) return null
 
-                if (responseBody.isBlank()) return null
-                val root = JSONObject(responseBody)
-                return parsePlayerResponse(root)
+                val root = JSONObject(String(rawBytes, Charsets.UTF_8))
+                val parsed = parsePlayerResponse(root)
+                SLog.d(
+                    "ResolveGate",
+                    "${com.streamify.app.util.Trace.pfx()}race ${config.clientName} -> " +
+                        (parsed?.let { "WIN mime=${it.mimeType.substringBefore(';')} br=${it.bitrate}" } ?: "null")
+                )
+                return parsed
             }
         } catch (e: Exception) {
+            SLog.w("ResolveGate", "${com.streamify.app.util.Trace.pfx()}race ${config.clientName} EXC ${e.javaClass.simpleName}: ${e.message ?: ""}")
             return null
         }
     }
@@ -416,15 +667,22 @@ object YouTubeStreamResolver {
             val playabilityStatus = root.optJSONObject("playabilityStatus")
             val status = playabilityStatus?.optString("status", "")
             if (status != null && !status.equals("OK", ignoreCase = true)) {
+                val reason = playabilityStatus.optString("reason", "")
+                SLog.w("ResolveGate", "${com.streamify.app.util.Trace.pfx()}gated status=$status reason='$reason'")
                 return null
             }
 
-            val streamingData = root.optJSONObject("streamingData") ?: return null
+            val streamingData = root.optJSONObject("streamingData") ?: run {
+                SLog.w("ResolveGate", "${com.streamify.app.util.Trace.pfx()}gated status=OK but NO streamingData")
+                return null
+            }
             val durationSec = root.optJSONObject("videoDetails")?.optString("lengthSeconds", "0")?.toIntOrNull() ?: 0
 
             val candidateFormats = mutableListOf<JSONObject>()
 
             // 1. Collect adaptive formats (pure audio streams)
+            var directAudio = 0
+            var urllessAudio = 0
             val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats")
             if (adaptiveFormats != null) {
                 for (i in 0 until adaptiveFormats.length()) {
@@ -434,11 +692,18 @@ object YouTubeStreamResolver {
                     if (mime.startsWith("audio/") && streamUrl.isNotBlank()) {
                         f.put("extractedUrl", streamUrl)
                         candidateFormats.add(f)
+                        directAudio++
+                    } else if (mime.startsWith("audio/")) {
+                        urllessAudio++
                     }
                 }
             }
+            SLog.d(
+                "ResolveGate",
+                "${com.streamify.app.util.Trace.pfx()}parse status=OK adf=${adaptiveFormats?.length() ?: 0} directAudio=$directAudio urllessAudio=$urllessAudio"
+            )
 
-            // 2. Fallback to standard formats
+            // 2. Fallback to standard progressive formats (itag 18 / 22 carrying stereo AAC audio)
             if (candidateFormats.isEmpty()) {
                 val formats = streamingData.optJSONArray("formats")
                 if (formats != null) {
@@ -451,11 +716,15 @@ object YouTubeStreamResolver {
                         }
                     }
                 }
+                SLog.d(
+                    "ResolveGate",
+                    "${com.streamify.app.util.Trace.pfx()}MUXED_FALLBACK triggered — progressive=${candidateFormats.size} (SABR stripped every adaptive URL)"
+                )
             }
 
             if (candidateFormats.isEmpty()) return null
 
-            // 3. Perceptual Codec Scoring Matrix (Opus 160k > AAC 128k > Low Bitrate)
+            // 3. Perceptual Codec Scoring Matrix (Opus 160k > AAC 128k > Low Bitrate > Progressive Containers)
             val bestFormat = candidateFormats.maxByOrNull { format ->
                 val itag = format.optInt("itag", 0)
                 val bitrate = format.optInt("bitrate", format.optInt("averageBitrate", 0))
@@ -467,6 +736,8 @@ object YouTubeStreamResolver {
                     250 -> 800 + (bitrate / 1000)  // WebM Opus (70kbps)
                     249 -> 750 + (bitrate / 1000)  // WebM Opus (50kbps)
                     139 -> 600 + (bitrate / 1000)  // MP4 AAC (48kbps)
+                    22  -> 500 + (bitrate / 1000)  // 720p HD MP4 (AAC 192kbps)
+                    18  -> 400 + (bitrate / 1000)  // 360p MP4 (AAC 96kbps)
                     else -> {
                         if (mime.contains("audio/webm") || mime.contains("opus")) 700 + (bitrate / 1000)
                         else if (mime.contains("audio/mp4") || mime.contains("m4a")) 650 + (bitrate / 1000)
@@ -479,12 +750,22 @@ object YouTubeStreamResolver {
             val mimeType = bestFormat.optString("mimeType", "audio/webm")
             val bitrate = bestFormat.optInt("bitrate", bestFormat.optInt("averageBitrate", 160000))
 
+            fun fmtLoud(obj: JSONObject): Float? {
+                obj.optDouble("loudnessDb", Double.NaN).takeIf { !it.isNaN() }?.let { return it.toFloat() }
+                obj.optJSONObject("volumeNormalizationInfo")?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }?.let { return it.toFloat() }
+                return null
+            }
+            val loudness = fmtLoud(bestFormat)
+                ?: root.optJSONObject("playerConfig")?.optJSONObject("audioConfig")
+                    ?.optDouble("loudnessDb", Double.NaN)?.takeIf { !it.isNaN() }?.toFloat()
+
             if (streamUrl.isNotBlank()) {
                 return ResolvedStream(
                     streamUrl = streamUrl,
                     mimeType = mimeType,
                     bitrate = bitrate,
-                    durationSec = durationSec
+                    durationSec = durationSec,
+                    loudnessDb = loudness
                 )
             }
             return null
@@ -529,7 +810,7 @@ object YouTubeStreamResolver {
     }
 
 
-    private val VIDEO_CLIENT_TARGETS = listOf(
+    private fun defaultVideoTargets() = listOf(
         ClientConfig(
             clientName = "ANDROID",
             clientVersion = "21.26.364",
@@ -561,12 +842,15 @@ object YouTubeStreamResolver {
     )
 
     suspend fun resolveVideoStreamUrl(track: com.streamify.app.data.models.Track): ResolvedStream? = withContext(Dispatchers.IO) {
-        val directId = extractVideoId(track.filepath, track.coverArtPath)
-        val videoId = if (!directId.isNullOrBlank() && directId.length == 11) {
+        // 1. Strict Primary: Use track.ytmVideoId if valid, then extract from filepath/coverArt
+        val directId = track.ytmVideoId?.takeIf { YT_ID_REGEX.matches(it) }
+            ?: extractVideoId(track.filepath, track.coverArtPath)
+
+        val videoId = if (!directId.isNullOrBlank() && YT_ID_REGEX.matches(directId)) {
             directId
         } else {
-            CanonicalSeedResolver.resolveToCanonicalId(track)
-        }
+            CanonicalSeedResolver.resolveToCanonicalId(track).takeIf { it.matches(YT_ID_REGEX) }
+        } ?: return@withContext null
 
         // 1. Zero-RTT Edge Cache Check
         val cached = StreamEdgeCache.getVideoStream(videoId)
@@ -605,7 +889,7 @@ object YouTubeStreamResolver {
     private suspend fun raceClientVideoEndpoints(videoId: String): ResolvedStream? = coroutineScope {
         val winnerDeferred = CompletableDeferred<ResolvedStream?>()
 
-        val jobs = VIDEO_CLIENT_TARGETS.map { config ->
+        val jobs = videoTargets().map { config ->
             async(Dispatchers.IO) {
                 try {
                     val stream = executeVideoPlayerRequest(videoId, config)
@@ -656,7 +940,7 @@ object YouTubeStreamResolver {
                 put("racyCheckOk", true)
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
-                        put("signatureTimestamp", 19850)
+                        put("signatureTimestamp", signatureTimestamp())
                         put("html5Preference", "HTML5_PREF_WANTS")
                     })
                 })
@@ -669,6 +953,7 @@ object YouTubeStreamResolver {
                 .header("Accept", "*/*")
                 .header("X-YouTube-Client-Name", config.clientNumber)
                 .header("X-YouTube-Client-Version", config.clientVersion)
+                .also { if (config.attachSession) attachYtSession(it) }
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
 
             if (!config.origin.isNullOrBlank()) {

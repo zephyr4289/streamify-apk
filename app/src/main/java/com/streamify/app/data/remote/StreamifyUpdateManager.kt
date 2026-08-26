@@ -155,6 +155,13 @@ object StreamifyUpdateManager {
         for (i in 0 until releases.length()) {
             val rel = releases.optJSONObject(i) ?: continue
             val tagName = rel.optString("tag_name", "")
+            val isPrerelease = rel.optBoolean("prerelease", false)
+
+            // Production updates ignore Canary and experimental prerelease tags
+            if (tagName.startsWith("canary-", ignoreCase = true) || isPrerelease) {
+                continue
+            }
+
             val title = rel.optString("name", tagName)
             val changelog = rel.optString("body", "Bug fixes and performance improvements.")
             val htmlUrl = rel.optString("html_url", "https://github.com/zephyr4289/streamify-apk/releases")

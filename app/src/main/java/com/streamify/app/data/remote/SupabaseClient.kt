@@ -1,5 +1,6 @@
 package com.streamify.app.data.remote
 
+import com.streamify.app.util.SLog
 import android.content.Context
 import android.content.SharedPreferences
 import com.streamify.app.BuildConfig
@@ -15,11 +16,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -79,6 +79,44 @@ data class ListeningSession(
     val queue: List<Track> = emptyList(),
     val participantIds: List<String> = emptyList()
 )
+
+// ============================================================================
+// JAM IDENTITY CODEC — lossless track identity across the wire.
+// ytmVideoId/isrc MUST travel with every payload so guests never fall into
+// blind fuzzy resolution (the root of historical wrong-song jams).
+// ============================================================================
+fun jamTrackToJson(track: Track, addedBy: String = ""): JSONObject = JSONObject().apply {
+    put("id", track.id)
+    put("title", track.title)
+    put("artist", track.artist)
+    put("album", track.album)
+    put("filepath", track.filepath)
+    put("coverArtPath", track.coverArtPath ?: "")
+    put("durationSec", track.durationSec)
+    track.ytmVideoId?.let { put("ytmVideoId", it) }
+    track.isrc?.let { put("isrc", it) }
+    if (addedBy.isNotBlank()) put("addedBy", addedBy)
+}
+
+fun jamTrackFromJson(o: JSONObject?): Track? {
+    o ?: return null
+    val title = o.optString("title", "")
+    if (title.isBlank()) return null
+    return Track(
+        id = o.optInt("id", -(title.hashCode())),
+        title = title,
+        artist = o.optString("artist", ""),
+        album = o.optString("album", "Streamify Jam"),
+        filepath = o.optString("filepath", ""),
+        coverArtPath = o.optString("coverArtPath", "").ifBlank { null },
+        durationSec = o.optInt("durationSec", 0),
+        bpm = o.optDouble("bpm", 0.0).toFloat(),
+        key = o.optString("key", ""),
+        source = "cloud_jam",
+        isrc = o.optString("isrc", "").ifBlank { null },
+        ytmVideoId = o.optString("ytmVideoId", "").ifBlank { null }
+    )
+}
 
 data class DevicePlaybackSnapshot(
     val deviceId: String,
@@ -262,6 +300,64 @@ object SupabaseClient {
         }
     }
 
+    val supabaseHttpClient: okhttp3.OkHttpClient by lazy {
+        NetworkEngine.client.newBuilder()
+            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+    fun executeHttpRequest(
+        url: String,
+        method: String = "GET",
+        headers: Map<String, String> = emptyMap(),
+        jsonBody: String? = null
+    ): Pair<Int, String?> {
+        val reqBuilder = Request.Builder().url(url)
+        headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+
+        val body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE)
+        when (method.uppercase()) {
+            "GET" -> reqBuilder.get()
+            "POST" -> reqBuilder.post(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
+            "PUT" -> reqBuilder.put(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
+            "PATCH" -> reqBuilder.patch(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
+            "DELETE" -> if (body != null) reqBuilder.delete(body) else reqBuilder.delete()
+        }
+
+        return try {
+            supabaseHttpClient.newCall(reqBuilder.build()).execute().use { response ->
+                Pair(response.code, response.body?.string())
+            }
+        } catch (e: Exception) {
+            Pair(-1, null)
+        }
+    }
+
+    fun executeRpc(
+        endpoint: String,
+        method: String = "POST",
+        body: String? = null,
+        prefer: String? = null,
+        requireAuth: Boolean = true
+    ): Pair<Int, String?> {
+        val url = if (endpoint.startsWith("http")) endpoint else "${BuildConfig.SUPABASE_URL}/rest/v1/$endpoint"
+        val authToken = if (requireAuth) getAuthToken() else BuildConfig.SUPABASE_ANON_KEY
+        val headers = mutableMapOf(
+            "apikey" to BuildConfig.SUPABASE_ANON_KEY,
+            "Authorization" to "Bearer $authToken",
+            "Content-Type" to "application/json"
+        )
+        if (prefer != null) {
+            headers["Prefer"] = prefer
+        }
+        return executeHttpRequest(url, method, headers, body)
+    }
+
     fun isJwtExpired(jwt: String?): Boolean {
         if (jwt.isNullOrBlank()) return true
         try {
@@ -290,26 +386,17 @@ object SupabaseClient {
             return@withContext false
         }
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/auth/v1/token?grant_type=refresh_token")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 8000
-                readTimeout = 8000
-                doOutput = true
-                doInput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Content-Type", "application/json")
-            }
-
+            val url = "${BuildConfig.SUPABASE_URL}/auth/v1/token?grant_type=refresh_token"
+            val headers = mapOf(
+                "apikey" to BuildConfig.SUPABASE_ANON_KEY,
+                "Content-Type" to "application/json"
+            )
             val body = JSONObject().apply {
                 put("refresh_token", rt)
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-
-            val code = conn.responseCode
-            if (code in 200..299) {
-                val respStr = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            val (code, respStr) = executeHttpRequest(url, "POST", headers, body.toString())
+            if (code in 200..299 && respStr != null) {
                 val json = JSONObject(respStr)
                 val newToken = json.getString("access_token")
                 val newRefreshToken = json.optString("refresh_token", rt)
@@ -345,29 +432,20 @@ object SupabaseClient {
     // ========================================================================
     suspend fun signInWithGoogleIdToken(idToken: String): Result<UserProfile> = withContext(Dispatchers.IO) {
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/auth/v1/token?grant_type=id_token")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 8000
-                readTimeout = 8000
-                doOutput = true
-                doInput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Content-Type", "application/json")
-            }
+            val url = "${BuildConfig.SUPABASE_URL}/auth/v1/token?grant_type=id_token"
+            val headers = mapOf(
+                "apikey" to BuildConfig.SUPABASE_ANON_KEY,
+                "Content-Type" to "application/json"
+            )
 
             val body = JSONObject().apply {
                 put("provider", "google")
                 put("id_token", idToken)
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val (code, respStr) = executeHttpRequest(url, "POST", headers, body.toString())
 
-            val code = conn.responseCode
-            val responseStream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val respStr = BufferedReader(InputStreamReader(responseStream)).use { it.readText() }
-
-            if (code in 200..299) {
+            if (code in 200..299 && respStr != null) {
                 val json = JSONObject(respStr)
                 val token = json.getString("access_token")
                 val refreshToken = json.optString("refresh_token", "")
@@ -419,16 +497,6 @@ object SupabaseClient {
 
     suspend fun ensureProfile(user: UserProfile) = withContext(Dispatchers.IO) {
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Prefer", "resolution=merge-duplicates")
-            }
-
             val body = JSONObject().apply {
                 put("id", user.id)
                 put("email", user.email)
@@ -438,9 +506,7 @@ object SupabaseClient {
                 put("favorite_genre", user.favoriteGenre)
                 put("is_admin", user.isAdmin)
             }
-
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            conn.responseCode
+            executeRpc("profiles", "POST", body.toString(), prefer = "resolution=merge-duplicates")
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -449,16 +515,6 @@ object SupabaseClient {
     suspend fun updateProfile(displayName: String, avatarUrl: String, bio: String, favGenre: String): Result<Boolean> = withContext(Dispatchers.IO) {
         val user = _currentUser.value ?: return@withContext Result.failure(Exception("Not logged in"))
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "PATCH"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Prefer", "return=minimal")
-            }
-
             val body = JSONObject().apply {
                 put("display_name", displayName)
                 if (avatarUrl.isNotBlank()) put("avatar_url", avatarUrl)
@@ -466,7 +522,7 @@ object SupabaseClient {
                 put("favorite_genre", favGenre)
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            val (code, _) = executeRpc("profiles?id=eq.${user.id}", "PATCH", body.toString(), prefer = "return=minimal")
 
             val updated = user.copy(displayName = displayName, avatarUrl = avatarUrl.ifBlank { user.avatarUrl }, bio = bio, favoriteGenre = favGenre)
             _currentUser.value = updated
@@ -478,7 +534,7 @@ object SupabaseClient {
                 apply()
             }
 
-            Result.success(conn.responseCode in 200..299)
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -486,14 +542,8 @@ object SupabaseClient {
 
     suspend fun fetchCloudTelemetryAndMerge(userId: String) = withContext(Dispatchers.IO) {
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?id=eq.$userId&select=listening_seconds,total_plays,top_track,favorite_genre,bio")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            val (code, resp) = executeRpc("profiles?id=eq.$userId&select=listening_seconds,total_plays,top_track,favorite_genre,bio", "GET")
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 if (arr.length() > 0) {
                     val o = arr.getJSONObject(0)
@@ -511,16 +561,6 @@ object SupabaseClient {
     suspend fun upsertTelemetry(payload: TelemetryPayload): Result<Boolean> = withContext(Dispatchers.IO) {
         val user = _currentUser.value ?: return@withContext Result.failure(Exception("Not logged in"))
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?on_conflict=id")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Prefer", "resolution=merge-duplicates")
-            }
-
             val body = JSONObject().apply {
                 put("id", user.id)
                 put("email", user.email)
@@ -533,7 +573,7 @@ object SupabaseClient {
                 put("last_active_at", payload.lastActiveAt)
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            val (code, _) = executeRpc("profiles?on_conflict=id", "POST", body.toString(), prefer = "resolution=merge-duplicates")
 
             val updated = user.copy(
                 listeningSeconds = payload.listeningSeconds,
@@ -544,10 +584,81 @@ object SupabaseClient {
                 lastActiveAt = payload.lastActiveAt
             )
             _currentUser.value = updated
-            Result.success(conn.responseCode in 200..299)
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    // ========================================================================
+    // JAM-STYLE STATS TRANSPORT v2 — monotonic aggregates + per-track deltas
+    // ========================================================================
+
+    /**
+     * Server-side GREATEST() upsert: a device can never regress cloud truth.
+     * Returns false when the migration isn't applied yet (caller falls back).
+     */
+    suspend fun rpcUpsertTelemetryMonotonic(seconds: Long, plays: Int, topTrack: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (currentUser.value == null) return@withContext false
+            val body = JSONObject().apply {
+                put("p_listening_seconds", seconds)
+                put("p_total_plays", plays)
+                put("p_top_track", topTrack)
+            }
+            val (code, _) = executeRpc("rpc/upsert_user_telemetry", "POST", body.toString())
+            code in 200..299
+        } catch (e: Exception) { false }
+    }
+
+    /** Atomic per-track delta increment (concurrent-device safe). */
+    suspend fun rpcIncrementUserTrackPlay(
+        trackSig: String,
+        playsDelta: Int,
+        secondsDelta: Long,
+        snapshot: JSONObject?
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (currentUser.value == null) return@withContext false
+            val body = JSONObject().apply {
+                put("p_track_sig", trackSig)
+                put("p_plays_delta", playsDelta)
+                put("p_seconds_delta", secondsDelta)
+                put("p_snapshot", snapshot ?: JSONObject())
+            }
+            val (code, _) = executeRpc("rpc/increment_user_track_play", "POST", body.toString())
+            code in 200..299
+        } catch (e: Exception) { false }
+    }
+
+    /** Pull-side rebuild source for cross-device Wrapped. */
+    suspend fun fetchUserTrackPlays(limit: Int = 50): Result<JSONArray> = withContext(Dispatchers.IO) {
+        try {
+            val user = currentUser.value ?: return@withContext Result.failure(Exception("Not logged in"))
+            val (code, resp) = executeRpc("user_track_plays?user_id=eq.${user.id}&order=plays.desc&limit=$limit", "GET")
+            if (code in 200..299 && resp != null) {
+                Result.success(JSONArray(resp))
+            } else Result.failure(Exception("track plays fetch: $code"))
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    /**
+     * ADMIN: cross-user Top Songs leaderboard from user_track_plays.
+     * Backed by get_admin_top_tracks() (security definer, is_admin gated).
+     * Returns the raw "tracks" JSON array: {track_sig, plays, seconds,
+     * listeners, snapshot{title,artist,coverArtPath,...}}.
+     */
+    suspend fun fetchAdminTopTracks(limit: Int = 20): Result<JSONArray> = withContext(Dispatchers.IO) {
+        try {
+            val body = JSONObject().put("p_limit", limit).toString()
+            val (code, resp) = executeRpc("rpc/get_admin_top_tracks", "POST", body)
+            if (code in 200..299 && resp != null) {
+                val tracks = JSONObject(resp).optJSONArray("tracks") ?: JSONArray()
+                Result.success(tracks)
+            } else {
+                Result.failure(Exception("Top tracks RPC failed: $code"))
+            }
+        } catch (e: Exception) { Result.failure(e) }
     }
 
     fun signOut() {
@@ -565,16 +676,10 @@ object SupabaseClient {
             ensureProfile(user)
 
             // 1. Fetch Cloud Likes for this user
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_likes?user_id=eq.${user.id}&select=track_id")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
+            val (code, resp) = executeRpc("user_likes?user_id=eq.${user.id}&select=track_id", "GET")
 
             val cloudLikedIds = mutableListOf<String>()
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val tid = arr.getJSONObject(i).optString("track_id", "")
@@ -585,15 +690,9 @@ object SupabaseClient {
             // 2. Fetch cloud track details and insert any missing liked tracks into local SQLite
             if (cloudLikedIds.isNotEmpty()) {
                 val encodedIds = cloudLikedIds.joinToString(",") { URLEncoder.encode(it, "UTF-8") }
-                val tracksUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks?id=in.($encodedIds)")
-                val tracksConn = (tracksUrl.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                    setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                }
+                val (tracksCode, tracksResp) = executeRpc("tracks?id=in.($encodedIds)", "GET")
 
-                if (tracksConn.responseCode in 200..299) {
-                    val tracksResp = BufferedReader(InputStreamReader(tracksConn.inputStream)).use { it.readText() }
+                if (tracksCode in 200..299 && tracksResp != null) {
                     val tracksArr = JSONArray(tracksResp)
                     for (i in 0 until tracksArr.length()) {
                         val to = tracksArr.getJSONObject(i)
@@ -654,22 +753,12 @@ object SupabaseClient {
     suspend fun addCloudLike(trackCloudId: String): Boolean = withContext(Dispatchers.IO) {
         val user = _currentUser.value ?: return@withContext false
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_likes")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Prefer", "resolution=ignore-duplicates")
-            }
-
             val body = JSONObject().apply {
                 put("user_id", user.id)
                 put("track_id", trackCloudId)
             }
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            conn.responseCode in 200..299
+            val (code, _) = executeRpc("user_likes", "POST", body.toString(), prefer = "resolution=ignore-duplicates")
+            code in 200..299
         } catch (e: Exception) {
             false
         }
@@ -678,45 +767,53 @@ object SupabaseClient {
     suspend fun removeCloudLike(trackCloudId: String): Boolean = withContext(Dispatchers.IO) {
         val user = _currentUser.value ?: return@withContext false
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_likes?user_id=eq.${user.id}&track_id=eq.$trackCloudId")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "DELETE"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
-            conn.responseCode in 200..299
+            val (code, _) = executeRpc("user_likes?user_id=eq.${user.id}&track_id=eq.$trackCloudId", "DELETE")
+            code in 200..299
         } catch (e: Exception) {
             false
         }
     }
 
     // ========================================================================
-    // PILLAR 2: REAL-TIME WEBSOCKET CDC & CURSOR DELTA RECONCILIATION
+    // 16. SUPABASE REALTIME V1 WEBSOCKET CDC (Change Data Capture)
     // ========================================================================
     private var realtimeWebSocket: WebSocket? = null
+    private val socketLock = Any()
     private var heartbeatJob: Job? = null
     private val syncScope = CoroutineScope(Dispatchers.IO)
     private var lastSyncWatermarkMs: Long = System.currentTimeMillis()
     private val _isRealtimeConnected = MutableStateFlow(false)
     val isRealtimeConnected: StateFlow<Boolean> = _isRealtimeConnected.asStateFlow()
 
+    private fun disconnectRealtimeInternal() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+        realtimeWebSocket?.let { socket ->
+            try { socket.close(1000, "Clean termination") } catch (e: Exception) {}
+            try { socket.cancel() } catch (e: Exception) {}
+        }
+        realtimeWebSocket = null
+        _isRealtimeConnected.value = false
+    }
+
     fun startRealtimeSync(userId: String) {
-        if (_isRealtimeConnected.value && realtimeWebSocket != null) return
-        val wsUrl = BuildConfig.SUPABASE_URL
-            .replace("https://", "wss://")
-            .replace("http://", "ws://") + "/realtime/v1/websocket?apikey=${BuildConfig.SUPABASE_ANON_KEY}&vsn=1.0.0"
+        synchronized(socketLock) {
+            disconnectRealtimeInternal()
+            val wsUrl = BuildConfig.SUPABASE_URL
+                .replace("https://", "wss://")
+                .replace("http://", "ws://") + "/realtime/v1/websocket?apikey=${BuildConfig.SUPABASE_ANON_KEY}&vsn=1.0.0"
 
-        val request = Request.Builder()
-            .url(wsUrl)
-            .build()
+            val request = Request.Builder()
+                .url(wsUrl)
+                .build()
 
-        realtimeWebSocket = NetworkEngine.client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                _isRealtimeConnected.value = true
-                android.util.Log.i("SupabaseRealtime", "Connected to Supabase Realtime WebSocket")
+            realtimeWebSocket = NetworkEngine.client.newWebSocket(request, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    _isRealtimeConnected.value = true
+                    SLog.i("SupabaseRealtime", "Connected to Supabase Realtime WebSocket")
 
-                // 1. Join user_likes channel
-                val joinLikesMsg = JSONObject().apply {
+                    // 1. Join user_likes channel
+                    val joinLikesMsg = JSONObject().apply {
                     put("topic", "realtime:public:user_likes")
                     put("event", "phx_join")
                     put("payload", JSONObject().apply {
@@ -874,18 +971,27 @@ object SupabaseClient {
                         }
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("SupabaseRealtime", "CDC Parse error: ${e.message}")
+                    SLog.e("SupabaseRealtime", "CDC Parse error: ${e.message}")
                 }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                _isRealtimeConnected.value = false
-                heartbeatJob?.cancel()
+                synchronized(socketLock) {
+                    if (realtimeWebSocket === webSocket) {
+                        _isRealtimeConnected.value = false
+                        heartbeatJob?.cancel()
+                        heartbeatJob = null
+                        realtimeWebSocket = null
+                    }
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                _isRealtimeConnected.value = false
-                heartbeatJob?.cancel()
+                synchronized(socketLock) {
+                    if (realtimeWebSocket === webSocket) {
+                        disconnectRealtimeInternal()
+                    }
+                }
                 // Auto-reconnect with 3s backoff
                 syncScope.launch {
                     delay(3000L)
@@ -896,13 +1002,13 @@ object SupabaseClient {
                 }
             }
         })
+        }
     }
 
     fun stopRealtimeSync() {
-        heartbeatJob?.cancel()
-        realtimeWebSocket?.close(1000, "User logout / paused")
-        realtimeWebSocket = null
-        _isRealtimeConnected.value = false
+        synchronized(socketLock) {
+            disconnectRealtimeInternal()
+        }
     }
 
     private fun handleIncomingCdcEvent(table: String, eventType: String, record: JSONObject) {
@@ -1001,16 +1107,10 @@ object SupabaseClient {
                 timeZone = java.util.TimeZone.getTimeZone("UTC")
             }.format(java.util.Date(sinceTimestampMs))
 
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_likes?user_id=eq.${user.id}&created_at=gte.$isoSince&select=track_id")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
+            val (code, resp) = executeRpc("user_likes?user_id=eq.${user.id}&created_at=gte.$isoSince&select=track_id", "GET")
 
             val deltaTrackIds = mutableListOf<String>()
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val tid = arr.getJSONObject(i).optString("track_id", "")
@@ -1032,74 +1132,22 @@ object SupabaseClient {
         val user = _currentUser.value ?: return@withContext false
         if (events.isEmpty()) return@withContext true
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_history")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
             val body = JSONArray()
-            var totalDurationDelta = 0L
             for (evt in events) {
-                val dur = evt.optLong("duration_sec", 0L)
-                totalDurationDelta += dur
-                val item = JSONObject().apply {
+                body.put(JSONObject().apply {
                     put("user_id", user.id)
-                    put("track_id", evt.optString("track_id", ""))
-                    put("duration_played_sec", dur)
+                    put("track_sig", evt.optString("track_sig",
+                        evt.optString("track_id", "").lowercase()))
+                    put("track_title", evt.optString("track_title", ""))
+                    put("track_artist", evt.optString("track_artist", ""))
+                    put("duration_played_sec", evt.optLong("duration_sec", 0L).toInt())
                     put("completion_ratio", evt.optDouble("completion_ratio", 1.0))
                     put("hour_of_day", evt.optInt("hour_of_day", 12))
-                }
-                body.put(item)
+                })
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            val ok = conn.responseCode in 200..299
-
-            if (ok && totalDurationDelta > 0) {
-                val cur = _currentUser.value
-                if (cur != null) {
-                    val newSec = cur.listeningSeconds + totalDurationDelta
-                    val newPlays = cur.totalPlays + events.count { it.optDouble("completion_ratio", 0.0) >= 0.5 }
-                    val topTrackTitle = cur.topTrack
-
-                    _currentUser.value = cur.copy(
-                        listeningSeconds = newSec,
-                        totalPlays = newPlays
-                    )
-
-                    // Patch Supabase profiles table atomically
-                    try {
-                        val patchUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}")
-                        val patchConn = (patchUrl.openConnection() as HttpURLConnection).apply {
-                            requestMethod = "PATCH"
-                            doOutput = true
-                            setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                            setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                            setRequestProperty("Content-Type", "application/json")
-                            setRequestProperty("Prefer", "return=minimal")
-                        }
-                        val nowIso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
-                            timeZone = java.util.TimeZone.getTimeZone("UTC")
-                        }.format(java.util.Date())
-
-                        val patchBody = JSONObject().apply {
-                            put("listening_seconds", newSec)
-                            put("total_plays", newPlays)
-                            if (topTrackTitle.isNotBlank()) put("top_track", topTrackTitle)
-                            put("last_active_at", nowIso)
-                        }
-                        patchConn.outputStream.use { it.write(patchBody.toString().toByteArray()) }
-                        patchConn.responseCode
-                    } catch (e: Exception) {
-                        // Silent fallback
-                    }
-                }
-            }
-            ok
+            val (code, _) = executeRpc("user_play_events", "POST", body.toString(), prefer = "return=minimal")
+            code in 200..299
         } catch (e: Exception) {
             false
         }
@@ -1107,14 +1155,8 @@ object SupabaseClient {
 
     suspend fun fetchCloudTasteProfile(userId: String): JSONObject? = withContext(Dispatchers.IO) {
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/user_taste_profiles?user_id=eq.$userId&select=*")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            val (code, resp) = executeRpc("user_taste_profiles?user_id=eq.$userId&select=*", "GET")
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 if (arr.length() > 0) {
                     return@withContext arr.getJSONObject(0)
@@ -1135,16 +1177,6 @@ object SupabaseClient {
             val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(canonicalStreamUrl, track.coverArtPath)
             val sanitizedCover = com.streamify.app.data.network.YouTubeStreamResolver.sanitizeCoverUrl(track.coverArtPath, videoId)
 
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Prefer", "resolution=merge-duplicates")
-            }
-
             val body = JSONObject().apply {
                 put("id", trackCloudId)
                 put("title", track.title)
@@ -1157,8 +1189,8 @@ object SupabaseClient {
                 put("key_signature", track.key)
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            conn.responseCode in 200..299
+            val (code, _) = executeRpc("tracks", "POST", body.toString(), prefer = "resolution=merge-duplicates")
+            code in 200..299
         } catch (e: Exception) {
             false
         }
@@ -1167,14 +1199,8 @@ object SupabaseClient {
     suspend fun fetchTrackById(trackId: String): Track? = withContext(Dispatchers.IO) {
         try {
             val safeId = URLEncoder.encode(trackId.trim(), "UTF-8")
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks?id=eq.$safeId")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            val (code, resp) = executeRpc("tracks?id=eq.$safeId", "GET")
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 if (arr.length() > 0) {
                     val o = arr.getJSONObject(0)
@@ -1182,7 +1208,9 @@ object SupabaseClient {
                     val artist = o.optString("artist", "")
                     val cover = o.optString("cover_url", "")
                     val streamUrl = o.optString("stream_url", "")
-                    val duration = o.optInt("duration_sec", 180)
+                    // 0 (not 180): a fabricated duration would poison CAD-ID
+                    // duration-bucket identity for this track across devices.
+                    val duration = o.optInt("duration_sec", 0)
                     val bpm = o.optDouble("bpm", 120.0).toFloat()
                     val key = o.optString("key_signature", "C")
 
@@ -1200,7 +1228,8 @@ object SupabaseClient {
                         bpm = bpm,
                         key = key,
                         lyricsPath = null,
-                        source = "cloud_jam"
+                        source = "cloud_jam",
+                        ytmVideoId = videoId
                     )
                 }
             }
@@ -1217,32 +1246,37 @@ object SupabaseClient {
         try {
             // Query Supabase RPC match_tracks or fallback to artist search
             val safeArtist = URLEncoder.encode(queryTrack.artist.split(",", "&").first().trim(), "UTF-8")
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks?artist=ilike.*$safeArtist*&limit=$limit")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
+            val (code, resp) = executeRpc("tracks?artist=ilike.*$safeArtist*&limit=$limit", "GET")
 
             val recs = mutableListOf<Track>()
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
+                    val title = o.optString("title")
+                    val artist = o.optString("artist")
+                    val streamUrl = o.optString("stream_url", "")
+                    val coverUrl = o.optString("cover_url").takeIf { it.isNotBlank() }
+
+                    // Identity pinning: extract the videoId NOW so these tracks never
+                    // fall into the unverified fuzzy resolution cascade at play time.
+                    val videoId = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(streamUrl, coverUrl)
+
                     recs.add(
                         Track(
                             id = -(o.optString("id").hashCode()),
-                            title = o.optString("title"),
-                            artist = o.optString("artist"),
+                            title = title,
+                            artist = artist,
                             album = o.optString("album", "Cloud Radio"),
-                            durationSec = o.optInt("duration_sec", 180),
+                            durationSec = o.optInt("duration_sec", 0),
                             bpm = o.optDouble("bpm", 120.0).toFloat(),
                             key = o.optString("key_signature", ""),
-                            coverArtPath = o.optString("cover_url").takeIf { it.isNotBlank() },
+                            coverArtPath = coverUrl,
                             lyricsPath = null,
-                            filepath = o.optString("stream_url").ifBlank { "https://www.youtube.com/results?search_query=${URLEncoder.encode(o.optString("title") + " " + o.optString("artist"), "UTF-8")}" },
-                            source = "cloud_radio"
+                            filepath = videoId?.let { "https://www.youtube.com/watch?v=$it" }
+                                ?: com.streamify.app.data.network.YouTubeStreamResolver.sanitizeForStorage(streamUrl, title, artist),
+                            source = "cloud_radio",
+                            ytmVideoId = videoId
                         )
                     )
                 }
@@ -1260,16 +1294,10 @@ object SupabaseClient {
     suspend fun fetchTrackComments(trackId: String): List<TrackComment> = withContext(Dispatchers.IO) {
         try {
             val safeId = URLEncoder.encode(trackId, "UTF-8")
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/track_comments?track_id=eq.$safeId&order=timestamp_ms.asc")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
+            val (code, resp) = executeRpc("track_comments?track_id=eq.$safeId&order=timestamp_ms.asc", "GET")
 
             val comments = mutableListOf<TrackComment>()
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
@@ -1298,16 +1326,6 @@ object SupabaseClient {
     suspend fun postTrackComment(trackId: String, timestampMs: Long, commentText: String): Result<TrackComment> = withContext(Dispatchers.IO) {
         val user = _currentUser.value ?: return@withContext Result.failure(Exception("Sign in to post comments"))
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/track_comments")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Prefer", "return=representation")
-            }
-
             val body = JSONObject().apply {
                 put("track_id", trackId)
                 put("user_id", user.id)
@@ -1317,10 +1335,9 @@ object SupabaseClient {
                 put("comment_text", commentText)
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            val (code, resp) = executeRpc("track_comments", "POST", body.toString(), prefer = "return=representation")
 
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 val o = arr.getJSONObject(0)
                 Result.success(
@@ -1368,28 +1385,18 @@ object SupabaseClient {
 
         val maxRetries = (sanitized?.length() ?: 1) + 3
         var attempts = 0
-        var currentToken = getAuthToken()
 
         while (attempts < maxRetries) {
             attempts++
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $currentToken")
-                if (sanitized != null) {
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
-                }
-                setRequestProperty("Prefer", prefer)
-            }
+            val headers = mutableMapOf(
+                "apikey" to BuildConfig.SUPABASE_ANON_KEY,
+                "Authorization" to "Bearer ${getAuthToken()}",
+                "Content-Type" to "application/json",
+                "Prefer" to prefer
+            )
 
-            if (sanitized != null) {
-                conn.outputStream.use { it.write(sanitized.toString().toByteArray()) }
-            }
-
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.let { BufferedReader(InputStreamReader(it)).use { r -> r.readText() } } ?: ""
+            val (code, respText) = executeHttpRequest(url.toString(), method, headers, sanitized?.toString())
+            val text = respText ?: ""
 
             if (code in 200..299) {
                 return Pair(code, text)
@@ -1398,7 +1405,6 @@ object SupabaseClient {
             // JWT Expired / Auth error handling
             if (text.contains("JWT expired", ignoreCase = true) || code == 401 || text.contains("PGRST503")) {
                 refreshSession()
-                currentToken = getAuthToken()
                 continue
             }
 
@@ -1430,14 +1436,7 @@ object SupabaseClient {
             val sessionCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions")
 
-            val trackObj = JSONObject().apply {
-                put("id", track.id)
-                put("title", track.title)
-                put("artist", track.artist)
-                put("filepath", track.filepath)
-                put("coverArtPath", track.coverArtPath ?: "")
-                put("durationSec", track.durationSec)
-            }
+            val trackObj = com.streamify.app.data.remote.jamTrackToJson(track)
 
             val body = JSONObject().apply {
                 put("host_user_id", user.id)
@@ -1448,6 +1447,7 @@ object SupabaseClient {
                 put("is_playing", true)
                 put("host_clock_timestamp", System.currentTimeMillis())
                 put("participant_ids", JSONArray().put(user.id))
+                put("queue_json", JSONArray().put(trackObj))
             }
 
             val (code, resp) = executeAdaptivePostgrestRequest(
@@ -1526,6 +1526,12 @@ object SupabaseClient {
                         } else null
                     }
 
+                    val persistedQueue = o.optJSONArray("queue_json")?.let { qArr ->
+                        (0 until qArr.length()).mapNotNull { jamTrackFromJson(qArr.optJSONObject(it)) }
+                    } ?: emptyList()
+                    val participants = o.optJSONArray("participant_ids")?.let { pArr ->
+                        (0 until pArr.length()).mapNotNull { pArr.optString(it).ifBlank { null } }
+                    } ?: listOf(user.id)
                     val jam = ListeningSession(
                         id = o.optString("id"),
                         sessionCode = o.optString("session_code"),
@@ -1535,7 +1541,8 @@ object SupabaseClient {
                         positionMs = o.optLong("position_ms", 0L),
                         isPlaying = o.optBoolean("is_playing", false),
                         hostClockTimestamp = o.optLong("host_clock_timestamp", System.currentTimeMillis()),
-                        participantIds = listOf(user.id)
+                        queue = persistedQueue,
+                        participantIds = participants
                     )
                     _activeJam.value = jam
                     joinJamRealtimeChannel(sessionCode)
@@ -1568,14 +1575,7 @@ object SupabaseClient {
             val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
 
-            val trackObj = JSONObject().apply {
-                put("id", track.id)
-                put("title", track.title)
-                put("artist", track.artist)
-                put("filepath", track.filepath)
-                put("coverArtPath", track.coverArtPath ?: "")
-                put("durationSec", track.durationSec)
-            }
+            val trackObj = com.streamify.app.data.remote.jamTrackToJson(track)
 
             val body = JSONObject().apply {
                 put("current_track_id", track.id.toString())
@@ -1608,7 +1608,10 @@ object SupabaseClient {
         isPlaying: Boolean,
         hostEpochMs: Long = System.currentTimeMillis(),
         action: String = "TICK",
-        trackJson: JSONObject? = null
+        trackJson: JSONObject? = null,
+        senderId: String = "",
+        epochMs: Long = 0L,
+        extras: JSONObject? = null
     ) {
         val ws = realtimeWebSocket ?: return
         if (!_isRealtimeConnected.value) return
@@ -1623,8 +1626,13 @@ object SupabaseClient {
                 put("is_playing", isPlaying)
                 put("host_epoch_ms", hostEpochMs)
                 put("client_epoch_ms", System.currentTimeMillis())
+                if (senderId.isNotBlank()) put("sender_id", senderId)
+                if (epochMs > 0) put("epoch", epochMs)
                 if (trackJson != null) {
                     put("track_json", trackJson)
+                }
+                if (extras != null) {
+                    extras.keys().forEach { k -> put(k, extras.opt(k)) }
                 }
             }
             val broadcastMsg = JSONObject().apply {
@@ -1698,20 +1706,85 @@ object SupabaseClient {
     }
 
     // ========================================================================
+    // JAM LOCKSTEP v2 — snapshot & persistence primitives
+    // ========================================================================
+
+    /** Full authoritative state fetch: used on join AND on every reconnect. */
+    suspend fun fetchJamSnapshot(sessionCode: String): Result<ListeningSession> = withContext(Dispatchers.IO) {
+        try {
+            val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
+            val (code, resp) = executeRpc("listening_sessions?session_code=eq.$safeCode", "GET")
+            if (code in 200..299 && resp != null) {
+                val arr = JSONArray(resp)
+                if (arr.length() > 0) {
+                    val o = arr.getJSONObject(0)
+                    val queue = o.optJSONArray("queue_json")?.let { qArr ->
+                        (0 until qArr.length()).mapNotNull { jamTrackFromJson(qArr.optJSONObject(it)) }
+                    } ?: emptyList()
+                    val participants = o.optJSONArray("participant_ids")?.let { pArr ->
+                        (0 until pArr.length()).mapNotNull { pArr.optString(it).ifBlank { null } }
+                    } ?: emptyList()
+                    Result.success(
+                        ListeningSession(
+                            id = o.optString("id"),
+                            sessionCode = o.optString("session_code"),
+                            hostUserId = o.optString("host_user_id"),
+                            currentTrackId = o.optString("current_track_id"),
+                            currentTrackJson = o.optJSONObject("current_track_json"),
+                            positionMs = o.optLong("position_ms", 0L),
+                            isPlaying = o.optBoolean("is_playing", false),
+                            hostClockTimestamp = o.optLong("host_clock_timestamp", System.currentTimeMillis()),
+                            queue = queue,
+                            participantIds = participants
+                        )
+                    )
+                } else Result.failure(Exception("Jam room no longer exists"))
+            } else Result.failure(Exception("Snapshot fetch failed: $code"))
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    /** Host-only persistence of the canonical shared queue. */
+    fun patchJamQueueJson(sessionCode: String, queue: List<Track>) {
+        try {
+            val arr = JSONArray()
+            queue.forEach { arr.put(jamTrackToJson(it)) }
+            val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
+            val body = JSONObject().put("queue_json", arr).toString()
+            executeRpc("listening_sessions?session_code=eq.$safeCode", "PATCH", body, prefer = "return=minimal")
+        } catch (e: Exception) { -1 }
+    }
+
+    /** Best-effort roster persistence (presence channel remains the live truth). */
+    fun patchJamParticipant(sessionCode: String, userId: String, add: Boolean) {
+        try {
+            val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
+            val (code, resp) = executeRpc("listening_sessions?session_code=eq.$safeCode&select=participant_ids", "GET")
+            val current = mutableListOf<String>()
+            if (code in 200..299 && resp != null) {
+                val arr = JSONArray(resp)
+                if (arr.length() > 0) {
+                    val ids = arr.getJSONObject(0).optJSONArray("participant_ids")
+                    if (ids != null) for (i in 0 until ids.length()) current.add(ids.optString(i))
+                }
+            }
+            val next = (if (add) current + userId else current - userId).distinct()
+            if (next == current) return
+            val body = JSONArray().apply { next.forEach { put(it) } }
+            executeRpc("listening_sessions?session_code=eq.$safeCode", "PATCH", JSONObject().put("participant_ids", body).toString(), prefer = "return=minimal")
+        } catch (e: Exception) {
+            // Best-effort: presence broadcast remains the live source of truth
+        }
+    }
+
+    // ========================================================================
     // COMMUNITY PLAYLISTS & FRIEND ACTIVITY
     // ========================================================================
     suspend fun fetchCommunityPlaylists(limit: Int = 15): List<CommunityPlaylist> = withContext(Dispatchers.IO) {
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/playlists?is_public=eq.true&order=likes_count.desc&limit=$limit")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
+            val (code, resp) = executeRpc("playlists?is_public=eq.true&order=likes_count.desc&limit=$limit", "GET")
 
             val list = mutableListOf<CommunityPlaylist>()
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
@@ -1739,16 +1812,10 @@ object SupabaseClient {
 
     suspend fun fetchFriendsActivity(): List<FriendActivity> = withContext(Dispatchers.IO) {
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?is_private=eq.false&limit=6&order=last_active_at.desc")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
+            val (code, resp) = executeRpc("profiles?is_private=eq.false&limit=6&order=last_active_at.desc", "GET")
 
             val list = mutableListOf<FriendActivity>()
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
@@ -1777,21 +1844,11 @@ object SupabaseClient {
     suspend fun submitSyncedLyrics(trackId: String, lyricsContent: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val safeId = URLEncoder.encode(trackId, "UTF-8")
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/tracks?id=eq.$safeId")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "PATCH"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
             val body = JSONObject().apply {
                 put("lyrics", lyricsContent)
             }
-
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            Result.success(conn.responseCode in 200..299)
+            val (code, _) = executeRpc("tracks?id=eq.$safeId", "PATCH", body.toString())
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -1799,16 +1856,10 @@ object SupabaseClient {
 
     suspend fun fetchActiveBroadcasts(): List<String> = withContext(Dispatchers.IO) {
         try {
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/admin_broadcasts?is_active=eq.true&order=created_at.desc&limit=3")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
-            }
+            val (code, resp) = executeRpc("admin_broadcasts?is_active=eq.true&order=created_at.desc&limit=3", "GET")
 
             val list = mutableListOf<String>()
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
@@ -1828,9 +1879,6 @@ object SupabaseClient {
     suspend fun getAdminTelemetry(): Result<AdminTelemetry> = withContext(Dispatchers.IO) {
         val startMs = System.currentTimeMillis()
         try {
-            val token = getAuthToken()
-            
-            // 1. Fetch live metrics from PostgreSQL get_admin_dashboard_stats RPC
             var totalUsers = 0
             var totalTracks = 0
             var totalPlaylists = 0
@@ -1840,19 +1888,12 @@ object SupabaseClient {
             var totalPlays = 0L
             var dau24h = 0
             var serverStatus = "Operational"
+            var rpcHealthy = false
             var engineMode = "PostgreSQL 15 + pgvector 0.5.1"
 
             try {
-                val rpcUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/get_admin_dashboard_stats")
-                val rpcConn = (rpcUrl.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                    setRequestProperty("Authorization", "Bearer $token")
-                    setRequestProperty("Content-Type", "application/json")
-                }
-
-                if (rpcConn.responseCode in 200..299) {
-                    val resp = BufferedReader(InputStreamReader(rpcConn.inputStream)).use { it.readText() }
+                val (rpcCode, resp) = executeRpc("rpc/get_admin_dashboard_stats", "POST")
+                if (rpcCode in 200..299 && resp != null) {
                     val o = JSONObject(resp)
                     totalUsers = o.optInt("total_users", 0)
                     totalTracks = o.optInt("total_tracks", 0)
@@ -1864,18 +1905,13 @@ object SupabaseClient {
                     dau24h = o.optInt("dau_24h", 0)
                     serverStatus = o.optString("server_status", "Operational")
                     engineMode = o.optString("engine_mode", "PostgreSQL 15 + pgvector 0.5.1")
+                    rpcHealthy = true
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
 
-            // 2. Fetch User Profiles for User Explorer
-            val profilesUrl = URL("${BuildConfig.SUPABASE_URL}/rest/v1/profiles?select=*&order=created_at.desc&limit=100")
-            val conn = (profilesUrl.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-            }
+            val (code, resp) = executeRpc("profiles?select=*&order=created_at.desc&limit=100", "GET")
 
             val users = mutableListOf<UserProfile>()
             val currentLocalUser = _currentUser.value
@@ -1886,8 +1922,7 @@ object SupabaseClient {
             val localTopTrackTitle = localTopTracks.firstOrNull()?.let { "${it.title} • ${it.artist}" } ?: ""
             val localTotalPlays = TrackRepository.getAllTracks().sumOf { it.playCount }.coerceAtLeast(localTopTracks.size)
 
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
@@ -1944,47 +1979,25 @@ object SupabaseClient {
                 totalPlays = if (totalPlays > 0) totalPlays else users.sumOf { it.totalPlays.toLong() }.coerceAtLeast(localTotalPlays.toLong()),
                 dau24h = dau24h,
                 userList = users,
-                serverStatus = serverStatus,
+                serverStatus = if (rpcHealthy) serverStatus else "RPC ERROR — check is_admin / migration",
                 latencyMs = latency,
                 engineMode = engineMode
             )
 
             Result.success(telemetry)
         } catch (e: Exception) {
-            e.printStackTrace()
-            Result.success(
-                AdminTelemetry(
-                    totalUsers = 1,
-                    totalTracks = 0,
-                    totalPlaylists = 0,
-                    activeJamSessions = 0,
-                    userList = listOfNotNull(_currentUser.value),
-                    serverStatus = "Configured (Awaiting Connection)",
-                    latencyMs = 0L
-                )
-            )
+            Result.failure(e)
         }
     }
 
     suspend fun setUserAdminRole(targetUserId: String, isAdmin: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/set_user_admin_role")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
             val body = JSONObject().apply {
                 put("target_user_id", targetUserId)
                 put("new_admin_status", isAdmin)
             }
-
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            Result.success(conn.responseCode in 200..299)
+            val (code, _) = executeRpc("rpc/set_user_admin_role", "POST", body.toString())
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -1992,22 +2005,11 @@ object SupabaseClient {
 
     suspend fun terminateJamSessionAdmin(sessionId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/terminate_jam_session")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
             val body = JSONObject().apply {
                 put("target_session_id", sessionId)
             }
-
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            Result.success(conn.responseCode in 200..299)
+            val (code, _) = executeRpc("rpc/terminate_jam_session", "POST", body.toString())
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -2015,22 +2017,11 @@ object SupabaseClient {
 
     suspend fun deleteCommentAdmin(commentId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/delete_comment_admin")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
             val body = JSONObject().apply {
                 put("target_comment_id", commentId)
             }
-
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            Result.success(conn.responseCode in 200..299)
+            val (code, _) = executeRpc("rpc/delete_comment_admin", "POST", body.toString())
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -2038,23 +2029,12 @@ object SupabaseClient {
 
     suspend fun toggleAdminBroadcast(broadcastId: String, isActive: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/toggle_admin_broadcast")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
             val body = JSONObject().apply {
                 put("target_broadcast_id", broadcastId)
                 put("active_state", isActive)
             }
-
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            Result.success(conn.responseCode in 200..299)
+            val (code, _) = executeRpc("rpc/toggle_admin_broadcast", "POST", body.toString())
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -2062,18 +2042,10 @@ object SupabaseClient {
 
     suspend fun getAdminJamSessions(): Result<List<AdminJamSession>> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/get_admin_jam_sessions")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-            }
+            val (code, resp) = executeRpc("rpc/get_admin_jam_sessions", "POST")
 
             val list = mutableListOf<AdminJamSession>()
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
@@ -2100,24 +2072,13 @@ object SupabaseClient {
 
     suspend fun getAdminRecentComments(limit: Int = 50): Result<List<AdminCommentItem>> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/get_admin_recent_comments")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
             val body = JSONObject().apply {
                 put("limit_count", limit)
             }
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            val (code, resp) = executeRpc("rpc/get_admin_recent_comments", "POST", body.toString())
 
             val list = mutableListOf<AdminCommentItem>()
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            if (code in 200..299 && resp != null) {
                 val arr = JSONArray(resp)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
@@ -2144,25 +2105,13 @@ object SupabaseClient {
 
     suspend fun postAdminBroadcast(message: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/admin_broadcasts")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Prefer", "return=minimal")
-            }
-
             val body = JSONObject().apply {
                 put("message", message)
                 put("author_email", _currentUser.value?.email ?: BuildConfig.ADMIN_EMAIL)
                 put("is_active", true)
             }
-
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            Result.success(conn.responseCode in 200..299)
+            val (code, _) = executeRpc("admin_broadcasts", "POST", body.toString(), prefer = "return=minimal")
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             e.printStackTrace()
             Result.failure(e)
@@ -2175,23 +2124,11 @@ object SupabaseClient {
 
     suspend fun claimEdgeTask(deviceId: String): Result<EdgeComputeTask?> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/claim_edge_task")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
             val body = JSONObject().apply {
                 put("p_device_id", deviceId)
             }
-
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            val (code, resp) = executeRpc("rpc/claim_edge_task", "POST", body.toString())
+            if (code in 200..299 && resp != null) {
                 val obj = JSONObject(resp)
                 if (obj.optBoolean("success", false)) {
                     val task = EdgeComputeTask(
@@ -2226,16 +2163,6 @@ object SupabaseClient {
         bandwidthSavedBytes: Long = 0L
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/submit_edge_result")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
             val body = JSONObject().apply {
                 put("p_task_id", taskId)
                 put("p_device_id", deviceId)
@@ -2250,8 +2177,8 @@ object SupabaseClient {
                 put("p_bandwidth_saved_bytes", bandwidthSavedBytes)
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            Result.success(conn.responseCode in 200..299)
+            val (code, _) = executeRpc("rpc/submit_edge_result", "POST", body.toString())
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             e.printStackTrace()
             Result.failure(e)
@@ -2265,16 +2192,6 @@ object SupabaseClient {
         currentTrackTitle: String = ""
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/update_edge_node_heartbeat")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
             val body = JSONObject().apply {
                 put("p_device_id", deviceId)
                 put("p_status", status)
@@ -2282,8 +2199,8 @@ object SupabaseClient {
                 put("p_current_track_title", currentTrackTitle)
             }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            Result.success(conn.responseCode in 200..299)
+            val (code, _) = executeRpc("rpc/update_edge_node_heartbeat", "POST", body.toString())
+            Result.success(code in 200..299)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -2291,19 +2208,8 @@ object SupabaseClient {
 
     suspend fun getAdminEdgeComputeStats(): Result<AdminEdgeMeshStats> = withContext(Dispatchers.IO) {
         try {
-            val token = getAuthToken()
-            val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/rpc/get_admin_edge_compute_stats")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json")
-            }
-
-            conn.outputStream.use { it.write("{}".toByteArray()) }
-            if (conn.responseCode in 200..299) {
-                val resp = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+            val (code, resp) = executeRpc("rpc/get_admin_edge_compute_stats", "POST", "{}")
+            if (code in 200..299 && resp != null) {
                 val root = JSONObject(resp)
 
                 val activeList = mutableListOf<EdgeNodeActivityItem>()

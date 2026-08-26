@@ -1,164 +1,124 @@
 package com.streamify.app.service
 
+import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
-import androidx.media3.common.audio.AudioProcessor.AudioFormat
-import androidx.media3.common.audio.AudioProcessor.EMPTY_BUFFER
-import com.streamify.app.data.NativeBridge
+import androidx.media3.common.audio.BaseAudioProcessor
+import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-class CrossfadeAudioProcessor : AudioProcessor {
+@OptIn(UnstableApi::class)
+class CrossfadeAudioProcessor : BaseAudioProcessor() {
+
     companion object {
-        var crossfadeDurationMs = 0L // Default 0s (Disabled for direct playback)
-        private var trackABuffer: ShortArray? = null
-        private var trackAWritePos = 0
-        private var trackAReadPos = 0
-        private var trackAFramesStored = 0
-
-        // Precomputed 256-entry equal-power trigonometric LUT
-        private const val LUT_SIZE = 256
-        private val LUT_COS = FloatArray(LUT_SIZE) { i -> cos((i.toDouble() / (LUT_SIZE - 1)) * (PI / 2.0)).toFloat() }
-        private val LUT_SIN = FloatArray(LUT_SIZE) { i -> sin((i.toDouble() / (LUT_SIZE - 1)) * (PI / 2.0)).toFloat() }
+        var crossfadeDurationMs: Long = 2500L
     }
 
-    private var isActive = false
-    private var inputAudioFormat = AudioFormat.NOT_SET
-    private var outputAudioFormat = AudioFormat.NOT_SET
-    
-    private var buffer: ByteBuffer = EMPTY_BUFFER
-    private var outputBuffer: ByteBuffer = EMPTY_BUFFER
-    private var tempShortBuffer: ShortArray = ShortArray(4096)
-    private var isEnding = false
-    private var crossfading = false
-    private var fadeFramesTotal = 0
-    private var fadeFramesCurrent = 0
+    private var currentCrossfadeDurationMs = 2500L
+    private var isCrossfading = false
+    private var totalCrossfadeFrames = 0L
+    private var currentFrameCount = 0L
 
-    override fun configure(inputAudioFormat: AudioFormat): AudioFormat {
-        if (crossfadeDurationMs <= 0 || inputAudioFormat.encoding != androidx.media3.common.C.ENCODING_PCM_16BIT) {
-            isActive = false
-            return AudioFormat.NOT_SET
+    // 256-Entry Pre-computed Constant-Energy Trigonometric LUT (G_out^2 + G_in^2 == 1.0)
+    private val lutSize = 256
+    private val gainOutLut = FloatArray(lutSize)
+    private val gainInLut = FloatArray(lutSize)
+
+    init {
+        for (i in 0 until lutSize) {
+            val phase = (i.toDouble() / (lutSize - 1)) * (PI / 2.0)
+            gainOutLut[i] = cos(phase).toFloat()
+            gainInLut[i] = sin(phase).toFloat()
         }
-        this.inputAudioFormat = inputAudioFormat
-        this.outputAudioFormat = inputAudioFormat
-        isActive = true
-        fadeFramesTotal = (crossfadeDurationMs * inputAudioFormat.sampleRate / 1000L).toInt()
-        
-        crossfading = trackABuffer != null && trackAFramesStored > 0 && fadeFramesTotal > 0
-        fadeFramesCurrent = 0
-        if (crossfading && trackABuffer != null) {
-            trackAReadPos = (trackAWritePos - (trackAFramesStored * inputAudioFormat.channelCount))
-            if (trackAReadPos < 0) trackAReadPos += trackABuffer!!.size
-        }
-        return outputAudioFormat
     }
 
-    override fun isActive(): Boolean = isActive
+    fun startCrossfade(durationMs: Long = 2500L) {
+        this.currentCrossfadeDurationMs = durationMs
+        val sampleRate = inputAudioFormat.sampleRate.takeIf { it > 0 } ?: 44100
+        this.totalCrossfadeFrames = (sampleRate * (durationMs / 1000f)).toLong()
+        this.currentFrameCount = 0L
+        this.isCrossfading = true
+    }
+
+    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT && inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
+            return AudioProcessor.AudioFormat.NOT_SET
+        }
+        return inputAudioFormat
+    }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
-        val size = inputBuffer.remaining()
-        if (size == 0) return
+        val remainingBytes = inputBuffer.remaining()
+        if (remainingBytes == 0) return
 
-        if (buffer.capacity() < size) {
-            buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder())
+        val buffer = replaceOutputBuffer(remainingBytes)
+        val channelCount = inputAudioFormat.channelCount.coerceAtLeast(1)
+
+        if (!isCrossfading || totalCrossfadeFrames == 0L) {
+            buffer.put(inputBuffer)
         } else {
-            buffer.clear()
-        }
+            val isFloat = inputAudioFormat.encoding == C.ENCODING_PCM_FLOAT
+            if (isFloat) {
+                val floatCount = remainingBytes / 4
+                val inFloats = inputBuffer.asFloatBuffer()
+                val outFloats = buffer.asFloatBuffer()
 
-        val shortBuffer = inputBuffer.asShortBuffer()
-        val sampleCount = shortBuffer.remaining()
-        if (tempShortBuffer.size < sampleCount) {
-            tempShortBuffer = ShortArray(sampleCount)
-        }
-        val tempOutput = tempShortBuffer
-        var tempOutIdx = 0
-        
-        val requiredBufferSize = fadeFramesTotal * inputAudioFormat.channelCount
-        if (requiredBufferSize > 0 && (trackABuffer == null || trackABuffer!!.size != requiredBufferSize)) {
-            trackABuffer = ShortArray(requiredBufferSize)
-            trackAWritePos = 0
-            trackAFramesStored = 0
-        }
+                var i = 0
+                while (i < floatCount) {
+                    val progress = (currentFrameCount.toFloat() / totalCrossfadeFrames.toFloat()).coerceIn(0.0f, 1.0f)
+                    val lutIndex = (progress * (lutSize - 1)).toInt().coerceIn(0, lutSize - 1)
+                    val gain = gainOutLut[lutIndex]
 
-        for (i in 0 until sampleCount step inputAudioFormat.channelCount) {
-            var frameMixed = false
-            
-            if (crossfading && fadeFramesCurrent < fadeFramesTotal && fadeFramesCurrent < trackAFramesStored) {
-                val lutIdx = ((fadeFramesCurrent * (LUT_SIZE - 1)) / fadeFramesTotal).coerceIn(0, LUT_SIZE - 1)
-                val gainA = LUT_COS[lutIdx]
-                val gainB = LUT_SIN[lutIdx]
-                
-                for (ch in 0 until inputAudioFormat.channelCount) {
-                    val sampleB = shortBuffer.get(shortBuffer.position() + i + ch).toFloat()
-                    val sampleA = trackABuffer!![trackAReadPos].toFloat()
-                    trackAReadPos = (trackAReadPos + 1) % trackABuffer!!.size
-                    
-                    var mixed = (sampleA * gainA + sampleB * gainB).toInt()
-                    if (mixed > Short.MAX_VALUE) mixed = Short.MAX_VALUE.toInt()
-                    if (mixed < Short.MIN_VALUE) mixed = Short.MIN_VALUE.toInt()
-                    
-                    tempOutput[tempOutIdx++] = mixed.toShort()
+                    for (ch in 0 until channelCount) {
+                        if (i < floatCount) {
+                            val sample = inFloats.get()
+                            outFloats.put(sample * gain)
+                            i++
+                        }
+                    }
+                    currentFrameCount++
+                    if (currentFrameCount >= totalCrossfadeFrames) {
+                        isCrossfading = false
+                        break
+                    }
                 }
-                fadeFramesCurrent++
-                frameMixed = true
-            }
-            
-            if (!frameMixed) {
-                for (ch in 0 until inputAudioFormat.channelCount) {
-                    tempOutput[tempOutIdx++] = shortBuffer.get(shortBuffer.position() + i + ch)
+                buffer.position(buffer.position() + remainingBytes)
+            } else {
+                val shortCount = remainingBytes / 2
+                val inShorts = inputBuffer.asShortBuffer()
+                val outShorts = buffer.asShortBuffer()
+
+                var i = 0
+                while (i < shortCount) {
+                    val progress = (currentFrameCount.toFloat() / totalCrossfadeFrames.toFloat()).coerceIn(0.0f, 1.0f)
+                    val lutIndex = (progress * (lutSize - 1)).toInt().coerceIn(0, lutSize - 1)
+                    val gain = gainOutLut[lutIndex]
+
+                    for (ch in 0 until channelCount) {
+                        if (i < shortCount) {
+                            val sample = inShorts.get()
+                            outShorts.put((sample * gain).toInt().coerceIn(-32768, 32767).toShort())
+                            i++
+                        }
+                    }
+                    currentFrameCount++
+                    if (currentFrameCount >= totalCrossfadeFrames) {
+                        isCrossfading = false
+                        break
+                    }
                 }
-            }
-            
-            if (requiredBufferSize > 0) {
-                for (ch in 0 until inputAudioFormat.channelCount) {
-                    trackABuffer!![trackAWritePos] = shortBuffer.get(shortBuffer.position() + i + ch)
-                    trackAWritePos = (trackAWritePos + 1) % trackABuffer!!.size
-                }
-                if (trackAFramesStored < fadeFramesTotal) trackAFramesStored++
+                buffer.position(buffer.position() + remainingBytes)
             }
         }
-        
-        // Native Soft-Knee Limiter to prevent clipping
-        try {
-            NativeBridge.processLimiterShorts(tempOutput, sampleCount, 0.92f, 0.15f)
-        } catch (e: UnsatisfiedLinkError) {
-            // Ignore if native lib not loaded in test
-        }
 
-        val outShortBuffer = buffer.asShortBuffer()
-        outShortBuffer.put(tempOutput, 0, sampleCount)
-
-        shortBuffer.position(shortBuffer.position() + sampleCount)
-        inputBuffer.position(inputBuffer.position() + size)
-        
-        buffer.limit(size)
-        outputBuffer = buffer
+        buffer.flip()
     }
 
-    override fun queueEndOfStream() {
-        isEnding = true
-    }
-
-    override fun getOutput(): ByteBuffer {
-        val out = outputBuffer
-        outputBuffer = EMPTY_BUFFER
-        return out
-    }
-
-    override fun isEnded(): Boolean = isEnding && outputBuffer === EMPTY_BUFFER
-
-    override fun flush() {
-        outputBuffer = EMPTY_BUFFER
-        isEnding = false
-    }
-
-    override fun reset() {
-        flush()
-        buffer = EMPTY_BUFFER
-        inputAudioFormat = AudioFormat.NOT_SET
-        outputAudioFormat = AudioFormat.NOT_SET
-        isActive = false
+    override fun onReset() {
+        isCrossfading = false
+        currentFrameCount = 0L
     }
 }

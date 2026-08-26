@@ -2,11 +2,20 @@ package com.streamify.app.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -16,6 +25,8 @@ import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.ContextMenuSheet
 import com.streamify.app.ui.components.LocalContextMenuController
 import com.streamify.app.ui.components.MenuOrigin
+import com.streamify.app.data.UniversalCandidateBroker
+import com.streamify.app.radio.OnlineRadioEngine
 import com.streamify.app.ui.components.YtQueueHeader
 import com.streamify.app.ui.components.YtQueueTrackItem
 import com.streamify.app.ui.theme.*
@@ -28,6 +39,8 @@ fun QueueScreen(
     onClose: (() -> Unit)? = null
 ) {
     val playerState by playerViewModel.playerState.collectAsState()
+    val radioBuilding by UniversalCandidateBroker.isFetching.collectAsState()
+    val radioSummary by OnlineRadioEngine.lastBuildSummary.collectAsState()
     val contextMenuController = LocalContextMenuController.current
     val nowPlaying = playerState.currentTrack
     val queue = playerState.queue
@@ -37,14 +50,25 @@ fun QueueScreen(
     // 120fps Mathematical Drag Reorder State
     var draggedItemIndex by remember { mutableStateOf<Int?>(null) }
     var draggedItemOffset by remember { mutableStateOf(0f) }
+
+    // HISTORY section state (overhauled played surface)
+    var historyExpanded by remember { mutableStateOf(false) }
     val itemHeightPx = with(LocalDensity.current) { 56.dp.toPx() }
 
-    // Index-Aware Queue Filtering: Preserves duplicate songs elsewhere in the playlist
-    val upNext = remember(queue, currentIndex) {
-        if (queue.isNotEmpty() && currentIndex in queue.indices) {
-            queue.filterIndexed { index, _ -> index != currentIndex }
+    // Distinct Index-Aware Queue Slices
+    val playedTracks = remember(queue, currentIndex) {
+        if (queue.isNotEmpty() && currentIndex > 0) {
+            queue.subList(0, currentIndex.coerceAtMost(queue.size))
         } else {
-            queue
+            emptyList()
+        }
+    }
+
+    val upNext = remember(queue, currentIndex) {
+        if (queue.isNotEmpty() && currentIndex in queue.indices && currentIndex + 1 < queue.size) {
+            queue.subList(currentIndex + 1, queue.size)
+        } else {
+            emptyList()
         }
     }
 
@@ -61,8 +85,30 @@ fun QueueScreen(
             onToggleAutoplay = { playerViewModel.toggleAutoPlay() },
             onClearQueue = { playerViewModel.clearQueue() },
             onClose = { onClose?.invoke() ?: run { /* Pop backstack */ } },
-            hasQueueItems = upNext.isNotEmpty()
+            hasQueueItems = upNext.isNotEmpty() || playedTracks.isNotEmpty()
         )
+
+        // Radio build telemetry (OnlineRadioEngine)
+        if (radioBuilding || radioSummary != "Idle") {
+            androidx.compose.material3.Surface(
+                color = if (radioBuilding) StreamifyColors.Primary.copy(alpha = 0.12f)
+                        else StreamifyColors.BgSurfaceElevated,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .fillMaxWidth()
+            ) {
+                Text(
+                    text = if (radioBuilding) "◌ Building online radio…" else "◉ $radioSummary",
+                    style = LocalAppTypography.current.songArtist.copy(
+                        fontSize = 10.sp, letterSpacing = 0.8.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    ),
+                    color = if (radioBuilding) StreamifyColors.Primary else StreamifyColors.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                )
+            }
+        }
 
         // 2. Queue LazyColumn
         LazyColumn(
@@ -70,7 +116,102 @@ fun QueueScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 120.dp) // Protective padding for docked player
         ) {
-            // Section A: Now Playing Active Track
+            // Section 0 · HISTORY — overhauled played surface:
+            // most-recent-first, position badges, dimmed artwork, replay
+            // affordance, collapse/expand, and one-tap clear.
+            if (playedTracks.isNotEmpty()) {
+                val history = playedTracks.asReversed()
+                val visibleHistory =
+                    if (historyExpanded || history.size <= 3) history
+                    else history.take(3)
+
+                item(key = "header_history") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "HISTORY (${playedTracks.size})",
+                            style = LocalAppTypography.current.songArtist.copy(
+                                fontSize = 11.sp,
+                                letterSpacing = 0.5.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            ),
+                            color = TextTertiary
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        IconButton(
+                            onClick = {
+                                com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                                playerViewModel.clearPlayedHistory()
+                            },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.DeleteSweep,
+                                contentDescription = "Clear history",
+                                tint = TextTertiary.copy(alpha = 0.8f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { historyExpanded = !historyExpanded },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (historyExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                contentDescription = if (historyExpanded) "Collapse" else "Expand",
+                                tint = TextTertiary.copy(alpha = 0.8f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                itemsIndexed(
+                    items = visibleHistory,
+                    key = { _, track -> "played_${track.id}" },
+                    contentType = { _, _ -> "trackRow" }
+                ) { index, track ->
+                    val originalPosition = playedTracks.size - index   // absolute queue slot (#1..)
+                    YtQueueTrackItem(
+                        track = track,
+                        isPlaying = false,
+                        dragOffset = 0f,
+                        showDragHandle = false,
+                        leadingBadge = "#%02d".format(originalPosition),
+                        dimmed = true,
+                        onReplay = null,   // row tap already replays; keep rows uncluttered
+                        onClick = {
+                            onTrackClick(track.id)
+                            playerViewModel.playTrack(track, queue)
+                        },
+                        onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.QUEUE) }
+                    )
+                }
+
+                if (history.size > 3 && !historyExpanded) {
+                    item(key = "history_show_all") {
+                        Text(
+                            text = "SHOW ${history.size - 3} EARLIER",
+                            style = LocalAppTypography.current.songArtist.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp
+                            ),
+                            color = Primary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { historyExpanded = true }
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                        )
+                    }
+                }
+            }
+
+                        // Section A: Now Playing Active Track
             if (nowPlaying != null) {
                 item(key = "header_now_playing") {
                     Text(
@@ -96,7 +237,7 @@ fun QueueScreen(
                 }
             }
 
-            // Section B: Up Next Queue Items
+            // Section B: Up Next Queue Items (Guaranteed zero played song repetition)
             if (upNext.isNotEmpty()) {
                 item(key = "header_up_next") {
                     Text(
@@ -112,7 +253,7 @@ fun QueueScreen(
 
                 itemsIndexed(
                     items = upNext,
-                    key = { index, track -> "queue_${track.id}_${track.filepath.hashCode()}_${index}" },
+                    key = { _, track -> "queue_${track.id}" },
                     contentType = { _, _ -> "trackRow" }
                 ) { index, track ->
                     val isBeingDragged = draggedItemIndex == index
@@ -133,7 +274,9 @@ fun QueueScreen(
                             val targetIndex = (index + (draggedItemOffset / itemHeightPx).toInt())
                                 .coerceIn(0, upNext.size - 1)
                             if (targetIndex != index) {
-                                playerViewModel.reorderQueue(index, targetIndex)
+                                val absFrom = currentIndex + 1 + index
+                                val absTo = currentIndex + 1 + targetIndex
+                                playerViewModel.reorderQueue(absFrom, absTo)
                                 draggedItemIndex = targetIndex
                                 draggedItemOffset = 0f
                                 com.streamify.app.util.StreamifyHapticEngine.magneticDetent()

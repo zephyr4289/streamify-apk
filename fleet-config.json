@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "updated": "2026-08-26",
+  "note": "Remote fleet adaptation for Streamify's Innertube resolver. Values merge over baked-in defaults; validated clientName/length/STS guards apply. Updated automatically by resolver-canary CI when drift is detected.",
+  "signatureTimestamp": 19850,
+  "searchClients": {
+    "musicVersion": "1.20240101.01.00",
+    "webVersion": "2.20240101.01.00"
+  },
+  "audioClients": [
+    {
+      "clientName": "ANDROID",
+      "clientVersion": "21.26.364",
+      "clientNumber": "3",
+      "userAgent": "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
+      "osName": "Android",
+      "osVersion": "11"
+    },
+    {
+      "clientName": "ANDROID_VR",
+      "clientVersion": "1.60.19",
+      "clientNumber": "28",
+      "userAgent": "Mozilla/5.0 (Linux; Android 12; Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) OculusBrowser/33.0.0.19.46.568453472 SamsungBrowser/4.0 Chrome/122.0.6261.139 Mobile VR Safari/537.36",
+      "deviceMake": "Oculus",
+      "deviceModel": "Quest 3",
+      "osName": "Android",
+      "osVersion": "12"
+    },
+    {
+      "clientName": "IOS",
+      "clientVersion": "21.26.4",
+      "clientNumber": "5",
+      "userAgent": "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+      "deviceMake": "Apple",
+      "deviceModel": "iPhone16,2",
+      "osName": "iPhone",
+      "osVersion": "18.3.2.22D82"
+    }
+  ]
+}

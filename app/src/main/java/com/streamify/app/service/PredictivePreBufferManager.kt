@@ -1,151 +1,99 @@
 package com.streamify.app.service
 
+import android.content.Context
 import android.net.Uri
-import androidx.media3.common.Player
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
-import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.streamify.app.data.models.Track
+import com.streamify.app.data.network.ConnectionWarmer
+import com.streamify.app.data.network.NetworkEngine
 import com.streamify.app.data.network.YouTubeStreamResolver
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import java.util.concurrent.ConcurrentHashMap
 
+@OptIn(UnstableApi::class)
 class PredictivePreBufferManager(
-    private val player: Player,
-    private val simpleCache: SimpleCache
-) : Player.Listener {
+    private val context: Context
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val activePreCacheJobs = ConcurrentHashMap<String, Job>()
 
-    private val scope = CoroutineScope(Dispatchers.IO)
-    private var preBufferJob: Job? = null
-    private var monitorJob: Job? = null
-    private var lastPreBufferedMediaId: String? = null
+    // 512KB Head-Chunk Matrix (~25-30s of 160kbps Opus audio container header & stream)
+    private val HEAD_CHUNK_BYTES = 512 * 1024L
 
-    init {
-        startPlaybackMonitor()
-    }
+    fun preBufferUpcomingTracks(upcomingTracks: List<Track>) {
+        val targets = upcomingTracks.take(2)
 
-    private fun startPlaybackMonitor() {
-        monitorJob?.cancel()
-        monitorJob = scope.launch {
-            while (isActive) {
-                try {
-                    checkAndPreBufferNext()
-                } catch (e: Exception) {
-                    // Ignore monitoring errors
-                }
-                delay(3000) // Check every 3 seconds
-            }
-        }
-    }
+        targets.forEach { track ->
+            val trackKey = if (track.id != 0) track.id.toString() else track.title
+            if (activePreCacheJobs[trackKey]?.isActive == true) return@forEach
 
-    override fun onPositionDiscontinuity(
-        oldPosition: Player.PositionInfo,
-        newPosition: Player.PositionInfo,
-        reason: Int
-    ) {
-        if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
-            lastPreBufferedMediaId = null
-        }
-    }
+            val job = scope.launch {
+                com.streamify.app.data.NativeBridge.pinThreadToLittleCores()
+                runCatching {
+                    val streamUrl = if (track.filepath.startsWith("http")) {
+                        track.filepath
+                    } else {
+                        val vid = track.ytmVideoId ?: YouTubeStreamResolver.extractVideoId(track.filepath)
+                        if (vid != null) YouTubeStreamResolver.resolveStreamUrl(vid)?.streamUrl else null
+                    } ?: return@launch
 
-    override fun onPlaybackStateChanged(playbackState: Int) {
-        if (playbackState == Player.STATE_READY) {
-            checkAndPreBufferNext()
-        }
-    }
+                    val cache = AudioCacheManager.getCache(context)
 
-    private fun checkAndPreBufferNext() {
-        if (!player.isPlaying) return
+                    // If already cached on disk/RAM, avoid redundant network I/O
+                    if (cache.isCached(streamUrl, 0L, HEAD_CHUNK_BYTES)) {
+                        ConnectionWarmer.preWarmCDN(streamUrl)
+                        return@launch
+                    }
 
-        val duration = player.duration
-        val position = player.currentPosition
-        if (duration <= 0) return
+                    // Use shared ExoPlayer OkHttp client (reuses warm connection pool & DNS cache)
+                    val upstreamFactory = OkHttpDataSource.Factory(NetworkEngine.exoPlayerClient)
+                        .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-        val remainingMs = duration - position
+                    val cacheDataSourceFactory = CacheDataSource.Factory()
+                        .setCache(cache)
+                        .setUpstreamDataSourceFactory(upstreamFactory)
+                        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-        // Trigger pre-buffering at T-minus 45 seconds or if track is short
-        if (remainingMs in 1..45000 || duration < 30000) {
-            val nextIndex = player.nextMediaItemIndex
-            if (nextIndex == -1 || nextIndex >= player.mediaItemCount) return
+                    val uri = Uri.parse(streamUrl)
+                    val dataSpec = DataSpec.Builder()
+                        .setUri(uri)
+                        .setPosition(0)
+                        .setLength(HEAD_CHUNK_BYTES)
+                        .setKey(streamUrl)
+                        .build()
 
-            // Lookahead pre-buffer next track (Slot N+1)
-            val nextMediaItem = player.getMediaItemAt(nextIndex)
-            val nextMediaId = nextMediaItem.mediaId.ifBlank { nextMediaItem.localConfiguration?.uri?.toString() ?: "" }
+                    val cacheWriter = CacheWriter(
+                        cacheDataSourceFactory.createDataSource(),
+                        dataSpec,
+                        null,
+                        null
+                    )
 
-            if (nextMediaId.isNotBlank() && nextMediaId != lastPreBufferedMediaId) {
-                lastPreBufferedMediaId = nextMediaId
-                preBufferNextTrack(nextMediaId)
-            }
+                    // Write 512KB head-chunk directly into Media3 SimpleCache
+                    cacheWriter.cache()
 
-            // Also warm Slot N+2 if available
-            val overNextIndex = nextIndex + 1
-            if (overNextIndex < player.mediaItemCount) {
-                val overNextItem = player.getMediaItemAt(overNextIndex)
-                val overNextId = overNextItem.mediaId.ifBlank { overNextItem.localConfiguration?.uri?.toString() ?: "" }
-                if (overNextId.isNotBlank()) {
-                    preBufferNextTrack(overNextId, isSecondary = true)
+                    // Pre-warm socket for bytes beyond 512KB
+                    ConnectionWarmer.preWarmCDN(streamUrl)
                 }
             }
+
+            activePreCacheJobs[trackKey] = job
         }
     }
 
-    private fun preBufferNextTrack(mediaIdOrUrl: String, isSecondary: Boolean = false) {
-        if (isSecondary) {
-            scope.launch {
-                doPreBuffer(mediaIdOrUrl, 1024 * 1024L) // 1MB for secondary
-            }
-        } else {
-            preBufferJob?.cancel()
-            preBufferJob = scope.launch {
-                doPreBuffer(mediaIdOrUrl, 2 * 1024 * 1024L) // 2MB for primary
-            }
-        }
-    }
-
-    private suspend fun doPreBuffer(mediaIdOrUrl: String, cacheBytes: Long) {
-        try {
-            // 1. Resolve stream URL
-            val resolved = YouTubeStreamResolver.resolveStreamUrl(mediaIdOrUrl) ?: return
-            val streamUrl = resolved.streamUrl
-            if (streamUrl.isBlank() || streamUrl.startsWith("/") || streamUrl.startsWith("file://")) return
-
-            // 2. Pre-cache into Media3 SimpleCache
-            val httpFactory = DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(4000)
-                .setReadTimeoutMs(6000)
-                .setAllowCrossProtocolRedirects(true)
-
-            val cacheFactory = CacheDataSource.Factory()
-                .setCache(simpleCache)
-                .setUpstreamDataSourceFactory(httpFactory)
-                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-
-            val dataSpec = DataSpec.Builder()
-                .setUri(Uri.parse(streamUrl))
-                .setPosition(0)
-                .setLength(cacheBytes)
-                .build()
-
-            val cacheWriter = CacheWriter(
-                cacheFactory.createDataSource(),
-                dataSpec,
-                ByteArray(32 * 1024),
-                null
-            )
-
-            cacheWriter.cache()
-        } catch (e: Exception) {
-            // Silently ignore pre-buffer failures (ExoPlayer will stream natively on fallback)
-        }
+    fun cancelAll() {
+        activePreCacheJobs.values.forEach { it.cancel() }
+        activePreCacheJobs.clear()
     }
 
     fun release() {
-        monitorJob?.cancel()
-        preBufferJob?.cancel()
+        cancelAll()
+        scope.cancel()
     }
 }
+

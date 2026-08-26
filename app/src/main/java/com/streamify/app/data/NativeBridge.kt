@@ -1,50 +1,636 @@
 package com.streamify.app.data
 
-import com.streamify.app.data.models.TrackNative
-import com.streamify.app.data.models.RecommendationNative
 import com.streamify.app.data.models.OrchestratorStatusNative
+import com.streamify.app.data.models.RecommendationNative
+import com.streamify.app.data.models.TrackNative
 
 object NativeBridge {
     init {
         try {
+            System.loadLibrary("streamify_core_rs")
+        } catch (e: UnsatisfiedLinkError) {
+            e.printStackTrace()
+        }
+        try {
+            System.loadLibrary("streamify_native_core")
+        } catch (e: UnsatisfiedLinkError) {
+            e.printStackTrace()
+        }
+        try {
             System.loadLibrary("streamify_core")
-        } catch (e: Throwable) {
-            android.util.Log.e("StreamifyNative", "Failed to load streamify_core native library", e)
+        } catch (e: UnsatisfiedLinkError) {
+            e.printStackTrace()
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 3: C++20 DSP & 128-D VECTOR STORE INTERFACES
+    // ═══════════════════════════════════════════════════════════════
+    fun pinToLittleCores(): Boolean = try {
+        nativePinToLittleCores()
+    } catch (e: Throwable) {
+        false
+    }
+
+    fun processLivePcmTap(directBuffer: java.nio.ByteBuffer, sampleCount: Int): Float {
+        if (!directBuffer.isDirect) throw IllegalArgumentException("Buffer must be allocated direct")
+        return try {
+            nativeProcessPcmTap(directBuffer, sampleCount)
+        } catch (e: Throwable) {
+            1.0f
+        }
+    }
+
+    fun insertVector(trackId: Long, embedding: FloatArray) {
+        require(embedding.size == 128) { "Embedding must be exactly 128 dimensions" }
+        try {
+            nativeInsertVector(trackId, embedding)
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
+
+    fun queryTopK(targetEmbedding: FloatArray, k: Int): LongArray {
+        require(targetEmbedding.size == 128) { "Embedding must be exactly 128 dimensions" }
+        return try {
+            nativeQueryTopK(targetEmbedding, k) ?: LongArray(0)
+        } catch (e: Throwable) {
+            LongArray(0)
+        }
+    }
+
+    private external fun nativePinToLittleCores(): Boolean
+    private external fun nativeProcessPcmTap(directBuffer: java.nio.ByteBuffer, sampleCount: Int): Float
+    private external fun nativeInsertVector(trackId: Long, embedding: FloatArray)
+    private external fun nativeQueryTopK(targetEmbedding: FloatArray, k: Int): LongArray?
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 4: SLYR PARSER & WIENER-KHINCHIN LYRIC ALIGNMENT
+    // ═══════════════════════════════════════════════════════════════
+    fun findActiveSlyrLine(slyrBytes: ByteArray, slyrLen: Int, playheadMs: Int): Int {
+        return try {
+            nativeFindActiveSlyrLine(slyrBytes, slyrLen, playheadMs)
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
+    fun calculateDriftOffset(
+        vocalEnergy: FloatArray, vocalLen: Int,
+        lyricOnsets: FloatArray, lyricLen: Int
+    ): Int {
+        return try {
+            nativeCalculateDriftOffset(vocalEnergy, vocalLen, lyricOnsets, lyricLen)
+        } catch (e: Throwable) {
+            0
+        }
+    }
+
+    private external fun nativeFindActiveSlyrLine(
+        slyrBuffer: ByteArray, slyrLen: Int, playheadMs: Int
+    ): Int
+
+    private external fun nativeCalculateDriftOffset(
+        vocalEnergy: FloatArray, vocalLen: Int,
+        lyricOnsets: FloatArray, lyricLen: Int
+    ): Int
+
+    private const val BUFFER_SIZE = 512
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 2: JIT STREAM RESOLVER & CDN EXTRACTION
+    // ═══════════════════════════════════════════════════════════════
+    private const val VIDEO_ID_BUFFER_SIZE = 16
+    private val videoIdBuffer = ByteArray(VIDEO_ID_BUFFER_SIZE)
+
+    private external fun nativeResolveTrack(
+        dbPath: String,
+        cadId: String,
+        isrc: String?,
+        title: String,
+        artist: String,
+        authHeader: String,
+        cookies: ByteArray,
+        cookiesLen: Int,
+        outBuffer: ByteArray
+    ): Int
+
+    suspend fun resolveTrack(
+        dbPath: String,
+        track: com.streamify.app.ui.models.VirtualShelfTrack,
+        authHeader: String = "",
+        cookies: String = ""
+    ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val cookiesBytes = cookies.toByteArray(Charsets.UTF_8)
+        val cookiesLen = cookiesBytes.size
+        synchronized(videoIdBuffer) {
+            videoIdBuffer.fill(0)
+            val result = try {
+                nativeResolveTrack(
+                    dbPath,
+                    track.cadId,
+                    track.isrc,
+                    track.title,
+                    track.artist,
+                    authHeader,
+                    cookiesBytes, cookiesLen,
+                    videoIdBuffer
+                )
+            } catch (e: Throwable) {
+                -3
+            }
+
+            if (result > 0) {
+                String(videoIdBuffer, 0, result, Charsets.UTF_8)
+            } else {
+                null
+            }
+        }
+    }
+
+    suspend fun resolveTrack(
+        dbPath: String,
+        cadId: String,
+        isrc: String?,
+        title: String,
+        artist: String,
+        authHeader: String = "",
+        cookies: String = ""
+    ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val cookiesBytes = cookies.toByteArray(Charsets.UTF_8)
+        val cookiesLen = cookiesBytes.size
+        synchronized(videoIdBuffer) {
+            videoIdBuffer.fill(0)
+            val result = try {
+                nativeResolveTrack(
+                    dbPath,
+                    cadId,
+                    isrc,
+                    title,
+                    artist,
+                    authHeader,
+                    cookiesBytes, cookiesLen,
+                    videoIdBuffer
+                )
+            } catch (e: Throwable) {
+                -3
+            }
+
+            if (result > 0) {
+                String(videoIdBuffer, 0, result, Charsets.UTF_8)
+            } else {
+                null
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 1: SAPISID AUTH & CANONICAL AUDIO DESCRIPTOR (CAD)
+    // ═══════════════════════════════════════════════════════════════
+    private const val HASH_BUFFER_SIZE = 128
+    private val hashBuffer = ByteArray(HASH_BUFFER_SIZE)
+
+    private external fun nativeGenerateSapisidHash(
+        sapisid: String,
+        origin: String,
+        outBuffer: ByteArray
+    ): Int
+
+    fun generateSapisidHash(sapisid: String, origin: String = "https://music.youtube.com"): String? {
+        if (sapisid.isBlank()) return null
+        synchronized(hashBuffer) {
+            val result = try {
+                nativeGenerateSapisidHash(
+                    sapisid.trim(),
+                    origin.trim(),
+                    hashBuffer
+                )
+            } catch (e: Throwable) {
+                -3
+            }
+
+            if (result <= 0) return null
+            return String(hashBuffer, 0, result, Charsets.UTF_8)
+        }
+    }
+
+    fun getSapisidHash(sapisid: String, origin: String = "https://music.youtube.com"): String? {
+        val rawHash = generateSapisidHash(sapisid, origin) ?: return null
+        return if (rawHash.startsWith("SAPISIDHASH ")) rawHash else "SAPISIDHASH $rawHash"
+    }
+
+    fun generateCadId(title: String, artist: String, durationSec: Int): String {
+        return try {
+            nativeGenerateCadId(title, artist, durationSec)
+        } catch (e: Throwable) {
+            fallbackGenerateCadId(title, artist, durationSec)
+        }
+    }
+
+    /**
+     * Pure-Kotlin mirror of the canonical CAD-ID scheme, used only when the native
+     * library fails to load. MUST stay byte-identical to:
+     *  - C++: nativeGenerateCadId (native/jni/jni_bridge.cc)
+     *  - Rust: TrackRepository::generate_cad_id (rust/src/repository.rs)
+     * Algorithm: FNV-1a 64-bit over ASCII-byte-filtered lowercase title ('(' kept),
+     * ASCII-filtered artist, then the little-endian u32 duration bucket (/3).
+     */
+    private fun fallbackGenerateCadId(title: String, artist: String, durationSec: Int): String {
+        val offset = 14695981039346656037UL
+        val prime = 1099511628211UL
+
+        fun normalize(source: String, keepParen: Boolean): List<Int> {
+            val bytes = mutableListOf<Int>()
+            for (raw in source) {
+                if (raw.code in 0..127) {
+                    val c = raw.lowercaseChar()
+                    val isAlnum = c in 'a'..'z' || c in '0'..'9'
+                    if (isAlnum || (keepParen && c == '(')) {
+                        bytes.add(c.code)
+                    }
+                }
+            }
+            return bytes
+        }
+
+        var hash = offset
+        for (b in normalize(title, keepParen = true)) {
+            hash = (hash xor b.toULong()) * prime
+        }
+        for (b in normalize(artist, keepParen = false)) {
+            hash = (hash xor b.toULong()) * prime
+        }
+        val bucket = if (durationSec > 0) durationSec / 3 else 0
+        for (i in 0 until 4) {
+            hash = (hash xor ((bucket shr (i * 8)) and 0xFF).toULong()) * prime
+        }
+        return hash.toString(16).padStart(16, '0')
+    }
+
+    external fun nativeGenerateCadId(title: String, artist: String, durationSec: Int): String
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 3: SPOTIFY PKCE AUTH & NATIVE LIBRARY INGESTION
+    // ═══════════════════════════════════════════════════════════════
+    private val accessTokenBuffer = ByteArray(512)
+    private val refreshTokenBuffer = ByteArray(512)
+
+    private external fun spotifyExchangePkce(
+        code: String,
+        verifier: String,
+        redirectUri: String,
+        clientId: String,
+        outAccess: ByteArray,
+        outRefresh: ByteArray
+    ): Int
+
+    private external fun spotifyIngestLibrary(
+        dbPath: String,
+        accessToken: String
+    ): Int
+
+    fun exchangeSpotifyPkce(
+        code: String,
+        verifier: String,
+        redirectUri: String,
+        clientId: String
+    ): Pair<String, String>? {
+        synchronized(accessTokenBuffer) {
+            accessTokenBuffer.fill(0)
+            refreshTokenBuffer.fill(0)
+            val result = try {
+                spotifyExchangePkce(
+                    code.trim(),
+                    verifier.trim(),
+                    redirectUri.trim(),
+                    clientId.trim(),
+                    accessTokenBuffer,
+                    refreshTokenBuffer
+                )
+            } catch (e: Throwable) {
+                -3
+            }
+
+            if (result == 0) {
+                val access = String(accessTokenBuffer, Charsets.UTF_8).trimEnd('\u0000').trim()
+                val refresh = String(refreshTokenBuffer, Charsets.UTF_8).trimEnd('\u0000').trim()
+                if (access.isNotBlank()) {
+                    return Pair(access, refresh)
+                }
+            }
+            return null
+        }
+    }
+
+    suspend fun ingestSpotifyLibraryNative(
+        dbPath: String,
+        accessToken: String
+    ): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            spotifyIngestLibrary(dbPath.trim(), accessToken.trim())
+        } catch (e: Throwable) {
+            -3
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 4: 32-BIT FLOAT NATIVE DSP AUDIO ENGINE
+    // ═══════════════════════════════════════════════════════════════
+    external fun nativeInitDsp(): Long
+    external fun nativeFreeDsp(statePtr: Long)
+    external fun nativeProcessDsp(
+        statePtr: Long,
+        input: java.nio.ByteBuffer,
+        output: java.nio.ByteBuffer,
+        numFrames: Int
+    ): Int
+
+    /**
+     * Fused single-crossing render pass: i16 PCM in -> DSP/EQ -> RMS
+     * normalization -> f32 out. One JNI transition per audio buffer instead
+     * of two, zero intermediate copies on the real-time thread.
+     */
+    external fun nativeProcessFusedAudio(
+        statePtr: Long,
+        normalizerPtr: Long,
+        input: java.nio.ByteBuffer,
+        output: java.nio.ByteBuffer,
+        numFrames: Int
+    ): Int
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 5: INFINITE DYNAMIC QUEUE & BACKGROUND DELTA SYNC
+    // ═══════════════════════════════════════════════════════════════
+    private val nextCadBuffer = ByteArray(32)
+    private val nextVidBuffer = ByteArray(16)
+
+    private external fun nativeGetNextTrack(
+        dbPath: String,
+        currentCadId: String,
+        isShuffle: Boolean,
+        outCad: ByteArray,
+        outVideo: ByteArray
+    ): Int
+
+    private external fun spotifyDeltaSync(
+        dbPath: String,
+        accessToken: String,
+        lastSyncTimestamp: Long
+    ): Int
+
+    private external fun nativeShutdown(dbPath: String)
+
+    fun getNextTrack(
+        dbPath: String,
+        currentCadId: String,
+        isShuffle: Boolean
+    ): Pair<String, String>? {
+        if (dbPath.isBlank()) return null
+        synchronized(nextCadBuffer) {
+            nextCadBuffer.fill(0)
+            nextVidBuffer.fill(0)
+            val result = try {
+                nativeGetNextTrack(
+                    dbPath.trim(),
+                    currentCadId.trim(),
+                    isShuffle,
+                    nextCadBuffer,
+                    nextVidBuffer
+                )
+            } catch (e: Throwable) {
+                -3
+            }
+
+            if (result > 0) {
+                val cadId = String(nextCadBuffer, 0, result, Charsets.UTF_8).trim()
+                val vidLen = nextVidBuffer.indexOf(0).takeIf { it >= 0 } ?: nextVidBuffer.size
+                val videoId = String(nextVidBuffer, 0, vidLen, Charsets.UTF_8).trim()
+                if (cadId.isNotBlank()) {
+                    return Pair(cadId, videoId)
+                }
+            }
+            return null
+        }
+    }
+
+    suspend fun performSpotifyDeltaSync(
+        dbPath: String,
+        accessToken: String,
+        lastSyncTimestamp: Long
+    ): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            spotifyDeltaSync(dbPath.trim(), accessToken.trim(), lastSyncTimestamp)
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
+    fun shutdown(dbPath: String = "") {
+        try {
+            nativeShutdown(dbPath)
+        } catch (e: Throwable) {
+            // Ignore
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 6: ZERO-LATENCY ENCRYPTED CACHE & 120 FPS LYRICS ENGINE
+    // ═══════════════════════════════════════════════════════════════
+    external fun nativeParseLrc(lrcText: String): Long
+    external fun nativeGetLyricIndex(mapPtr: Long, currentTimeMs: Long): Int
+    external fun nativeFreeLyricMap(mapPtr: Long)
+    external fun nativeCryptCacheChunk(
+        inputBuf: ByteArray,
+        outputBuf: ByteArray,
+        len: Int,
+        keyBuf: ByteArray,
+        offset: Long
+    ): Int
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 7: ADAPTIVE THERMAL GOVERNOR & OS LIFECYCLE RESILIENCY
+    // ═══════════════════════════════════════════════════════════════
+    private external fun nativeUpdateThermalStatus(status: Int): Int
+    private external fun nativeGetThermalStatus(): Int
+    private external fun nativeFlushDatabaseWal(dbPath: String): Int
+
+    fun updateThermalStatus(status: Int): Int {
+        return try {
+            nativeUpdateThermalStatus(status)
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
+    fun getThermalStatus(): Int {
+        return try {
+            nativeGetThermalStatus()
+        } catch (e: Throwable) {
+            0
+        }
+    }
+
+    fun flushDatabaseWal(dbPath: String): Int {
+        if (dbPath.isBlank()) return -1
+        return try {
+            nativeFlushDatabaseWal(dbPath.trim())
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 8: REAL-TIME RMS VOLUME NORMALIZER
+    // ═══════════════════════════════════════════════════════════════
+    external fun nativeInitNormalizer(targetRms: Float): Long
+    external fun nativeFreeNormalizer(statePtr: Long)
+    external fun nativeApplyNormalization(
+        statePtr: Long,
+        pcmBuffer: java.nio.ByteBuffer,
+        numFrames: Int
+    ): Int
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 9: LOCK-FREE ATOMIC SEEK DEBOUNCER
+    // ═══════════════════════════════════════════════════════════════
+    private external fun nativeSubmitSeekRequest(positionMs: Long): Int
+    private external fun nativeConsumePendingSeek(debounceMs: Long): Long
+    private external fun nativeResetSeekGuard()
+
+    fun submitSeekRequest(positionMs: Long): Int {
+        return try {
+            nativeSubmitSeekRequest(positionMs)
+        } catch (e: Throwable) {
+            -1
+        }
+    }
+
+    fun consumePendingSeek(debounceMs: Long = 150L): Long {
+        return try {
+            nativeConsumePendingSeek(debounceMs)
+        } catch (e: Throwable) {
+            -1L
+        }
+    }
+
+    fun resetSeekGuard() {
+        try {
+            nativeResetSeekGuard()
+        } catch (e: Throwable) {
+            // Ignore
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 10: CONTEXTUAL KINETIC TRAJECTORY ENGINE
+    // ═══════════════════════════════════════════════════════════════
+    external fun nativeInitContinuumState(): Long
+    external fun nativeFreeContinuumState(statePtr: Long)
+    external fun nativeEvaluateContinuum(
+        statePtr: Long,
+        candidates: FloatArray,
+        outScores: FloatArray
+    ): Int
+    external fun nativeCommitTrackToContinuum(
+        statePtr: Long,
+        trackVector: FloatArray,
+        artistHash: Long,
+        trackHash: Long,
+        dwellPercentage: Float
+    ): Int
+
+    // 1MB pre-allocated DirectByteBuffer for virtual shelf binary streaming (~500 tracks)
+    private val shelfBuffer: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(1024 * 1024)
+
+    private external fun nativeIngestSpotifyTracks(dbPath: String, jsonPayload: String): Int
+    private external fun nativeFetchVirtualShelf(dbPath: String, outBuffer: java.nio.ByteBuffer): Int
+
+    fun ingestSpotifyTracks(dbPath: String, jsonPayload: String): Boolean {
+        return try {
+            nativeIngestSpotifyTracks(dbPath, jsonPayload) >= 0
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    fun fetchVirtualShelf(dbPath: String): List<com.streamify.app.ui.models.VirtualShelfTrack> {
+        val result = synchronized(shelfBuffer) {
+            try {
+                shelfBuffer.clear()
+                val written = nativeFetchVirtualShelf(dbPath, shelfBuffer)
+                if (written < 0) return emptyList()
+
+                shelfBuffer.position(0)
+                shelfBuffer.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                val trackCount = shelfBuffer.int
+                val tracks = ArrayList<com.streamify.app.ui.models.VirtualShelfTrack>(trackCount.coerceAtLeast(0))
+
+                for (i in 0 until trackCount) {
+                    val cadId = readBinaryString(shelfBuffer)
+                    val title = readBinaryString(shelfBuffer)
+                    val artist = readBinaryString(shelfBuffer)
+                    val artworkUrl = readBinaryString(shelfBuffer)
+
+                    tracks.add(
+                        com.streamify.app.ui.models.VirtualShelfTrack(
+                            cadId = cadId,
+                            title = title,
+                            artist = artist,
+                            artworkUrl = artworkUrl,
+                            durationSec = 0,
+                            isrc = null,
+                            ytmVideoId = null,
+                            isLiked = false,
+                            platformOrigin = "SPOTIFY"
+                        )
+                    )
+                }
+                tracks
+            } catch (e: Throwable) {
+                emptyList()
+            }
+        }
+        return result
+    }
+
+    private fun readBinaryString(buf: java.nio.ByteBuffer): String {
+        if (buf.remaining() < 4) return ""
+        val len = buf.int
+        if (len <= 0 || buf.remaining() < len) return ""
+        val bytes = ByteArray(len)
+        buf.get(bytes, 0, len)
+        return String(bytes, Charsets.UTF_8)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // CORE C++ ENGINE JNI BINDINGS
+    // ═══════════════════════════════════════════════════════════════
     external fun stringFromJNI(): String
-    
-    // Database
     external fun initDatabase(dbPath: String): Boolean
     external fun getAllTracks(): Array<TrackNative>
     external fun searchTracks(query: String): Array<TrackNative>
     external fun insertTrack(filepath: String, title: String, artist: String, album: String, durationSec: Int, bpm: Float): Long
-    
-    // Liked Songs
     external fun toggleLike(userId: Int, trackId: Int): Boolean
     external fun getLikedTracks(userId: Int): Array<TrackNative>
 
-    // AI Recommender / VectorStore / Audio Pipeline
     external fun initVectorStore(binPath: String): Boolean
+    external fun searchSimilarTracks(trackId: Int, topK: Int): IntArray
+
+    external fun getRecommendations(trackId: Int, recentHistory: IntArray, userId: Int, limit: Int): Array<RecommendationNative>
+    external fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int)
+    external fun logSkipEvent(fromTrackId: Int, toTrackId: Int, userId: Int)
+
     external fun initAudioPipeline(modelPath: String): Boolean
     external fun processAudioFile(trackId: Int, filePath: String): Int
     external fun extractBPM(trackId: Int, filePath: String): Float
     external fun updateTrackCoverArt(trackId: Int, coverArtPath: String): Boolean
     external fun updateTrackMetadata(trackId: Int, title: String, artist: String, album: String): Boolean
-    external fun searchSimilarTracks(trackId: Int, topK: Int): IntArray
-    external fun getRecommendations(trackId: Int, recentHistory: IntArray, userId: Int, limit: Int): Array<RecommendationNative>
 
-    // Events
-    external fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int)
-    external fun logSkipEvent(fromTrackId: Int, toTrackId: Int, userId: Int)
-
-    // Resource-Aware Dynamic Task Orchestrator (Project Prometheus)
     external fun setHighPriorityActive(active: Boolean)
-    external fun setBatterySaverActive(active: Boolean)
     external fun setTotalAiTasks(total: Int)
     external fun getOrchestratorStatus(): OrchestratorStatusNative?
+    external fun setBatterySaverActive(active: Boolean)
 
-    // Stream Persistence & Top Rotation
     external fun upsertStreamedTrack(
         filepath: String,
         title: String,
@@ -59,50 +645,42 @@ object NativeBridge {
     external fun recordTrackPlay(trackId: Int): Boolean
     external fun getTopPlayedTracks(limit: Int): Array<TrackNative>
 
-    // Session & Long-Term Taste Profiling
     external fun updateSessionVector(trackId: Int, alpha: Float)
     external fun getSessionRecommendations(limit: Int): Array<RecommendationNative>
     external fun getLongTermRecommendations(userId: Int, limit: Int): Array<RecommendationNative>
 
-    // Native DSP Soft-Knee Limiter (Project Sonic Maxx)
     external fun processLimiterShorts(buffer: ShortArray, length: Int, threshold: Float, kneeWidth: Float)
     external fun processLimiterFloats(buffer: FloatArray, length: Int, threshold: Float, kneeWidth: Float)
 
-    // Universal Migration & Fuzzy Matcher (Project Janus)
     external fun findFuzzyTrackMatch(title: String, artist: String): Int
     external fun getTracksBatch(offset: Int, limit: Int): Array<TrackNative>
 
-    // Project Chronos: Circadian Listening Patterns
     external fun logEngagementEvent(trackId: Int, durationSec: Int, completionRatio: Float, hourOfDay: Int): Boolean
     external fun getCircadianRecommendations(hourOfDay: Int, limit: Int): Array<RecommendationNative>
     external fun getCircadianSlot(hourOfDay: Int): String
 
-    // Project Nexus: Scrubber Hook Telemetry & Co-occurrence Graph
     external fun logHookTelemetry(trackId: Int, favoriteSeekMs: Long, lyricsDwellSec: Int, volumeFlare: Int): Boolean
     external fun recordTrackCooccurrence(trackAId: Int, trackBId: Int): Boolean
     external fun getFavoriteSeekMs(trackId: Int): Long
     external fun getCooccurrenceRecommendations(trackId: Int, limit: Int): IntArray
 
-    // C++20 Lock-Free Psychometric Event Queue
-    const val EVENT_SCRUB_SEEK = 1
-    const val EVENT_VOLUME_CHANGE = 2
+    const val EVENT_PLAY_START = 1
+    const val EVENT_SCRUB_SEEK = 2
     const val EVENT_LYRICS_DWELL = 3
-    const val EVENT_PLAY_TRANSITION = 4
-
+    const val EVENT_VOLUME_CHANGE = 4
+    const val EVENT_PLAY_TRANSITION = 5
     external fun pushTelemetryEvent(type: Int, trackId: Long, value: Float)
+
     external fun getMarkovProbability(fromTrackId: Int, toTrackId: Int): Float
     external fun get2ndOrderMarkovProbability(trackA: Int, trackB: Int, trackC: Int, alpha: Float = 0.1f): Float
     external fun getSatiationPenalty(trackId: Int): Float
 
-    // Psychoacoustic Dynamic LUFS Normalizer
     external fun processLufsNormalizerFloats(buffer: FloatArray, length: Int, targetLufs: Float)
     external fun processLufsNormalizerShorts(buffer: ShortArray, length: Int, targetLufs: Float)
     external fun getDynamicTargetLufs(): Float
 
-    // Project Titan: Distributed Edge Compute & Proof-of-Compute
     external fun generateProofOfCompute(buffer: FloatArray, length: Int, nonce: String): String
 
-    // Hybrid Asymmetric Recommendation Engine (K-Means & Last.fm Similarity)
     external fun getTargetBpmForTimeSlot(slotOrdinal: Int): Float
     external fun getVectorRecommendations(
         currentTrackId: Int,
@@ -121,20 +699,23 @@ object NativeBridge {
         weights: FloatArray
     ): Boolean
 
-    // Project Pulse: Sub-15ms Precision Time Protocol (IEEE 1588)
     external fun processPtpTimestamps(t0: Long, t1: Long, t2: Long, t3: Long): Long
     external fun getSynchronizedClockMs(): Long
     external fun getPtpClockOffsetNanos(): Long
     external fun getPtpRttNanos(): Long
     external fun resetPtpState()
 
-    // Zhipu AI NDK Key Vault
     external fun getZhipuKey(index: Int): String
-
-    // Atomic Database Purge
     external fun nukeLocalDatabase(): Boolean
 
-    // Project Fluid: C++20 RK4 AirDrop Fluid Dynamics Engine
+    fun stepAirDropPhysics(stateArray: FloatArray, targetX: Float, targetY: Float, dt: Float) {
+        require(stateArray.size >= 13) { "State vector must contain at least 13 floats" }
+        val dx = targetX - stateArray[0]
+        val dy = targetY - stateArray[1]
+        val initialDist = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(1.0f)
+        stepAirDropPhysics(stateArray, targetX, targetY, initialDist, dt)
+    }
+
     external fun stepAirDropPhysics(
         inOutBuffer: FloatArray,
         targetX: Float,
@@ -143,8 +724,6 @@ object NativeBridge {
         dt: Float
     )
 
-    // Project Nexus: In-Stream Acoustic DNA & Core Pinning
-    external fun pinToLittleCores()
     external fun analyzePcmAcousticDNA(
         directBuffer: java.nio.ByteBuffer,
         byteCount: Int,
@@ -153,7 +732,6 @@ object NativeBridge {
         outResults: FloatArray
     ): String
 
-    // Project SLYR: Real-Time Syllable Karaoke & Wiener–Khinchin Cross-Correlation
     external fun calculateLyricDrift(
         directPcmBuffer: java.nio.ByteBuffer,
         pcmByteCount: Int,
@@ -163,11 +741,22 @@ object NativeBridge {
         channelCount: Int
     ): Int
 
+    external fun nativeInitAudioDSP()
+    external fun nativeResetAudioDSP()
+    external fun nativeProcessFloatAudio(
+        byteBuffer: java.nio.ByteBuffer,
+        numFrames: Int,
+        channels: Int,
+        eqGains: FloatArray? = null
+    )
+
     // ═══════════════════════════════════════════════════════════════
-    // PROJECT TITAN: HIGH-PERFORMANCE RUST CORE ENGINE (JNI / FFI)
+    // RUST CORE ENGINE (JNI / FFI)
     // ═══════════════════════════════════════════════════════════════
     external fun rustFuzzyRankCandidates(query: String, candidatesJson: String): String?
     external fun rustCalculateSimilarity(s1: String, s2: String): Float
+    external fun rustCompileToSlyr(lrcContent: String): ByteArray?
+
     external fun rustParseYouTubePlaylist(jsonBytes: ByteArray): String?
     external fun rustComputeFftSpectrum(pcmFloats: FloatArray, barCount: Int, outBars: FloatArray): Int
     external fun rustProcessEqualizerFrame(pcmFloats: FloatArray, channels: Int, gains: FloatArray?): Int
@@ -198,11 +787,46 @@ object NativeBridge {
         hourOfDay: Int,
         targetCount: Int
     ): String?
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 7: BYZANTINE CONSENSUS & IEEE 1588 PTP JNI EXPORTS
+    // ═══════════════════════════════════════════════════════════════
+
+    fun verifyPeerConsensus(
+        node1: String, lufs1: Float, key1: String, vec1: FloatArray, proof1: ByteArray,
+        node2: String, lufs2: Float, key2: String, vec2: FloatArray, proof2: ByteArray
+    ): Boolean {
+        require(vec1.size == 128 && vec2.size == 128) { "Vectors must be 128-D" }
+        return nativeVerifyPeerConsensus(
+            node1, lufs1, key1, vec1, proof1,
+            node2, lufs2, key2, vec2, proof2
+        )
+    }
+
+    fun computePtpOffsetAndDelay(
+        seqId: Int, t0: Long, t1: Long, t2: Long, t3: Long, outResultsUs: LongArray
+    ) {
+        require(outResultsUs.size >= 2) { "Output array must hold at least 2 elements [offset, delay]" }
+        nativeCalculatePtp(seqId, t0, t1, t2, t3, outResultsUs)
+    }
+
+    fun pinThreadToLittleCores(): Boolean {
+        return try {
+            nativePinThreadToLittleCores()
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private external fun nativePinThreadToLittleCores(): Boolean
+
+    private external fun nativeVerifyPeerConsensus(
+        node1: String, lufs1: Float, key1: String, vec1: FloatArray, proof1: ByteArray,
+        node2: String, lufs2: Float, key2: String, vec2: FloatArray, proof2: ByteArray
+    ): Boolean
+
+    private external fun nativeCalculatePtp(
+        seqId: Int, t0: Long, t1: Long, t2: Long, t3: Long, outResults: LongArray
+    )
 }
-
-
-
-
-
-
 

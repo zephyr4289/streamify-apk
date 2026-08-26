@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamify.app.data.models.Track
+import com.streamify.app.data.network.YouTubeStreamResolver
 import com.streamify.app.ui.components.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -127,7 +130,7 @@ fun SearchScreen(
             )
         }
 
-        // Suggestions Rail
+        // Suggestions Rail with 1-Tap Quick-Play Action
         if (query.isNotBlank() && searchSuggestions.isNotEmpty()) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
@@ -144,7 +147,7 @@ fun SearchScreen(
                         }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
@@ -159,6 +162,26 @@ fun SearchScreen(
                                 style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
                                 color = TextMain
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .clickable {
+                                        com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
+                                        query = suggestion
+                                        viewModel.search(suggestion)
+                                        viewModel.updateSuggestions("")
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlayArrow,
+                                    contentDescription = "Quick Play",
+                                    tint = Primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -391,11 +414,11 @@ fun SearchScreen(
                                     kicker = "Instant High-Fidelity Stream"
                                 )
                             }
-                            items(
+                            itemsIndexed(
                                 items = onlineMatches,
-                                key = { "online_${it.url}" },
-                                contentType = { "trackRow_${it.type.name}" }
-                            ) { onlineTrack ->
+                                key = { index, it -> "online_${it.url}_$index" },
+                                contentType = { _, it -> "trackRow_${it.type.name}" }
+                            ) { index, onlineTrack ->
                                 when (onlineTrack.type) {
                                     com.streamify.app.viewmodel.SearchResultType.ARTIST -> {
                                         Row(
@@ -489,51 +512,63 @@ fun SearchScreen(
                                         }
                                     }
                                     else -> {
+                                        val videoId = YouTubeStreamResolver.extractVideoId(onlineTrack.url, onlineTrack.thumbnail)
+                                        val watchUrl = if (videoId != null) "https://www.youtube.com/watch?v=$videoId" else onlineTrack.url
                                         val isResolving = resolvingTrackUrl == onlineTrack.url
                                         val trackModel = Track(
-                                            id = (onlineTrack.url.hashCode() and 0x7FFFFFFF),
+                                            id = -(onlineTrack.url.hashCode() and 0x7FFFFFFF),
                                             title = onlineTrack.title,
                                             artist = onlineTrack.uploader,
                                             album = if (onlineTrack.type == com.streamify.app.viewmodel.SearchResultType.VIDEO) "Music Video" else "Streamify Cloud",
-                                            filepath = onlineTrack.url,
+                                            filepath = watchUrl,
                                             durationSec = onlineTrack.duration,
                                             bpm = 0f,
                                             coverArtPath = onlineTrack.thumbnail,
                                             lyricsPath = null,
-                                            source = "online"
+                                            source = "online_stream",
+                                            ytmVideoId = videoId
                                         )
 
-                                        var itemPosition by remember { mutableStateOf(Offset.Zero) }
+                                        var itemWindowPos by remember { mutableStateOf(Offset.Zero) }
 
                                         YtQueueTrackItem(
                                             track = trackModel,
-                                            isPlaying = isResolving || (currentTrack?.filepath == onlineTrack.url),
+                                            isPlaying = isResolving || (currentTrack?.filepath == watchUrl || (videoId != null && currentTrack?.ytmVideoId == videoId)),
                                             showDragHandle = false,
-                                            modifier = Modifier.onGloballyPositioned { coordinates ->
-                                                val pos = coordinates.positionInWindow()
-                                                itemPosition = Offset(pos.x + (coordinates.size.width / 2f), pos.y)
+                                            modifier = Modifier.onGloballyPositioned { coords ->
+                                                if (coords.isAttached) {
+                                                    itemWindowPos = coords.positionInWindow()
+                                                }
                                             },
                                             onClick = {
                                                 val dockPos = dockPositionState.value
-                                                val origin = if (itemPosition != Offset.Zero) itemPosition else Offset(200f, 300f)
-                                                val target = if (dockPos != Offset.Zero) dockPos else Offset(200f, 800f)
+                                                val density = context.resources.displayMetrics.density
+                                                val screenWidthPx = context.resources.displayMetrics.widthPixels.toFloat()
+                                                val screenHeightPx = context.resources.displayMetrics.heightPixels.toFloat()
+
+                                                val tapOrigin = if (itemWindowPos != Offset.Zero) {
+                                                    Offset(
+                                                        x = (itemWindowPos.x + (screenWidthPx * 0.44f)).coerceIn(50f, screenWidthPx - 50f),
+                                                        y = (itemWindowPos.y + (28f * density)).coerceIn(50f, screenHeightPx - 50f)
+                                                    )
+                                                } else {
+                                                    Offset(screenWidthPx / 2f, 300f * density)
+                                                }
+
+                                                val target = if (dockPos != Offset.Zero) {
+                                                    dockPos
+                                                } else {
+                                                    Offset(screenWidthPx / 2f, screenHeightPx - (80f * density))
+                                                }
+
                                                 quantumController.triggerFlight(
-                                                    tapOrigin = origin,
+                                                    tapOrigin = tapOrigin,
                                                     dockDestination = target,
                                                     title = trackModel.title,
                                                     artist = trackModel.artist,
                                                     art = trackModel.coverArtPath
                                                 )
-                                                viewModel.playOnlineTrack(
-                                                    onlineTrack = onlineTrack,
-                                                    allOnlineResults = onlineMatches,
-                                                    playerViewModel = playerViewModel,
-                                                    ingestionViewModel = ingestionViewModel,
-                                                    context = context,
-                                                    onTrackReady = {
-                                                        quantumController.onTrackReady()
-                                                    }
-                                                )
+                                                onTrackClick(trackModel, listOf(trackModel))
                                             },
                                             onMoreClick = { contextMenuController.show(trackModel, origin = MenuOrigin.SEARCH) }
                                         )

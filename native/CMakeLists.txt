@@ -1,55 +1,50 @@
 cmake_minimum_required(VERSION 3.22.1)
-project("streamify_core")
+project(streamify_native_core LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if (ANDROID_ABI STREQUAL "arm64-v8a")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+fp+simd")
-elseif (ANDROID_ABI STREQUAL "armeabi-v7a")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mfpu=neon")
+# Optimization and Vectorization Flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -ffast-math -flto -fvisibility=hidden -Wall -Wextra")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -ffast-math -flto -fvisibility=hidden")
+
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+simd+crypto")
 endif()
 
-# Main Shared Library for Android JNI
-add_library(streamify_core SHARED
+include_directories(
+    dsp
+    dsp/kissfft
+    engine
+    ingest
+    jni
+    third_party/sqlite3
+)
+
+add_library(streamify_native_core SHARED
+    engine/TaskOrchestrator.cc
+    dsp/LufsNormalizer.cc
+    dsp/SoftKneeLimiter.cc
+    dsp/kissfft/kiss_fft.c
+    dsp/kissfft/kiss_fftr.c
+    engine/VectorStore.cc
     jni/jni_bridge.cc
     engine/StreamifyDB.cc
-    engine/VectorStore.cc
     engine/RecommendEngine.cc
     engine/EventTracker.cc
-    engine/TaskOrchestrator.cc
     engine/TelemetryEngine.cc
     engine/ChronosProfiler.cc
     engine/PtpEngine.cc
     engine/AirDropPhysicsEngine.cc
     ingest/AudioPipeline.cc
-    dsp/SoftKneeLimiter.cc
-    dsp/LufsNormalizer.cc
     dsp/LyricAligner.cc
-    dsp/kissfft/kiss_fft.c
-    dsp/kissfft/kiss_fftr.c
     third_party/sqlite3/sqlite3.c
 )
 
-target_compile_options(streamify_core PRIVATE
-    $<$<CONFIG:Release>:-O3 -ffast-math -flto -fvisibility=hidden -DNDEBUG>
-    -Wall -Wextra
+target_link_libraries(streamify_native_core
+    android
+    log
 )
-
-target_link_options(streamify_core PRIVATE
-    $<$<CONFIG:Release>:-flto -Wl,--gc-sections>
-)
-
-target_include_directories(streamify_core PRIVATE 
-    dsp/kissfft
-)
-
-if (ANDROID)
-    target_link_libraries(streamify_core
-        android
-        log
-    )
-endif()
 
 # --- STANDALONE TEST TARGETS (Host C++20 with ASan / UBSan) ---
 option(STREAMIFY_BUILD_TESTS "Build native test suites" OFF)
@@ -85,17 +80,24 @@ if (STREAMIFY_BUILD_TESTS)
     target_link_libraries(storage_telemetry_test_suite PRIVATE pthread dl)
 endif()
 
-# --- LIBFUZZER TARGET (Nightly / Main PRs) ---
-option(STREAMIFY_BUILD_FUZZERS "Build LibFuzzer harnesses" OFF)
+# --- LIBFUZZER HARNESS (host clang; requires clang with compiler-rt) ---
+option(STREAMIFY_BUILD_FUZZERS "Build LibFuzzer harnesses (host builds only)" OFF)
 if (STREAMIFY_BUILD_FUZZERS)
+    if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "STREAMIFY_BUILD_FUZZERS requires clang (libFuzzer).")
+    endif()
     add_executable(dsp_fuzzer_harness
         fuzz/dsp_fuzzer_harness.cc
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
-        dsp/LyricAligner.cc
-        dsp/kissfft/kiss_fft.c
-        dsp/kissfft/kiss_fftr.c
     )
-    target_include_directories(dsp_fuzzer_harness PRIVATE dsp dsp/kissfft .)
-    target_link_options(dsp_fuzzer_harness PRIVATE -fsanitize=fuzzer)
+    target_include_directories(dsp_fuzzer_harness PRIVATE dsp .)
+    # Sanitizers replace global -O3/-flto/-ffast-math for this target: fast-math
+    # elides the NaN guards the harness exists to exercise.
+    target_compile_options(dsp_fuzzer_harness PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -fno-fast-math -O1 -g
+    )
+    target_link_options(dsp_fuzzer_harness PRIVATE
+        -fsanitize=fuzzer,address,undefined
+    )
 endif()

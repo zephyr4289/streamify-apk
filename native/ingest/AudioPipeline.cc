@@ -5,7 +5,7 @@
 #endif
 #include "AudioPipeline.h"
 #include "../engine/TaskOrchestrator.h"
-#include <android/log.h>
+#include "../util/stlog.h"
 #include <algorithm>
 
 #if defined(__ARM_NEON) || defined(__aarch64__)

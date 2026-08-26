@@ -8,6 +8,7 @@ import com.streamify.app.data.network.YouTubeStreamResolver
 import com.streamify.app.data.remote.SupabaseClient
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,10 +73,14 @@ object OnlineTrackProcessor {
         val ctx = appContext
 
         try {
-            // Defer heavy compute until ExoPlayer buffer is healthy
-            while (PlaybackService.isBuffering.value) {
-                delay(200)
+            // Defer heavy compute until ExoPlayer buffer is healthy (max 5s safety timeout)
+            withTimeoutOrNull(5000L) {
+                while (PlaybackService.isBuffering.value && isActive) {
+                    delay(200L)
+                }
             }
+            if (!coroutineContext.isActive) return
+
             var finalBpm = track.bpm
             var finalKey = track.key
 
@@ -109,7 +114,8 @@ object OnlineTrackProcessor {
 
                     // 3. Execute Native C++ DSP Engine: FFT, Aubio BPM extraction, and Vector Embeddings
                     if (tempChunk.exists() && tempChunk.length() > 0) {
-                        val videoId = YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
+                        val videoId = track.ytmVideoId?.takeIf { YouTubeStreamResolver.extractVideoId(it) != null }
+                            ?: YouTubeStreamResolver.extractVideoId(track.filepath, track.coverArtPath)
                         val canonicalPath = if (videoId != null) {
                             "https://www.youtube.com/watch?v=$videoId"
                         } else if (track.filepath.startsWith("http") && !track.filepath.contains("googlevideo.com")) {

@@ -54,7 +54,7 @@ object iTunesSearchApi {
                 val durationSec = (durationMs / 1000).toInt()
                 val rawThumb = item.optString("artworkUrl100", "")
                 val hdThumb = if (rawThumb.isNotBlank()) {
-                    rawThumb.replace(Regex("\\d+x\\d+bb"), "600x600bb").replace("100x100", "600x600")
+                    rawThumb.replace(Regex("\\d+x\\d+bb"), "1400x1400bb").replace("100x100", "1400x1400")
                 } else ""
 
                 val trackId = item.optString("trackId", "")
@@ -117,7 +117,7 @@ object iTunesSearchApi {
                 if (normTargetTitle in trackName || trackName in normTargetTitle) {
                     val rawArt = item.optString("artworkUrl100", "")
                     if (rawArt.isNotBlank()) {
-                        return@withContext rawArt.replace(Regex("\\d+x\\d+bb"), "600x600bb").replace("100x100", "600x600")
+                        return@withContext rawArt.replace(Regex("\\d+x\\d+bb"), "1400x1400bb").replace("100x100", "1400x1400")
                     }
                 }
             }

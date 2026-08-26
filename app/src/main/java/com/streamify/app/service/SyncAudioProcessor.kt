@@ -5,82 +5,68 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import androidx.media3.common.C
-import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.AudioProcessor.AudioFormat
-import androidx.media3.common.audio.AudioProcessor.EMPTY_BUFFER
+import androidx.media3.common.audio.BaseAudioProcessor
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.util.concurrent.atomic.AtomicLong
 
-class SyncAudioProcessor(private val context: Context? = null) : AudioProcessor {
+class SyncAudioProcessor(private val context: Context? = null) : BaseAudioProcessor() {
 
-    private var inputFormat = AudioFormat.NOT_SET
-    private var outputFormat = AudioFormat.NOT_SET
-    private var buffer: ByteBuffer = EMPTY_BUFFER
-    private var outputBuffer: ByteBuffer = EMPTY_BUFFER
-    private var isInputEnded = false
-
-    private val totalFramesProcessed = AtomicLong(0L)
-    private var bytesPerFrame = 4 // 16-bit stereo = 4 bytes per frame
-    private var sampleRate = 44100
+    private var targetDriftCorrectionMs: Float = 0.0f // Signed clock offset: + = speed up, - = slow down
+    private var sampleStepAccumulator: Double = 0.0
 
     private val audioManager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
-    override fun configure(inputAudioFormat: AudioFormat): AudioFormat {
-        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT && inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
-            return AudioFormat.NOT_SET
-        }
-        this.inputFormat = inputAudioFormat
-        this.outputFormat = inputAudioFormat
-        this.sampleRate = inputAudioFormat.sampleRate
-        this.bytesPerFrame = inputAudioFormat.bytesPerFrame
-        totalFramesProcessed.set(0L)
-        return outputFormat
+    fun setClockDriftAdjustment(offsetMs: Float) {
+        // Clamp adjustment rate between -50ms and +50ms
+        this.targetDriftCorrectionMs = offsetMs.coerceIn(-50.0f, 50.0f)
     }
 
-    override fun isActive(): Boolean = inputFormat != AudioFormat.NOT_SET
+    override fun onConfigure(inputAudioFormat: AudioFormat): AudioFormat {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT &&
+            inputAudioFormat.encoding != C.ENCODING_PCM_16BIT
+        ) {
+            return AudioFormat.NOT_SET
+        }
+        return inputAudioFormat
+    }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         val remaining = inputBuffer.remaining()
         if (remaining == 0) return
 
-        val frames = remaining / bytesPerFrame
-        totalFramesProcessed.addAndGet(frames.toLong())
-
-        // Pass buffer through directly (Zero-copy latency, persistent buffer allocation)
-        if (buffer.capacity() < remaining) {
-            buffer = ByteBuffer.allocateDirect(remaining).order(ByteOrder.nativeOrder())
-        } else {
-            buffer.clear()
+        if (kotlin.math.abs(targetDriftCorrectionMs) < 0.5f || inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
+            // Clock synchronized or 16-bit: Passthrough
+            val out = replaceOutputBuffer(remaining)
+            out.put(inputBuffer)
+            out.flip()
+            return
         }
-        buffer.put(inputBuffer)
-        buffer.flip()
-        outputBuffer = buffer
-    }
 
-    override fun queueEndOfStream() {
-        isInputEnded = true
-    }
+        // Proportional phase-locked adjustment rate (0.995x to 1.005x speed modifier)
+        val rateModifier = 1.0 + (targetDriftCorrectionMs / 5000.0)
+        val outputCapacityEstimate = (remaining * 1.05).toInt()
+        val outputBuffer = replaceOutputBuffer(outputCapacityEstimate)
 
-    override fun getOutput(): ByteBuffer {
-        val out = outputBuffer
-        outputBuffer = EMPTY_BUFFER
-        return out
-    }
+        val channelCount = inputAudioFormat.channelCount
+        val floatsPerFrame = channelCount
 
-    override fun isEnded(): Boolean = isInputEnded && outputBuffer === EMPTY_BUFFER
-
-    override fun flush() {
-        outputBuffer = EMPTY_BUFFER
-        isInputEnded = false
-    }
-
-    override fun reset() {
-        flush()
-        buffer = EMPTY_BUFFER
-        inputFormat = AudioFormat.NOT_SET
-        outputFormat = AudioFormat.NOT_SET
-        totalFramesProcessed.set(0L)
+        while (inputBuffer.remaining() >= floatsPerFrame * 4) {
+            for (ch in 0 until channelCount) {
+                outputBuffer.putFloat(inputBuffer.getFloat(inputBuffer.position() + ch * 4))
+            }
+            sampleStepAccumulator += rateModifier
+            if (sampleStepAccumulator >= 1.0) {
+                val advanceFrames = sampleStepAccumulator.toInt()
+                val nextPos = inputBuffer.position() + advanceFrames * floatsPerFrame * 4
+                if (nextPos <= inputBuffer.limit()) {
+                    inputBuffer.position(nextPos)
+                } else {
+                    inputBuffer.position(inputBuffer.limit())
+                }
+                sampleStepAccumulator -= advanceFrames
+            }
+        }
+        outputBuffer.flip()
     }
 
     /**
@@ -97,31 +83,24 @@ class SyncAudioProcessor(private val context: Context? = null) : AudioProcessor 
                         AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
                         AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
                         AudioDeviceInfo.TYPE_BLE_HEADSET,
-                        AudioDeviceInfo.TYPE_BLE_SPEAKER -> return 140L // Average Bluetooth SBC/AAC pipeline latency
+                        AudioDeviceInfo.TYPE_BLE_SPEAKER -> return 140L
 
                         AudioDeviceInfo.TYPE_USB_DEVICE,
-                        AudioDeviceInfo.TYPE_USB_HEADSET -> return 25L // Low latency USB DAC
+                        AudioDeviceInfo.TYPE_USB_HEADSET -> return 25L
 
                         AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-                        AudioDeviceInfo.TYPE_WIRED_HEADSET -> return 12L // Direct analog jack
+                        AudioDeviceInfo.TYPE_WIRED_HEADSET -> return 12L
                     }
                 }
             }
         } catch (e: Exception) {
             // Fallback
         }
-        return 18L // Default phone internal speaker DAC latency
+        return 18L
     }
 
-    /**
-     * Returns true hardware acoustic playhead position in milliseconds.
-     */
     fun getAcousticPositionMs(basePositionMs: Long): Long {
         val hardwareLatency = getHardwareOutputLatencyMs()
         return (basePositionMs - hardwareLatency).coerceAtLeast(0L)
-    }
-
-    fun resetFrameCounter() {
-        totalFramesProcessed.set(0L)
     }
 }

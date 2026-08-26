@@ -65,6 +65,22 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        create("release") {
+            val ksPath = System.getenv("KEYSTORE_FILE")
+            if (!ksPath.isNullOrBlank() && file(ksPath).exists()) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            } else {
+                // No CI keystore provided: fall back to debug signing so
+                // personal/family builds still produce installable APKs.
+                storeFile = getByName("debug").storeFile
+                storePassword = getByName("debug").storePassword
+                keyAlias = getByName("debug").keyAlias
+                keyPassword = getByName("debug").keyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -75,6 +91,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -104,6 +121,9 @@ dependencies {
     implementation(composeBom)
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    // Installs baseline profiles when they ship; required before the
+    // baseline-profile Gradle module can be generated via macrobenchmark.
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -142,6 +162,70 @@ dependencies {
 
     // High-Performance HTTP Transport
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("com.github.teamnewpipe:newpipeextractor:v0.26.4")
+
+    // Hardware-Backed KeyStore & EncryptedSharedPreferences
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
+
+// ── Rust core packaging ─────────────────────────────────────────────────
+// Builds libstreamify_core_rs.so for every packaged ABI and drops it into
+// src/main/jniLibs BEFORE the Android build runs, so every APK ships the
+// Rust engine. Failures abort the build loudly (never silently skipped).
+//
+// Escape hatch for toolchain-less builds:  ./gradlew assembleDebug -Pstreamify.skipRust=true
+val skipRustBuild = (project.findProperty("streamify.skipRust") as String?)?.toBoolean() == true
+
+tasks.register<Exec>("cargoBuildRust") {
+    group = "native"
+    description = "Builds streamify_core_rs (cdylib) for arm64-v8a + armeabi-v7a via cargo-ndk."
+    workingDir = file("../rust")
+
+    doFirst {
+        // Ensure Android Rust targets are installed (belt-and-suspenders)
+        val targetInstall = ProcessBuilder(
+            "rustup", "target", "add", "aarch64-linux-android", "armv7-linux-androideabi"
+        ).inheritIO().start().waitFor()
+        println("[cargoBuildRust] rustup target install exit: $targetInstall")
+
+        // Resolve NDK path from env or Android plugin
+        val ndkPath = System.getenv("ANDROID_NDK_HOME")
+            ?: System.getenv("ANDROID_NDK_ROOT")
+            ?: System.getenv("NDK_HOME")
+            ?: (try { android.ndkDirectory.absolutePath } catch (_: Exception) { "" })
+        if (ndkPath.isNotBlank()) {
+            environment("ANDROID_NDK_HOME", ndkPath)
+            environment("ANDROID_NDK_ROOT", ndkPath)
+            environment("NDK_HOME", ndkPath)
+        }
+
+        // Ensure cargo-ndk binary is reachable
+        val cargoBin = System.getenv("HOME")?.let { "$it/.cargo/bin" } ?: "/usr/local/cargo/bin"
+        environment("PATH", "$cargoBin:" + System.getenv("PATH"))
+
+        // Print EXACTLY what will be executed for CI debugging
+        println("[cargoBuildRust] NDK_PATH=$ndkPath")
+        println("[cargoBuildRust] command=cargo ndk --platform 26 -t arm64-v8a -t armeabi-v7a -o <jniLibs> build --release")
+    }
+
+    commandLine(
+        "cargo", "ndk",
+        "--platform", "26",
+        "-t", "arm64-v8a",
+        "-t", "armeabi-v7a",
+        "-o", file("src/main/jniLibs").absolutePath,
+        "build", "--release"
+    )
+}
+
+afterEvaluate {
+    if (!skipRustBuild) {
+        tasks.named("preBuild") {
+            dependsOn("cargoBuildRust")
+        }
+    }
+}
+

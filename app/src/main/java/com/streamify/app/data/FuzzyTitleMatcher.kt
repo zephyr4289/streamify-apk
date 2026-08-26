@@ -9,6 +9,24 @@ object FuzzyTitleMatcher {
 
     private val CLEAN_REGEX = Regex("[^a-z0-9]+")
 
+    // ── MEMOIZATION ────────────────────────────────────────────────────
+    // Queue-dedup scans recompute these for the SAME titles/artists O(queue ×
+    // candidates) times per track transition — each miss is lowercase + regex
+    // replace + split + sort + join. Titles repeat enormously across scans,
+    // so a small bounded cache turns the hot path into a hashmap lookup.
+    private const val MEMO_CAP = 4096
+            
+    private fun <V> remember(memo: java.util.concurrent.ConcurrentHashMap<String, V>, key: String, compute: (String) -> V): V {
+        memo[key]?.let { return it }
+        if (memo.size >= MEMO_CAP) {
+            // Cheap amortized reset: titles age out of queues naturally.
+            memo.clear()
+        }
+        val v = compute(key)
+        memo[key] = v
+        return v
+    }
+
     /**
      * Extracts an order-invariant 64-bit FNV-1a hash of the root title words.
      * "House of Balloons / Glass Table Girls" and "House of Balloons (Audio)"
@@ -23,7 +41,6 @@ object FuzzyTitleMatcher {
             .joinToString("")
 
         if (tokens.isBlank()) {
-            // Fallback for short titles like "Us", "Go", "Me"
             val fallback = title.lowercase().replace(CLEAN_REGEX, "")
             if (fallback.isBlank()) return 0L
             return computeFnv1a(fallback)
@@ -53,6 +70,72 @@ object FuzzyTitleMatcher {
             hash *= 0x100000001b3UL
         }
         return hash.toLong()
+    }
+
+    /**
+     * Cleans artist strings for identity comparison: drops distribution noise
+     * ("- Topic", "VEVO", "Official") and punctuation.
+     */
+    fun cleanArtistForMatch(artist: String): String {
+        return artist.lowercase()
+            .replace("- topic", "")
+            .replace("vevo", "")
+            .replace(" - official", "")
+            .split(CLEAN_REGEX)
+            .filter { part -> part.isNotBlank() }
+            .joinToString(" ")
+    }
+
+    /**
+     * Same-song TITLE gate: cleaned equality fast-path, then bounded similarity.
+     * Used by stream resolvers to prove a search candidate refers to this song
+     * BEFORE its videoId/stream may be trusted or persisted.
+     */
+    fun titlesMatch(aTitle: String, bTitle: String): Boolean {
+        val a = aTitle.trim().lowercase()
+        val b = bTitle.trim().lowercase()
+        if (a.isEmpty() || b.isEmpty()) return false
+        if (a == b) return true
+        return calculateSimilarity(a, b) >= 0.72
+    }
+
+    /**
+     * Same-song ARTIST gate: substring-tolerant match after noise stripping.
+     * An empty query artist never rejects; an empty candidate artist does.
+     */
+    fun artistsMatch(aArtist: String, bArtist: String): Boolean {
+        val a = cleanArtistForMatch(aArtist)
+        val b = cleanArtistForMatch(bArtist)
+        if (a.isEmpty()) return true
+        if (b.isEmpty()) return false
+        return a == b || a.contains(b) || b.contains(a)
+    }
+
+    /**
+     * Duration gate (±tolerance seconds). Unknown durations on either side never reject.
+     */
+    fun durationMatches(secA: Int, secB: Int, toleranceSec: Int = 15): Boolean {
+        if (secA <= 0 || secB <= 0) return true
+        return kotlin.math.abs(secA - secB) <= toleranceSec
+    }
+
+    /**
+     * Full same-recording proof: title + artist + optional duration agreement.
+     * This is the gate every CDN/videoId resolution path must pass before it may
+     * bind, pin, cache or play a resolved candidate.
+     */
+    fun isSameRecording(
+        titleA: String,
+        artistA: String,
+        durationSecA: Int,
+        titleB: String,
+        artistB: String,
+        durationSecB: Int,
+        durationToleranceSec: Int = 15
+    ): Boolean {
+        return titlesMatch(titleA, titleB) &&
+                artistsMatch(artistA, artistB) &&
+                durationMatches(durationSecA, durationSecB, durationToleranceSec)
     }
 
     /**
@@ -97,11 +180,11 @@ object FuzzyTitleMatcher {
 
         try {
             val rustScore = NativeBridge.rustCalculateSimilarity(str1, str2)
-            if (rustScore > 0f) {
+            if (rustScore >= 0f) {
                 return rustScore.toDouble()
             }
         } catch (_: Throwable) {
-            // Fallback to pure Kotlin evaluator
+            // Fallback to pure Kotlin 1D sliding window evaluator
         }
 
         // Direct Substring check
@@ -120,7 +203,7 @@ object FuzzyTitleMatcher {
             if (jaccard > 0.5) return jaccard
         }
 
-        // Bounded Levenshtein distance
+        // Bounded Levenshtein distance with O(N) 2-row rolling memory
         val maxLen = maxOf(str1.length, str2.length)
         if (maxLen > 30) return 0.0
         val distance = computeLevenshtein(str1, str2)
@@ -128,19 +211,25 @@ object FuzzyTitleMatcher {
     }
 
     fun computeLevenshtein(a: String, b: String): Int {
-        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
-        for (i in 0..a.length) dp[i][0] = i
-        for (j in 0..b.length) dp[0][j] = j
-        for (i in 1..a.length) {
-            for (j in 1..b.length) {
+        val lenA = a.length
+        val lenB = b.length
+        var prevRow = IntArray(lenB + 1) { it }
+        var currRow = IntArray(lenB + 1)
+
+        for (i in 1..lenA) {
+            currRow[0] = i
+            for (j in 1..lenB) {
                 val cost = if (a[i - 1] == b[j - 1]) 0 else 1
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 1,
-                    dp[i][j - 1] + 1,
-                    dp[i - 1][j - 1] + cost
+                currRow[j] = minOf(
+                    currRow[j - 1] + 1,
+                    prevRow[j] + 1,
+                    prevRow[j - 1] + cost
                 )
             }
+            val temp = prevRow
+            prevRow = currRow
+            currRow = temp
         }
-        return dp[a.length][b.length]
+        return prevRow[lenB]
     }
 }

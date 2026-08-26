@@ -1,105 +1,75 @@
 #include "SoftKneeLimiter.h"
-#include <algorithm>
 #include <cmath>
+#include <algorithm>
+#include <vector>
 
-namespace streamify {
-namespace dsp {
+SoftKneeLimiter::SoftKneeLimiter(float threshold_db, float knee_width_db, float ratio)
+    : threshold_db_(threshold_db), knee_width_db_(knee_width_db), ratio_(ratio), envelope_db_(-70.0f) {
+    // 48kHz sample rate, 5ms attack, 50ms release
+    attack_coeff_ = std::exp(-1.0f / (0.005f * 48000.0f));
+    release_coeff_ = std::exp(-1.0f / (0.050f * 48000.0f));
+}
 
-SoftKneeLimiter::SoftKneeLimiter(float threshold, float kneeWidth)
-    : threshold_(threshold), kneeWidth_(kneeWidth) {
-    rebuildLut();
+float SoftKneeLimiter::computeGain(float input_db) {
+    float t = threshold_db_;
+    float w = knee_width_db_;
+    float r = ratio_;
+
+    if (input_db < t - w / 2.0f) {
+        return 0.0f; // Linear zone (0 dB gain reduction)
+    } else if (input_db <= t + w / 2.0f) {
+        // 2nd-order polynomial soft knee zone
+        float x = input_db - t + w / 2.0f;
+        return (1.0f / r - 1.0f) * (x * x) / (2.0f * w);
+    } else {
+        // Hard limiting zone
+        return (t + (input_db - t) / r) - input_db;
+    }
+}
+
+void SoftKneeLimiter::processInterleavedSIMD(float* pcm_samples, size_t total_samples) {
+    for (size_t i = 0; i < total_samples; ++i) {
+        float abs_val = std::abs(pcm_samples[i]);
+        float input_db = (abs_val > 1e-6f) ? 20.0f * std::log10(abs_val) : -120.0f;
+
+        // Peak detector with ballistics
+        if (input_db > envelope_db_) {
+            envelope_db_ = input_db + attack_coeff_ * (envelope_db_ - input_db);
+        } else {
+            envelope_db_ = input_db + release_coeff_ * (envelope_db_ - input_db);
+        }
+
+        float gain_reduction_db = computeGain(envelope_db_);
+        float linear_gain = std::pow(10.0f, gain_reduction_db / 20.0f);
+        pcm_samples[i] *= linear_gain;
+    }
+}
+
+void SoftKneeLimiter::reset() {
+    envelope_db_ = -70.0f;
 }
 
 void SoftKneeLimiter::setParameters(float threshold, float kneeWidth) {
-    threshold_ = std::max(0.1f, std::min(1.0f, threshold));
-    kneeWidth_ = std::max(0.01f, std::min(1.0f, kneeWidth));
-    rebuildLut();
-}
-
-void SoftKneeLimiter::rebuildLut() {
-    const float maxVal = 32767.0f;
-    const float thresh = threshold_ * maxVal;
-    const float knee = kneeWidth_ * maxVal;
-
-    for (int i = 0; i <= LUT_SIZE; ++i) {
-        float absVal = (static_cast<float>(i) / static_cast<float>(LUT_SIZE)) * maxVal;
-        if (absVal > thresh) {
-            float excess = absVal - thresh;
-            float compressed = excess / (1.0f + (excess / knee));
-            float limited = thresh + compressed;
-            lutShort_[i] = static_cast<int16_t>(std::min(32767.0f, limited));
-        } else {
-            lutShort_[i] = static_cast<int16_t>(absVal);
-        }
-    }
+    threshold_db_ = threshold;
+    knee_width_db_ = kneeWidth;
 }
 
 void SoftKneeLimiter::processFloats(float* buffer, int numSamples) {
     if (!buffer || numSamples <= 0) return;
-
-    const float thresh = threshold_;
-    const float knee = kneeWidth_;
-    const float invKnee = 1.0f / knee;
-
-    for (int i = 0; i < numSamples; ++i) {
-        float sample = buffer[i];
-        float absSample = std::abs(sample);
-
-        if (absSample > thresh) {
-            float excess = absSample - thresh;
-            float compressed = excess / (1.0f + (excess * invKnee));
-            float limited = thresh + compressed;
-            buffer[i] = (sample > 0.0f) ? limited : -limited;
-        }
-    }
+    processInterleavedSIMD(buffer, static_cast<size_t>(numSamples));
 }
 
 void SoftKneeLimiter::processShorts(int16_t* buffer, int numSamples) {
     if (!buffer || numSamples <= 0) return;
-
-    const int16_t thresholdShort = static_cast<int16_t>(threshold_ * 32767.0f);
-
-    int i = 0;
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
-    // Fast-path NEON peak detection
-    int16x8_t vThresh = vdupq_n_s16(thresholdShort);
-    for (; i <= numSamples - 8; i += 8) {
-        int16x8_t vIn = vld1q_s16(buffer + i);
-        int16x8_t vAbs = vabsq_s16(vIn);
-        uint16x8_t vMask = vcgtq_s16(vAbs, vThresh);
-
-        // Check if any sample exceeds threshold across 8 samples
-        uint64x2_t vMask64 = vreinterpretq_u64_u16(vMask);
-        if (vgetq_lane_u64(vMask64, 0) == 0 && vgetq_lane_u64(vMask64, 1) == 0) {
-            // No limiting needed for this entire 8-sample block
-            continue;
-        }
-
-        // Apply fast 12-bit LUT
-        for (int j = 0; j < 8; ++j) {
-            int16_t sample = buffer[i + j];
-            int16_t absSample = (sample < 0) ? static_cast<int16_t>(-sample) : sample;
-            if (absSample > thresholdShort) {
-                int lutIdx = (static_cast<int>(absSample) * LUT_SIZE) >> 15;
-                int16_t limited = lutShort_[lutIdx];
-                buffer[i + j] = (sample < 0) ? static_cast<int16_t>(-limited) : limited;
-            }
-        }
+    thread_local static std::vector<float> tls_buf;
+    if (tls_buf.size() < static_cast<size_t>(numSamples)) {
+        tls_buf.resize(numSamples);
     }
-#endif
-
-    // Process remaining samples
-    for (; i < numSamples; ++i) {
-        int16_t sample = buffer[i];
-        int16_t absSample = (sample < 0) ? static_cast<int16_t>(-sample) : sample;
-
-        if (absSample > thresholdShort) {
-            int lutIdx = (static_cast<int>(absSample) * LUT_SIZE) >> 15;
-            int16_t limited = lutShort_[lutIdx];
-            buffer[i] = (sample < 0) ? static_cast<int16_t>(-limited) : limited;
-        }
+    for (int i = 0; i < numSamples; ++i) {
+        tls_buf[i] = buffer[i] / 32768.0f;
+    }
+    processInterleavedSIMD(tls_buf.data(), static_cast<size_t>(numSamples));
+    for (int i = 0; i < numSamples; ++i) {
+        buffer[i] = static_cast<int16_t>(std::clamp(tls_buf[i] * 32767.0f, -32768.0f, 32767.0f));
     }
 }
-
-} // namespace dsp
-} // namespace streamify

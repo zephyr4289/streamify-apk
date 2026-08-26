@@ -1,26 +1,26 @@
-#ifndef LYRIC_ALIGNER_H
-#define LYRIC_ALIGNER_H
-
-#include <vector>
+#pragma once
+#include <cstddef>
 #include <cstdint>
-#include <cmath>
+#include <vector>
+#include "kissfft/kiss_fftr.h"
 
 class LyricAligner {
 public:
-    static LyricAligner& getInstance();
+    LyricAligner(size_t max_window_seconds = 30);
+    ~LyricAligner();
 
-    /**
-     * Calculates the millisecond drift / intro offset Δτ* between audio PCM and expected text onsets.
-     * Uses a 4th-order vocal bandpass filter (300 Hz - 3400 Hz) and 100 Hz KissFFT Wiener-Khinchin cross-correlation.
-     * 
-     * @param pcm Interleaved or mono float PCM samples
-     * @param numSamples Total float samples
-     * @param sampleRate Audio sampling rate (e.g. 44100 or 48000)
-     * @param channelCount Channels in PCM (1 for mono, 2 for stereo)
-     * @param textOnsetsMs Array of expected lyric line / syllable onset timestamps in milliseconds
-     * @param onsetCount Number of timestamps in textOnsetsMs
-     * @return Calculated optimal time offset in milliseconds (positive means audio leads text, negative means audio lags)
-     */
+    // In-place vocal formant bandpass filter (300Hz - 3.4kHz)
+    void extractVocalFormants(float* samples, size_t count);
+
+    // Downsamples PCM energy into 100 Hz envelope buckets (10ms resolution)
+    std::vector<float> computeEnvelope100Hz(const float* samples, size_t count, size_t sample_rate);
+
+    // Wiener-Khinchin FFT Cross-Correlation: computes peak drift offset (in ms)
+    int calculateDriftOffset(const float* vocal_energy_100hz, size_t vocal_len,
+                             const float* lyric_onsets_100hz, size_t lyric_len);
+
+    // Backward compatibility helper
+    static LyricAligner& getInstance();
     int32_t calculateDriftMs(
         const float* pcm,
         int numSamples,
@@ -31,12 +31,13 @@ public:
     );
 
 private:
-    LyricAligner() = default;
-    ~LyricAligner() = default;
-    LyricAligner(const LyricAligner&) = delete;
-    LyricAligner& operator=(const LyricAligner&) = delete;
+    size_t max_bins_;
+    kiss_fftr_cfg fft_cfg_;
+    kiss_fftr_cfg ifft_cfg_;
+
+    // 4th-Order Butterworth Bandpass Coefficients (300Hz - 3.4kHz @ 48kHz)
+    float b0_, b1_, b2_, a1_, a2_;
+    float z1_1_, z2_1_, z1_2_, z2_2_;
 
     void applyVocalBandpass(const float* input, float* output, int count, float sampleRate);
 };
-
-#endif // LYRIC_ALIGNER_H

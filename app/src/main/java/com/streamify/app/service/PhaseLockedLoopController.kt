@@ -2,13 +2,22 @@ package com.streamify.app.service
 
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.*
 import kotlin.math.abs
 
 class PhaseLockedLoopController(
     private val player: Player,
-    private val syncAudioProcessor: SyncAudioProcessor
+    private val syncAudioProcessor: SyncAudioProcessor? = null
 ) {
+    companion object {
+        private const val KP = 0.0008f  // Proportional gain
+        private const val KI = 0.00005f // Integral gain
+        private const val MAX_DRIFT_TOLERANCE_MS = 20L
+        private const val HARD_RESYNC_THRESHOLD_MS = 1500L
+    }
+
+    private var integralErrorAccumulator = 0.0f
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var pllJob: Job? = null
     private var isRunning = false
@@ -21,6 +30,42 @@ class PhaseLockedLoopController(
 
     @Volatile
     private var hostClockTimestamp: Long = 0L
+
+    /**
+     * Micro-adjusts playback speed to eliminate audio comb-filtering.
+     * 
+     * @param hostPositionMs Current high-precision timeline position of the Jam host
+     * @param guestPositionMs Local ExoPlayer playback position
+     */
+    fun updatePllClock(hostPositionMs: Long, guestPositionMs: Long) {
+        val phaseErrorMs = (hostPositionMs - guestPositionMs).toFloat()
+
+        // 1. Hard Resync: If network dropped and drift exceeds 1.5s, seek directly
+        if (abs(phaseErrorMs) > HARD_RESYNC_THRESHOLD_MS) {
+            player.seekTo(hostPositionMs)
+            integralErrorAccumulator = 0.0f
+            player.playbackParameters = PlaybackParameters(1.0f)
+            return
+        }
+
+        // 2. Lockstep: If drift is within +/-20ms, maintain normal 1.0x playback
+        if (abs(phaseErrorMs) <= MAX_DRIFT_TOLERANCE_MS) {
+            integralErrorAccumulator = 0.0f
+            if (player.playbackParameters.speed != 1.0f) {
+                player.playbackParameters = PlaybackParameters(1.0f)
+            }
+            return
+        }
+
+        // 3. PI Control Loop: Micro-adjust speed inaudibly (0.96x to 1.04x)
+        integralErrorAccumulator += phaseErrorMs
+        integralErrorAccumulator = integralErrorAccumulator.coerceIn(-500.0f, 500.0f)
+
+        val speedAdjustment = (KP * phaseErrorMs) + (KI * integralErrorAccumulator)
+        val targetSpeed = (1.0f + speedAdjustment).coerceIn(0.96f, 1.04f)
+
+        player.playbackParameters = PlaybackParameters(targetSpeed)
+    }
 
     fun startPll(precisionProtocol: PrecisionTimeProtocol) {
         if (isRunning) return
@@ -36,31 +81,9 @@ class PhaseLockedLoopController(
                         val expectedHostAcousticPos = hostTargetPositionMs + hostElapsed
 
                         val rawPlayerPos = player.currentPosition
-                        val clientAcousticPos = syncAudioProcessor.getAcousticPositionMs(rawPlayerPos)
+                        val clientAcousticPos = syncAudioProcessor?.getAcousticPositionMs(rawPlayerPos) ?: rawPlayerPos
 
-                        val driftMs = clientAcousticPos - expectedHostAcousticPos
-                        val absDrift = abs(driftMs)
-
-                        when {
-                            absDrift <= 12L -> {
-                                // Zone 1: Sub-15ms Target achieved! Hard lock at standard 1.0x pitch
-                                if (player.playbackParameters.speed != 1.0f) {
-                                    player.playbackParameters = PlaybackParameters(1.0f, 1.0f)
-                                }
-                            }
-                            absDrift in 13L..120L -> {
-                                // Zone 2: Continuous Phase Lock Loop micro-pitch scaling (Inaudible to human ear)
-                                val targetSpeed = if (driftMs > 0) 0.996f else 1.004f
-                                if (player.playbackParameters.speed != targetSpeed) {
-                                    player.playbackParameters = PlaybackParameters(targetSpeed, 1.0f)
-                                }
-                            }
-                            absDrift > 120L -> {
-                                // Zone 3: Major desync (e.g. user scrubbed seekbar) -> Fast seek
-                                player.playbackParameters = PlaybackParameters(1.0f, 1.0f)
-                                player.seekTo(expectedHostAcousticPos)
-                            }
-                        }
+                        updatePllClock(expectedHostAcousticPos, clientAcousticPos)
                     }
                 } catch (e: Exception) {
                     // Ignore transient PLL errors
@@ -76,11 +99,14 @@ class PhaseLockedLoopController(
         this.hostClockTimestamp = clockTimestamp
     }
 
+    fun reset() {
+        integralErrorAccumulator = 0.0f
+        player.playbackParameters = PlaybackParameters(1.0f)
+    }
+
     fun stop() {
         isRunning = false
         pllJob?.cancel()
-        if (player.playbackParameters.speed != 1.0f) {
-            player.playbackParameters = PlaybackParameters(1.0f, 1.0f)
-        }
+        reset()
     }
 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,47 +90,84 @@ fun AdminDashboardScreen(
     var broadcastMsg by remember { mutableStateOf("") }
     var showBroadcastDialog by remember { mutableStateOf(false) }
 
-    fun refreshAll() {
+    // Live CDC records arriving before first load completes are buffered so
+    // they can never be silently dropped (A2).
+    var pendingLiveRecords by remember { mutableStateOf(listOf<JSONObject>()) }
+
+    fun applyProfileRecord(
+        base: com.streamify.app.data.remote.AdminTelemetry,
+        record: JSONObject
+    ): com.streamify.app.data.remote.AdminTelemetry {
+        val uId = record.optString("id", "")
+        if (uId.isBlank()) return base
+        val users = base.userList.toMutableList()
+        val idx = users.indexOfFirst { it.id == uId }
+        val row = UserProfile(
+            id = uId,
+            email = record.optString("email", ""),
+            displayName = record.optString("display_name", "Listener ${uId.take(6)}"),
+            avatarUrl = record.optString("avatar_url", ""),
+            bio = record.optString("bio", ""),
+            totalPlays = record.optInt("total_plays", 0),
+            listeningSeconds = record.optLong("listening_seconds", 0L),
+            favoriteGenre = record.optString("favorite_genre", "All"),
+            topTrack = record.optString("top_track", ""),
+            lastActiveAt = record.optString("last_active_at", "")
+        )
+        return if (idx >= 0) {
+            users[idx] = users[idx].copy(
+                email = if (row.email.isNotBlank()) row.email else users[idx].email,
+                displayName = row.displayName,
+                avatarUrl = row.avatarUrl.ifBlank { users[idx].avatarUrl },
+                bio = row.bio.ifBlank { users[idx].bio },
+                totalPlays = row.totalPlays,
+                listeningSeconds = row.listeningSeconds,
+                favoriteGenre = row.favoriteGenre.ifBlank { users[idx].favoriteGenre },
+                topTrack = row.topTrack.ifBlank { users[idx].topTrack },
+                lastActiveAt = row.lastActiveAt.ifBlank { users[idx].lastActiveAt }
+            )
+            base.copy(userList = users)
+        } else base.copy(userList = users + row)   // new listeners appear live too
+    }
+
+    fun refreshAll(silent: Boolean = false) {
         scope.launch {
-            isLoading = true
-            val telemRes = SupabaseClient.getAdminTelemetry()
-            telemetry = telemRes.getOrNull()
+            if (!silent) isLoading = true
+            val baseTelem = SupabaseClient.getAdminTelemetry().getOrNull()
+            if (baseTelem != null) {
+                // fold instead of a closure-mutated var: a var captured by a
+                // changing closure never smart-casts to non-null at call sites.
+                val mergedTelem: com.streamify.app.data.remote.AdminTelemetry =
+                    pendingLiveRecords.fold(baseTelem) { acc, record ->
+                        applyProfileRecord(acc, record)
+                    }
+                pendingLiveRecords = emptyList()
+                telemetry = mergedTelem
+            }
 
-            val jamRes = SupabaseClient.getAdminJamSessions()
-            jamSessions = jamRes.getOrDefault(emptyList())
+            jamSessions = SupabaseClient.getAdminJamSessions().getOrDefault(emptyList())
+            recentComments = SupabaseClient.getAdminRecentComments(50).getOrDefault(emptyList())
+            edgeStats = SupabaseClient.getAdminEdgeComputeStats().getOrNull()
 
-            val commentRes = SupabaseClient.getAdminRecentComments(50)
-            recentComments = commentRes.getOrDefault(emptyList())
-
-            val edgeRes = SupabaseClient.getAdminEdgeComputeStats()
-            edgeStats = edgeRes.getOrNull()
-
-            isLoading = false
+            if (!silent) isLoading = false
         }
     }
 
     LaunchedEffect(Unit) {
         refreshAll()
-        SupabaseClient.liveProfileUpdates.collect { record: JSONObject ->
-            val uId = record.optString("id", "")
-            if (uId.isNotBlank()) {
-                val currentTelem = telemetry ?: return@collect
-                val currentUsers = currentTelem.userList.toMutableList()
-                val idx = currentUsers.indexOfFirst { it.id == uId }
-                if (idx >= 0) {
-                    val old = currentUsers[idx]
-                    val updated = old.copy(
-                        listeningSeconds = record.optLong("listening_seconds", old.listeningSeconds),
-                        totalPlays = record.optInt("total_plays", old.totalPlays),
-                        topTrack = record.optString("top_track", old.topTrack),
-                        bio = record.optString("bio", old.bio),
-                        favoriteGenre = record.optString("favorite_genre", old.favoriteGenre),
-                        lastActiveAt = record.optString("last_active_at", old.lastActiveAt)
-                    )
-                    currentUsers[idx] = updated
-                    telemetry = currentTelem.copy(userList = currentUsers)
-                }
+
+        launch {
+            SupabaseClient.liveProfileUpdates.collect { record: JSONObject ->
+                val base = telemetry
+                if (base != null) telemetry = applyProfileRecord(base, record)
+                else pendingLiveRecords = pendingLiveRecords + record
             }
+        }
+
+        // 30s auto-refresh: dashboard can never go permanently stale.
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            refreshAll(silent = true)
         }
     }
 
@@ -188,7 +226,7 @@ fun AdminDashboardScreen(
             edgePadding = StreamifyDimens.SpaceLG,
             divider = {}
         ) {
-            val tabs = listOf("Telemetry", "Edge Mesh", "Users", "Jam Rooms", "Comments", "Broadcasts")
+            val tabs = listOf("Telemetry", "Top Songs", "Edge Mesh", "Users", "Jam Rooms", "Comments", "Broadcasts")
             tabs.forEachIndexed { index, title ->
                 Tab(
                     selected = selectedTab == index,
@@ -206,7 +244,30 @@ fun AdminDashboardScreen(
 
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
 
+        telemetry?.let { t ->
+            if (t.serverStatus.startsWith("RPC ERROR")) {
+                Surface(
+                    color = Color(0xFFEF4444).copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = StreamifyDimens.SpaceLG)
+                ) {
+                    Text(
+                        "⚠ Dashboard RPC failed (${t.serverStatus.removePrefix("RPC ERROR — ")}) — apply stats_overhaul migration & verify is_admin",
+                        color = Color(0xFFEF4444),
+                        style = StreamifyType.Caption,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
+            }
+        }
+
         when (selectedTab) {
+            // TAB 1: GLOBAL TOP SONGS (cross-user leaderboard from user_track_plays)
+            1 -> AdminTopSongsPanel()
+
             // TAB 0: TELEMETRY & SYSTEM HEALTH
             0 -> {
                 LazyColumn(
@@ -1166,6 +1227,137 @@ private fun UserTelemetrySheet(
                         style = StreamifyType.TitleSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
                         color = if (user.isAdmin) Color.White else Color.Black
                     )
+                }
+            }
+        }
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TAB: GLOBAL TOP SONGS — cross-user leaderboard over user_track_plays
+// ═══════════════════════════════════════════════════════════════════════════
+@Composable
+private fun AdminTopSongsPanel() {
+    var rows by remember { mutableStateOf<org.json.JSONArray?>(null) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        SupabaseClient.fetchAdminTopTracks(20)
+            .onSuccess { rows = it }
+            .onFailure { errorMsg = it.message }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = StreamifyDimens.SpaceLG)
+    ) {
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
+        Text(
+            "GLOBAL TOP SONGS · ALL LISTENERS",
+            style = StreamifyType.Caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+            color = StreamifyColors.Primary
+        )
+        Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
+
+        when {
+            errorMsg != null -> Text(
+                "⚠ $errorMsg\nApply the stats_overhaul migration to enable this panel.",
+                color = Color(0xFFEF4444),
+                style = StreamifyType.BodySmall
+            )
+            rows == null -> CircularProgressIndicator(color = StreamifyColors.Primary, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
+            else -> {
+                val list = buildList {
+                    for (i in 0 until rows!!.length()) rows!!.optJSONObject(i)?.let { add(it) }
+                }
+                if (list.isEmpty()) {
+                    Text(
+                        "No plays recorded yet. Apply the stats_overhaul migration; counts stream in from updated clients.",
+                        color = StreamifyColors.TextSub,
+                        style = StreamifyType.BodySmall
+                    )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(bottom = 80.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        itemsIndexed(list) { index, row ->
+                            val snap = row.optJSONObject("snapshot")
+                            val title = snap?.optString("title", "")?.ifBlank { null }
+                                ?: row.optString("track_sig").substringBefore("_").ifBlank { "Unknown" }
+                            val artist = snap?.optString("artist", "") ?: ""
+                            val cover = snap?.optString("coverArtPath", "")?.takeIf { it.isNotBlank() }
+                            val plays = row.optInt("plays", 0)
+                            val mins = row.optLong("seconds", 0L) / 60L
+                            val listeners = row.optInt("listeners", 0)
+
+                            Surface(
+                                color = if (index < 3) StreamifyColors.Primary.copy(alpha = 0.08f) else StreamifyColors.BgElevated,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "#${index + 1}",
+                                        style = StreamifyType.TitleMedium,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                                        color = if (index < 3) StreamifyColors.Primary else StreamifyColors.TextSub,
+                                        modifier = Modifier.width(44.dp)
+                                    )
+                                    if (!cover.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = cover,
+                                            contentDescription = title,
+                                            modifier = Modifier
+                                                .size(46.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(46.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(StreamifyColors.BgSurfaceElevated),
+                                            contentAlignment = Alignment.Center
+                                        ) { Text("♪", color = StreamifyColors.TextSub) }
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            title,
+                                            style = StreamifyType.BodyMedium,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                            color = StreamifyColors.TextMain,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            "$artist · $listeners listener${if (listeners == 1) "" else "s"}",
+                                            style = StreamifyType.Caption,
+                                            color = StreamifyColors.TextSub,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            "$plays",
+                                            style = StreamifyType.TitleMedium,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                                            color = StreamifyColors.Primary
+                                        )
+                                        Text("$mins min", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
