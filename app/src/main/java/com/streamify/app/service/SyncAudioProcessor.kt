@@ -16,6 +16,22 @@ class SyncAudioProcessor(private val context: Context? = null) : BaseAudioProces
 
     private val audioManager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
+    companion object {
+        /**
+         * JAM PHASE-1: Kalman speed scalar (0.98x–1.02x) published by the guest
+         * PLL. Secondary sync path — applied here ONLY when this processor is
+         * attached to a render chain; the primary path is ExoPlayer's
+         * playbackParameters set directly by [com.streamify.app.viewmodel.PlayerViewModel].
+         */
+        @Volatile
+        var kalmanSpeedScalar: Float = 1.0f
+            private set
+
+        fun setSpeedScalar(scalar: Float) {
+            kalmanSpeedScalar = scalar.coerceIn(0.98f, 1.02f)
+        }
+    }
+
     fun setClockDriftAdjustment(offsetMs: Float) {
         // Clamp adjustment rate between -50ms and +50ms
         this.targetDriftCorrectionMs = offsetMs.coerceIn(-50.0f, 50.0f)
@@ -34,7 +50,10 @@ class SyncAudioProcessor(private val context: Context? = null) : BaseAudioProces
         val remaining = inputBuffer.remaining()
         if (remaining == 0) return
 
-        if (kotlin.math.abs(targetDriftCorrectionMs) < 0.5f || inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
+        val kalmanActive = kotlin.math.abs(kalmanSpeedScalar - 1.0f) >= 0.001f
+        if (kotlin.math.abs(targetDriftCorrectionMs) < 0.5f && !kalmanActive ||
+            inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT
+        ) {
             // Clock synchronized or 16-bit: Passthrough
             val out = replaceOutputBuffer(remaining)
             out.put(inputBuffer)
@@ -42,8 +61,10 @@ class SyncAudioProcessor(private val context: Context? = null) : BaseAudioProces
             return
         }
 
-        // Proportional phase-locked adjustment rate (0.995x to 1.005x speed modifier)
-        val rateModifier = 1.0 + (targetDriftCorrectionMs / 5000.0)
+        // Proportional phase-locked adjustment rate fused with the Kalman
+        // scalar (both bounded to an inaudible ±2% envelope).
+        val driftRate = 1.0 + (targetDriftCorrectionMs / 5000.0)
+        val rateModifier = (driftRate * kalmanSpeedScalar).coerceIn(0.98, 1.02)
         val outputCapacityEstimate = (remaining * 1.05).toInt()
         val outputBuffer = replaceOutputBuffer(outputCapacityEstimate)
 

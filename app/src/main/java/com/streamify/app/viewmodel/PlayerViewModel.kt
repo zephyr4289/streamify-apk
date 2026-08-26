@@ -743,7 +743,6 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     private fun startPollingPosition() {
         positionPollingJob?.cancel()
         positionPollingJob = viewModelScope.launch {
-            var lastJamHeartbeatMs = 0L
             while (true) {
                 val now = System.currentTimeMillis()
                 // STATS OVERHAUL: this poller NO LONGER accumulates listening
@@ -787,21 +786,46 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         }
                     }
 
-                    // 500ms High-Resolution Jam Lockstep Heartbeat Broadcast (<15ms WebSocket transport)
-                    if (curState.isPlaying && !isApplyingJamSync &&
-                        com.streamify.app.jam.JamEngine.isHost()   // LOCKSTEP: only the host drives the room clock
-                    ) {
-                        if (now - lastJamHeartbeatMs >= 500L) {
-                            lastJamHeartbeatMs = now
-                            com.streamify.app.jam.JamEngine.heartbeatTick(
-                                track = curState.currentTrack,
-                                positionMs = ctrl.currentPosition.coerceAtLeast(0L),
-                                isPlaying = true
-                            )
+                }
+                delay(200)
+            }
+        }
+
+        startJamTicker()
+    }
+
+    // ── JAM PHASE-1: dedicated adaptive tick loop ─────────────────────────
+    // Runs OUTSIDE the 200ms UI position poll so the 50ms end-of-track cadence
+    // is actually achievable, and fires the NEXT_IS pre-hydration intent (P3).
+    private var jamTickerJob: kotlinx.coroutines.Job? = null
+
+    private fun startJamTicker() {
+        if (jamTickerJob?.isActive == true) return
+        jamTickerJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            while (isActive) {
+                val engine = com.streamify.app.jam.JamEngine
+                if (!engine.isActive() || !engine.isHost() || isApplyingJamSync) {
+                    delay(500L)
+                    continue
+                }
+                val ctrl = controller ?: run { delay(500L); continue }
+                if (_playerState.value.isPlaying) {
+                    val cur = _playerState.value.currentTrack
+                    val pos = ctrl.currentPosition.coerceAtLeast(0L)
+                    val dur = ctrl.duration.takeIf { it > 0 } ?: cur?.durationSec?.toLong()?.times(1000L) ?: 0L
+
+                    engine.heartbeatTick(track = cur, positionMs = pos, isPlaying = true)
+
+                    // P3: announce the queue head ~30s before track end.
+                    if (dur > 0 && dur - pos in 1..30_000L) {
+                        val next = engine.queueHead()
+                        if (next != null && engine.announcedNextId != "${next.id}:${next.title}") {
+                            engine.announcedNextId = "${next.id}:${next.title}"
+                            engine.announceNextIs(next)
                         }
                     }
                 }
-                delay(200)
+                delay(engine.tickIntervalMs(ctrl.currentPosition.coerceAtLeast(0L), ctrl.duration))
             }
         }
     }
@@ -1488,6 +1512,10 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             ctrl.playbackParameters = androidx.media3.common.PlaybackParameters(speed, 1.0f)
         }
     }
+
+    /** Live playback speed — lets the PLL avoid redundant IPC on HOLD. */
+    fun playbackSpeed(): Float =
+        try { controller?.playbackParameters?.speed ?: 1.0f } catch (_: Throwable) { 1.0f }
 
     fun getAcousticPositionMs(): Long {
         val rawPos = controller?.currentPosition ?: _playerState.value.currentPosition

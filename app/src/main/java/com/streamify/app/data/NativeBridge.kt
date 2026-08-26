@@ -454,6 +454,132 @@ object NativeBridge {
     private external fun nativeGetThermalStatus(): Int
     private external fun nativeFlushDatabaseWal(dbPath: String): Int
 
+    // ═══════════════════════════════════════════════════════════════
+    // JAM PHASE-1 SYNC CORE (jam_clock / tick_matrix / kalman_pll)
+    // ═══════════════════════════════════════════════════════════════
+
+    private external fun nativeJamClockReset()
+    private external fun nativeJamClockApplySample(
+        t0: Long, t1: Long, t2: Long, t3: Long, outResults: LongArray
+    )
+    private external fun nativeGetSyncedJamMonotonicMs(): Long
+    private external fun nativeGetLocalMonotonicMs(): Long
+    private external fun nativeJamClockRttMs(): Long
+    private external fun nativeJamTickIngest(
+        seq: Int,
+        posMs: Long,
+        hostMonoMs: Long,
+        state: Int,
+        policy: Int,
+        outPacked: LongArray
+    ): Int
+    private external fun nativeKalmanPllReset()
+    private external fun nativeKalmanPllDecide(
+        zPosMs: Long,
+        nowSyncedMs: Long,
+        tickHostMonoMs: Long,
+        playing: Boolean,
+        outResults: LongArray
+    ): Int
+    private external fun nativeTickMatrixDiagnostics(outResults: LongArray)
+
+    /** Wipe all Jam clock state (call on session end / role change). */
+    fun jamClockReset() {
+        try { nativeJamClockReset() } catch (_: Throwable) {}
+    }
+
+    /**
+     * Cristian handshake fusion. Returns [thetaMs, deltaMs] as accepted by the
+     * native best-sample/EMA filter (may differ from raw math).
+     */
+    fun jamClockApplySample(t0: Long, t1: Long, t2: Long, t3: Long): LongArray {
+        return try {
+            val out = LongArray(2)
+            nativeJamClockApplySample(t0, t1, t2, t3, out)
+            out
+        } catch (_: Throwable) {
+            longArrayOf(0L, -1L)
+        }
+    }
+
+    /**
+     * THE Jam time source: local monotonic mapped into the host's monotonic
+     * timeline. Skew-free — never use System.currentTimeMillis() for sync math.
+     */
+    fun getSyncedJamMonotonicMs(): Long {
+        return try { nativeGetSyncedJamMonotonicMs() } catch (_: Throwable) {
+            System.nanoTime() / 1_000_000L
+        }
+    }
+
+    /**
+     * Raw device-local monotonic (offset-free). Handshake endpoints t0/t3 MUST
+     * use this; synced values would feed theta back into itself.
+     */
+    fun getLocalMonotonicMs(): Long {
+        return try { nativeGetLocalMonotonicMs() } catch (_: Throwable) {
+            System.nanoTime() / 1_000_000L
+        }
+    }
+
+    /** Last handshake round-trip in ms (-1 = no sample yet). */
+    fun getJamClockRttMs(): Long {
+        return try { nativeJamClockRttMs() } catch (_: Throwable) { -1L }
+    }
+
+    /**
+     * Feed a received host tick into the lossless sequence matrix.
+     * Returns synthesized+real packed entries [seq<<32 | posMs] in order;
+     * gap-fills precede the real tick. Empty array when dropped/duplicate.
+     */
+    fun jamTickIngest(seq: Int, posMs: Long, hostMonoMs: Long, state: Int, policy: Int): LongArray {
+        return try {
+            val out = LongArray(64)
+            val n = nativeJamTickIngest(seq, posMs, hostMonoMs, state, policy, out)
+            if (n > 0) out.copyOf(n) else LongArray(0)
+        } catch (_: Throwable) {
+            longArrayOf(((seq.toLong()) shl 32) or (posMs and 0x7FFFFFFFL))
+        }
+    }
+
+    /** Reset the Kalman PLL (regime changes, track transitions, role flips). */
+    fun kalmanPllReset() {
+        try { nativeKalmanPllReset() } catch (_: Throwable) {}
+    }
+
+    /**
+     * Kalman decision point. Returns [decision, speedMilli, seekTargetMs]:
+     *   decision 0=HOLD 1=SPEED 2=SEEK
+     *   speedMilli: target ×1000 (e.g. 1002 → 1.002x), valid on SPEED
+     *   seekTargetMs: hard-seek target, valid on SEEK
+     */
+    fun kalmanPllDecide(
+        zPosMs: Long,
+        nowSyncedMs: Long,
+        tickHostMonoMs: Long,
+        playing: Boolean
+    ): LongArray {
+        return try {
+            val out = LongArray(3)
+            nativeKalmanPllDecide(zPosMs, nowSyncedMs, tickHostMonoMs, playing, out)
+            out
+        } catch (_: Throwable) {
+            longArrayOf(0L, 1000L, -1L)
+        }
+    }
+
+    /** Tick matrix diagnostics: [synthesized_total, max_gap_seen, ema_interval_ms]. */
+    fun getTickMatrixDiagnostics(): LongArray {
+        return try {
+            val out = LongArray(3)
+            nativeTickMatrixDiagnostics(out)
+            out
+        } catch (_: Throwable) {
+            longArrayOf(-1L, -1L, -1L)
+        }
+    }
+
+
     fun updateThermalStatus(status: Int): Int {
         return try {
             nativeUpdateThermalStatus(status)

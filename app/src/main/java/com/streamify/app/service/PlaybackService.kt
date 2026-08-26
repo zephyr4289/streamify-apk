@@ -114,6 +114,8 @@ class PlaybackService : MediaSessionService() {
         }
         
         preBufferManager = PredictivePreBufferManager(this)
+        // Jam Phase-1: shadow pre-buffer hook for host NEXT_IS intents.
+        PredictivePreBufferManager.JamPreBuffer.install(preBufferManager!!)
 
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
             private var lastPlayStartMs: Long = 0L

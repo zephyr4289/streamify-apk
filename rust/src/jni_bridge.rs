@@ -1158,3 +1158,154 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativePinThrea
 
 
 
+
+// ═══════════════════════════════════════════════════════════════════
+// JAM PHASE-1 SYNC CORE: jam_clock / tick_matrix / kalman_pll
+// ═══════════════════════════════════════════════════════════════════
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamClockReset(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        crate::jam_clock::JamClock::reset();
+    }));
+}
+
+/// Ingest one Cristian handshake sample; writes [theta_ms, delta_ms] into out.
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamClockApplySample(
+    mut env: JNIEnv,
+    _class: JClass,
+    t0: jlong,
+    t1: jlong,
+    t2: jlong,
+    t3: jlong,
+    out_results: JLongArray,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let (theta, delta) = crate::jam_clock::JamClock::apply_sample(t0, t1, t2, t3);
+        let results = [theta as jlong, delta as jlong];
+        let _ = env.set_long_array_region(&out_results, 0, &results);
+    }));
+}
+
+/// THE Jam time source: guest-local monotonic mapped into the host timeline.
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeGetSyncedJamMonotonicMs(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        crate::jam_clock::JamClock::synced_monotonic_ms() as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamClockRttMs(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        crate::jam_clock::JamClock::last_rtt_ms() as jlong
+    }))
+    .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamTickIngest(
+    mut env: JNIEnv,
+    _class: JClass,
+    seq: jint,
+    pos_ms: jlong,
+    host_mono_ms: jlong,
+    state: jint,
+    policy: jint,
+    out_packed: JLongArray,
+) -> jint {
+    catch_unwind(
+        AssertUnwindSafe(|| {
+            // Copy-out buffer: JNI primitive arrays cannot be indexed directly.
+            let len = env.get_array_length(&out_packed).unwrap_or(0);
+            if len == 0 {
+                return 0i32;
+            }
+            let mut scratch = vec![0i64; len as usize];
+            let written = crate::tick_matrix::TickMatrix::ingest(
+                seq.max(0) as u32,
+                pos_ms,
+                host_mono_ms,
+                state.clamp(0, 2) as u8,
+                policy.clamp(0, 1) as u8,
+                &mut scratch,
+            );
+            if written > 0 {
+                let _ = env.set_long_array_region(&out_packed, 0, &scratch[..written]);
+            }
+            written as jint
+        }),
+    )
+    .unwrap_or(0)
+}
+
+/// Kalman PLL decision point. Writes [decision, speed_milli, seek_target_ms].
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeKalmanPllDecide(
+    mut env: JNIEnv,
+    _class: JClass,
+    z_pos_ms: jlong,
+    now_synced_ms: jlong,
+    tick_host_mono_ms: jlong,
+    playing: jboolean,
+    out_results: JLongArray,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        let mut out = [0i64; 3];
+        let decision = crate::kalman_pll::KalmanPll::decide(
+            z_pos_ms,
+            now_synced_ms,
+            tick_host_mono_ms,
+            playing != 0,
+            &mut out,
+        );
+        let _ = env.set_long_array_region(&out_results, 0, &out);
+        decision as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeKalmanPllReset(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        crate::kalman_pll::KalmanPll::reset();
+    }));
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeTickMatrixDiagnostics(
+    mut env: JNIEnv,
+    _class: JClass,
+    out_results: JLongArray,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let diag = crate::tick_matrix::TickMatrix::diagnostics();
+        let _ = env.set_long_array_region(&out_results, 0, &diag);
+    }));
+}
+
+/// Raw device-local monotonic ms (offset-free) — handshake endpoint stamps.
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeGetLocalMonotonicMs(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        crate::jam_clock::JamClock::local_monotonic_ms() as jlong
+    }))
+    .unwrap_or(0)
+}

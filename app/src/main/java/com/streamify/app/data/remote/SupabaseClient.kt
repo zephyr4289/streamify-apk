@@ -1469,7 +1469,8 @@ object SupabaseClient {
                     currentTrackJson = trackObj,
                     positionMs = positionMs,
                     isPlaying = true,
-                    hostClockTimestamp = System.currentTimeMillis(),
+                    // v3: synced-monotonic domain (skew-free extrapolation on guests).
+                    hostClockTimestamp = com.streamify.app.data.NativeBridge.getSyncedJamMonotonicMs(),
                     queue = listOf(track),
                     participantIds = listOf(user.id)
                 )

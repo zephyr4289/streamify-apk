@@ -95,5 +95,33 @@ class PredictivePreBufferManager(
         cancelAll()
         scope.cancel()
     }
+
+    /**
+     * JAM PHASE-1 (P3): process-wide shadow pre-buffer for host NEXT_IS intents.
+     *
+     * The guest resolves + caches the announced next track's head chunk BEFORE
+     * TRACK_CHANGE lands, so the handoff reads warm bytes out of SimpleCache —
+     * zero dead air, zero resolve latency. Installed lazily with the app
+     * context; safe to call from any thread.
+     */
+    object JamPreBuffer {
+        @Volatile private var delegate: PredictivePreBufferManager? = null
+
+        fun install(manager: PredictivePreBufferManager) {
+            delegate = manager
+        }
+
+        fun notifyNextIs(track: Track) {
+            val mgr = delegate ?: return
+            android.util.Log.d("JamShadow", "NEXT_IS → shadow pre-buffer '${track.title}'")
+            // Reuses the 512KB head-chunk matrix; dedupe via activePreCacheJobs.
+            mgr.preBufferUpcomingTracks(listOf(track))
+        }
+
+        /** Invalidate on TRACK_CHANGE / session end so stale jobs don't linger. */
+        fun reset() {
+            delegate?.cancelAll()
+        }
+    }
 }
 

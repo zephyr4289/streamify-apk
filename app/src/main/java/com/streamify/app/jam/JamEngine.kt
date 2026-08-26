@@ -119,6 +119,47 @@ object JamEngine {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val epochCounter = AtomicLong(0)
 
+    // ── Phase 1 sync-core state ──────────────────────────────────────────
+
+    /** Host-only: monotonic wire sequence for lossless tick ordering. */
+    private val tickSeqCounter = AtomicLong(0)
+
+    /** Synced-clock stamp of the last playback regime change (play/pause/seek/track). */
+    @Volatile private var lastRegimeChangeSyncedMs = 0L
+
+    /** Guest-side: track announced by host NEXT_IS, awaiting zero-gap handoff. */
+    @Volatile var pendingNextIsTrack: Track? = null
+        private set
+
+    /** Guest-side: last SYNC_REQ fire time (synced domain) — retry pacing. */
+    @Volatile private var lastSyncReqAtMs = 0L
+
+    /** Host-side: identity of the queue head already announced via NEXT_IS. */
+    @Volatile var announcedNextId: String? = null
+
+    /**
+     * THE time source for all Jam math. On hosts / pre-handshake guests this is
+     * the raw monotonic clock; on synced guests it maps into the host timeline,
+     * making OS NTP skew irrelevant (P1 fix).
+     */
+    fun nowSynced(): Long = com.streamify.app.data.NativeBridge.getSyncedJamMonotonicMs()
+
+    /**
+     * Adaptive host tick interval (P2): steady 1000ms, 250ms convergence burst
+     * for 2s after any regime change, 50ms during the final 15s of a track so
+     * every device lands the transition frame-perfectly.
+     */
+    fun tickIntervalMs(positionMs: Long, durationMs: Long): Long {
+        if (durationMs > 0 && positionMs >= 0 && durationMs - positionMs <= 15_000) return 50L
+        if (lastRegimeChangeSyncedMs > 0 && nowSynced() - lastRegimeChangeSyncedMs < 2_000) return 250L
+        return 1_000L
+    }
+
+    private fun markRegimeChange() {
+        lastRegimeChangeSyncedMs = nowSynced()
+        com.streamify.app.data.NativeBridge.kalmanPllReset()
+    }
+
     /** device nonce -> userId, learned from PRESENCE; drives host-authority checks. */
     private val deviceUserMap = ConcurrentHashMap<String, String>()
 
@@ -187,6 +228,7 @@ object JamEngine {
         if (!isActive() || !isHost()) return
         lastHostTickAt = System.currentTimeMillis()
         val s = activeSession() ?: return
+        val hostMonoMs = nowSynced()
         SupabaseClient.broadcastJamTick(
             sessionCode = s.sessionCode,
             trackId = track?.id?.toString() ?: "",
@@ -197,9 +239,66 @@ object JamEngine {
             action = "TICK",
             trackJson = track?.let { jamTrackToJson(it) },
             senderId = deviceId,
-            epochMs = currentEpoch()
+            epochMs = currentEpoch(),
+            extras = JSONObject()
+                .put("seq", tickSeqCounter.incrementAndGet())
+                .put("host_mono", hostMonoMs)
+                .put("duration_ms", track?.durationSec?.toLong()?.times(1000L) ?: 0L)
         )
     }
+
+    /**
+     * P3: predictive JIT pre-hydration. Host announces the upcoming queue head
+     * ~30s before the current track ends so every guest resolves + pre-buffers
+     * it into SimpleCache BEFORE TRACK_CHANGE lands.
+     */
+    fun announceNextIs(nextTrack: Track?) {
+        if (!isActive() || !isHost()) return
+        val s = activeSession() ?: return
+        if (nextTrack == null) {
+            SupabaseClient.broadcastJamTick(
+                sessionCode = s.sessionCode, trackId = "", trackTitle = "", trackArtist = "",
+                positionMs = 0L, isPlaying = false, action = "NEXT_IS",
+                senderId = deviceId, epochMs = currentEpoch(),
+                extras = JSONObject().put("next_is_null", true)
+            )
+            return
+        }
+        SupabaseClient.broadcastJamTick(
+            sessionCode = s.sessionCode,
+            trackId = nextTrack.id.toString(),
+            trackTitle = nextTrack.title,
+            trackArtist = nextTrack.artist,
+            positionMs = 0L, isPlaying = false, action = "NEXT_IS",
+            trackJson = jamTrackToJson(nextTrack),
+            senderId = deviceId, epochMs = currentEpoch()
+        )
+    }
+
+    /**
+     * P1 bootstrap: guest fires a Cristian handshake probe. Host stamps t1/t2
+     * on receipt; guest fuses t0..t3 through the native best-sample filter.
+     */
+    fun fireClockSyncProbe() {
+        if (!isActive()) return
+        val s = activeSession() ?: return
+        if (isHost()) return
+        lastSyncReqAtMs = nowSynced()
+        SupabaseClient.broadcastJamTick(
+            sessionCode = s.sessionCode, trackId = "", trackTitle = "", trackArtist = "",
+            positionMs = 0L, isPlaying = false, action = "SYNC_REQ",
+            senderId = deviceId,
+            // t0 MUST be raw local monotonic — synced values double-count theta.
+            extras = JSONObject().put("t0", com.streamify.app.data.NativeBridge.getLocalMonotonicMs())
+        )
+    }
+
+    fun clockSyncProbeDue(): Boolean =
+        isActive() && !isHost() &&
+            (lastSyncReqAtMs == 0L || nowSynced() - lastSyncReqAtMs > 5_000L)
+
+    /** True once the native Cristian filter has locked (>=3 good samples). */
+    fun clockLocked(): Boolean = com.streamify.app.data.NativeBridge.getJamClockRttMs() >= 0L
 
     fun pulsePresence(name: String, avatarUrl: String?) {
         val s = activeSession() ?: return
@@ -325,6 +424,45 @@ object JamEngine {
                 }
             }
 
+            // ── Phase 1: skew-free bootstrap handshake (P1) ────────────────
+            "SYNC_REQ" -> {
+                if (isHost()) {
+                    val nowMono = nowSynced()
+                    SupabaseClient.broadcastJamTick(
+                        sessionCode = activeSession()?.sessionCode ?: return,
+                        trackId = "", trackTitle = "", trackArtist = "",
+                        positionMs = 0L, isPlaying = false, action = "SYNC_ACK",
+                        senderId = deviceId,
+                        extras = JSONObject()
+                            .put("t0", payload.optLong("t0", 0L))
+                            .put("t1", nowMono)
+                            .put("t2", nowMono)
+                            .put("target_sender", sender)
+                    )
+                }
+            }
+
+            "SYNC_ACK" -> {
+                val target = payload.optString("target_sender", "")
+                if (!isHost() && target == deviceId) {
+                    val t0 = payload.optLong("t0", 0L)
+                    val t1 = payload.optLong("t1", 0L)
+                    val t2 = payload.optLong("t2", 0L)
+                    val t3 = com.streamify.app.data.NativeBridge.getLocalMonotonicMs()
+                    com.streamify.app.data.NativeBridge.jamClockApplySample(t0, t1, t2, t3)
+                }
+            }
+
+            // ── Phase 1: predictive pre-hydration intent (P3) ───────────────
+            "NEXT_IS" -> {
+                if (!isHost() && senderIsHost) {
+                    pendingNextIsTrack =
+                        if (payload.optBoolean("next_is_null", false)) null
+                        else jamTrackFromJson(payload.optJSONObject("track_json"))
+                    pendingNextIsTrack?.let { onNextIsListener?.invoke(it) }
+                }
+            }
+
             "QUEUE_ADD" -> {
                 val t = jamTrackFromJson(payload.optJSONObject("track_json")) ?: return
                 payload.optJSONObject("track_json")?.optString("addedBy", "")?.let {
@@ -385,18 +523,22 @@ object JamEngine {
                     ?: return
                 if (isHost()) return // host ignores foreign regimes outright
                 latestAppliedEpoch = maxOf(latestAppliedEpoch, epoch)
+                markRegimeChange()
                 _commands.tryEmit(Command.ApplyTrack(t, pos, playing))
             }
             "SEEK" -> {
                 if (isHost()) return
+                markRegimeChange()
                 _commands.tryEmit(Command.ApplySeek(pos))
             }
             "PLAY" -> {
                 if (isHost()) return
+                markRegimeChange()
                 _commands.tryEmit(Command.ApplyPlayPause(true))
             }
             "PAUSE" -> {
                 if (isHost()) return
+                markRegimeChange()
                 _commands.tryEmit(Command.ApplyPlayPause(false))
             }
             "TICK" -> {
@@ -404,8 +546,21 @@ object JamEngine {
                 lastHostTickAt = System.currentTimeMillis()
                 refreshConnStatus(true)
                 if (isHost()) return
-                val dur = payload.optJSONObject("track_json")?.optInt("durationSec", 0)?.times(1000L) ?: 0L
-                _commands.tryEmit(Command.ApplyPllTick(pos, payload.optLong("host_epoch_ms", System.currentTimeMillis()), dur, playing))
+                val dur = payload.optJSONObject("track_json")?.optInt("durationSec", 0)?.times(1000L)
+                    ?: payload.optLong("duration_ms", 0L)
+
+                // P2: lossless sequence matrix — synthesize gap-fills so the
+                // PLL never mistakes a dropped packet for a stall.
+                val seq = payload.optInt("seq", 0)
+                val hostMono = payload.optLong("host_mono", 0L).takeIf { it > 0 } ?: nowSynced()
+                val state = if (playing) 0 else 1 // 0=PLAYING 1=PAUSED (tick_matrix contract)
+                val packedTicks = com.streamify.app.data.NativeBridge.jamTickIngest(
+                    seq, pos, hostMono, state, if (_policy.value == ControlPolicy.EVERYONE) 1 else 0
+                )
+                for (packed in packedTicks) {
+                    val sPos = packed and 0x7FFF_FFFFL
+                    _commands.tryEmit(Command.ApplyPllTick(sPos, hostMono, dur, playing))
+                }
             }
         }
     }
@@ -441,6 +596,10 @@ object JamEngine {
     fun startRuntime() {
         if (sweeperJob?.isActive == true) return
         sessionEndedLocally = false
+        com.streamify.app.data.NativeBridge.jamClockReset()
+        com.streamify.app.data.NativeBridge.kalmanPllReset()
+        tickSeqCounter.set(0)
+        lastRegimeChangeSyncedMs = nowSynced()
         sweeperJob = scope.launch {
             while (isActive) {
                 delay(3000)
@@ -494,11 +653,26 @@ object JamEngine {
         return snap
     }
 
-    /** Compute where the host SHOULD be right now from the snapshot clocks. */
+    /**
+     * Compute where the host SHOULD be right now — skew-free (P1).
+     *
+     * `host_clock_timestamp` / `position_ms` on the DB row were written by the
+     * HOST against its synced-monotonic timeline; the guest reads "now" from
+     * its own synced clock, so cross-device NTP skew cancels identically.
+     * Wall-clock fallback keeps pre-upgrade hosts working.
+     */
     fun extrapolatePosition(session: ListeningSession): Long {
         if (!session.isPlaying) return session.positionMs.coerceAtLeast(0L)
-        val drift = (System.currentTimeMillis() - session.hostClockTimestamp).coerceAtLeast(0L)
-        return (session.positionMs + drift).coerceAtMost(Long.MAX_VALUE)
+        val nowSync = nowSynced()
+        val hostStamp = session.hostClockTimestamp
+        val elapsed = if (hostStamp in 1 until 100_000_000_000L) {
+            // v3 host: row stamp is in the synced-monotonic domain (small value).
+            (nowSync - hostStamp).coerceIn(0L, 600_000L)
+        } else {
+            // Legacy host: wall-clock epoch millis — skew applies (fallback only).
+            (System.currentTimeMillis() - hostStamp).coerceAtLeast(0L)
+        }
+        return session.positionMs + elapsed
     }
 
     fun leaveSession(endForEveryone: Boolean) {
@@ -528,9 +702,12 @@ object JamEngine {
         sessionEndedLocally = true
         _members.value = emptyList()
         _queue.value = emptyList()
+        pendingNextIsTrack = null
         _connStatus.value = ConnStatus.OFFLINE
         latestAppliedEpoch = Long.MIN_VALUE
         lastHostTickAt = 0L
+        com.streamify.app.data.NativeBridge.jamClockReset()
+        com.streamify.app.data.NativeBridge.kalmanPllReset()
         sweeperJob?.cancel()
         sweeperJob = null
         SupabaseClient.leaveJamSession()
@@ -539,4 +716,8 @@ object JamEngine {
     // Attached by the app shell; nullable-safe everywhere by design.
     internal var bridge: Bridge? = null
     fun attachBridge(b: Bridge?) { bridge = b }
+
+    /** Guest-side shadow-prebuffer hook fired when a host NEXT_IS lands. */
+    @Volatile var onNextIsListener: ((Track) -> Unit)? = null
+    fun setOnNextIsListener(l: ((Track) -> Unit)?) { onNextIsListener = l }
 }

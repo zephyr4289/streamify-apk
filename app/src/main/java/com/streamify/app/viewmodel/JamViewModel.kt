@@ -25,54 +25,75 @@ sealed class JamUiState {
 }
 
 /**
- * Guest-side PLL: hard-seek beyond ±2.5s, perfect lock under ±20ms,
- * proportional-integral speed nudging (0.96x–1.04x) between boundaries.
+ * Guest-side PLL — Phase 1.4: delegates every decision to the native 1D
+ * Kalman filter (`kalman_pll.rs`) over the skew-free synced clock.
+ *
+ * Decision bands (native):
+ *   ≤150ms drift  → smooth speed scalar 0.98x–1.02x (inaudible micro-stretch)
+ *   >150ms drift  → feed-forward HARD SEEK to host position + full state reset
+ *   PAUSED regime → velocity clamped / state wiped (zero integral windup)
+ *
+ * Gap-repaired ticks arrive pre-synthesized by `tick_matrix`, so the filter
+ * never mistakes a dropped packet for a stall.
  */
 class JamPhaseLockedLoop(
     private val playerViewModel: PlayerViewModel
 ) {
-    private var lastIntegralError = 0.0
-    private val KP = 0.00008
-    private val KI = 0.00001
-    private val MAX_SPEED_NUDGE = 0.04f
 
     fun evaluatePhaseError(
         reportedPositionMs: Long,
-        hostEpochMs: Long,
+        hostMonoMs: Long,
         durationMs: Long,
-        rttMs: Long = 60L
+        @Suppress("UNUSED_PARAMETER") rttMs: Long = 60L
     ) {
-        val now = System.currentTimeMillis()
-        val oneWayTransit = (rttMs / 2).coerceAtLeast(0L)
-        val estimatedHostPosition = reportedPositionMs + (now - hostEpochMs).coerceAtLeast(0L) + oneWayTransit
-        val boundedHostPosition = if (durationMs > 0) estimatedHostPosition.coerceAtMost(durationMs) else estimatedHostPosition
-        val currentLocalPosition = playerViewModel.getAcousticPositionMs()
-        val errorMs = (boundedHostPosition - currentLocalPosition).toDouble()
+        val nb = com.streamify.app.data.NativeBridge
+        val nowSync = nb.getSyncedJamMonotonicMs()
 
-        if (kotlin.math.abs(errorMs) > 2500.0) {
-            playerViewModel.isApplyingJamSync = true
-            playerViewModel.seekTo(boundedHostPosition)
-            playerViewModel.setPlaybackSpeed(1.0f)
-            lastIntegralError = 0.0
-            playerViewModel.isApplyingJamSync = false
-            return
+        // Bound the measurement to the live track so a stale tick can never
+        // seek past the end during transition races.
+        val z = if (durationMs > 0) reportedPositionMs.coerceIn(0L, durationMs) else reportedPositionMs
+
+        val decision = nb.kalmanPllDecide(z, nowSync, hostMonoMs, playing = true)
+
+        when (decision[0].toInt()) {
+            DECISION_SEEK -> {
+                playerViewModel.isApplyingJamSync = true
+                try {
+                    playerViewModel.seekTo(decision[2])
+                    playerViewModel.setPlaybackSpeed(1.0f)
+                } finally {
+                    playerViewModel.isApplyingJamSync = false
+                }
+                com.streamify.app.util.SLog.d(TAG_PLL, "feed-forward seek → ${decision[2]}ms")
+            }
+            DECISION_SPEED -> {
+                val scalarMilli = decision[1]
+                if (scalarMilli in 980..1020) {
+                    playerViewModel.setPlaybackSpeed(scalarMilli / 1000f)
+                    // Secondary path: micro PCM stretch when the processor is
+                    // attached to a render chain (no-op on stock ExoPlayer).
+                    com.streamify.app.service.SyncAudioProcessor.setSpeedScalar(scalarMilli / 1000f)
+                }
+            }
+            else -> {
+                // HOLD: inside lock band.
+                if (playerViewModel.playbackSpeed() != 1.0f) {
+                    playerViewModel.setPlaybackSpeed(1.0f)
+                    com.streamify.app.service.SyncAudioProcessor.setSpeedScalar(1.0f)
+                }
+            }
         }
-
-        if (kotlin.math.abs(errorMs) < 20.0) {
-            playerViewModel.setPlaybackSpeed(1.0f)
-            lastIntegralError = 0.0
-            return
-        }
-
-        lastIntegralError = (lastIntegralError + errorMs).coerceIn(-5000.0, 5000.0)
-        val adjustment = (KP * errorMs + KI * lastIntegralError).toFloat()
-        val targetSpeed = (1.0f + adjustment).coerceIn(1.0f - MAX_SPEED_NUDGE, 1.0f + MAX_SPEED_NUDGE)
-        playerViewModel.setPlaybackSpeed(targetSpeed)
     }
 
     fun reset() {
-        lastIntegralError = 0.0
+        com.streamify.app.data.NativeBridge.kalmanPllReset()
         playerViewModel.setPlaybackSpeed(1.0f)
+    }
+
+    companion object {
+        private const val TAG_PLL = "KalmanPll"
+        private const val DECISION_SEEK = 2
+        private const val DECISION_SPEED = 1
     }
 }
 
@@ -223,7 +244,7 @@ class JamViewModel(
                     is JamEngine.Command.ApplyPllTick -> {
                         pll?.evaluatePhaseError(
                             reportedPositionMs = cmd.hostPositionMs,
-                            hostEpochMs = cmd.hostEpochMs,
+                            hostMonoMs = cmd.hostEpochMs,
                             durationMs = cmd.durationMs
                         )
                         if (pvm.playerState.value.isPlaying != cmd.play) {
@@ -255,6 +276,21 @@ class JamViewModel(
                 }
                 delay(5000)
             }
+        }
+
+        // 3.5 Skew-free bootstrap (P1): guests probe until the Cristian filter locks.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            while (isActive) {
+                if (JamEngine.clockSyncProbeDue()) {
+                    JamEngine.fireClockSyncProbe()
+                }
+                delay(1_500)
+            }
+        }
+
+        // 3.6 Zero-gap handoff (P3): host NEXT_IS → guest shadow pre-buffer.
+        JamEngine.setOnNextIsListener { nextTrack ->
+            com.streamify.app.service.PredictivePreBufferManager.JamPreBuffer.notifyNextIs(nextTrack)
         }
 
         // 4. Reconnect reconciliation: socket healed → re-adopt room truth.
