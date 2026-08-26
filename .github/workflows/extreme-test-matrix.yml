@@ -5,6 +5,7 @@ on:
     branches: [ main, streamify-yt-spt ]
   pull_request:
     branches: [ main, streamify-yt-spt ]
+  workflow_dispatch:
   schedule:
     - cron: '0 0 * * *' # Nightly Deep Annihilation Matrix
 
