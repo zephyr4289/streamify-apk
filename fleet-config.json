@@ -3,6 +3,10 @@
   "updated": "2026-08-26",
   "note": "Remote fleet adaptation for Streamify's Innertube resolver. Values merge over baked-in defaults; validated clientName/length/STS guards apply. Updated automatically by resolver-canary CI when drift is detected.",
   "signatureTimestamp": 19850,
+  "searchClients": {
+    "musicVersion": "1.20240101.01.00",
+    "webVersion": "2.20240101.01.00"
+  },
   "audioClients": [
     {
       "clientName": "ANDROID",

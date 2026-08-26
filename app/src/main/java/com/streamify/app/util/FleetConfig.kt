@@ -64,6 +64,9 @@ object FleetConfig {
         val signatureTimestamp: Int,
         val audioClients: List<ClientSpec>,
         val videoClients: List<ClientSpec>,
+        /** Innertube search client overrides: music (WEB_REMIX) + web (WEB). */
+        val musicSearchVersion: String?,
+        val webSearchVersion: String?,
         val fetchedAtMs: Long
     )
 
@@ -120,6 +123,13 @@ object FleetConfig {
     fun signatureTimestamp(fallback: Int): Int =
         current?.signatureTimestamp?.takeIf { it in 1000..999_999 } ?: fallback
 
+    /** Search client versions (release-free adaptation of the search endpoint). */
+    fun musicSearchVersion(fallback: String): String =
+        current?.musicSearchVersion?.takeIf { it.matches(SEARCH_VER_REGEX) } ?: fallback
+
+    fun webSearchVersion(fallback: String): String =
+        current?.webSearchVersion?.takeIf { it.matches(SEARCH_VER_REGEX) } ?: fallback
+
     fun statusLine(): String {
         val c = current ?: return "baked-defaults"
         val ts = SimpleDateFormat("MM-dd HH:mm", Locale.US).format(Date(c.fetchedAtMs))
@@ -130,6 +140,10 @@ object FleetConfig {
 
     private val ALLOWED_CLIENTS =
         setOf("ANDROID", "IOS", "ANDROID_VR", "WEB_REMIX", "VISIONOS", "TVHTML5")
+
+    /** Innertube client versions look like 1.20240101.01.00 / 2.20260708.05.00. */
+    private val SEARCH_VER_REGEX = Regex("""\d{1,2}\.\d{8}\.\d{2}\.\d{2}""")
+    private val SEARCH_VER_MAX = 32
 
     /** Returns adopted FleetData, or null when anything fails validation. */
     private fun parseAndAdopt(body: String, nowMs: Long): FleetData? = try {
@@ -143,7 +157,12 @@ object FleetConfig {
         val video = parseClients(root.optJSONArray("videoClients") ?: root.getJSONArray("audioClients"))
         require(audio.isNotEmpty()) { "empty audio fleet" }
 
-        FleetData(version, sts, audio, video, nowMs)
+        val musicSearch = cappedOpt(root.optJSONObject("searchClients")?.optString("musicVersion"), SEARCH_VER_MAX)
+        val webSearch = cappedOpt(root.optJSONObject("searchClients")?.optString("webVersion"), SEARCH_VER_MAX)
+        if (musicSearch != null && !musicSearch.matches(SEARCH_VER_REGEX)) throw Exception("bad musicVersion")
+        if (webSearch != null && !webSearch.matches(SEARCH_VER_REGEX)) throw Exception("bad webVersion")
+
+        FleetData(version, sts, audio, video, musicSearch, webSearch, nowMs)
     } catch (t: Throwable) {
         SLog.e(TAG, "validation error: ${t.message}")
         null

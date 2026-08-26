@@ -161,7 +161,13 @@ object YouTubeMusicSearchApi {
     ): List<OnlineSearchResult> {
         try {
             val clientName = if (isMusic) "WEB_REMIX" else "WEB"
-            val clientVersion = if (isMusic) "1.20240101.01.00" else "2.20240101.01.00"
+            // Release-free adaptation: versions come from FleetConfig when the
+            // remote fleet-config.json carries searchClients overrides.
+            val clientVersion = if (isMusic) {
+                com.streamify.app.util.FleetConfig.musicSearchVersion("1.20240101.01.00")
+            } else {
+                com.streamify.app.util.FleetConfig.webSearchVersion("2.20240101.01.00")
+            }
 
             val requestJson = JSONObject().apply {
                 put("context", JSONObject().apply {
