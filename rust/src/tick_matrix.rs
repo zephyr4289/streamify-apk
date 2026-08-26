@@ -330,5 +330,33 @@ mod tests {
         assert_eq!(TickMatrix::host_interval_ms(60_000, 200_000, 10_000), 1_000);
         assert_eq!(TickMatrix::host_interval_ms(60_000, 200_000, 100), 250);
         assert_eq!(TickMatrix::host_interval_ms(190_000, 200_000, 10_000), 50);
+
+        // ── PHASE 4: takeover reset clears the sequence stream ──
+        // Old host dies at seq 5000; without reset, a new host's seq=1 is
+        // misread as a 4-billion wrap and every tick is dropped.
+        TickMatrix::reset();
+        let mut out = [0i64; 16];
+        let mut last = 0u32;
+        for i in 1..=5000u32 {
+            TickMatrix::ingest(i, i as i64 * 100, i as i64 * 1000, STATE_PLAYING, 0, &mut out);
+            last = i;
+        }
+        assert_eq!(last, 5000);
+        TickMatrix::ingest(6000, 6_000_000, 6_000_000, STATE_PLAYING, 0, &mut out);
+        // Without reset, seq=1 would be dropped as replay:
+        assert_eq!(TickMatrix::ingest(1, 1000, 1_000, STATE_PLAYING, 0, &mut out), 0);
+
+        TickMatrix::reset();
+        assert_eq!(
+            TickMatrix::ingest(1, 1000, 1_000, STATE_PLAYING, 0, &mut out),
+            1,
+            "fresh seq=1 must be accepted after takeover reset"
+        );
+        assert_eq!(JamTick::unpack_pos(out[0]), 1000);
+        assert_eq!(
+            TickMatrix::ingest(2, 2000, 2_000, STATE_PLAYING, 0, &mut out),
+            1,
+            "subsequent ticks continue normally"
+        );
     }
 }

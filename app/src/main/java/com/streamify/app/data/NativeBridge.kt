@@ -482,6 +482,7 @@ object NativeBridge {
         outResults: LongArray
     ): Int
     private external fun nativeTickMatrixDiagnostics(outResults: LongArray)
+    private external fun nativeJamTickMatrixReset()
 
     /** Wipe all Jam clock state (call on session end / role change). */
     fun jamClockReset() {
@@ -577,6 +578,11 @@ object NativeBridge {
         } catch (_: Throwable) {
             longArrayOf(-1L, -1L, -1L)
         }
+    }
+
+    /** PHASE 4: wipe tick sequence state on HOST_TAKEOVER (both sides). */
+    fun jamTickMatrixReset() {
+        try { nativeJamTickMatrixReset() } catch (_: Throwable) {}
     }
 
     // ═══════════════════════════════════════════════════════════════

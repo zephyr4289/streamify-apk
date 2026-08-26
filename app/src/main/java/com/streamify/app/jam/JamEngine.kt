@@ -78,6 +78,9 @@ object JamEngine {
             val play: Boolean
         ) : Command()
         object SessionEnded : Command()
+
+        /** PHASE 4: engine-detected demotion/partition → VM re-runs handshake. */
+        object Rehandshake : Command()
     }
 
     /** Live-player facade attached by the app shell. */
@@ -175,8 +178,11 @@ object JamEngine {
             currentEpochFence = newEpoch
         }
         latestAppliedEpoch = Long.MIN_VALUE
+        // PHASE 4: proper native wipe — without it a new host's seq=1 is
+        // misread as a 4-billion wrap and every tick is silently dropped.
+        com.streamify.app.data.NativeBridge.jamTickMatrixReset()
         com.streamify.app.data.NativeBridge.kalmanPllReset()
-        com.streamify.app.data.NativeBridge.jamTickIngest(0, 0, 0, 0, 0, LongArray(64)) // no-op touch
+        tickSeqCounter.set(0) // our own outgoing stream restarts cleanly too
         markRegimeChange()
         lastRegimeChangeSyncedMs = nowSynced()
         SLog.i("JamLease", "takeover adopted, fence=$newEpoch")
@@ -670,6 +676,8 @@ object JamEngine {
                 // senderIsHost would wrongly reject every legitimate claim.
                 if (newEpoch > 0 && newEpoch > latestAppliedEpoch && !isHost()) {
                     SupabaseClient.adoptForeignHost(code, newHost.ifBlank { null })
+                    // adoptTakeover resets the matrix so the NEW host's seq=1
+                    // stream is accepted instead of dropped as replay.
                     adoptTakeover(newEpoch)
                     if (pivotPos >= 0) {
                         _commands.tryEmit(Command.ApplyPllTick(pivotPos, nowSynced(), 0L, true))
@@ -858,6 +866,12 @@ object JamEngine {
         openOutbox()
         tickSeqCounter.set(0)
         lastRegimeChangeSyncedMs = nowSynced()
+
+        // PHASE 4 (U2): instant lease/host push for this room's row.
+        SupabaseClient.onListeningSessionRow = ::onSessionRowUpdate
+        activeSession()?.id?.let { SupabaseClient.joinSessionRowChannel(it) }
+
+        startFgsLoops()
         sweeperJob = scope.launch {
             while (isActive) {
                 delay(3000)
@@ -958,6 +972,8 @@ object JamEngine {
 
     private fun endLocally() {
         sessionEndedLocally = true
+        stopFgsLoops()
+        SupabaseClient.onListeningSessionRow = null
         _members.value = emptyList()
         _queue.value = emptyList()
         pendingNextIsTrack = null
@@ -974,6 +990,253 @@ object JamEngine {
     // Attached by the app shell; nullable-safe everywhere by design.
     internal var bridge: Bridge? = null
     fun attachBridge(b: Bridge?) { bridge = b }
+
+    // ── PHASE 4: FGS-tied runtime ─────────────────────────────────────────
+
+    /** Playback probes attached with the bridge: returns [positionMs, durationMs]. */
+    @Volatile var playbackProbe: (() -> LongArray)? = null
+    fun attachPlaybackProbe(p: (() -> LongArray)?) { playbackProbe = p }
+
+    private var fgsScope: kotlinx.coroutines.CoroutineScope? = null
+    private val runtimeJobs = mutableListOf<Job>()
+
+    /**
+     * PHASE 4 (U1): the distributed loops are tethered to the
+     * PlaybackService foreground-service scope, NOT a viewModel — they must
+     * survive navigation and hold network priority while music plays.
+     */
+    fun attachRuntimeScope(scope: kotlinx.coroutines.CoroutineScope?) {
+        fgsScope = scope
+        // Self-healing boot: if the session activated before the FGS existed
+        // (or the service was recreated), the loops must come up NOW —
+        // startRuntime()'s sweeper guard would otherwise skip them forever.
+        if (scope != null && isActiveSessionInternal()) startFgsLoops()
+        if (scope == null) stopFgsLoops()
+    }
+
+    /** Cached lease row from Postgres Changes / last poll — dead-man input. */
+    @Volatile private var cachedLeaseExpired: Boolean = true
+    @Volatile private var cachedLeaseHostId: String? = null
+    @Volatile private var cachedParticipantsJson: String = ""
+    @Volatile private var lastLeaseFetchAtMs: Long = 0L
+
+    /**
+     * PHASE 4 (U2): Postgres Changes hook. SupabaseClient forwards every
+     * listening_sessions row update for our session here.
+     */
+    fun onSessionRowUpdate(record: org.json.JSONObject) {
+        val s = activeSession() ?: return
+        val rid = record.optString("id")
+        if (rid.isNotBlank() && rid != s.id) return
+
+        val newHost = record.optString("host_user_id").ifBlank { null }
+        val epoch = record.optLong("host_epoch", 0L)
+        cachedLeaseHostId = newHost
+        cachedLeaseExpired = runCatching {
+            val exp = record.optString("host_lease_expires_at", "")
+            exp.isBlank() || java.time.Instant.parse(exp).toEpochMilli() < System.currentTimeMillis()
+        }.getOrDefault(true)
+
+        SupabaseClient.adoptForeignHost(s.sessionCode, newHost)
+
+        // Instant authority adoption on remote takeover (epoch-gated).
+        if (!isHost() && epoch > latestAppliedEpoch && epoch > 0 &&
+            newHost != null && newHost != s.hostUserId
+        ) {
+            adoptTakeover(epoch)
+        }
+    }
+
+    private fun startFgsLoops() {
+        val scope = fgsScope ?: return
+        if (runtimeJobs.any { it.isActive }) return // already running
+        runtimeJobs.clear()
+        runtimeJobs += scope.launch { heartbeatLoop() }
+        runtimeJobs += scope.launch { guestLeaseWatchLoop() }
+        runtimeJobs += scope.launch { outboxFlushLoop() }
+        runtimeJobs += scope.launch { presencePulseLoop() }
+        runtimeJobs += scope.launch { clockSyncLoop() }
+        SLog.i("JamRuntime", "FGS-tied loops started (${runtimeJobs.size})")
+    }
+
+    private fun stopFgsLoops() {
+        runtimeJobs.forEach { it.cancel() }
+        runtimeJobs.clear()
+    }
+
+    // ── Host TTL heartbeat (moved from JamViewModel; FGS-tied) ──
+    private suspend fun heartbeatLoop() {
+        while (true) {
+            delay(5_000)
+            if (!isActiveSessionInternal() || !isHost() || isDemoted) continue
+            val session = activeSession() ?: continue
+            val probe = playbackProbe?.invoke()
+            val pos = probe?.getOrNull(0)?.coerceAtLeast(0L) ?: 0L
+            val verdict = SupabaseClient.jamHeartbeat(session.id, pos, nowSynced())
+            if (verdict == "DEMOTED") {
+                selfDemote(cachedLeaseHostId)
+                _commands.tryEmit(Command.Rehandshake)
+            }
+        }
+    }
+
+    private fun isActiveSessionInternal(): Boolean =
+        activeSession() != null && !sessionEndedLocally
+
+    // ── Guest lease watch + dead-man's switch (U2/U4) ──
+    private suspend fun guestLeaseWatchLoop() {
+        while (true) {
+            delay(2_000)
+            if (!isActiveSessionInternal() || isHost()) continue
+            val now = System.currentTimeMillis()
+
+            // Tick-silence gating: healthy stream ⇒ zero REST traffic.
+            val tickSilent = now - lastHostTickAt > 15_000
+            if (!tickSilent && !cachedLeaseExpired) continue
+            if (now - lastLeaseFetchAtMs < 10_000) continue
+            lastLeaseFetchAtMs = now
+
+            val session = activeSession() ?: continue
+            val snap = SupabaseClient.fetchJamLeaseRow(session.id) ?: continue
+            cachedLeaseExpired = snap.leaseExpired
+            cachedLeaseHostId = snap.hostUserId
+            cachedParticipantsJson = snap.participantIds.joinToString(",")
+
+            attemptSuccessionIfEligible(session, snap)
+        }
+    }
+
+    /** A+B succession attempt — extracted so both poll and dead-man paths share it. */
+    private suspend fun attemptSuccessionIfEligible(
+        session: com.streamify.app.data.remote.ListeningSession,
+        snap: SupabaseClient.JamLeaseSnapshot
+    ) {
+        val myId = myUserId()
+        val advisory = com.streamify.app.data.NativeBridge.jamIsAdvisorySuccessor(
+            snap.participantIds, snap.hostUserId ?: return, myId,
+            recentlySeen = true
+        )
+        // Vacuum path: grace elapsed lets ANY participant claim server-side.
+        val durMs = playbackProbe?.invoke()?.getOrNull(1) ?: 0L
+        val decision = com.streamify.app.data.NativeBridge.jamExtrapolatePivot(
+            lastPosMs = snap.lastTickPosMs,
+            lastTickMonoMs = snap.lastTickMonoMs,
+            currentSyncedMonoMs = nowSynced(),
+            durationMs = durMs,
+            trackMatches = true
+        )
+        val pivotPos = when (decision[0].toInt()) {
+            PIVOT_OK_CODE -> decision[1]
+            PIVOT_BEYOND_CODE -> 0L
+            else -> return // MISMATCH handled post-claim via TRACK_CHANGE
+        }
+
+        val newEpoch = SupabaseClient.jamTakeover(
+            sessionId = session.id,
+            advisorySuccessor = myId,
+            pivotPosMs = pivotPos,
+            pivotMonoMs = nowSynced(),
+        ) ?: return
+
+        clearDemotion()
+        adoptTakeover(newEpoch)
+        if (decision[0].toInt() == PIVOT_OK_CODE) {
+            _commands.tryEmit(Command.ApplyPllTick(pivotPos, nowSynced(), durMs, true))
+        }
+        broadcastJamTickPublic(
+            sessionCode = session.sessionCode,
+            positionMs = pivotPos.coerceAtLeast(0L),
+            action = "HOST_TAKEOVER",
+            extras = org.json.JSONObject()
+                .put("t_host", myId)
+                .put("t_epoch", newEpoch)
+                .put("t_pivot_pos", decision[1])
+        )
+        SLog.i("JamLease", "authority claimed via ${if (advisory) "deterministic" else "vacuum"} path, epoch=$newEpoch")
+    }
+
+    const val PIVOT_OK_CODE = 0
+    const val PIVOT_BEYOND_CODE = 1
+    const val PIVOT_MISMATCH_CODE = 2
+
+    /** Public tick broadcast wrapper for engine-internal authority events. */
+    fun broadcastJamTickPublic(
+        sessionCode: String,
+        positionMs: Long,
+        action: String,
+        extras: org.json.JSONObject?
+    ): Boolean = SupabaseClient.broadcastJamTick(
+        sessionCode = sessionCode, trackId = "", trackTitle = "", trackArtist = "",
+        positionMs = positionMs, isPlaying = false, action = action,
+        senderId = deviceId, epochMs = currentEpoch(), extras = extras
+    )
+
+    // ── Outbox flush loop (moved from JamViewModel, role-agnostic) ──
+    private suspend fun outboxFlushLoop() {
+        var gcCounter = 0
+        while (true) {
+            delay(1_500)
+            if (!isActiveSessionInternal() || !outboxReady) continue
+            val session = activeSession() ?: continue
+
+            com.streamify.app.data.NativeBridge.jamOutboxReplay(30_000L)
+            val batch = com.streamify.app.data.NativeBridge.jamOutboxPoll(session.sessionCode, 32)
+            if (batch.isEmpty()) {
+                if (++gcCounter % 200 == 0) {
+                    com.streamify.app.data.NativeBridge.jamOutboxGc(24L * 60 * 60 * 1000)
+                }
+                continue
+            }
+            val ackIds = ArrayList<Long>(batch.size / 7)
+            var i = 0
+            while (i + 6 < batch.size) {
+                val opId = batch[i]
+                val meta = batch[i + 1]
+                val oType = ((meta shr 8) and 0xFF).toInt()
+                val oCad = batch[i + 2]
+                val fracBits = batch[i + 3]
+                val oTarget = batch[i + 4]
+                val sent = broadcastJamTickPublic(
+                    sessionCode = session.sessionCode,
+                    positionMs = 0L,
+                    action = "OP",
+                    extras = org.json.JSONObject()
+                        .put("o_id", opId)
+                        .put("o_sender", senderPacked)
+                        .put("o_type", oType)
+                        .put("o_policy", 0)
+                        .put("o_cad", oCad)
+                        .put("o_frac_bits", fracBits)
+                        .put("o_target", oTarget)
+                )
+                if (sent) ackIds.add(opId)
+                i += 7
+            }
+            if (ackIds.isNotEmpty()) {
+                com.streamify.app.data.NativeBridge.jamOutboxAck(ackIds.toLongArray())
+            }
+            delay(250)
+        }
+    }
+
+    // ── Presence pulse (moved from JamViewModel) ──
+    private suspend fun presencePulseLoop() {
+        while (true) {
+            delay(5_000)
+            if (isActiveSessionInternal()) {
+                val me = SupabaseClient.currentUser.value
+                pulsePresence(me?.displayName ?: "Listener", me?.avatarUrl)
+            }
+        }
+    }
+
+    // ── Clock-sync probe loop (moved from JamViewModel) ──
+    private suspend fun clockSyncLoop() {
+        while (true) {
+            delay(1_500)
+            if (clockSyncProbeDue()) fireClockSyncProbe()
+        }
+    }
 
     /** Guest-side shadow-prebuffer hook fired when a host NEXT_IS lands. */
     @Volatile var onNextIsListener: ((Track) -> Unit)? = null

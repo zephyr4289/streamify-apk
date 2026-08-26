@@ -916,6 +916,9 @@ object SupabaseClient {
                         val record = data.optJSONObject("record") ?: data.optJSONObject("old_record") ?: return
 
                         handleIncomingCdcEvent(table, eventType, record)
+                        if (table == "listening_sessions") {
+                            onListeningSessionRow?.invoke(record)
+                        }
                     } else if (event == "broadcast") {
                         val topic = root.optString("topic", "")
                         val msgPayload = payload.optJSONObject("payload") ?: payload
@@ -1704,6 +1707,37 @@ object SupabaseClient {
         }
     }
 
+    /**
+     * PHASE 4 (U2): subscribes to Postgres Changes on THIS session's row so
+     * lease expiry / host takeover push instantly instead of via REST polls.
+     */
+    fun joinSessionRowChannel(sessionId: String) {
+        val ws = realtimeWebSocket ?: return
+        if (!_isRealtimeConnected.value) return
+        try {
+            val topic = "realtime:public:listening_sessions:id=eq.$sessionId"
+            val joinMsg = JSONObject().apply {
+                put("topic", topic)
+                put("event", "phx_join")
+                put("payload", JSONObject().apply {
+                    put("config", JSONObject().apply {
+                        put("postgres_changes", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("event", "UPDATE")
+                                put("schema", "public")
+                                put("table", "listening_sessions")
+                                put("filter", "id=eq.$sessionId")
+                            })
+                        })
+                    })
+                })
+                put("ref", "jam_lease_$sessionId")
+            }
+            ws.send(joinMsg.toString())
+        } catch (_: Exception) {
+        }
+    }
+
     fun leaveJamSession() {
         _activeJam.value = null
     }
@@ -1717,6 +1751,14 @@ object SupabaseClient {
      * PHASE 3: local adoption of a foreign host after takeover/demotion —
      * keeps the in-memory session mirror consistent with the server row.
      */
+    /**
+     * PHASE 4 (U2): listening_sessions row updates are forwarded here by the
+     * WS dispatcher. JamEngine registers this at runtime — a static callback
+     * avoids a circular import (engine already imports this file).
+     */
+    @Volatile
+    var onListeningSessionRow: ((org.json.JSONObject) -> Unit)? = null
+
     fun adoptForeignHost(sessionCode: String, newHostUserId: String?) {
         val current = _activeJam.value ?: return
         if (current.sessionCode != sessionCode) return

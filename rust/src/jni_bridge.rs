@@ -1685,3 +1685,15 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamIsAdv
     }))
     .unwrap_or(0)
 }
+
+/// PHASE 4: wipes the tick sequence ring on HOST_TAKEOVER so the new host's
+/// seq restart is accepted instead of misread as a 4-billion wrap gap.
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamTickMatrixReset(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        crate::tick_matrix::TickMatrix::reset();
+    }));
+}

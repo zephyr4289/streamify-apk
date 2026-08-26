@@ -14,6 +14,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class PlaybackService : MediaSessionService() {
+
+    private var jamServiceScope: kotlinx.coroutines.CoroutineScope? = null
     companion object {
         // LEGACY objects kept alive only for non-chain consumers:
         //  - syncAudioProcessor: Jam lockstep hardware-latency compensation
@@ -116,6 +118,17 @@ class PlaybackService : MediaSessionService() {
         preBufferManager = PredictivePreBufferManager(this)
         // Jam Phase-1: shadow pre-buffer hook for host NEXT_IS intents.
         PredictivePreBufferManager.JamPreBuffer.install(preBufferManager!!)
+
+        // PHASE 4 (U1): tether the Jam distributed loops to THIS foreground
+        // service. They survive navigation and hold network priority while
+        // music plays — viewModelScope would die on the first swipe-away.
+        jamServiceScope = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+        )
+        com.streamify.app.jam.JamEngine.attachRuntimeScope(jamServiceScope!!)
+        if (com.streamify.app.jam.JamEngine.isActive()) {
+            com.streamify.app.jam.JamEngine.startRuntime()
+        }
 
         exoPlayer.addListener(object : androidx.media3.common.Player.Listener {
             private var lastPlayStartMs: Long = 0L
@@ -330,6 +343,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        jamServiceScope?.cancel()
+        com.streamify.app.jam.JamEngine.attachRuntimeScope(null)
         AudioDeviceManager.release(this)
         EqualizerManager.release()
         preBufferManager?.release()
