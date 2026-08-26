@@ -1613,10 +1613,10 @@ object SupabaseClient {
         senderId: String = "",
         epochMs: Long = 0L,
         extras: JSONObject? = null
-    ) {
-        val ws = realtimeWebSocket ?: return
-        if (!_isRealtimeConnected.value) return
-        try {
+    ): Boolean {
+        val ws = realtimeWebSocket ?: return false
+        if (!_isRealtimeConnected.value) return false
+        return try {
             val payload = JSONObject().apply {
                 put("session_code", sessionCode.uppercase())
                 put("action", action)
@@ -1647,7 +1647,7 @@ object SupabaseClient {
             }
             ws.send(broadcastMsg.toString())
         } catch (e: Exception) {
-            // Non-blocking
+            false // Non-blocking
         }
     }
 
@@ -1682,7 +1682,7 @@ object SupabaseClient {
             }
             ws.send(broadcastMsg.toString())
         } catch (e: Exception) {
-            // Non-blocking
+            false // Non-blocking
         }
     }
 

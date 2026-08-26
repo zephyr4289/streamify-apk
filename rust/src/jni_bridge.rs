@@ -1309,3 +1309,304 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeGetLocal
     }))
     .unwrap_or(0)
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// JAM PHASE-2 STATE CORE: jam_crdt + jam_outbox
+// ═══════════════════════════════════════════════════════════════════
+
+use crate::jam_crdt::{JamCrdtState, JamOp};
+use crate::jam_outbox::JamOutbox;
+
+static JAM_CRDT: std::sync::Mutex<Option<JamCrdtState>> = std::sync::Mutex::new(None);
+static JAM_OUTBOX: std::sync::Mutex<Option<JamOutbox>> = std::sync::Mutex::new(None);
+
+#[inline]
+fn crdt_with<T>(f: impl FnOnce(&mut JamCrdtState) -> T) -> Option<T> {
+    let mut guard = JAM_CRDT.lock().ok()?;
+    let st = guard.get_or_insert_with(JamCrdtState::new);
+    Some(f(st))
+}
+
+#[inline]
+fn outbox_with<T>(f: impl FnOnce(&JamOutbox) -> T) -> Option<T> {
+    let guard = JAM_OUTBOX.lock().ok()?;
+    let ob = guard.as_ref()?;
+    Some(f(ob))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamCrdtReset(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Ok(mut g) = JAM_CRDT.lock() {
+            *g = Some(JamCrdtState::new());
+        }
+    }));
+}
+
+/// Applies one op. checksum == -1 seals locally (UI-generated); otherwise the
+/// wire checksum is honored and validated. Returns 1 applied / 0 rejected.
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamCrdtApplyOp(
+    _env: JNIEnv,
+    _class: JClass,
+    op_id: jlong,
+    sender_packed: jlong, // 4 device-nonce bytes in low half
+    op_type: jint,
+    policy_flags: jint,
+    cad_id: jlong,
+    frac_bits: jlong,
+    target_add_op_id: jlong,
+    checksum: jlong, // -1 => seal locally
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        let mut nonce = [0u8; 4];
+        nonce.copy_from_slice(&(sender_packed as u32).to_be_bytes());
+        let mut op = JamOp {
+            op_id: op_id as u64,
+            sender_nonce: nonce,
+            op_type: op_type.clamp(0, 255) as u8,
+            policy_flags: policy_flags.clamp(0, 255) as u8,
+            _pad1: [0; 2],
+            track_cad_id: cad_id as u64,
+            frac_index: f64::from_bits(frac_bits as u64),
+            target_add_op_id: target_add_op_id as u64,
+            checksum: if checksum < 0 { 0 } else { checksum as u32 },
+            _pad2: 0,
+        };
+        if checksum < 0 {
+            op.checksum = op.compute_checksum();
+        }
+        crdt_with(|st| st.apply_op(&op) as jint)
+    }))
+    .unwrap_or(Some(0))
+    .unwrap_or(0)
+}
+
+/// Fold: fills out_queue with triplets [fracBits, addOpId, cadId] and
+/// out_tomb with suppressed ids. Returns queue-entry count.
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamCrdtFold(
+    mut env: JNIEnv,
+    _class: JClass,
+    out_queue: JLongArray,
+    out_tomb: JLongArray,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some((queue, tomb)) = crdt_with(|st| st.fold_to_snapshot()) else { return 0 };
+        let n = ((env.get_array_length(&out_queue).unwrap_or(0) / 3).min(queue.len() as i32)).min(2048) as usize;
+        let mut flat = Vec::with_capacity(n * 3);
+        for (frac, add_id, cad) in queue.iter().take(n) {
+            flat.push(*frac as jlong);
+            flat.push(*add_id as jlong);
+            flat.push(*cad as jlong);
+        }
+        let _ = env.set_long_array_region(&out_queue, 0, &flat);
+
+        let tn = (env.get_array_length(&out_tomb).unwrap_or(0)).min(tomb.len() as i32) as usize;
+        let tflat: Vec<jlong> = tomb.iter().take(tn).map(|&id| id as jlong).collect();
+        let _ = env.set_long_array_region(&out_tomb, 0, &tflat);
+        n as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamGenerateOpId(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| JamOp::generate_op_id() as jlong)).unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamCanonicalCadId(
+    mut env: JNIEnv,
+    _class: JClass,
+    title: JString,
+    artist: JString,
+    duration_sec: jint,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        let t: String = env.get_string(&title).map(|s| s.into()).unwrap_or_default();
+        let a: String = env.get_string(&artist).map(|s| s.into()).unwrap_or_default();
+        crate::repository::generate_cad_id_u64(&t, &a, duration_sec.max(0) as u32) as jlong
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamOutboxOpen(
+    mut env: JNIEnv,
+    _class: JClass,
+    db_path: JString,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        let path: String = env.get_string(&db_path).map(|s| s.into()).unwrap_or_default();
+        if path.is_blank_path() {
+            return -1;
+        }
+        match JamOutbox::new(std::path::Path::new(&path)) {
+            Ok(ob) => {
+                if let Ok(mut g) = JAM_OUTBOX.lock() {
+                    *g = Some(ob);
+                }
+                1
+            }
+            Err(_) => -2,
+        }
+    }))
+    .unwrap_or(-3)
+}
+
+#[allow(clippy::needless_return)]
+trait IsBlankPath {
+    fn is_blank_path(&self) -> bool;
+}
+impl IsBlankPath for String {
+    fn is_blank_path(&self) -> bool {
+        self.trim().is_empty()
+    }
+}
+
+/// Enqueues one sealed op into the outbox journal. Returns true when written.
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamOutboxEnqueue(
+    mut env: JNIEnv,
+    _class: JClass,
+    op_id: jlong,
+    sender_packed: jlong,
+    op_type: jint,
+    policy_flags: jint,
+    cad_id: jlong,
+    frac_bits: jlong,
+    target_add_op_id: jlong,
+    session_code: JString,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        let session: String = env.get_string(&session_code).map(|s| s.into()).unwrap_or_default();
+        let mut nonce = [0u8; 4];
+        nonce.copy_from_slice(&(sender_packed as u32).to_be_bytes());
+        let mut op = JamOp {
+            op_id: op_id as u64,
+            sender_nonce: nonce,
+            op_type: op_type.clamp(0, 255) as u8,
+            policy_flags: policy_flags.clamp(0, 255) as u8,
+            _pad1: [0; 2],
+            track_cad_id: cad_id as u64,
+            frac_index: f64::from_bits(frac_bits as u64),
+            target_add_op_id: target_add_op_id as u64,
+            checksum: 0,
+            _pad2: 0,
+        };
+        op.checksum = op.compute_checksum();
+        outbox_with(|ob| match ob.enqueue(&op, &session) {
+            Ok(written) => written as jboolean,
+            Err(_) => 0,
+        })
+    }))
+    .unwrap_or(Some(0))
+    .unwrap_or(0)
+}
+
+/// Polls pending ops for a session. out_ops stride 7:
+/// [op_id, type|policy<<8|nonce, cad, fracBits, target, checksum, 0].
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamOutboxPoll(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_code: JString,
+    limit: jint,
+    out_ops: JLongArray,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        let session: String = env.get_string(&session_code).map(|s| s.into()).unwrap_or_default();
+        let capacity = (env.get_array_length(&out_ops).unwrap_or(0).max(0) / 7) as usize;
+        let Some(ops) = outbox_with(|ob| ob.poll_batch(&session, (limit.max(0) as usize).min(capacity)).ok())
+        else {
+            return 0;
+        };
+        let Some(ops) = ops else { return 0 };
+        let n = ops.len().min(capacity.max(1));
+        let mut flat = Vec::with_capacity(n * 7);
+        for op in ops.iter().take(n) {
+            let mut nonce4 = [0u8; 4];
+            nonce4.copy_from_slice(&op.sender_nonce);
+            flat.push(op.op_id as jlong);
+            flat.push(((op.op_type as i64) << 8)
+                | ((op.policy_flags as i64) << 16)
+                | (u32::from_be_bytes(nonce4) as i64 & 0xFFFF));
+            flat.push(op.track_cad_id as jlong);
+            flat.push(op.frac_index.to_bits() as i64);
+            flat.push(op.target_add_op_id as jlong);
+            flat.push(op.checksum as jlong);
+            flat.push(0);
+        }
+        let _ = env.set_long_array_region(&out_ops, 0, &flat);
+        n as jint
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamOutboxAck(
+    mut env: JNIEnv,
+    _class: JClass,
+    op_ids: JLongArray,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        let len = env.get_array_length(&op_ids).unwrap_or(0);
+        if len == 0 {
+            return 0;
+        }
+        let mut buf = vec![0i64; len as usize];
+        if env.get_long_array_region(&op_ids, 0, &mut buf).is_err() {
+            return 0;
+        }
+        let ids: Vec<u64> = buf.iter().map(|&v| v as u64).collect();
+        outbox_with(|ob| ob.ack(&ids).unwrap_or(0) as jint).unwrap_or(0)
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamOutboxReplay(
+    _env: JNIEnv,
+    _class: JClass,
+    stale_threshold_ms: jlong,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        outbox_with(|ob| ob.replay_pending(stale_threshold_ms).unwrap_or(0) as jint)
+    }))
+    .unwrap_or(Some(0))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamOutboxPendingCount(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_code: JString,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        let session: String = env.get_string(&session_code).map(|s| s.into()).unwrap_or_default();
+        outbox_with(|ob| ob.pending_count(&session).unwrap_or(0) as jint)
+    }))
+    .unwrap_or(Some(0))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamOutboxGc(
+    _env: JNIEnv,
+    _class: JClass,
+    keep_ms: jlong,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        outbox_with(|ob| ob.gc(keep_ms).unwrap_or(0) as jint)
+    }))
+    .unwrap_or(Some(0))
+    .unwrap_or(0)
+}

@@ -137,6 +137,52 @@ object JamEngine {
     /** Host-side: identity of the queue head already announced via NEXT_IS. */
     @Volatile var announcedNextId: String? = null
 
+    // ── Phase 2: CRDT + outbox state ─────────────────────────────────────
+
+    /**
+     * Element identity index: cad_id -> add_op_id. Populated on every Add we
+     * generate or accept, so Remove/Reorder ops can target exact elements
+     * instead of matching title+artist strings (P6).
+     */
+    private val elementIndex = ConcurrentHashMap<Long, Long>()
+
+    /** cad_id -> Track object cache for rebuilding the UI view post-fold. */
+    private val cadTrackCache = ConcurrentHashMap<Long, Track>()
+
+    /** cad_id -> live fractional index from the latest authoritative fold. */
+    private val fracByCad = ConcurrentHashMap<Long, Double>()
+
+    @Volatile var outboxReady: Boolean = false
+        private set
+
+    val senderPacked: Long by lazy {
+        // Stable per-process 4-byte device identity for op envelopes.
+        try {
+            java.nio.ByteBuffer.wrap(
+                java.security.MessageDigest.getInstance("MD5")
+                    .digest(deviceId.toByteArray())
+            ).long // first 8 bytes as long; low 4 bytes are the nonce half
+        } catch (_: Throwable) {
+            deviceId.hashCode().toLong()
+        }
+    }
+
+    companion object OpCodes {
+        const val OP_ADD: Int = 1
+        const val OP_REMOVE: Int = 2
+        const val OP_REORDER: Int = 3
+    }
+
+    private fun openOutbox() {
+        val ctx = com.streamify.app.data.TrackRepository.appContext ?: return
+        outboxReady = try {
+            val db = java.io.File(ctx.filesDir, "jam_outbox.db")
+            com.streamify.app.data.NativeBridge.jamOutboxOpen(db.absolutePath)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     /**
      * THE time source for all Jam math. On hosts / pre-handshake guests this is
      * the raw monotonic clock; on synced guests it maps into the host timeline,
@@ -319,19 +365,134 @@ object JamEngine {
 
     // ═══════════════ Shared queue operations ═══════════════
 
-    fun addToQueue(track: Track, addedByName: String) {
-        addedByMap[track.id.toString()] = "Added by $addedByName"
-        _queue.update { current -> current + track }
-        commitQueueIfHost()
-        broadcastQueueOp("QUEUE_ADD", track)
+    // ── Phase 2: local-first CRDT mutations (P5/P6) ──────────────────────
+
+    private fun cadFor(track: Track): Long =
+        com.streamify.app.data.NativeBridge.jamCanonicalCadId(
+            track.title, track.artist, track.durationSec
+        )
+
+    /** Seals, applies, persists, and broadcasts one mutation op. */
+    private fun mutate(
+        type: Int,
+        track: Track,
+        fracIndexProvider: () -> Double,
+        targetAddOpId: Long = 0L
+    ): Boolean {
+        if (!isActive()) return false
+        val nb = com.streamify.app.data.NativeBridge
+        val session = activeSession() ?: return false
+
+        val cadId = when (type) {
+            OP_ADD -> cadFor(track)
+            else -> cadFor(track) // echo for UI cache; engine uses element id
+        }
+        if (cadId == 0L && type == OP_ADD) return false
+
+        val opId = nb.jamGenerateOpId()
+        val frac = fracIndexProvider()
+        val applied = nb.jamCrdtApplyLocalOp(
+            opId, senderPacked, type, if (_policy.value == ControlPolicy.EVERYONE) 1 else 0,
+            cadId, frac, targetAddOpId
+        )
+        if (!applied) return false
+
+        if (type == OP_ADD) {
+            elementIndex[cadId] = opId
+            cadTrackCache[cadId] = track
+        } else if (targetAddOpId != 0L) {
+            // Tombstoned element — drop identity mappings.
+            elementIndex.entries.removeIf { it.value == targetAddOpId }
+        }
+
+        // Local-first persist (P5): survives partitions & process death.
+        nb.jamOutboxEnqueue(opId, senderPacked, type, 0, cadId, frac, targetAddOpId, session.sessionCode)
+
+        refreshQueueFromCrdt()
+        broadcastOp(
+            JamOpWire(opId, senderPacked, type, 0, cadId, frac, targetAddOpId),
+            session.sessionCode
+        )
+        return true
     }
 
-    fun removeFromQueue(track: Track) {
-        _queue.update { current ->
-            current.filterNot { it.id == track.id || (it.title == track.title && it.artist == track.artist) }
+    fun addToQueue(track: Track, addedByName: String): Boolean {
+        // Tail index = after(max known frac); empty queue -> FIRST_INDEX.
+        val tailFrac = fracByCad.values.maxOrNull()
+            ?.let { FractionalIndexEngine.after(it).value }
+            ?: FractionalIndexEngine.FIRST_INDEX
+        addedByMap[track.id.toString()] = "Added by $addedByName"
+        val ok = mutate(OP_ADD, track, { tailFrac })
+        if (!ok) {
+            // Native layer unavailable → legacy best-effort path.
+            _queue.update { current -> current + track }
+            commitQueueIfHost()
+            broadcastQueueOp("QUEUE_ADD", track)
         }
-        commitQueueIfHost()
-        broadcastQueueOp("QUEUE_REMOVE", track)
+        return ok
+    }
+
+    fun removeFromQueue(track: Track): Boolean {
+        val cad = cadFor(track)
+        val target = elementIndex[cad]
+            ?: _queue.value.size.let { 0L } // unknown element → legacy below
+        val ok = target != 0L && mutate(OP_REMOVE, track, { 0.0 }, target)
+        if (!ok) {
+            _queue.update { current ->
+                current.filterNot { it.id == track.id || (it.title == track.title && it.artist == track.artist) }
+            }
+            commitQueueIfHost()
+            broadcastQueueOp("QUEUE_REMOVE", track)
+        }
+        return ok
+    }
+
+    /**
+     * Rebuilds the UI queue from the authoritative CRDT fold, resolving cad
+     * identities back to Track objects via the cache; falls back to the
+     * existing in-memory list when the native layer is cold.
+     */
+    private fun refreshQueueFromCrdt() {
+        val fold = com.streamify.app.data.NativeBridge.jamCrdtFold() ?: return
+        val (triples, _) = fold
+        if (triples.isEmpty()) return
+        val rebuilt = ArrayList<Track>(triples.size / 3 + 1)
+        var i = 0
+        while (i + 2 < triples.size) {
+            val cad = triples[i + 2]
+            cadTrackCache[cad]?.let { rebuilt.add(it) }
+            i += 3
+        }
+        i = 0
+        while (i + 2 < triples.size) {
+            fracByCad[triples[i + 2]] = Double.fromBits(triples[i])
+            i += 3
+        }
+        if (rebuilt.isNotEmpty()) {
+            _queue.value = rebuilt
+            commitQueueIfHost()
+        }
+    }
+
+    data class JamOpWire(
+        val opId: Long, val sender: Long, val type: Int,
+        val policy: Int, val cadId: Long, val frac: Double, val target: Long
+    )
+
+    private fun broadcastOp(op: JamOpWire, sessionCode: String) {
+        SupabaseClient.broadcastJamTick(
+            sessionCode = sessionCode, trackId = "", trackTitle = "", trackArtist = "",
+            positionMs = 0L, isPlaying = false, action = "OP",
+            senderId = deviceId, epochMs = currentEpoch(),
+            extras = org.json.JSONObject()
+                .put("o_id", op.opId)
+                .put("o_sender", op.sender)
+                .put("o_type", op.type)
+                .put("o_policy", op.policy)
+                .put("o_cad", op.cadId)
+                .put("o_frac_bits", op.frac.toRawBits())
+                .put("o_target", op.target)
+        )
     }
 
     fun queueHead(): Track? = _queue.value.firstOrNull()
@@ -421,6 +582,34 @@ object JamEngine {
                     runCatching {
                         _policy.value = ControlPolicy.valueOf(payload.optString("policy", "EVERYONE"))
                     }
+                }
+            }
+
+            // ── Phase 2: CRDT mutation op from a peer ──────────────────────
+            "OP" -> {
+                if (sender == deviceId) return
+                val nb = com.streamify.app.data.NativeBridge
+                val opId = payload.optLong("o_id", 0L)
+                val oSender = payload.optLong("o_sender", 0L)
+                val oType = payload.optInt("o_type", 0)
+                val oPolicy = payload.optInt("o_policy", 0)
+                val oCad = payload.optLong("o_cad", 0L)
+                val oFrac = Double.fromBits(payload.optLong("o_frac_bits", 0L))
+                val oTarget = payload.optLong("o_target", 0L)
+
+                val applied = nb.jamCrdtApplyWireOp(
+                    opId, oSender, oType, oPolicy, oCad, oFrac, oTarget,
+                    checksum = -1L // wire JSON has no checksum field yet; native seals+validates structure
+                )
+                if (applied) {
+                    if (oType == 1 && oCad != 0L) {
+                        elementIndex[oCad] = opId
+                        // Resolve the Track object from existing queue view if known.
+                        _queue.value.firstOrNull {
+                            com.streamify.app.data.NativeBridge.jamCanonicalCadId(it.title, it.artist, it.durationSec) == oCad
+                        }?.let { cadTrackCache[oCad] = it }
+                    }
+                    refreshQueueFromCrdt()
                 }
             }
 
@@ -598,6 +787,10 @@ object JamEngine {
         sessionEndedLocally = false
         com.streamify.app.data.NativeBridge.jamClockReset()
         com.streamify.app.data.NativeBridge.kalmanPllReset()
+        com.streamify.app.data.NativeBridge.jamCrdtReset()
+        elementIndex.clear()
+        cadTrackCache.clear()
+        openOutbox()
         tickSeqCounter.set(0)
         lastRegimeChangeSyncedMs = nowSynced()
         sweeperJob = scope.launch {

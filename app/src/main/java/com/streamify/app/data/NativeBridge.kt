@@ -579,6 +579,176 @@ object NativeBridge {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // JAM PHASE-2 STATE CORE (jam_crdt / jam_outbox)
+    // ═══════════════════════════════════════════════════════════════
+
+    private external fun nativeJamCrdtReset()
+    private external fun nativeJamCrdtApplyOp(
+        opId: Long,
+        senderPacked: Long,
+        opType: Int,
+        policyFlags: Int,
+        cadId: Long,
+        fracBits: Long,
+        targetAddOpId: Long,
+        checksum: Long // -1 => seal locally
+    ): Int
+    private external fun nativeJamCrdtFold(outQueue: LongArray, outTomb: LongArray): Int
+    private external fun nativeJamGenerateOpId(): Long
+    private external fun nativeJamCanonicalCadId(title: String, artist: String, durationSec: Int): Long
+    private external fun nativeJamOutboxOpen(dbPath: String): Int
+    private external fun nativeJamOutboxEnqueue(
+        opId: Long,
+        senderPacked: Long,
+        opType: Int,
+        policyFlags: Int,
+        cadId: Long,
+        fracBits: Long,
+        targetAddOpId: Long,
+        sessionCode: String
+    ): Boolean
+    private external fun nativeJamOutboxPoll(sessionCode: String, limit: Int, outOps: LongArray): Int
+    private external fun nativeJamOutboxAck(opIds: LongArray): Int
+    private external fun nativeJamOutboxReplay(staleThresholdMs: Long): Int
+    private external fun nativeJamOutboxPendingCount(sessionCode: String): Int
+    private external fun nativeJamOutboxGc(keepMs: Long): Int
+
+    /** Wipe the CRDT queue/tombstones (session end / role change). */
+    fun jamCrdtReset() {
+        try { nativeJamCrdtReset() } catch (_: Throwable) {}
+    }
+
+    /**
+     * Applies a LOCAL UI-generated op: checksum sealed natively. Returns true
+     * when the state machine accepted it.
+     */
+    fun jamCrdtApplyLocalOp(
+        opId: Long,
+        senderPacked: Long,
+        opType: Int,
+        policyFlags: Int,
+        cadId: Long,
+        fracIndex: Double,
+        targetAddOpId: Long
+    ): Boolean = try {
+        nativeJamCrdtApplyOp(
+            opId, senderPacked, opType, policyFlags, cadId,
+            fracIndex.toRawBits(), targetAddOpId, -1L
+        ) == 1
+    } catch (_: Throwable) {
+        false
+    }
+
+    /**
+     * Applies a WIRE-received op: the transmitted checksum is honored and
+     * validated before merge.
+     */
+    fun jamCrdtApplyWireOp(
+        opId: Long,
+        senderPacked: Long,
+        opType: Int,
+        policyFlags: Int,
+        cadId: Long,
+        fracIndex: Double,
+        targetAddOpId: Long,
+        checksum: Long
+    ): Boolean = try {
+        nativeJamCrdtApplyOp(
+            opId, senderPacked, opType, policyFlags, cadId,
+            fracIndex.toRawBits(), targetAddOpId, checksum
+        ) == 1
+    } catch (_: Throwable) {
+        false
+    }
+
+    /**
+     * Folds the live CRDT into [frac, addOpId, cadId] triplets + tombstones.
+     * Returns null when nothing is initialized.
+     */
+    fun jamCrdtFold(): Pair<LongArray, LongArray>? {
+        return try {
+            val q = LongArray(2048 * 3)
+            val t = LongArray(2048)
+            val n = nativeJamCrdtFold(q, t)
+            if (n <= 0) null else q.copyOf(n * 3) to t
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Strictly monotonic mutation id (clock-step-back immune). */
+    fun jamGenerateOpId(): Long {
+        return try { nativeJamGenerateOpId() } catch (_: Throwable) {
+            System.nanoTime()
+        }
+    }
+
+    /** Canonical CAD-ID u64 — identical value across every subsystem. */
+    fun jamCanonicalCadId(title: String, artist: String, durationSec: Int): Long {
+        return try { nativeJamCanonicalCadId(title, artist, durationSec) } catch (_: Throwable) {
+            0L
+        }
+    }
+
+    /** Opens the WAL-backed outbox journal. Call once per process on join. */
+    fun jamOutboxOpen(dbPath: String): Boolean {
+        return try { nativeJamOutboxOpen(dbPath) == 1 } catch (_: Throwable) { false }
+    }
+
+    /** Local-first mutation persist. Returns true when newly written. */
+    fun jamOutboxEnqueue(
+        opId: Long,
+        senderPacked: Long,
+        opType: Int,
+        policyFlags: Int,
+        cadId: Long,
+        fracIndex: Double,
+        targetAddOpId: Long,
+        sessionCode: String
+    ): Boolean = try {
+        nativeJamOutboxEnqueue(
+            opId, senderPacked, opType, policyFlags, cadId,
+            fracIndex.toRawBits(), targetAddOpId, sessionCode
+        )
+    } catch (_: Throwable) {
+        false
+    }
+
+    /**
+     * Drains up to [limit] pending ops for a session. Each op packs 7 longs:
+     * [opId, type|policy<<8|nonce, cad, fracBits, target, checksum, 0].
+     */
+    fun jamOutboxPoll(sessionCode: String, limit: Int): LongArray {
+        return try {
+            val out = LongArray(limit.coerceIn(1, 256) * 7)
+            val n = nativeJamOutboxPoll(sessionCode, limit, out)
+            if (n > 0) out.copyOf(n * 7) else LongArray(0)
+        } catch (_: Throwable) {
+            LongArray(0)
+        }
+    }
+
+    /** Host ratified these op ids — purge from the journal. */
+    fun jamOutboxAck(opIds: LongArray): Int {
+        return try { nativeJamOutboxAck(opIds) } catch (_: Throwable) { 0 }
+    }
+
+    /** Partition heal / periodic stale sweep. Returns reverted count. */
+    fun jamOutboxReplay(staleThresholdMs: Long = 30_000L): Int {
+        return try { nativeJamOutboxReplay(staleThresholdMs) } catch (_: Throwable) { 0 }
+    }
+
+    /** Backlog depth for "syncing N edits" UI badges. */
+    fun jamOutboxPendingCount(sessionCode: String): Int {
+        return try { nativeJamOutboxPendingCount(sessionCode) } catch (_: Throwable) { 0 }
+    }
+
+    fun jamOutboxGc(keepMs: Long = 24 * 60 * 60 * 1000L): Int {
+        return try { nativeJamOutboxGc(keepMs) } catch (_: Throwable) { 0 }
+    }
+
+
 
     fun updateThermalStatus(status: Int): Int {
         return try {

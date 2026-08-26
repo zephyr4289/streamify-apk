@@ -293,6 +293,70 @@ class JamViewModel(
             com.streamify.app.service.PredictivePreBufferManager.JamPreBuffer.notifyNextIs(nextTrack)
         }
 
+        // 3.7 PHASE 2: local-first outbox flush loop (P5).
+        // Drains the WAL journal over the socket; ops that fail to send stay
+        // PENDING and replay automatically on partition heal. Host CRDT
+        // deduplicates by op_id, so at-least-once delivery is safe.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            var gcCounter = 0
+            while (isActive) {
+                val engine = JamEngine
+                if (!engine.isActive() || !engine.outboxReady) {
+                    delay(2_000)
+                    continue
+                }
+                val session = (uiState.value as? JamUiState.Active)?.session
+                if (session == null) {
+                    delay(2_000)
+                    continue
+                }
+
+                // Heal stale in-flight rows + dead-letter poison ops.
+                com.streamify.app.data.NativeBridge.jamOutboxReplay(30_000L)
+
+                val batch = com.streamify.app.data.NativeBridge.jamOutboxPoll(session.sessionCode, 32)
+                if (batch.isEmpty()) {
+                    if (++gcCounter % 200 == 0) { // ~every 5 min at 1.5s cadence
+                        com.streamify.app.data.NativeBridge.jamOutboxGc(24L * 60 * 60 * 1000)
+                    }
+                    delay(1_500)
+                    continue
+                }
+
+                val ackIds = ArrayList<Long>(batch.size / 7)
+                var i = 0
+                while (i + 6 < batch.size) {
+                    val opId = batch[i]
+                    val meta = batch[i + 1]
+                    val oType = ((meta shr 8) and 0xFF).toInt()
+                    val oCad = batch[i + 2]
+                    val frac = Double.fromBits(batch[i + 3])
+                    val oTarget = batch[i + 4]
+
+                    val sent = SupabaseClient.broadcastJamTick(
+                        sessionCode = session.sessionCode,
+                        trackId = "", trackTitle = "", trackArtist = "",
+                        positionMs = 0L, isPlaying = false, action = "OP",
+                        senderId = engine.deviceId,
+                        extras = org.json.JSONObject()
+                            .put("o_id", opId)
+                            .put("o_sender", engine.senderPacked)
+                            .put("o_type", oType)
+                            .put("o_policy", 0)
+                            .put("o_cad", oCad)
+                            .put("o_frac_bits", batch[i + 3])
+                            .put("o_target", oTarget)
+                    )
+                    if (sent) ackIds.add(opId)
+                    i += 7
+                }
+                if (ackIds.isNotEmpty()) {
+                    com.streamify.app.data.NativeBridge.jamOutboxAck(ackIds.toLongArray())
+                }
+                delay(250) // drain pacing
+            }
+        }
+
         // 4. Reconnect reconciliation: socket healed → re-adopt room truth.
         viewModelScope.launch {
             SupabaseClient.isRealtimeConnected.collect { connected ->
