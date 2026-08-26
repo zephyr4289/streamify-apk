@@ -26,11 +26,11 @@ This tracking checklist monitors the authoring of comprehensive, industrial-grad
   - [x] C.2 Dynamic Time Warping (DTW) Audio-to-Phoneme Alignment
   - [x] C.3 120 FPS Fluid Shaded Lyrics Canvas & Kinematic Scrolling
 
-- [ ] **Phase D: Neural ML, CLAP ONNX Embeddings & Continuum Radio Engine** (`docs/04_NEURAL_CONTINUUM_ENGINE.md`)
-  - [ ] D.1 ONNX Runtime & CLAP 512-D Acoustic Feature Extraction
-  - [ ] D.2 Multi-Order Markov Transition Chains & Skip Penalty Attenuation
-  - [ ] D.3 Anti-Drift Vector Anchor Mathematics & Continuous Radio
-  - [ ] D.4 NeuroQueue Dynamic Scoring & Real-Time Queue Optimization
+- [x] **Phase D: Neural ML, CLAP ONNX Embeddings & Continuum Radio Engine** (`docs/04_NEURAL_CONTINUUM_ENGINE.md`)
+  - [x] D.1 ONNX Runtime & CLAP 512-D Acoustic Feature Extraction
+  - [x] D.2 Multi-Order Markov Transition Chains & Skip Penalty Attenuation
+  - [x] D.3 Anti-Drift Vector Anchor Mathematics & Continuous Radio
+  - [x] D.4 NeuroQueue Dynamic Scoring & Real-Time Queue Optimization
 
 - [ ] **Phase E: Decentralized Mesh, P2P AirDrop & LAN Clock Sync Engine** (`docs/05_MESH_AIRDROP_ENGINE.md`)
   - [ ] E.1 Precision Time Protocol (IEEE 1588 Microsecond UDP PTP)
