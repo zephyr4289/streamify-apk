@@ -348,10 +348,10 @@ class PlaybackService : MediaSessionService() {
         EqualizerManager.release()
         preBufferManager?.release()
         preBufferManager = null
-        // Free the DSP native handles (was leaking two per process).
+        // Free the DSP native handles. Only StreamifyAudioProcessor holds any
+        // (custom release()); Sync/Crossfade are pure-Kotlin helpers with
+        // process lifetime — media3's AudioProcessor interface has no release().
         runCatching { streamifyProcessor.release() }
-        runCatching { syncAudioProcessor.release() }
-        runCatching { crossfadeAudioProcessor.release() }
         mediaSession?.run {
             player.release()
             release()
