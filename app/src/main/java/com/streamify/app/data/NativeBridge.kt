@@ -748,6 +748,67 @@ object NativeBridge {
         return try { nativeJamOutboxGc(keepMs) } catch (_: Throwable) { 0 }
     }
 
+    // ── PHASE 3: governor (election + death pivot) ──────────────────────
+
+    private external fun nativeJamElectSuccessor(
+        participantsJoined: String, hostId: String, leaseExpired: Boolean
+    ): String?
+    private external fun nativeJamExtrapolatePivot(
+        lastPosMs: Long,
+        lastTickMonoMs: Long,
+        currentSyncedMonoMs: Long,
+        durationMs: Long,
+        trackMatches: Boolean,
+        outResults: LongArray
+    )
+    private external fun nativeJamIsAdvisorySuccessor(
+        participantsJoined: String, hostId: String, selfId: String, recentlySeen: Boolean
+    ): Boolean
+
+    /** Deterministic successor (lowercase-hex rule); null when room should end. */
+    fun jamElectSuccessor(participantIds: List<String>, hostId: String, leaseExpired: Boolean): String? {
+        return try {
+            val joined = participantIds.joinToString(",")
+            nativeJamElectSuccessor(joined, hostId, leaseExpired)?.takeIf { it.isNotBlank() }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Death-pivot decision. Returns [code, posMs]:
+     *   code 0 = OK (pivot to posMs), 1 = BEYOND_END, 2 = TRACK_MISMATCH
+     */
+    fun jamExtrapolatePivot(
+        lastPosMs: Long,
+        lastTickMonoMs: Long,
+        currentSyncedMonoMs: Long,
+        durationMs: Long,
+        trackMatches: Boolean
+    ): LongArray {
+        return try {
+            val out = LongArray(2)
+            nativeJamExtrapolatePivot(lastPosMs, lastTickMonoMs, currentSyncedMonoMs, durationMs, trackMatches, out)
+            out
+        } catch (_: Throwable) {
+            longArrayOf(1L, -1L) // fail safe: normal advance
+        }
+    }
+
+    /** Client-side advisory only — the server RPC remains the sole grantor. */
+    fun jamIsAdvisorySuccessor(
+        participantIds: List<String>,
+        hostId: String,
+        selfId: String,
+        recentlySeen: Boolean
+    ): Boolean {
+        return try {
+            nativeJamIsAdvisorySuccessor(participantIds.joinToString(","), hostId, selfId, recentlySeen)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
 
 
     fun updateThermalStatus(status: Int): Int {

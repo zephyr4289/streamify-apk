@@ -1610,3 +1610,78 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamOutbo
     .unwrap_or(Some(0))
     .unwrap_or(0)
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// JAM PHASE-3 GOVERNOR: election + death-pivot math (pure)
+// ═══════════════════════════════════════════════════════════════════
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamElectSuccessor(
+    mut env: JNIEnv,
+    _class: JClass,
+    participants_joined: JString, // UUIDs joined by ','
+    host_id: JString,
+    lease_expired: jboolean,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        let members: String = env.get_string(&participants_joined).map(|s| s.into()).unwrap_or_default();
+        let host: String = env.get_string(&host_id).map(|s| s.into()).unwrap_or_default();
+        let ids: Vec<String> = members.split(',').filter(|s| !s.is_empty()).map(String::from).collect();
+        let result = crate::jam_governor::JamGovernor::elect_successor(&ids, &host, lease_expired != 0);
+        match result {
+            Some(id) => env.new_string(id).unwrap_or_else(|_| env.new_string("").unwrap()).into_raw(),
+            None => env.new_string("").unwrap_or_else(|_| env.new_string("").unwrap()).into_raw(),
+        }
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Pivot decision. out_results = [code(0=OK,1=BEYOND_END,2=MISMATCH), posMs].
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamExtrapolatePivot(
+    mut env: JNIEnv,
+    _class: JClass,
+    last_pos_ms: jlong,
+    last_tick_mono_ms: jlong,
+    current_synced_mono_ms: jlong,
+    duration_ms: jlong,
+    track_matches: jboolean,
+    out_results: JLongArray,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        use crate::jam_governor::{JamGovernor, PivotResult};
+        let r = JamGovernor::extrapolate_pivot(
+            last_pos_ms,
+            last_tick_mono_ms,
+            current_synced_mono_ms,
+            duration_ms,
+            track_matches != 0,
+        );
+        let (code, pos) = match r {
+            PivotResult::Ok(p) => (0i64, p),
+            PivotResult::BeyondEnd => (1i64, -1),
+            PivotResult::Mismatch => (2i64, -1),
+        };
+        let _ = env.set_long_array_region(&out_results, 0, &[code as jlong, pos as jlong]);
+    }));
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamIsAdvisorySuccessor(
+    mut env: JNIEnv,
+    _class: JClass,
+    participants_joined: JString,
+    host_id: JString,
+    self_id: JString,
+    recently_seen: jboolean,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        let members: String = env.get_string(&participants_joined).map(|s| s.into()).unwrap_or_default();
+        let host: String = env.get_string(&host_id).map(|s| s.into()).unwrap_or_default();
+        let self_id: String = env.get_string(&self_id).map(|s| s.into()).unwrap_or_default();
+        let ids: Vec<String> = members.split(',').filter(|s| !s.is_empty()).map(String::from).collect();
+        crate::jam_governor::JamGovernor::is_advisory_successor(&ids, &host, &self_id, recently_seen != 0)
+            as jboolean
+    }))
+    .unwrap_or(0)
+}

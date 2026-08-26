@@ -155,6 +155,50 @@ object JamEngine {
     @Volatile var outboxReady: Boolean = false
         private set
 
+    // ── Phase 3: lease & succession state ────────────────────────────────
+
+    /** Authoritative fencing token from the server (adopted verbatim). */
+    @Volatile var currentEpochFence: Long = 0L
+        private set
+
+    /** Set when this device lost authority to a successor. */
+    @Volatile private var demotedAtMs: Long = 0L
+
+    /**
+     * Marks a HOST_TAKEOVER: adopts the server-issued fencing epoch, resets
+     * the PLL + tick matrix (new host ⇒ new seq stream), and marks regime
+     * change so the adaptive cadence converges fast.
+     */
+    fun adoptTakeover(newEpoch: Long) {
+        if (newEpoch > 0) {
+            if (newEpoch > epochCounter.get()) epochCounter.set(newEpoch)
+            currentEpochFence = newEpoch
+        }
+        latestAppliedEpoch = Long.MIN_VALUE
+        com.streamify.app.data.NativeBridge.kalmanPllReset()
+        com.streamify.app.data.NativeBridge.jamTickIngest(0, 0, 0, 0, 0, LongArray(64)) // no-op touch
+        markRegimeChange()
+        lastRegimeChangeSyncedMs = nowSynced()
+        SLog.i("JamLease", "takeover adopted, fence=$newEpoch")
+    }
+
+    /** Host self-demotes after the server fenced it out. */
+    fun selfDemote(newHostId: String?) {
+        if (demotedAtMs != 0L) return
+        demotedAtMs = System.currentTimeMillis()
+        SLog.w("JamLease", "self-demoted → ${newHostId ?: "successor"}")
+        val s = activeSession() ?: return
+        SupabaseClient.adoptForeignHost(s.sessionCode, newHostId)
+        markRegimeChange()
+    }
+
+    fun clearDemotion() {
+        demotedAtMs = 0L
+    }
+
+
+    val isDemoted: Boolean get() = demotedAtMs != 0L
+
     val senderPacked: Long by lazy {
         // Stable per-process 4-byte device identity for op envelopes.
         try {
@@ -220,6 +264,7 @@ object JamEngine {
     fun activeSession(): ListeningSession? = SupabaseClient.activeJam.value
     fun isActive(): Boolean = activeSession() != null && !sessionEndedLocally
     fun isHost(): Boolean {
+        if (isDemoted) return false
         val s = activeSession() ?: return false
         return s.hostUserId == myUserId()
     }
@@ -610,6 +655,26 @@ object JamEngine {
                         }?.let { cadTrackCache[oCad] = it }
                     }
                     refreshQueueFromCrdt()
+                }
+            }
+
+            // ── Phase 3: authority transfer ─────────────────────────────────
+            "HOST_TAKEOVER" -> {
+                val newHost = payload.optString("t_host", "")
+                val newEpoch = payload.optLong("t_epoch", 0L)
+                val pivotPos = payload.optLong("t_pivot_pos", -1L)
+                val code = activeSession()?.sessionCode ?: return
+
+                // Epoch-gated: stale/replayed takeovers are ignored. Guests'
+                // local mirrors still show the DEAD host here, so checking
+                // senderIsHost would wrongly reject every legitimate claim.
+                if (newEpoch > 0 && newEpoch > latestAppliedEpoch && !isHost()) {
+                    SupabaseClient.adoptForeignHost(code, newHost.ifBlank { null })
+                    adoptTakeover(newEpoch)
+                    if (pivotPos >= 0) {
+                        _commands.tryEmit(Command.ApplyPllTick(pivotPos, nowSynced(), 0L, true))
+                    }
+                    refreshConnStatus(true)
                 }
             }
 

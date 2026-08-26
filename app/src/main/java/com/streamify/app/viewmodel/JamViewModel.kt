@@ -225,11 +225,26 @@ class JamViewModel(
                 when (cmd) {
                     is JamEngine.Command.ApplyTrack -> {
                         pvm.isApplyingJamSync = true
-                        pvm.playTrack(cmd.track, listOf(cmd.track), autoHydrateRadio = false)
-                        delay(300)
-                        if (cmd.positionMs > 0L) pvm.seekTo(cmd.positionMs)
-                        if (!cmd.play) pvm.pause() else pvm.play()
-                        pvm.isApplyingJamSync = false
+                        try {
+                            // PHASE 3 (P9): playTrack resolves async; suspend on
+                            // Media3 STATE_READY instead of a magic sleep, then
+                            // pin position — seeks can never land on the
+                            // previous item anymore.
+                            val ctrl = pvm.getController()
+                            if (ctrl != null) {
+                                com.streamify.app.jam.PlaybackReadyGate.awaitReadyThenSeek(
+                                    player = ctrl,
+                                    positionMs = cmd.positionMs,
+                                    play = cmd.play,
+                                    tag = "ApplyTrack:${cmd.track.title.take(16)}"
+                                )
+                                com.streamify.app.jam.JamEngine.markRegimeChange()
+                            } else {
+                                pvm.playTrack(cmd.track, listOf(cmd.track), autoHydrateRadio = false)
+                            }
+                        } finally {
+                            pvm.isApplyingJamSync = false
+                        }
                     }
                     is JamEngine.Command.ApplySeek -> {
                         pvm.isApplyingJamSync = true
@@ -291,6 +306,90 @@ class JamViewModel(
         // 3.6 Zero-gap handoff (P3): host NEXT_IS → guest shadow pre-buffer.
         JamEngine.setOnNextIsListener { nextTrack ->
             com.streamify.app.service.PredictivePreBufferManager.JamPreBuffer.notifyNextIs(nextTrack)
+        }
+
+        // 3.75 PHASE 3: host TTL heartbeat + guest lease watch (P8).
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            while (isActive) {
+                delay(5_000)
+                val engine = JamEngine
+                if (!engine.isActive()) continue
+                val session = (uiState.value as? JamUiState.Active)?.session ?: continue
+
+                if (engine.isHost() && !engine.isDemoted) {
+                    val pos = attachedPlayer?.getController()?.currentPosition?.coerceAtLeast(0L) ?: 0L
+                    val verdict = SupabaseClient.jamHeartbeat(
+                        sessionId = session.id,
+                        posMs = pos,
+                        monoMs = engine.nowSynced()
+                    )
+                    if (verdict == "DEMOTED") {
+                        // Server fenced us out — a successor holds the lease.
+                        engine.selfDemote(null)
+                        performHandshake(session)
+                    }
+                } else {
+                    // Guest: detect dead lease → pivot via deterministic claim.
+                    val snap = SupabaseClient.fetchJamLeaseRow(session.id) ?: continue
+                    if (!snap.leaseExpired || snap.hostUserId == null) continue
+
+                    val myId = SupabaseClient.currentUser.value?.id ?: continue
+                    val advisory = com.streamify.app.data.NativeBridge.jamIsAdvisorySuccessor(
+                        snap.participantIds, snap.hostUserId, myId,
+                        recentlySeen = true
+                    )
+                    if (!advisory && !snap.participantIds.contains(myId)) continue
+
+                    // Death-pivot math (U5/U6 clamps native-side).
+                    val durMs = pvmDurationMs()
+                    val decision = com.streamify.app.data.NativeBridge.jamExtrapolatePivot(
+                        lastPosMs = snap.lastTickPosMs,
+                        lastTickMonoMs = snap.lastTickMonoMs,
+                        currentSyncedMonoMs = engine.nowSynced(),
+                        durationMs = durMs,
+                        trackMatches = true // same room ⇒ same track by invariant 6
+                    )
+
+                    val newEpoch = when (decision[0].toInt()) {
+                        PIVOT_OK -> SupabaseClient.jamTakeover(
+                            session.id, myId, decision[1], engine.nowSynced()
+                        )
+                        PIVOT_BEYOND_END -> SupabaseClient.jamTakeover(
+                            session.id, myId, 0L, engine.nowSynced()
+                        )
+                        else -> null // MISMATCH: full TRACK_CHANGE path first
+                    } ?: continue
+
+                    // Authority granted — pivot locally, announce to the room.
+                    engine.clearDemotion()
+                    engine.adoptTakeover(newEpoch)
+                    if (decision[0].toInt() == PIVOT_OK) {
+                        attachedPlayer?.getController()?.let { ctrl ->
+                            com.streamify.app.jam.PlaybackReadyGate.awaitReadyThenSeek(
+                                player = ctrl,
+                                positionMs = decision[1],
+                                play = true,
+                                tag = "DeathPivot"
+                            )
+                        }
+                    }
+                    SupabaseClient.broadcastJamTick(
+                        sessionCode = session.sessionCode,
+                        trackId = "", trackTitle = "", trackArtist = "",
+                        positionMs = decision[1].coerceAtLeast(0L),
+                        isPlaying = true, action = "HOST_TAKEOVER",
+                        senderId = engine.deviceId,
+                        epochMs = newEpoch,
+                        extras = org.json.JSONObject()
+                            .put("t_host", myId)
+                            .put("t_epoch", newEpoch)
+                            .put("t_pivot_pos", decision[1])
+                    )
+                    com.streamify.app.util.SLog.i(
+                        "JamLease", "authority claimed, epoch=$newEpoch pivot=${decision.toList()}"
+                    )
+                }
+            }
         }
 
         // 3.7 PHASE 2: local-first outbox flush loop (P5).
@@ -372,6 +471,15 @@ class JamViewModel(
      * Authoritative join/reconnect reconciliation: fetch the DB row, extrapolate
      * where the host should be RIGHT NOW, and adopt that exact state locally.
      */
+    private fun pvmDurationMs(): Long =
+        attachedPlayer?.getController()?.duration?.takeIf { it > 0 } ?: 0L
+
+    companion object LeaseCodes {
+        private const val PIVOT_OK = 0
+        private const val PIVOT_BEYOND_END = 1
+        private const val PIVOT_MISMATCH = 2
+    }
+
     private suspend fun performHandshake(session: ListeningSession) {
         val pvm = attachedPlayer ?: return
         val snap = JamEngine.reconcile() ?: return
@@ -386,11 +494,21 @@ class JamViewModel(
         try {
             if (!sameTrack) {
                 pvm.playTrack(track, listOf(track), autoHydrateRadio = false)
-                delay(350) // allow pipeline warm-up before pinning position
-            }
-            if (expectedPos > 0L) pvm.seekTo(expectedPos)
-            if (snap.isPlaying != pvm.playerState.value.isPlaying || !sameTrack) {
-                if (snap.isPlaying) pvm.play() else pvm.pause()
+                // PHASE 3 (P9): event-driven readiness replaces the sleep.
+                val ctrl = pvm.getController()
+                if (ctrl != null) {
+                    com.streamify.app.jam.PlaybackReadyGate.awaitReadyThenSeek(
+                        player = ctrl,
+                        positionMs = expectedPos,
+                        play = snap.isPlaying,
+                        tag = "Handshake"
+                    )
+                }
+            } else {
+                if (expectedPos > 0L) pvm.seekTo(expectedPos)
+                if (snap.isPlaying != pvm.playerState.value.isPlaying) {
+                    if (snap.isPlaying) pvm.play() else pvm.pause()
+                }
             }
         } finally {
             pvm.isApplyingJamSync = false

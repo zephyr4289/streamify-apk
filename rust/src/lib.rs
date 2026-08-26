@@ -24,6 +24,7 @@ pub mod ptp;
 pub mod queue_engine;
 pub mod jam_clock;
 pub mod jam_crdt;
+pub mod jam_governor;
 pub mod jam_outbox;
 pub mod kalman_pll;
 pub mod queue_optimizer;

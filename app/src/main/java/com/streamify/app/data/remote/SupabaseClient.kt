@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.HttpURLConnection
 import java.net.URL
+import java.net.HttpURLConnection
 import java.net.URLEncoder
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -1711,6 +1713,126 @@ object SupabaseClient {
     // ========================================================================
 
     /** Full authoritative state fetch: used on join AND on every reconnect. */
+    /**
+     * PHASE 3: local adoption of a foreign host after takeover/demotion —
+     * keeps the in-memory session mirror consistent with the server row.
+     */
+    fun adoptForeignHost(sessionCode: String, newHostUserId: String?) {
+        val current = _activeJam.value ?: return
+        if (current.sessionCode != sessionCode) return
+        _activeJam.value = current.copy(
+            hostUserId = newHostUserId ?: current.hostUserId
+        )
+    }
+
+    // ── PHASE 3: host lease & takeover RPCs ──────────────────────────────
+
+    data class JamLeaseSnapshot(
+        val sessionId: String,
+        val hostUserId: String?,
+        val leaseExpired: Boolean,
+        val lastTickPosMs: Long,
+        val lastTickMonoMs: Long,
+        val participantIds: List<String>,
+        val hostEpoch: Long
+    )
+
+    private fun parseRpcError(body: String?): String =
+        body?.substringAfter("\"message\":\"").toString()
+            .substringBefore("\"").take(64)
+
+    /**
+     * Host-only lease renewal. Returns "HOST" when authority held,
+     * "DEMOTED" when fenced out by a takeover.
+     */
+    suspend fun jamHeartbeat(sessionId: String, posMs: Long, monoMs: Long): String =
+        withContext(Dispatchers.IO) {
+            try {
+                val (code, body) = executeRpc(
+                    endpoint = "rpc/jam_heartbeat",
+                    body = org.json.JSONObject()
+                        .put("p_session_id", sessionId)
+                        .put("p_pos_ms", posMs)
+                        .put("p_mono_ms", monoMs)
+                        .toString(),
+                    prefer = "return=representation"
+                )
+                if (code in 200..299) {
+                    body?.trim('"', ' ') ?: "DEMOTED"
+                } else "DEMOTED"
+            } catch (_: Throwable) {
+                "DEMOTED"
+            }
+        }
+
+    /**
+     * Claims authority on an expired lease. Returns the server-issued
+     * fencing-token epoch, or null when rejected (not successor / grace
+     * pending / not a member).
+     */
+    suspend fun jamTakeover(
+        sessionId: String,
+        advisorySuccessor: String,
+        pivotPosMs: Long,
+        pivotMonoMs: Long
+    ): Long? = withContext(Dispatchers.IO) {
+        try {
+            val (code, body) = executeRpc(
+                endpoint = "rpc/jam_takeover",
+                body = org.json.JSONObject()
+                    .put("p_session_id", sessionId)
+                    .put("p_advisory_successor", advisorySuccessor)
+                    .put("p_pivot_pos_ms", pivotPosMs)
+                    .put("p_pivot_mono_ms", pivotMonoMs)
+                    .toString(),
+                prefer = "return=representation"
+            )
+            if (code in 200..299) {
+                org.json.JSONArray(body).optLong(0, -1L).takeIf { it > 0 }
+            } else null
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Lightweight lease-state read for guest succession watches. */
+    suspend fun fetchJamLeaseRow(sessionId: String): JamLeaseSnapshot? =
+        withContext(Dispatchers.IO) {
+            try {
+                val safe = android.net.Uri.encode(sessionId)
+                val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?id=eq.$safe&select=id,host_user_id,host_lease_expires_at,last_tick_pos_ms,last_tick_mono_ms,participant_ids,host_epoch")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("apikey", BuildConfig.SUPABASE_ANON_KEY)
+                conn.setRequestProperty("Authorization", "Bearer ${getAuthToken()}")
+                conn.connectTimeout = 4000
+                conn.readTimeout = 4000
+                conn.inputStream.bufferedReader().use { r ->
+                    val arr = org.json.JSONArray(r.readText())
+                    if (arr.length() == 0) return@use null
+                    val o = arr.getJSONObject(0)
+                    val expires = o.optString("host_lease_expires_at", "")
+                    val expired = expires.isBlank() || runCatching {
+                        java.time.Instant.parse(expires).toEpochMilli() < System.currentTimeMillis()
+                    }.getOrDefault(true)
+                    JamLeaseSnapshot(
+                        sessionId = o.getString("id"),
+                        hostUserId = o.optString("host_user_id").ifBlank { null },
+                        leaseExpired = expired,
+                        lastTickPosMs = o.optLong("last_tick_pos_ms", 0L),
+                        lastTickMonoMs = o.optLong("last_tick_mono_ms", 0L),
+                        participantIds = buildList {
+                            val parr = o.optJSONArray("participant_ids") ?: return@buildList
+                            for (i in 0 until parr.length()) add(parr.getString(i))
+                        },
+                        hostEpoch = o.optLong("host_epoch", 0L)
+                    )
+                }
+            } catch (_: Throwable) {
+                null
+            }
+        }
+
     suspend fun fetchJamSnapshot(sessionCode: String): Result<ListeningSession> = withContext(Dispatchers.IO) {
         try {
             val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
