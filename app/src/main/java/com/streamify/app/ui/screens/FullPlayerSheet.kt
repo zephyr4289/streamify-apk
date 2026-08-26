@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material.icons.outlined.Shuffle
@@ -167,16 +168,6 @@ fun FullPlayerSheet(
     val playerState by playerViewModel.playerState.collectAsState()
     val isVideoMode = playerState.isVideoMode
 
-    val targetRatio = if (isVideoMode) (16f / 9f) else 1f
-    val animatedAspectRatio by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = targetRatio,
-        animationSpec = androidx.compose.animation.core.spring(
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-        ),
-        label = "HeroAspectRatioAnimation"
-    )
-
     // PERF: the pulse animation is composed ONLY while buffering. An
     // unconditional rememberInfiniteTransition keeps a Choreographer frame
     // loop alive for the entire sheet lifetime, blocking frame-clock idle and
@@ -243,10 +234,21 @@ fun FullPlayerSheet(
     // (top bar / metadata) like professional apps. Tap again to restore.
     var chromeDimmed by remember { mutableStateOf(false) }
     val chromeAlpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (chromeDimmed) 0.15f else 1f,
+        // 0.35 floor: dimmed chrome stays discoverable — 0.15 made controls
+        // effectively invisible on the dark background (invisible-UI trap).
+        targetValue = if (chromeDimmed) 0.35f else 1f,
         animationSpec = tween(220),
         label = "playerChromeAlpha"
     )
+
+    // Auto-recover: dimmed chrome restores itself after 3s so users can never
+    // get stuck in a controls-invisible state.
+    androidx.compose.runtime.LaunchedEffect(chromeDimmed) {
+        if (chromeDimmed) {
+            kotlinx.coroutines.delay(3000)
+            chromeDimmed = false
+        }
+    }
 
 
     Box(
@@ -691,12 +693,13 @@ fun FullPlayerSheet(
                 val seekRippleScope = rememberCoroutineScope()
 
                 // --- HERO DYNAMIC MORPHING ALBUM ARTWORK / HARDWARE VIDEO SURFACE ---
+                // Deterministic sizing: NO weight() — the hero can never consume
+                // unbounded remaining height and push controls off-screen.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(if (isVideoMode) 1f else 0.88f)
-                        .weight(1f, fill = false)
-                        .heightIn(max = 300.dp)
-                        .aspectRatio(animatedAspectRatio, matchHeightConstraintsFirst = true)
+                        .heightIn(max = if (isVideoMode) 240.dp else 320.dp)
+                        .aspectRatio(if (isVideoMode) 16f / 9f else 1f)
                         .clip(LocalAppShapes.current.thumbnailLarge)
                         .background(androidx.compose.ui.graphics.Color.Black)
                         .graphicsLayer {
@@ -833,6 +836,16 @@ fun FullPlayerSheet(
                                 }
                             }
                         }
+                    }
+
+                    // Explicit Lyrics affordance (was hidden behind a long-press).
+                    IconButton(onClick = { showLyricsSheet = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.Subtitles,
+                            contentDescription = "Lyrics",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                 }
 
