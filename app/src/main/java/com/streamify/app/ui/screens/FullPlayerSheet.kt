@@ -641,7 +641,14 @@ fun FullPlayerSheet(
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .centerInLargeScreen()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    // Escape-hatch scroll: if any section ever grows beyond the
+                    // viewport (small screens, font-scale spikes, future children),
+                    // controls can no longer be pushed permanently off-screen — they
+                    // scroll instead. Child collapse-drag/seek gesture detectors win
+                    // touch-slop before the parent scroll, so sheet gestures are
+                    // unaffected. When content fits, SpaceBetween still spreads it.
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
