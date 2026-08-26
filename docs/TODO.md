@@ -45,12 +45,12 @@ This tracking checklist monitors the authoring of comprehensive, industrial-grad
   - [x] F.5 SQLite WAL Mutation Outbox Journal
   - [x] F.6 TTL Lease, A+B Hybrid Succession & The Death Pivot
 
-- [ ] **Phase G: Native Database, Canonical CAD-ID & Smart Offline Vault** (`docs/07_DATABASE_STORAGE_ENGINE.md`)
-  - [ ] G.1 Canonical CAD-ID FNV-1a 64-Bit Normalization & Hashing
-  - [ ] G.2 Native SQLite Engine (C++ Zero-GC Memory Mapped I/O)
-  - [ ] G.3 Smart Offline Vault & LRU Segmented Storage
-  - [ ] G.4 ID3v2/FLAC/MP4 Native Metadata Tagging & Serialization
-  - [ ] G.5 Disaster Recovery, Backup Journaling & Nuclear Reset
+- [x] **Phase G: Native Database, Canonical CAD-ID & Smart Offline Vault** (`docs/07_DATABASE_STORAGE_ENGINE.md`)
+  - [x] G.1 Canonical CAD-ID FNV-1a 64-Bit Normalization & Hashing
+  - [x] G.2 Native SQLite Engine (C++ Zero-GC Memory Mapped I/O)
+  - [x] G.3 Smart Offline Vault & LRU Segmented Storage
+  - [x] G.4 ID3v2/FLAC/MP4 Native Metadata Tagging & Serialization
+  - [x] G.5 Disaster Recovery, Backup Journaling & Nuclear Reset
 
 - [ ] **Phase H: Ingestion, Multi-Platform Importers & Web Scrapers** (`docs/08_INGESTION_SCRAPER_ENGINE.md`)
   - [ ] H.1 Multi-Platform Playlist Parsers (Spotify, YouTube, Apple Music, CSV, M3U8)
