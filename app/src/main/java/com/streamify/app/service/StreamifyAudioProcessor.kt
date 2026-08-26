@@ -55,6 +55,14 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
 
         /** PHASE 2 SAFETY: soft-knee ceiling after every gain stage. */
         @Volatile var limiterEnabled: Boolean = false // opt-in after device testing
+
+        /**
+         * GLOBAL DSP BYPASS:
+         * When true, all audio frames pass through 100% bit-exact and unaltered.
+         * Temporarily active while DSP v2 (biquad acoustic cleanup, BS.1770-4
+         * K-weighting calibration, and true-peak limiter overhaul) is developed.
+         */
+        @Volatile var DSP_BYPASS: Boolean = true
     }
 
     private var statePtr: Long = 0L
@@ -121,6 +129,14 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
     override fun queueInput(inputBuffer: ByteBuffer) {
         val remainingBytes = inputBuffer.remaining()
         if (remainingBytes == 0) return
+
+        // Global DSP bypass fast-path: zero allocations, 100% bit-exact passthrough
+        if (DSP_BYPASS) {
+            val out = replaceOutputBuffer(remainingBytes)
+            out.put(inputBuffer)
+            out.flip()
+            return
+        }
 
         val channelCount = currentFormat.channelCount.coerceAtLeast(1)
         val is16Bit = currentFormat.encoding == C.ENCODING_PCM_16BIT

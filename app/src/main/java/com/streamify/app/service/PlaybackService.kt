@@ -56,23 +56,29 @@ class PlaybackService : MediaSessionService() {
         DolbySpatialManager.init(this)
         AudioDeviceManager.init(this)
 
-        // DSP RENDER CHAIN (restored — was severed in 6a3d82a): the fused
-        // StreamifyAudioProcessor (loudnessDb pre-gain → LUFS normalize →
-        // soft-knee limiter → Rust parametric EQ) is attached to the actual
-        // audio sink, so online streams are mastered, not raw CDN.
-        val renderersFactory = object : DefaultRenderersFactory(this) {
-            @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-            override fun buildAudioSink(
-                context: android.content.Context,
-                enableFloatOutput: Boolean,
-                enableAudioTrackPlaybackParams: Boolean
-            ): androidx.media3.exoplayer.audio.AudioSink {
-                return DefaultAudioSink.Builder(this@PlaybackService)
-                    .setEnableFloatOutput(true)
-                    .setAudioProcessors(arrayOf(streamifyProcessor))
-                    .build()
-            }
-        }
+        // ─── AUDIO RENDER CHAIN (DIRECT CDN STREAMING) ──────────────────────────────
+        // NOTE: Custom fused StreamifyAudioProcessor (loudnessDb pre-gain →
+        // LUFS normalization → Soft-Knee limiter → Rust parametric EQ) is
+        // TEMPORARILY DISABLED.
+        //
+        // WHY DISABLED:
+        // 1. Hardcoded biquad low-shelf (+6dB @ 80Hz) and Haas 3D delay effect
+        //    in `rust/src/audio_dsp.rs` introduce severe phase cancellation,
+        //    mono-compatibility issues, and comb filtering artifacts on modern masters.
+        // 2. Dynamic LUFS RMS normalizer requires recalibration of attack/release
+        //    envelopes and true-peak calculation to avoid pumping and harmonic distortion.
+        //
+        // CURRENT STATE:
+        // Streams are fed directly from MediaCodec into DefaultAudioSink → AudioTrack.
+        // Delivers pristine, unaltered 100% bit-exact CDN audio with zero latency
+        // and universal device/Bluetooth compatibility.
+        //
+        // TODO (DSP V2 DEVELOPMENT ROADMAP):
+        // - Strip static low-shelf / Haas spatializer from `audio_dsp.rs`; make EQ purely user-driven.
+        // - Re-implement ITU-R BS.1770-4 K-weighting LUFS metering in C++20 / Rust SIMD.
+        // - Introduce an opt-in "Audiophile Mastering" toggle in Settings before re-enabling.
+        // ─────────────────────────────────────────────────────────────────────────────
+        val renderersFactory = DefaultRenderersFactory(this)
 
         val audioLoadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
