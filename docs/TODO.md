@@ -70,10 +70,11 @@ This tracking checklist monitors the authoring of comprehensive, industrial-grad
   - [x] J.3 Listener Heatmaps & Circadian Rhythm Analysis
   - [x] J.4 Wrapped Analytics & Offline Event Batching
 
-- [ ] **Phase K: Playback Lifecycle, Media3 Architecture & UI/UX System** (`docs/11_PLAYBACK_UI_ENGINE.md`)
-  - [ ] K.1 Media3 / ExoPlayer Foreground Service Lifecycle & Focus Management
-  - [ ] K.2 Dynamic GPU Mesh Gradient Shaders & Palette Extraction
-  - [ ] K.3 Full-Screen Player Sheet, Kinematics & Compose Architecture
+- [x] **Phase K: Playback Lifecycle, Media3 Architecture & UI/UX System** (`docs/11_PLAYBACK_UI_ENGINE.md`)
+  - [x] K.1 Media3 / ExoPlayer Foreground Service Lifecycle & Focus Management
+  - [x] K.2 Compose State Machine, Spring Physics & Fluid Transitions
+  - [x] K.3 MiniPlayer, FullPlayer & Gesture Kinematics
+  - [x] K.4 Dynamic Palette Extraction & Backdrop Shader Meshes
 
 - [ ] **Phase L: Server-Side Infrastructure, Supabase Realtime & Security Model** (`docs/12_SERVER_SECURITY_ENGINE.md`)
   - [ ] L.1 Postgres Row-Level Security, Migrations & Fencing Tokens
