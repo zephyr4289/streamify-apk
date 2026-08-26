@@ -28,6 +28,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.util.SLog
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val TermBg = Color(0xFF0A0E0A)
@@ -60,7 +61,7 @@ fun AdminTerminalScreen(onBack: () -> Unit) {
 
     var enabled by remember { mutableStateOf(SLog.captureEnabled) }
     var rendered by remember { mutableStateOf(SLog.snapshotLines(1000)) }
-    var remainingMin by remember { mutableStateOf(SLog.remainingCaptureMs() / 60000) }
+    var remainingMin by remember { mutableStateOf((SLog.remainingCaptureMs() / 60000).toInt()) }
     var filterLevels by remember { mutableStateOf(setOf('V', 'D', 'I', 'W', 'E', 'F')) }
     var query by remember { mutableStateOf("") }
     var paused by remember { mutableStateOf(false) }
@@ -195,8 +196,16 @@ fun AdminTerminalScreen(onBack: () -> Unit) {
                     textStyle = LocalTextStyle.current.copy(color = TermGreen, fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                     trailingIcon = {
                         if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }, Modifier.height(16.dp)) {
-                                Icon(Icons.Filled.Clear, null, tint = Color(0xFF51604F), Modifier.height(14.dp))
+                            IconButton(
+                                onClick = { query = "" },
+                                modifier = Modifier.height(16.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Clear,
+                                    contentDescription = null,
+                                    tint = Color(0xFF51604F),
+                                    modifier = Modifier.height(14.dp)
+                                )
                             }
                         }
                     },

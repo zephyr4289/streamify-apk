@@ -9,7 +9,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -158,11 +157,6 @@ object SLog {
                 autoOffJob?.cancel(); autoOffJob = null
                 if (persist) prefs?.edit()?.putBoolean("enabled", false)?.apply()
                 stopFlusherAndDrain()
-                synchronized(ringLock) {
-                    ring = null
-                    writeOffset = 0
-                    validBytes = 0
-                }
                 frameListeners.clear()
                 i(TAG_INIT, "capture DISARMED — ring wiped")
             }
@@ -303,11 +297,22 @@ object SLog {
         }
     }
 
-    private suspend fun stopFlusherAndDrain() {
+    /**
+     * Non-suspend disarm tail: final drain runs on the IO scope BEFORE the ring
+     * is released (appends already stopped via the captureEnabled flag).
+     */
+    private fun stopFlusherAndDrain() {
         flushJob?.cancel()
-        flushJob?.join()
-        // final synchronous drain of whatever remains
-        withContext(Dispatchers.IO) { drainToDisk(StringBuilder(4096)) }
+        val job = flushJob
+        scope.launch {
+            job?.join()
+            drainToDisk(StringBuilder(4096))
+            synchronized(ringLock) {
+                ring = null
+                writeOffset = 0
+                validBytes = 0
+            }
+        }
     }
 
     private fun drainToDisk(sb: StringBuilder) {
