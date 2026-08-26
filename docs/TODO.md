@@ -52,10 +52,11 @@ This tracking checklist monitors the authoring of comprehensive, industrial-grad
   - [x] G.4 ID3v2/FLAC/MP4 Native Metadata Tagging & Serialization
   - [x] G.5 Disaster Recovery, Backup Journaling & Nuclear Reset
 
-- [ ] **Phase H: Ingestion, Multi-Platform Importers & Web Scrapers** (`docs/08_INGESTION_SCRAPER_ENGINE.md`)
-  - [ ] H.1 Multi-Platform Playlist Parsers (Spotify, YouTube, Apple Music, CSV, M3U8)
-  - [ ] H.2 Tokenless Web Ingestion & HTML Scraper Pipeline
-  - [ ] H.3 High-Throughput Batch Track Reconciliation & Fuzzy Matching
+- [x] **Phase H: Ingestion, Multi-Platform Importers & Web Scrapers** (`docs/08_INGESTION_SCRAPER_ENGINE.md`)
+  - [x] H.1 Multi-Platform Playlist Parsers (Spotify, YouTube, Apple Music, CSV, M3U8)
+  - [x] H.2 Zero-Token HTML Scrapers & Regex Extraction
+  - [x] H.3 Asynchronous Batch Import Pipeline & Metadata Enrichment
+  - [x] H.4 Rate Limiting, Backoff & Anti-Bot Protection
 
 - [ ] **Phase I: Multi-Tier Search, Trigram Index & Canonical Graph** (`docs/09_SEARCH_GRAPH_ENGINE.md`)
   - [ ] I.1 Trigram Inverted Index & Phonetic Soundex Matching
