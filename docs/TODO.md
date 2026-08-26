@@ -37,13 +37,13 @@ This tracking checklist monitors the authoring of comprehensive, industrial-grad
   - [x] E.2 AirDrop Physics & BLE/mDNS P2P Discovery
   - [x] E.3 Mesh Consensus & Swarm Chunk Distribution
 
-- [ ] **Phase F: Jam Engine (Decentralized Multi-Device Realtime Sync)** (`docs/06_JAM_DISTRIBUTED_ENGINE.md`)
-  - [ ] F.1 Skew-Free Cristian Clock Synchronization (Monotonic Domain)
-  - [ ] F.2 2048-Slot Sequence Ring & Linear Gap Repair Matrix
-  - [ ] F.3 Kalman Phase-Locked Loop (PLL) & Pitch Anti-Windup
-  - [ ] F.4 Operation-based CmRDT Queue & Midpoint Fractional Indexing
-  - [ ] F.5 SQLite WAL Mutation Outbox Journal
-  - [ ] F.6 TTL Lease, A+B Hybrid Succession & The Death Pivot
+- [x] **Phase F: Jam Engine (Decentralized Multi-Device Realtime Sync)** (`docs/06_JAM_DISTRIBUTED_ENGINE.md`)
+  - [x] F.1 Skew-Free Cristian Clock Synchronization (Monotonic Domain)
+  - [x] F.2 2048-Slot Dual-Ring Tick Matrix & Kalman PLL Velocity Slewing
+  - [x] F.3 CmRDT Commutative Queue CRDT & SQLite WAL Outbox
+  - [x] F.4 A+B Succession Election & Death Pivot Trajectory Math
+  - [x] F.5 SQLite WAL Mutation Outbox Journal
+  - [x] F.6 TTL Lease, A+B Hybrid Succession & The Death Pivot
 
 - [ ] **Phase G: Native Database, Canonical CAD-ID & Smart Offline Vault** (`docs/07_DATABASE_STORAGE_ENGINE.md`)
   - [ ] G.1 Canonical CAD-ID FNV-1a 64-Bit Normalization & Hashing
