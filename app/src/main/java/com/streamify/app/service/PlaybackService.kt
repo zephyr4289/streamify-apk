@@ -56,7 +56,23 @@ class PlaybackService : MediaSessionService() {
         DolbySpatialManager.init(this)
         AudioDeviceManager.init(this)
 
-        val renderersFactory = DefaultRenderersFactory(this)
+        // DSP RENDER CHAIN (restored — was severed in 6a3d82a): the fused
+        // StreamifyAudioProcessor (loudnessDb pre-gain → LUFS normalize →
+        // soft-knee limiter → Rust parametric EQ) is attached to the actual
+        // audio sink, so online streams are mastered, not raw CDN.
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+            override fun buildAudioSink(
+                context: android.content.Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): androidx.media3.exoplayer.audio.AudioSink {
+                return DefaultAudioSink.Builder(this@PlaybackService)
+                    .setEnableFloatOutput(true)
+                    .setAudioProcessors(arrayOf(streamifyProcessor))
+                    .build()
+            }
+        }
 
         val audioLoadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
@@ -332,6 +348,10 @@ class PlaybackService : MediaSessionService() {
         EqualizerManager.release()
         preBufferManager?.release()
         preBufferManager = null
+        // Free the DSP native handles (was leaking two per process).
+        runCatching { streamifyProcessor.release() }
+        runCatching { syncAudioProcessor.release() }
+        runCatching { crossfadeAudioProcessor.release() }
         mediaSession?.run {
             player.release()
             release()
