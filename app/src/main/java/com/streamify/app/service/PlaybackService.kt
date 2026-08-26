@@ -361,10 +361,10 @@ private class TerminalPlayerListener : androidx.media3.exoplayer.analytics.Analy
         eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
         state: Int
     ) {
-        val mediaId = eventTime.mediaPeriodId?.mediaId?.toString()
+        val periodId = eventTime.mediaPeriodId?.periodUid?.toString() ?: eventTime.mediaPeriodId?.toString()
         com.streamify.app.util.SLog.d(
             "ExoEvent",
-            "playbackState=${stateName(state)} mediaId=$mediaId"
+            "playbackState=${stateName(state)} periodId=$periodId"
         )
     }
 
