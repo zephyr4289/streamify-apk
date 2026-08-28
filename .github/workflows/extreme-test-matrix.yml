@@ -88,6 +88,7 @@ jobs:
 
       - name: Cache Cargo
         uses: actions/cache@v4
+        continue-on-error: true
         with:
           path: |
             ~/.cargo/registry
@@ -100,6 +101,7 @@ jobs:
       - name: Cache Android NDK & CMake
         id: ndk-cache
         uses: actions/cache@v4
+        continue-on-error: true
         with:
           path: |
             ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
@@ -124,10 +126,11 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          cache-read-only: false
+          cache-disabled: true
 
       - name: Setup CCache for C++ Compilation
         uses: hendrikmuhs/ccache-action@v1.2.14
+        continue-on-error: true
         with:
           key: ${{ runner.os }}-ccache-${{ github.ref_slug }}
           restore-keys: |
@@ -159,8 +162,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           touch build.log
-          ERROR_LOG=$(grep -A 2 -B 2 "e: " build.log | tail -n 50 || echo "Could not extract errors. See artifacts.")
-          BODY=$(printf "### ❌ Build Failed\n\`\`\`text\n%s\n\`\`\`" "$ERROR_LOG")
+          cp build.log /tmp/build.log
+          ERROR_LOG=$(grep -A 2 -B 2 "e: " /tmp/build.log | tail -n 50 || echo "Could not extract errors. See artifacts.")
+          BODY=$(printf "### ❌ Build Failed (Run #%s)\n\`\`\`text\n%s\n\`\`\`" "${{ github.run_number }}" "$ERROR_LOG")
           gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
             -f body="$BODY" || true
 
@@ -176,8 +180,8 @@ jobs:
             git rm -rf . || true
           fi
           mkdir -p runs
-          cp build.log runs/build-${{ github.run_number }}.log
-          cp build.log latest-build.log
+          cp /tmp/build.log runs/build-${{ github.run_number }}.log
+          cp /tmp/build.log latest-build.log
           git add runs/build-${{ github.run_number }}.log latest-build.log
           git commit -m "docs: add build log for run ${{ github.run_number }}" || true
           git push origin build-logs || true
@@ -626,6 +630,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cp combined-test.log /tmp/combined-test.log
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git reset --hard HEAD || true
@@ -639,8 +644,8 @@ jobs:
             git rm -rf . || true
           fi
           mkdir -p runs
-          cp combined-test.log runs/test-run-${{ github.run_number }}.log
-          cp combined-test.log latest.log
+          cp /tmp/combined-test.log runs/test-run-${{ github.run_number }}.log
+          cp /tmp/combined-test.log latest.log
           git add runs/test-run-${{ github.run_number }}.log latest.log
           git commit -m "test(ci): run #${{ github.run_number }} [${{ env.OVERALL_TEST_RESULT }}] [skip ci]" || true
           git push origin testing-log || true
