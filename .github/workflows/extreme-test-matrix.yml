@@ -142,7 +142,7 @@ jobs:
           touch build.log
           chmod +x gradlew
           ./gradlew clean assembleDebug --no-build-cache --no-daemon -Pandroid.injected.build.model.only.versioned=3 \
-            -Dorg.gradle.caching=true \
+            -Dorg.gradle.caching=false \
             -DANDROID_CCACHE=ccache \
             --stacktrace 2>&1 | tee build.log
 
