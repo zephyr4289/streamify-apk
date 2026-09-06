@@ -41,8 +41,8 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
           REPO_NAME: ${{ github.repository }}
           # Put your GitHub App slug (name) and App ID here:
-          BOT_SLUG: "YOUR_BOT_APP_SLUG"
-          BOT_APP_ID: "YOUR_BOT_APP_ID"
+          BOT_SLUG: "gemini-contributor-agent"
+          BOT_APP_ID: "4853494"
         run: |
           python - << 'EOF'
           import os, subprocess
