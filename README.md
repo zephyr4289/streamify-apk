@@ -2624,3 +2624,10 @@ All JNI symbols and DirectByteBuffer memory offsets are pinned in `app/proguard-
 -keep class com.streamify.app.data.NativeBridge { *; }
 -keep class com.streamify.app.ui.components.TokenStage { *; }
 ```
+
+
+---
+### 🤖 AI Contributor
+## AI Contributor
+
+This project includes contributions from Google Gemini, acting as an autonomous AI contributor to assist with code generation, maintenance, and documentation.
