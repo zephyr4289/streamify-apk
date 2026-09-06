@@ -23,3 +23,71 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: pip install google-genai PyGithub
+
+      - name: Run Gemini Agent
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          python - << 'EOF'
+          import os, subprocess
+          from github import Github
+          from google import genai
+
+          gh = Github(os.environ["GITHUB_TOKEN"])
+          repo = gh.get_repo(os.environ["REPO_NAME"])
+          issue_num = int(os.environ["ISSUE_NUMBER"])
+          issue = repo.get_issue(issue_num)
+          
+          raw_text = os.environ.get("COMMENT_BODY") or os.environ.get("ISSUE_BODY") or ""
+          prompt = raw_text.replace("@gemini", "").strip()
+
+          # Scan repository file structure
+          file_list = subprocess.check_output(
+              ["git", "ls-tree", "-r", "HEAD", "--name-only"], text=True
+          ).splitlines()
+
+          # Read key code files for deep repo analysis (excluding binaries/large assets)
+          context_snippets = []
+          ignored_exts = ('.png', '.jpg', '.jpeg', '.gif', '.zip', '.tar', '.gz', '.pdf', '.bin', '.so', '.apk')
+          for f in file_list[:80]:
+              if not f.startswith('.') and not f.endswith(ignored_exts) and os.path.isfile(f):
+                  try:
+                      with open(f, 'r', errors='ignore') as src:
+                          content = src.read(3000)
+                          context_snippets.append(f"--- FILE: {f} ---\n{content}\n")
+                  except Exception:
+                      pass
+
+          repo_context = "\n".join(context_snippets)
+
+          client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+          system_message = f"""
+          You are an active contributor and senior software engineer for the repository '{repo.full_name}'.
+          Analyze the codebase context provided and fulfill the user's instructions directly.
+          If suggesting code edits, provide exact unified diffs or complete code blocks.
+          
+          Repository Context:
+          {repo_context}
+          """
+
+          response = client.models.generate_content(
+              model="gemini-2.5-flash",
+              contents=f"{system_message}\n\nTask from developer:\n{prompt}"
+          )
+
+          reply = f"### 🤖 Gemini Contributor Analysis\n\n{response.text}\n\n---\n*Co-authored-by: Google Gemini <gemini@google.com>*"
+          issue.create_comment(reply)
+          EOF
