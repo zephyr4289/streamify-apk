@@ -40,6 +40,9 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           REPO_NAME: ${{ github.repository }}
+          # Put your GitHub App slug (name) and App ID here:
+          BOT_SLUG: "YOUR_BOT_APP_SLUG"
+          BOT_APP_ID: "YOUR_BOT_APP_ID"
         run: |
           python - << 'EOF'
           import os, subprocess
@@ -54,18 +57,22 @@ jobs:
           raw_text = os.environ.get("COMMENT_BODY") or os.environ.get("ISSUE_BODY") or ""
           prompt = raw_text.replace("@gemini", "").strip()
 
+          bot_slug = os.environ.get("BOT_SLUG", "gemini-bot").strip()
+          bot_id = os.environ.get("BOT_APP_ID", "123456").strip()
+
+          bot_user = f"{bot_slug}[bot]"
+          bot_email = f"{bot_id}+{bot_slug}[bot]@users.noreply.github.com"
+
           client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-          # Check if the instruction is asking for a commit or file change
           wants_commit = any(w in prompt.lower() for w in ["commit", "readme", "contribute", "contributor"])
 
           if wants_commit:
               readme_file = "README.md"
               
-              # Ask Gemini to generate a minimal acknowledgement snippet
               snippet_prompt = f"""
-              Generate a short, clean Markdown section (1-2 sentences) acknowledging Google Gemini as an autonomous AI contributor to this project.
-              Return ONLY the raw markdown text to append. Do not include markdown code fences (```).
+              Generate a short Markdown section (1-2 sentences) acknowledging Google Gemini as an automated contributor to this repository.
+              Return ONLY the raw markdown text to append. Do not include markdown code blocks.
               User request: {prompt}
               """
               res = client.models.generate_content(
@@ -73,19 +80,18 @@ jobs:
                   contents=snippet_prompt
               )
 
-              # Append to README.md
               addition = f"\n\n---\n### 🤖 AI Contributor\n{res.text.strip()}\n"
               with open(readme_file, "a") as f:
                   f.write(addition)
 
-              # Configure Git author as Google Gemini
-              subprocess.run(["git", "config", "user.name", "Google Gemini"], check=True)
-              subprocess.run(["git", "config", "user.email", "gemini@google.com"], check=True)
+              # Configure git author to the GitHub App bot identity
+              subprocess.run(["git", "config", "user.name", bot_user], check=True)
+              subprocess.run(["git", "config", "user.email", bot_email], check=True)
               subprocess.run(["git", "add", readme_file], check=True)
 
-              commit_msg = f"""docs: add Gemini contributor acknowledgment (# {issue_num})
+              commit_msg = f"""docs: update contributor acknowledgement (#{issue_num})
 
-          Co-authored-by: Google Gemini <gemini@google.com>"""
+          Co-authored-by: {bot_user} <{bot_email}>"""
 
               subprocess.run(["git", "commit", "-m", commit_msg], check=True)
               subprocess.run(["git", "push", "origin", f"HEAD:{repo.default_branch}"], check=True)
@@ -94,14 +100,13 @@ jobs:
               reply = (
                   f"🎉 **Committed and pushed to `{repo.default_branch}`!**\n\n"
                   f"- **Commit**: `{commit_sha}`\n"
-                  f"- **Author**: `Google Gemini <gemini@google.com>`\n"
+                  f"- **Author**: `{bot_user}`\n"
                   f"- **File**: `{readme_file}`\n\n"
-                  "Check your repository homepage and Insights > Contributors to see the updated contribution."
+                  "Check your commit history and repository homepage to view the bot's avatar and verified contributor badge."
               )
               issue.create_comment(reply)
 
           else:
-              # Standard analysis mode
               file_list = subprocess.check_output(
                   ["git", "ls-tree", "-r", "HEAD", "--name-only"], text=True
               ).splitlines()
@@ -129,6 +134,6 @@ jobs:
                   contents=f"{system_message}\n\nRepository Context:\n{repo_context}\n\nTask from developer:\n{prompt}"
               )
 
-              reply = f"### 🤖 Gemini Contributor Analysis\n\n{response.text}\n\n---\n*Co-authored-by: Google Gemini <gemini@google.com>*"
+              reply = f"### 🤖 Gemini Contributor Analysis\n\n{response.text}\n\n---\n*Co-authored-by: {bot_user} <{bot_email}>*"
               issue.create_comment(reply)
           EOF
