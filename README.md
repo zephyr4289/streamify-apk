@@ -2631,3 +2631,10 @@ All JNI symbols and DirectByteBuffer memory offsets are pinned in `app/proguard-
 ## AI Contributor
 
 This project includes contributions from Google Gemini, acting as an autonomous AI contributor to assist with code generation, maintenance, and documentation.
+
+
+---
+### 🤖 AI Contributor
+## Acknowledgments
+
+This repository includes automated contributions, code generation, and documentation assistance powered by [Google Gemini](https://gemini.google.com/). We gratefully acknowledge Gemini's role as an AI contributor to the ongoing maintenance and development of this project.
