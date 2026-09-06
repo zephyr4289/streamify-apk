@@ -50,44 +50,85 @@ jobs:
           repo = gh.get_repo(os.environ["REPO_NAME"])
           issue_num = int(os.environ["ISSUE_NUMBER"])
           issue = repo.get_issue(issue_num)
-          
+
           raw_text = os.environ.get("COMMENT_BODY") or os.environ.get("ISSUE_BODY") or ""
           prompt = raw_text.replace("@gemini", "").strip()
 
-          # Scan repository file structure
-          file_list = subprocess.check_output(
-              ["git", "ls-tree", "-r", "HEAD", "--name-only"], text=True
-          ).splitlines()
-
-          # Read key code files for deep repo analysis (excluding binaries/large assets)
-          context_snippets = []
-          ignored_exts = ('.png', '.jpg', '.jpeg', '.gif', '.zip', '.tar', '.gz', '.pdf', '.bin', '.so', '.apk')
-          for f in file_list[:80]:
-              if not f.startswith('.') and not f.endswith(ignored_exts) and os.path.isfile(f):
-                  try:
-                      with open(f, 'r', errors='ignore') as src:
-                          content = src.read(3000)
-                          context_snippets.append(f"--- FILE: {f} ---\n{content}\n")
-                  except Exception:
-                      pass
-
-          repo_context = "\n".join(context_snippets)
-
           client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-          system_message = f"""
-          You are an active contributor and senior software engineer for the repository '{repo.full_name}'.
-          Analyze the codebase context provided and fulfill the user's instructions directly.
-          If suggesting code edits, provide exact unified diffs or complete code blocks.
-          
-          Repository Context:
-          {repo_context}
-          """
 
-          response = client.models.generate_content(
-              model="gemini-3.6-flash",
-              contents=f"{system_message}\n\nTask from developer:\n{prompt}"
-          )
+          # Check if the instruction is asking for a commit or file change
+          wants_commit = any(w in prompt.lower() for w in ["commit", "readme", "contribute", "contributor"])
 
-          reply = f"### 🤖 Gemini Contributor Analysis\n\n{response.text}\n\n---\n*Co-authored-by: Google Gemini <gemini@google.com>*"
-          issue.create_comment(reply)
+          if wants_commit:
+              readme_file = "README.md"
+              
+              # Ask Gemini to generate a minimal acknowledgement snippet
+              snippet_prompt = f"""
+              Generate a short, clean Markdown section (1-2 sentences) acknowledging Google Gemini as an autonomous AI contributor to this project.
+              Return ONLY the raw markdown text to append. Do not include markdown code fences (```).
+              User request: {prompt}
+              """
+              res = client.models.generate_content(
+                  model="gemini-3.6-flash",
+                  contents=snippet_prompt
+              )
+
+              # Append to README.md
+              addition = f"\n\n---\n### 🤖 AI Contributor\n{res.text.strip()}\n"
+              with open(readme_file, "a") as f:
+                  f.write(addition)
+
+              # Configure Git author as Google Gemini
+              subprocess.run(["git", "config", "user.name", "Google Gemini"], check=True)
+              subprocess.run(["git", "config", "user.email", "gemini@google.com"], check=True)
+              subprocess.run(["git", "add", readme_file], check=True)
+
+              commit_msg = f"""docs: add Gemini contributor acknowledgment (# {issue_num})
+
+          Co-authored-by: Google Gemini <gemini@google.com>"""
+
+              subprocess.run(["git", "commit", "-m", commit_msg], check=True)
+              subprocess.run(["git", "push", "origin", f"HEAD:{repo.default_branch}"], check=True)
+
+              commit_sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+              reply = (
+                  f"🎉 **Committed and pushed to `{repo.default_branch}`!**\n\n"
+                  f"- **Commit**: `{commit_sha}`\n"
+                  f"- **Author**: `Google Gemini <gemini@google.com>`\n"
+                  f"- **File**: `{readme_file}`\n\n"
+                  "Check your repository homepage and Insights > Contributors to see the updated contribution."
+              )
+              issue.create_comment(reply)
+
+          else:
+              # Standard analysis mode
+              file_list = subprocess.check_output(
+                  ["git", "ls-tree", "-r", "HEAD", "--name-only"], text=True
+              ).splitlines()
+
+              context_snippets = []
+              ignored_exts = ('.png', '.jpg', '.jpeg', '.gif', '.zip', '.tar', '.gz', '.pdf', '.bin', '.so', '.apk')
+              for f in file_list[:80]:
+                  if not f.startswith('.') and not f.endswith(ignored_exts) and os.path.isfile(f):
+                      try:
+                          with open(f, 'r', errors='ignore') as src:
+                              content = src.read(3000)
+                              context_snippets.append(f"--- FILE: {f} ---\n{content}\n")
+                      except Exception:
+                          pass
+
+              repo_context = "\n".join(context_snippets)
+
+              system_message = f"""
+              You are an active contributor and senior software engineer for the repository '{repo.full_name}'.
+              Analyze the codebase context provided and fulfill the user's instructions directly.
+              """
+
+              response = client.models.generate_content(
+                  model="gemini-3.6-flash",
+                  contents=f"{system_message}\n\nRepository Context:\n{repo_context}\n\nTask from developer:\n{prompt}"
+              )
+
+              reply = f"### 🤖 Gemini Contributor Analysis\n\n{response.text}\n\n---\n*Co-authored-by: Google Gemini <gemini@google.com>*"
+              issue.create_comment(reply)
           EOF
