@@ -18,7 +18,7 @@ sealed class LibraryUiState {
     data class Error(val message: String) : LibraryUiState()
 }
 
-class LibraryViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
+class LibraryViewModel(private val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()

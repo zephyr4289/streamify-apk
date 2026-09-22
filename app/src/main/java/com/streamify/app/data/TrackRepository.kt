@@ -10,11 +10,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-object TrackRepository {
+object TrackRepository : TrackRepositoryApi {
     var appContext: android.content.Context? = null
 
     private val _allTracks = MutableStateFlow<List<Track>>(emptyList())
-    val allTracks: StateFlow<List<Track>> = _allTracks.asStateFlow()
+    override val allTracks: StateFlow<List<Track>> = _allTracks.asStateFlow()
     val trackFlow: StateFlow<List<Track>> = allTracks
 
     private val _localTracks = MutableStateFlow<List<Track>>(emptyList())
@@ -23,7 +23,7 @@ object TrackRepository {
     private val _likedTracks = MutableStateFlow<List<Track>>(emptyList())
     val likedTracks: StateFlow<List<Track>> = _likedTracks.asStateFlow()
 
-    suspend fun refresh(): List<Track> = withContext(Dispatchers.IO) {
+    override suspend fun refresh(): List<Track> = withContext(Dispatchers.IO) {
         DatabaseInitializer.ensureInitialized()
         val prefs = appContext?.getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
         val isLocalAudioEnabled = prefs?.getBoolean("enable_local_audio", false) ?: false
@@ -81,14 +81,14 @@ object TrackRepository {
         refresh()
     }
     
-    suspend fun getTracksByIds(ids: List<Int>): List<Track> = withContext(Dispatchers.IO) {
+    override suspend fun getTracksByIds(ids: List<Int>): List<Track> = withContext(Dispatchers.IO) {
         val tracks = _allTracks.value.ifEmpty { refresh() }
         val idSet = ids.toSet()
         val foundTracks = tracks.filter { it.id in idSet }.associateBy { it.id }
         ids.mapNotNull { foundTracks[it] }
     }
     
-    suspend fun searchTracks(query: String): List<Track> = withContext(Dispatchers.IO) {
+    override suspend fun searchTracks(query: String): List<Track> = withContext(Dispatchers.IO) {
         // Close the init race honestly: wait for the native DB instead of racing it.
         // ensureInitialized() is an idempotent shared CompletableDeferred that always
         // completes (even if initDatabase failed), so this never hangs.
@@ -136,7 +136,7 @@ object TrackRepository {
         liked
     }
     
-    fun isTrackLiked(track: Track): Boolean {
+    override fun isTrackLiked(track: Track): Boolean {
         if (track.id > 0 && _likedIds.contains(track.id)) {
             return true
         }
@@ -149,7 +149,7 @@ object TrackRepository {
         }
     }
 
-    fun hydrateTrack(track: Track): Track {
+    override fun hydrateTrack(track: Track): Track {
         val liked = isTrackLiked(track)
         val matchedInDb = if (track.id > 0) {
             _idIndex[track.id] ?: _allTracks.value.find { it.id == track.id }
@@ -201,10 +201,10 @@ object TrackRepository {
         }
     }
 
-    suspend fun registerStreamedTrack(
+    override suspend fun registerStreamedTrack(
         track: Track,
-        context: android.content.Context? = null,
-        addToDefaultPlaylist: Boolean = false
+        context: android.content.Context?,
+        addToDefaultPlaylist: Boolean
     ): Track = withContext(Dispatchers.IO) {
         val albumName = if (track.album.isNotBlank() && !track.album.equals("Single", ignoreCase = true)) track.album else "Streamify"
 
@@ -320,7 +320,7 @@ object TrackRepository {
         updatedTrack
     }
 
-    suspend fun toggleLike(trackId: Int, userId: Int = 1, track: Track? = null): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun toggleLike(trackId: Int, userId: Int, track: Track?): Boolean = withContext(Dispatchers.IO) {
         var targetId = trackId
         val trackObj = track ?: _allTracks.value.find { it.id == trackId }
 
@@ -395,11 +395,11 @@ object TrackRepository {
 
     suspend fun updateTrack(track: Track): Boolean = updateTrackMetadata(track.id, track.title, track.artist, track.album)
 
-    suspend fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int = 1) = withContext(Dispatchers.IO) {
+    override suspend fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int) = withContext(Dispatchers.IO) {
         NativeBridge.logPlayEvent(fromTrackId, toTrackId, userId)
     }
 
-    suspend fun logSkipEvent(fromTrackId: Int, toTrackId: Int, userId: Int = 1) = withContext(Dispatchers.IO) {
+    override suspend fun logSkipEvent(fromTrackId: Int, toTrackId: Int, userId: Int) = withContext(Dispatchers.IO) {
         NativeBridge.logSkipEvent(fromTrackId, toTrackId, userId)
     }
 
@@ -446,29 +446,29 @@ object TrackRepository {
         id
     }
 
-    suspend fun recordTrackPlay(trackId: Int): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun recordTrackPlay(trackId: Int): Boolean = withContext(Dispatchers.IO) {
         NativeBridge.recordTrackPlay(trackId)
     }
 
-    suspend fun getTopPlayedTracks(limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
+    override suspend fun getTopPlayedTracks(limit: Int): List<Track> = withContext(Dispatchers.IO) {
         val nativeTracks = NativeBridge.getTopPlayedTracks(limit)
         nativeTracks.map { it.toTrack() }
     }
 
-    suspend fun updateSessionVector(trackId: Int, alpha: Float = 0.45f) = withContext(Dispatchers.IO) {
+    override suspend fun updateSessionVector(trackId: Int, alpha: Float) = withContext(Dispatchers.IO) {
         if (trackId > 0) {
             NativeBridge.updateSessionVector(trackId, alpha)
         }
     }
 
-    suspend fun getSessionRecommendations(limit: Int = 50): List<Track> = withContext(Dispatchers.IO) {
+    override suspend fun getSessionRecommendations(limit: Int): List<Track> = withContext(Dispatchers.IO) {
         val recs = NativeBridge.getSessionRecommendations(limit)
         if (recs.isEmpty()) return@withContext emptyList()
         val all = getAllTracks().associateBy { it.id }
         recs.mapNotNull { rec -> all[rec.trackId] }
     }
 
-    suspend fun getLongTermRecommendations(userId: Int = 1, limit: Int = 50): List<Track> = withContext(Dispatchers.IO) {
+    override suspend fun getLongTermRecommendations(userId: Int, limit: Int): List<Track> = withContext(Dispatchers.IO) {
         val recs = NativeBridge.getLongTermRecommendations(userId, limit)
         if (recs.isEmpty()) return@withContext emptyList()
         val all = getAllTracks().associateBy { it.id }
@@ -481,14 +481,14 @@ object TrackRepository {
         } else false
     }
 
-    suspend fun getCircadianRecommendations(hourOfDay: Int, limit: Int = 20): List<Track> = withContext(Dispatchers.IO) {
+    override suspend fun getCircadianRecommendations(hourOfDay: Int, limit: Int): List<Track> = withContext(Dispatchers.IO) {
         val recs = NativeBridge.getCircadianRecommendations(hourOfDay, limit)
         if (recs.isEmpty()) return@withContext emptyList()
         val all = getAllTracks().associateBy { it.id }
         recs.mapNotNull { rec -> all[rec.trackId] }
     }
 
-    fun getCircadianSlot(hourOfDay: Int): String {
+    override fun getCircadianSlot(hourOfDay: Int): String {
         return NativeBridge.getCircadianSlot(hourOfDay)
     }
 
@@ -524,7 +524,7 @@ object TrackRepository {
         )
     }
 
-    suspend fun getEmergencyComfortTrack(): Track? = withContext(Dispatchers.IO) {
+    override suspend fun getEmergencyComfortTrack(): Track? = withContext(Dispatchers.IO) {
         val liked = getLikedTracks(1)
         if (liked.isNotEmpty()) {
             liked.shuffled().firstOrNull()

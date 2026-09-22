@@ -63,7 +63,7 @@ data class PlayerState(
         }
 }
 
-class PlayerViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel(),
+class PlayerViewModel(private val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository) : ViewModel(),
     com.streamify.app.jam.JamEngine.Bridge {
 
     // ── JamEngine.Bridge: live-player facade for the Lockstep protocol ──
@@ -202,7 +202,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
     fun initialize(context: Context) {
         val appCtx = context.applicationContext
         appContext = appCtx
-        repository.appContext = appCtx
+        // NOTE: TrackRepository.appContext is owned by AppGraph.initialize
+        // (single-writer rule) — it is already bound before any ViewModel exists.
         if (controllerFuture != null) return
 
         val sessionToken = SessionToken(appCtx, ComponentName(appCtx, PlaybackService::class.java))

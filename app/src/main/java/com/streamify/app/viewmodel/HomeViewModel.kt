@@ -42,7 +42,7 @@ sealed class HomeUiState {
 }
 
 class HomeViewModel(
-    private val repository: TrackRepository = TrackRepository,
+    private val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository,
     private val hybridFetcher: com.streamify.app.data.network.HybridGraphFetcher = com.streamify.app.data.network.HybridGraphFetcher()
 ) : ViewModel() {
 

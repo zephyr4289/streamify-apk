@@ -46,7 +46,7 @@ sealed class SearchUiState {
     data class Error(val message: String) : SearchUiState()
 }
 
-class SearchViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
+class SearchViewModel(private val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository) : ViewModel() {
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
