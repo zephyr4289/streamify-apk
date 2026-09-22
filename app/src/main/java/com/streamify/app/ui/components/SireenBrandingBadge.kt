@@ -29,16 +29,17 @@ import com.streamify.app.ui.theme.*
 fun SireenBrandingBadge(
     modifier: Modifier = Modifier
 ) {
-    val transition = rememberInfiniteTransition(label = "sireen_shimmer_transition")
-    val shimmerProgress by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmer_glint_progress"
-    )
+    // One-shot shimmer sweep: a single glint pass on first composition, then
+    // the badge rests in its static branded colors. A permanent
+    // rememberInfiniteTransition here kept a Choreographer frame loop alive
+    // on every screen that hosts this badge (Home, Search, Library).
+    val shimmerProgress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        shimmerProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 2800, easing = LinearEasing)
+        )
+    }
 
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -107,11 +108,20 @@ fun SireenBrandingBadge(
                     endX = shimmerX + 70f
                 )
 
-                drawText(
-                    textLayoutResult = textLayout,
-                    topLeft = Offset.Zero,
-                    brush = sweepBrush
-                )
+                if (shimmerProgress.value < 1f) {
+                    // Shimmer sweep in flight: paint glyphs with the moving gradient.
+                    drawText(
+                        textLayoutResult = textLayout,
+                        topLeft = Offset.Zero,
+                        brush = sweepBrush
+                    )
+                } else {
+                    // Resting state: static branded colors from the annotated string.
+                    drawText(
+                        textLayoutResult = textLayout,
+                        topLeft = Offset.Zero
+                    )
+                }
             }
         }
     }

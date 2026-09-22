@@ -45,6 +45,8 @@ fun SearchScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val currentTrack by playerViewModel.currentTrack.collectAsState()
+    val playerState by playerViewModel.playerState.collectAsState()
+    val playerIsPlaying = playerState.isPlaying
     val resolvingTrackUrl by viewModel.resolvingTrackUrl.collectAsState()
     val searchHistory by viewModel.searchHistory.collectAsState()
     val searchSuggestions by viewModel.searchSuggestions.collectAsState()
@@ -356,6 +358,7 @@ fun SearchScreen(
                                 YtQueueTrackItem(
                                     track = track,
                                     isPlaying = currentTrack?.id == track.id,
+                                    isActuallyPlaying = playerIsPlaying,
                                     showDragHandle = false,
                                     onClick = { onTrackClick(track, localMatches) },
                                     onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.SEARCH) }

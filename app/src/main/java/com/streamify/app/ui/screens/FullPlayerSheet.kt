@@ -1157,7 +1157,8 @@ private fun LandscapeQueuePane(
             item(key = "active_${currentTrack.id}_${currentTrack.filepath.hashCode()}") {
                 YtQueueTrackItem(
                     track = currentTrack,
-                    isPlaying = isPlaying,
+                    isPlaying = true,
+                    isActuallyPlaying = isPlaying,
                     dragOffset = 0f,
                     showDragHandle = false,
                     onClick = { /* Already playing */ },

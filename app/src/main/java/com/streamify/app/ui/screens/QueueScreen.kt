@@ -228,7 +228,8 @@ fun QueueScreen(
                 item(key = "active_${nowPlaying.id}_${nowPlaying.filepath.hashCode()}", contentType = "trackRow") {
                     YtQueueTrackItem(
                         track = nowPlaying,
-                        isPlaying = playerState.isPlaying,
+                        isPlaying = true,
+                        isActuallyPlaying = playerState.isPlaying,
                         dragOffset = 0f,
                         showDragHandle = false,
                         onClick = { /* Already playing */ },

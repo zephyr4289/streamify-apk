@@ -640,6 +640,7 @@ fun LibraryScreen(
                                     YtQueueTrackItem(
                                         track = track,
                                         isPlaying = currentTrack?.id == track.id,
+                                        isActuallyPlaying = playerState.isPlaying,
                                         isBuffering = playerState.isBuffering,
                                         showDragHandle = false,
                                         onClick = { onTrackClick(track, allTracks) },
@@ -771,6 +772,7 @@ fun LibraryScreen(
                                     YtQueueTrackItem(
                                         track = track,
                                         isPlaying = currentTrack?.id == track.id,
+                                        isActuallyPlaying = playerState.isPlaying,
                                         isBuffering = playerState.isBuffering,
                                         showDragHandle = false,
                                         onClick = { onTrackClick(track, downloaded) },

@@ -30,7 +30,8 @@ fun TrackListItem(
     onClick: () -> Unit,
     onOptionsClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isPlaying: Boolean = false,
+    isCurrentTrack: Boolean = false,
+    isActuallyPlaying: Boolean = true,
     isBuffering: Boolean = false
 ) {
     Row(
@@ -58,7 +59,7 @@ fun TrackListItem(
                 modifier = Modifier.fillMaxSize(),
                 shape = StreamifyShapes.MiniPlayerShape
             )
-            if (isPlaying) {
+            if (isCurrentTrack) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -73,7 +74,7 @@ fun TrackListItem(
                             strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
                         )
                     } else {
-                        NowPlayingIndicator()
+                        NowPlayingIndicator(isActive = isActuallyPlaying)
                     }
                 }
             }
@@ -84,7 +85,7 @@ fun TrackListItem(
             Text(
                 text = track.title,
                 style = StreamifyType.TitleMedium,
-                color = if (isPlaying) StreamifyColors.Primary else StreamifyColors.TextMain,
+                color = if (isCurrentTrack) StreamifyColors.Primary else StreamifyColors.TextMain,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -156,7 +157,8 @@ fun SwipeableTrackListItem(
     onSwipeQueue: (() -> Unit)? = null,
     onSwipeLike: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    isPlaying: Boolean = false,
+    isCurrentTrack: Boolean = false,
+    isActuallyPlaying: Boolean = true,
     isBuffering: Boolean = false
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -217,7 +219,8 @@ fun SwipeableTrackListItem(
             onClick = onClick,
             onOptionsClick = onOptionsClick,
             modifier = modifier.background(StreamifyColors.BgBase),
-            isPlaying = isPlaying,
+            isCurrentTrack = isCurrentTrack,
+            isActuallyPlaying = isActuallyPlaying,
             isBuffering = isBuffering
         )
     }

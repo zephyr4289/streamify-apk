@@ -29,6 +29,7 @@ import com.streamify.app.ui.theme.*
 fun YtQueueTrackItem(
     track: Track,
     isPlaying: Boolean,
+    isActuallyPlaying: Boolean = true,
     isBuffering: Boolean = false,
     dragOffset: Float = 0f, // Handled for 120fps GPU movement
     onDragStart: (() -> Unit)? = null,
@@ -94,7 +95,7 @@ fun YtQueueTrackItem(
                         .background(Color.Black.copy(alpha = 0.55f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    YtActiveEqualizer()
+                    YtActiveEqualizer(isActive = isActuallyPlaying)
                 }
             }
         }
