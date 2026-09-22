@@ -211,7 +211,7 @@ fun LibraryScreen(
 
     // Delete Playlist Confirmation Dialog
     if (playlistToDelete != null) {
-        val pl = playlistToDelete!!
+        val pl = playlistToDelete ?: return
         AlertDialog(
             onDismissRequest = { playlistToDelete = null },
             title = { Text("Delete Playlist?", color = TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
@@ -290,7 +290,7 @@ fun LibraryScreen(
     if (selectedAlbumName != null) {
         val allTracks = (uiState as? LibraryUiState.Success)?.tracks ?: emptyList()
         AlbumScreen(
-            albumName = selectedAlbumName!!,
+            albumName = selectedAlbumName ?: return,
             allTracks = allTracks,
             playerViewModel = playerViewModel,
             onBack = { selectedAlbumName = null },
@@ -317,7 +317,7 @@ fun LibraryScreen(
         }
 
         PlaylistDetailScreen(
-            playlistId = selectedPlaylistId!!,
+            playlistId = selectedPlaylistId ?: return,
             playlistName = if (selectedPlaylistId == "liked_songs") "Liked Music" else (currentPlaylist?.name ?: "Playlist"),
             playlistDescription = currentPlaylist?.description ?: "",
             playlistTracks = playlistTracks,

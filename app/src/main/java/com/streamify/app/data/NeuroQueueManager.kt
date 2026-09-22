@@ -7,6 +7,7 @@ import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+import com.streamify.app.util.SLog
 
 /**
  * Psychological Neuro-Acoustic Queue Manager
@@ -214,7 +215,7 @@ object NeuroQueueManager {
                     return@withContext outList
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("NeuroQueueManager", "NeuroQueueManager.generateAdaptiveQueue failed", e)
             }
         }
 

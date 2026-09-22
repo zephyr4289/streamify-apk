@@ -492,7 +492,7 @@ object SupabaseClient {
                 Result.failure(Exception("Auth failed: $respStr"))
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.signInWithGoogleIdToken failed", e)
             Result.failure(e)
         }
     }
@@ -510,7 +510,7 @@ object SupabaseClient {
             }
             executeRpc("profiles", "POST", body.toString(), prefer = "resolution=merge-duplicates")
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.ensureProfile failed", e)
         }
     }
 
@@ -556,7 +556,7 @@ object SupabaseClient {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.fetchCloudTelemetryAndMerge failed", e)
         }
     }
 
@@ -747,7 +747,7 @@ object SupabaseClient {
 
             cloudLikedIds
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.syncCloudLikes failed", e)
             emptyList()
         }
     }
@@ -1288,7 +1288,7 @@ object SupabaseClient {
             }
             recs
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.fetchCloudSongRadio failed", e)
             emptyList()
         }
     }
@@ -1323,7 +1323,7 @@ object SupabaseClient {
             }
             comments
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.fetchTrackComments failed", e)
             emptyList()
         }
     }
@@ -1970,7 +1970,7 @@ object SupabaseClient {
             }
             list
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.fetchCommunityPlaylists failed", e)
             emptyList()
         }
     }
@@ -2073,7 +2073,7 @@ object SupabaseClient {
                     rpcHealthy = true
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("SupabaseClient", "SupabaseClient.getAdminTelemetry failed", e)
             }
 
             val (code, resp) = executeRpc("profiles?select=*&order=created_at.desc&limit=100", "GET")
@@ -2278,7 +2278,7 @@ object SupabaseClient {
             val (code, _) = executeRpc("admin_broadcasts", "POST", body.toString(), prefer = "return=minimal")
             Result.success(code in 200..299)
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.postAdminBroadcast failed", e)
             Result.failure(e)
         }
     }
@@ -2313,7 +2313,7 @@ object SupabaseClient {
                 Result.success(null)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.claimEdgeTask failed", e)
             Result.failure(e)
         }
     }
@@ -2345,7 +2345,7 @@ object SupabaseClient {
             val (code, _) = executeRpc("rpc/submit_edge_result", "POST", body.toString())
             Result.success(code in 200..299)
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.submitEdgeResult failed", e)
             Result.failure(e)
         }
     }
@@ -2510,7 +2510,7 @@ object SupabaseClient {
                 Result.success(fallbackStats)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("SupabaseClient", "SupabaseClient.getAdminEdgeComputeStats failed", e)
             val context = TrackRepository.appContext
             val localEdgeRepo = if (context != null) EdgeMeshRepository.getInstance(context) else null
             val localState = localEdgeRepo?.meshState?.value

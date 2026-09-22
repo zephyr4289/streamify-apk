@@ -9,6 +9,7 @@ import android.media.audiofx.Virtualizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.streamify.app.util.SLog
 
 object EqualizerManager {
     private var equalizer: Equalizer? = null
@@ -114,7 +115,7 @@ object EqualizerManager {
             bassBoost?.setStrength(_bassStrength.value)
             virtualizer?.setStrength(_virtualizerStrength.value)
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("EqualizerManager", "EqualizerManager.initSession failed", e)
         }
     }
 
@@ -150,7 +151,7 @@ object EqualizerManager {
                 loudnessEnhancer?.setTargetGain(150)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("EqualizerManager", "EqualizerManager.setLoudnessNormalization failed", e)
         }
     }
 
@@ -197,7 +198,7 @@ object EqualizerManager {
                 _bands.value = current
                 applyBandGains(current)
             }
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) { SLog.st("EqualizerManager", "EqualizerManager.setBandLevel failed", e) }
     }
 
     fun setBassStrength(strength: Short) {

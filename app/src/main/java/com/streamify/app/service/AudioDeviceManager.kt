@@ -13,6 +13,7 @@ import android.os.Build
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.streamify.app.util.SLog
 
 enum class AudioDeviceType {
     BLUETOOTH_CAR,
@@ -89,7 +90,7 @@ object AudioDeviceManager {
                 appContext.registerReceiver(audioReceiver, filter)
             } catch (e: Exception) {
                 isRegistered.set(false)
-                e.printStackTrace()
+                SLog.st("AudioDeviceManager", "AudioDeviceManager.init failed", e)
             }
         }
     }
@@ -200,7 +201,7 @@ object AudioDeviceManager {
                 }
                 context.startActivity(intent)
             } catch (ex: Exception) {
-                ex.printStackTrace()
+                SLog.st("AudioDeviceManager", "AudioDeviceManager.openSystemAudioSettings failed", ex)
             }
         }
     }

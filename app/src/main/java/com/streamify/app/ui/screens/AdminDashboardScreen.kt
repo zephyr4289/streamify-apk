@@ -1174,10 +1174,10 @@ private fun UserTelemetrySheet(
                         Text(livePersona?.title ?: user.bio.ifBlank { "Sonic Explorer 🎧" }, style = StreamifyType.BodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.Primary)
                     }
 
-                    if (livePersona != null && livePersona!!.description.isNotBlank()) {
+                    livePersona?.takeIf { it.description.isNotBlank() }?.let { persona ->
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = livePersona!!.description,
+                            text = persona.description,
                             style = StreamifyType.Caption.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
                             color = StreamifyColors.TextMain.copy(alpha = 0.85f)
                         )
@@ -1270,7 +1270,7 @@ private fun AdminTopSongsPanel() {
             rows == null -> CircularProgressIndicator(color = StreamifyColors.Primary, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
             else -> {
                 val list = buildList {
-                    for (i in 0 until rows!!.length()) rows!!.optJSONObject(i)?.let { add(it) }
+                    for (i in 0 until rows.length()) rows.optJSONObject(i)?.let { add(it) }
                 }
                 if (list.isEmpty()) {
                     Text(

@@ -262,7 +262,7 @@ class MeshDiscoveryEngine private constructor(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.st("MeshDiscoveryEngine", "MeshDiscoveryEngine.getLocalIpAddress failed", e)
         }
         return null
     }

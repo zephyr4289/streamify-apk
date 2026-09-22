@@ -3,6 +3,7 @@ package com.streamify.app.util
 import android.content.Context
 import android.content.Intent
 import com.streamify.app.data.models.Track
+import com.streamify.app.util.SLog
 
 object TrackShareCard {
 
@@ -34,7 +35,7 @@ object TrackShareCard {
             }
             context.startActivity(shareIntent)
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("TrackShareCard", "TrackShareCard.shareTrack failed", e)
         }
     }
 }

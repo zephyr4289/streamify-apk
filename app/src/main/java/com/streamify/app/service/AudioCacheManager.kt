@@ -24,7 +24,7 @@ object AudioCacheManager {
             val databaseProvider = StandaloneDatabaseProvider(context.applicationContext)
             simpleCache = SimpleCache(cacheDir, weightedEvictor, databaseProvider)
         }
-        return simpleCache!!
+        return requireNotNull(simpleCache) { "SimpleCache initialization failed" }
     }
 
     fun markStickyTrack(streamUrl: String) {

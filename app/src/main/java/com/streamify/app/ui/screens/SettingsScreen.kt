@@ -37,6 +37,7 @@ import com.streamify.app.viewmodel.PlayerViewModel
 import com.streamify.app.service.CrossfadeAudioProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.streamify.app.util.SLog
 
 @Composable
 private fun SectionHeader(title: String) {
@@ -735,7 +736,7 @@ fun SettingsScreen(
                                     android.widget.Toast.makeText(context, "Failed to restore backup", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             } catch (e: Exception) {
-                                e.printStackTrace()
+                                SLog.st("SettingsScreen", "SettingsScreen backup-restore failed", e)
                             }
                         }
                     }

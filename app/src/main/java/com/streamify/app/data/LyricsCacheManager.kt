@@ -17,6 +17,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import com.streamify.app.util.SLog
 
 /**
  * High-performance Service-Tier SLYR & LRC binary cache manager.
@@ -133,7 +134,7 @@ object LyricsCacheManager {
                 memorySlyrCache[hash] = directBuf
                 return@withContext directBuf.asReadOnlyBuffer().order(ByteOrder.nativeOrder())
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("LyricsCacheManager", "LyricsCacheManager.getOrLoadSlyrBuffer failed", e)
             }
         }
 
@@ -154,7 +155,7 @@ object LyricsCacheManager {
                         return@withContext directBuf.asReadOnlyBuffer().order(ByteOrder.nativeOrder())
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    SLog.st("LyricsCacheManager", "LyricsCacheManager.getOrLoadSlyrBuffer failed", e)
                 }
             }
         }
@@ -183,7 +184,7 @@ object LyricsCacheManager {
                     val parsed = LyricsData.parseLrc(file.readText()).lines
                     if (parsed.isNotEmpty()) return@withContext parsed
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    SLog.st("LyricsCacheManager", "LyricsCacheManager.getOrFetchLyrics failed", e)
                 }
             }
         }
@@ -196,7 +197,7 @@ object LyricsCacheManager {
                     val parsed = LyricsData.parseLrc(companionLrc.readText()).lines
                     if (parsed.isNotEmpty()) return@withContext parsed
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    SLog.st("LyricsCacheManager", "LyricsCacheManager.getOrFetchLyrics failed", e)
                 }
             }
         }
@@ -208,7 +209,7 @@ object LyricsCacheManager {
                 val parsed = LyricsData.parseLrc(cachedFile.readText()).lines
                 if (parsed.isNotEmpty()) return@withContext parsed
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("LyricsCacheManager", "LyricsCacheManager.getOrFetchLyrics failed", e)
             }
         }
 
@@ -232,7 +233,7 @@ object LyricsCacheManager {
                     return@withContext LyricsData.parseLrc(lrcContent).lines
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("LyricsCacheManager", "LyricsCacheManager.getOrFetchLyrics failed", e)
             }
         }
 
@@ -296,12 +297,12 @@ object LyricsCacheManager {
                             track.copy(lyricsPath = cachedFile.absolutePath)
                         )
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        SLog.st("LyricsCacheManager", "LyricsCacheManager.saveLyricsToDiskAndDb failed", e)
                     }
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("LyricsCacheManager", "LyricsCacheManager.saveLyricsToDiskAndDb failed", e)
         }
     }
 

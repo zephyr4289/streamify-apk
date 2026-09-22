@@ -113,7 +113,7 @@ class PredictivePreBufferManager(
 
         fun notifyNextIs(track: Track) {
             val mgr = delegate ?: return
-            android.util.Log.d("JamShadow", "NEXT_IS → shadow pre-buffer '${track.title}'")
+            com.streamify.app.util.SLog.d("JamShadow", "NEXT_IS → shadow pre-buffer '${track.title}'")
             // Reuses the 512KB head-chunk matrix; dedupe via activePreCacheJobs.
             mgr.preBufferUpcomingTracks(listOf(track))
         }

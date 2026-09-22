@@ -12,6 +12,7 @@ import androidx.media3.session.MediaSessionService
 import com.streamify.app.data.network.YouTubeStreamResolver
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.streamify.app.util.SLog
 
 class PlaybackService : MediaSessionService() {
 
@@ -139,7 +140,9 @@ class PlaybackService : MediaSessionService() {
         
         preBufferManager = PredictivePreBufferManager(this)
         // Jam Phase-1: shadow pre-buffer hook for host NEXT_IS intents.
-        PredictivePreBufferManager.JamPreBuffer.install(preBufferManager!!)
+        PredictivePreBufferManager.JamPreBuffer.install(
+            requireNotNull(preBufferManager) { "preBufferManager must be initialized before Jam shadow install" }
+        )
 
         // PHASE 4 (U1): tether the Jam distributed loops to THIS foreground
         // service. They survive navigation and hold network priority while
@@ -147,7 +150,9 @@ class PlaybackService : MediaSessionService() {
         jamServiceScope = kotlinx.coroutines.CoroutineScope(
             kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
         )
-        com.streamify.app.jam.JamEngine.attachRuntimeScope(jamServiceScope!!)
+        com.streamify.app.jam.JamEngine.attachRuntimeScope(
+            requireNotNull(jamServiceScope) { "jamServiceScope must be initialized before JamEngine tether" }
+        )
         if (com.streamify.app.jam.JamEngine.isActive()) {
             com.streamify.app.jam.JamEngine.startRuntime()
         }
@@ -226,7 +231,7 @@ class PlaybackService : MediaSessionService() {
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 super.onPlayerError(error)
-                error.printStackTrace()
+                SLog.e("PlaybackService", "onPlayerError: playback failed", error)
 
                 // Engine 3: JIT CDN Token Auto-Renewer (403/410 Forbidden Shield)
                 val isExpiredOrBadHttp = error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
@@ -250,7 +255,7 @@ class PlaybackService : MediaSessionService() {
                                 val fresh = YouTubeStreamResolver.resolveStreamUrl(mediaId, forceFresh = true)
                                 if (fresh != null && fresh.streamUrl.isNotBlank()) {
                                     withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        val updatedItem = currentItem!!.buildUpon()
+                                        val updatedItem = (currentItem ?: return@withContext).buildUpon()
                                             .setUri(android.net.Uri.parse(fresh.streamUrl))
                                             .build()
                                         val curIdx = exoPlayer.currentMediaItemIndex
@@ -261,7 +266,7 @@ class PlaybackService : MediaSessionService() {
                                     }
                                 }
                             } catch (e: Exception) {
-                                e.printStackTrace()
+                                SLog.st("PlaybackService", "onPlayerError CDN token renewal failed", e)
                             }
                         }
                     }

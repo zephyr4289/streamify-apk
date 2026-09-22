@@ -183,29 +183,17 @@ object LyricsResolver {
 
         // Verified hierarchy:
         // 1. Musixmatch Syllable RichSync (Word-by-word karaoke)
-        if (!mxmResult.isNullOrBlank() && mxmResult!!.contains("<")) {
-            return@withContext mxmResult
-        }
+        mxmResult?.takeIf { it.contains("<") }?.let { return@withContext it }
         // 2. YouTube Music TimedLyrics (line-level, 0.00s video sync)
-        if (!ytmResult.isNullOrBlank() && ytmResult!!.contains("[")) {
-            return@withContext ytmResult
-        }
+        ytmResult?.takeIf { it.contains("[") }?.let { return@withContext it }
         // 3. Musixmatch Line-level subtitles
-        if (!mxmResult.isNullOrBlank() && mxmResult!!.contains("[")) {
-            return@withContext mxmResult
-        }
+        mxmResult?.takeIf { it.contains("[") }?.let { return@withContext it }
         // 4. LRCLIB synced
-        if (!lrcSynced.isNullOrBlank() && lrcSynced!!.contains("[")) {
-            return@withContext lrcSynced
-        }
+        lrcSynced?.takeIf { it.contains("[") }?.let { return@withContext it }
         // 5. NetEase synced
-        if (!netEaseResult.isNullOrBlank() && netEaseResult!!.contains("[")) {
-            return@withContext netEaseResult
-        }
+        netEaseResult?.takeIf { it.contains("[") }?.let { return@withContext it }
         // 6. Plain text fallback → synthesize an evenly distributed synced timeline
-        if (!lrcPlain.isNullOrBlank() && lrcPlain!!.length > 20) {
-            return@withContext synthesizeSyncedLyricsFromPlain(lrcPlain!!, durationSec)
-        }
+        lrcPlain?.takeIf { it.length > 20 }?.let { return@withContext synthesizeSyncedLyricsFromPlain(it, durationSec) }
 
         return@withContext null
     }

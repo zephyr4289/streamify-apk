@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.atomic.AtomicInteger
+import com.streamify.app.util.SLog
 
 data class ImportProgress(
     val total: Int,
@@ -133,7 +134,7 @@ object BatchTrackResolver {
                             resolvedTracks[index] = id
                         }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        SLog.st("BatchTrackResolver", "BatchTrackResolver.resolveAndImportPlaylist failed", e)
                     } finally {
                         val done = completedCount.incrementAndGet()
                         send(

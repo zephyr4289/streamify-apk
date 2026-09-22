@@ -17,6 +17,7 @@ import org.json.JSONObject
 import java.util.Collections
 import java.util.HashSet
 import java.util.zip.GZIPInputStream
+import com.streamify.app.util.SLog
 
 val Track.videoId: String
     get() = YouTubeStreamResolver.extractVideoId(filepath, coverArtPath) ?: id.toString()
@@ -189,7 +190,7 @@ object ContinuumRadioEngine {
             _discoveredQueue.value = _discoveredQueue.value + uniqueTracks
             uniqueTracks
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("ContinuumRadioEngine", "ContinuumRadioEngine.fetchNextRadioBatch failed", e)
             emptyList()
         } finally {
             _isFetching.value = false
@@ -366,7 +367,7 @@ object ContinuumRadioEngine {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("ContinuumRadioEngine", "ContinuumRadioEngine.parseNextResponse failed", e)
         }
 
         return Pair(tracks, nextContinuation)

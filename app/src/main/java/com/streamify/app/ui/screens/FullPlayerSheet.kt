@@ -77,6 +77,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.streamify.app.util.SLog
 
 enum class LandscapePlayerTab {
     UP_NEXT, LYRICS, RELATED
@@ -1285,7 +1286,7 @@ private fun LandscapeLyricsPane(
                         ).show()
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    SLog.st("FullPlayerSheet", "LandscapeLyricsPane save-synced-lyrics failed", e)
                 }
             }
         }

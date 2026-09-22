@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.streamify.app.util.SLog
 
 data class StorageBreakdown(
     val audioCacheBytes: Long,
@@ -52,7 +53,7 @@ object StorageManager {
             lyricsDir.deleteRecursively()
             true
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("StorageManager", "StorageManager.clearAllCache failed", e)
             false
         }
     }

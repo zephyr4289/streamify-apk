@@ -191,7 +191,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         }
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    SLog.st("PlayerViewModel", "PlayerViewModel.toggleVideoMode failed", e)
                 } finally {
                     isVideoSwitching.set(false)
                 }
@@ -395,7 +395,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             )
                         }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        SLog.st("PlayerViewModel", "PlayerViewModel.onMediaItemTransition failed", e)
                     }
                 }
             }
@@ -613,7 +613,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             }
                         }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        SLog.st("PlayerViewModel", "PlayerViewModel.onPlayerError failed", e)
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             _playerState.value = _playerState.value.copy(isBuffering = false, isPlaying = false)
                             UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not play '${currentT.title}'. Tap to retry."))
@@ -1054,7 +1054,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("PlayerViewModel", "PlayerViewModel.hydrateContinuumRadio failed", e)
             }
         }
     }
@@ -1241,7 +1241,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             cachedFile.writeText(lyricsText)
                             storedPath = cachedFile.absolutePath
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            SLog.st("PlayerViewModel", "PlayerViewModel.maybeFetchLyricsForTrack failed", e)
                         }
                     }
 
@@ -1273,7 +1273,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                     lyricsFetchAttempts.remove(attemptKey)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("PlayerViewModel", "PlayerViewModel.maybeFetchLyricsForTrack failed", e)
                 lyricsFetchAttempts.remove(attemptKey)
             }
         }
@@ -1374,7 +1374,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         sessionBindFailed = true
                     }
                 } catch (e: Throwable) {
-                    e.printStackTrace()
+                    SLog.st("PlayerViewModel", "PlayerViewModel.playTrackInternal failed", e)
                 }
                 _playerState.value = _playerState.value.copy(
                     currentTrack = resolvedTrack,
@@ -1410,7 +1410,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                         }
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    SLog.st("PlayerViewModel", "PlayerViewModel.playTrackInternal failed", e)
                 }
             }
         } else {
@@ -1674,11 +1674,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
                             quality = "320"
                         )
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        SLog.st("PlayerViewModel", "PlayerViewModel.toggleLike failed", e)
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("PlayerViewModel", "PlayerViewModel.toggleLike failed", e)
             }
         }
     }
@@ -1701,7 +1701,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             try {
                 controller?.removeMediaItem(index)
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("PlayerViewModel", "PlayerViewModel.removeFromQueue failed", e)
             }
         }
     }
@@ -1726,7 +1726,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
             try {
                 controller?.moveMediaItem(fromIndex, toIndex)
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("PlayerViewModel", "PlayerViewModel.reorderQueue failed", e)
             }
         }
     }
@@ -1736,7 +1736,7 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         try {
             controller?.clearMediaItems()
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("PlayerViewModel", "PlayerViewModel.clearQueue failed", e)
         }
     }
 

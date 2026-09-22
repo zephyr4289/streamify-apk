@@ -34,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.streamify.app.util.SLog
 
 @Composable
 fun LyricsScreen(
@@ -180,7 +181,7 @@ fun LyricsScreen(
                                     ).show()
                                 }
                             } catch (e: Exception) {
-                                e.printStackTrace()
+                                SLog.st("LyricsScreen", "LyricsScreen save-synced-lyrics failed", e)
                             }
                         }
                     }

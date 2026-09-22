@@ -12,6 +12,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
+import com.streamify.app.util.SLog
 
 data class ScrapedTrack(
     val title: String,
@@ -123,7 +124,7 @@ object PlaylistLinkScraper {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("PlaylistLinkScraper", "PlaylistLinkScraper.scrapeSpotify failed", e)
         }
 
         // Tier 2: Spotify Web Player API (for pagination fallback if embed returned empty)
@@ -189,7 +190,7 @@ object PlaylistLinkScraper {
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("PlaylistLinkScraper", "PlaylistLinkScraper.scrapeSpotify failed", e)
             }
         }
 
@@ -392,7 +393,7 @@ object PlaylistLinkScraper {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("PlaylistLinkScraper", "PlaylistLinkScraper.scrapeYouTube failed", e)
         }
 
         // --------------------------------------------------------------------
@@ -417,7 +418,7 @@ object PlaylistLinkScraper {
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("PlaylistLinkScraper", "PlaylistLinkScraper.scrapeYouTube failed", e)
             }
         }
 
@@ -596,7 +597,7 @@ object PlaylistLinkScraper {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("PlaylistLinkScraper", "PlaylistLinkScraper.scrapeAppleMusic failed", e)
         }
 
         return ScrapedPlaylist(name = playlistName, tracks = tracks)

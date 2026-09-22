@@ -37,9 +37,7 @@ object PersonaEngine {
         val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         val currentCacheKey = "${todayDate}_${totalPlayCount}_${avgBpm}_${topGenres}"
 
-        if (cachedPersona != null && lastCacheKey == currentCacheKey) {
-            return@withContext cachedPersona!!
-        }
+        cachedPersona?.takeIf { lastCacheKey == currentCacheKey }?.let { return@withContext it }
 
         val systemPrompt = """
             You are an expert acoustic psychoanalyst. Analyze the user's raw music listening telemetry and generate an analytical persona card.

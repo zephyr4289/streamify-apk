@@ -23,6 +23,7 @@ import com.streamify.app.viewmodel.UiEventBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.streamify.app.util.SLog
 
 class DownloadWorker(
     appContext: Context,
@@ -67,7 +68,7 @@ class DownloadWorker(
         try {
             setForeground(getForegroundInfo())
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("DownloadWorker", "DownloadWorker.doWork failed", e)
         }
 
         val url = inputData.getString("url") ?: return@withContext Result.failure()
@@ -81,7 +82,7 @@ class DownloadWorker(
 
         val musicDir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC), "Streamify")
         if (!musicDir.exists()) {
-            try { musicDir.mkdirs() } catch (e: Exception) { e.printStackTrace() }
+            try { musicDir.mkdirs() } catch (e: Exception) { SLog.st("DownloadWorker", "DownloadWorker.doWork mkdirs failed", e) }
         }
         val outputDir = if (musicDir.exists()) musicDir else File(applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC), "Streamify")
         if (!outputDir.exists()) outputDir.mkdirs()

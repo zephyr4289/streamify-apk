@@ -113,7 +113,8 @@ object CandidateAggregator {
                 if (!response.isSuccessful) return@withContext emptyList()
                 val isGzip = response.header("Content-Encoding")?.contains("gzip", ignoreCase = true) == true
                 val bodyText = if (isGzip) {
-                    GZIPInputStream(response.body!!.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val body = response.body ?: return@withContext emptyList()
+                    GZIPInputStream(body.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
                 } else {
                     response.body?.string() ?: return@withContext emptyList()
                 }

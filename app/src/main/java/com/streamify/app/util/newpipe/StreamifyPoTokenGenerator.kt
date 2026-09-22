@@ -82,9 +82,9 @@ class StreamifyPoTokenGenerator : PoTokenProvider {
                 }
 
                 Quadruple(
-                    webPoTokenGenerator!!,
-                    webPoTokenVisitorData!!,
-                    webPoTokenStreamingPot!!,
+                    requireNotNull(webPoTokenGenerator) { "PO token generator not initialized" },
+                    requireNotNull(webPoTokenVisitorData) { "PO token visitor data not initialized" },
+                    requireNotNull(webPoTokenStreamingPot) { "PO streaming token not initialized" },
                     shouldRecreate
                 )
             }

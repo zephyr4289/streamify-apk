@@ -273,7 +273,7 @@ object TrackRepository {
                     }
                     PlaylistRepository.addTrackToPlaylist(streamifyPl.id, savedId)
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    SLog.st("TrackRepository", "TrackRepository.registerStreamedTrack failed", e)
                 }
             }
 
@@ -285,7 +285,7 @@ object TrackRepository {
                     val embedding = textEngine.generateEmbedding("${track.artist} - ${track.title} [${albumName}]")
                     NativeBridge.updateTrackEmbedding(savedId, embedding)
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    SLog.st("TrackRepository", "TrackRepository.registerStreamedTrack failed", e)
                 }
             }
 
@@ -294,7 +294,7 @@ object TrackRepository {
                 try {
                     com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(updatedTrack)
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    SLog.st("TrackRepository", "TrackRepository.registerStreamedTrack failed", e)
                 }
             }
 
@@ -358,7 +358,7 @@ object TrackRepository {
                             com.streamify.app.data.remote.SupabaseClient.removeCloudLike(cloudId)
                         }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        SLog.st("TrackRepository", "TrackRepository.toggleLike failed", e)
                     }
                 }
             }

@@ -8,6 +8,7 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import com.streamify.app.util.SLog
 
 data class ParsedTrackItem(
     val title: String,
@@ -80,7 +81,7 @@ object ExportifyParser {
                 else -> parsePlaylistJson(file)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("ExportifyParser", "ExportifyParser.parseUniversalFile failed", e)
             return@withContext Pair("", emptyList())
         }
     }
@@ -255,7 +256,7 @@ object ExportifyParser {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("ExportifyParser", "ExportifyParser.parseSpotifyUrl failed", e)
         }
 
         if (tracks.isNotEmpty()) {
@@ -317,7 +318,7 @@ object ExportifyParser {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("ExportifyParser", "ExportifyParser.parseSpotifyUrl failed", e)
         }
 
         return@withContext tracks
