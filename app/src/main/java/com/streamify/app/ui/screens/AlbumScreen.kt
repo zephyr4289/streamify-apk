@@ -30,6 +30,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun PlaylistDetailScreen(
@@ -50,8 +51,12 @@ fun PlaylistDetailScreen(
             coroutineScope.launch {
                 isRefreshing = true
                 try {
-                    PlaylistRepository.refresh()
-                } catch (e: Exception) {}
+                    // PlaylistRepository.refresh parses playlists.json — arbitrary-size
+                    // JSON parsing must stay off the main thread.
+                    withContext(Dispatchers.IO) { PlaylistRepository.refresh() }
+                } catch (e: Exception) {
+                    com.streamify.app.util.SLog.st("AlbumScreen", "pull-to-refresh playlist reload failed", e)
+                }
                 delay(400)
                 isRefreshing = false
             }

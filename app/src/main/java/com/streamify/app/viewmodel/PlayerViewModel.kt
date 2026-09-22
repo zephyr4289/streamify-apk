@@ -1302,7 +1302,11 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = null
 
         // 0. SMART OFFLINE VAULT GATE (0ms instant local playback if pre-cached)
-        val vaulted = com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
+        // File-stat work (vault index hit + existence/size probe) kept off the
+        // main thread — this runs on every track tap.
+        val vaulted = withContext(Dispatchers.IO) {
+            com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
+        }
         val trackToPlay = vaulted ?: track
         if (vaulted != null) {
             SLog.d("ResolveTrace", "R0 VAULT HIT: ${track.title}")
@@ -1311,7 +1315,8 @@ class PlayerViewModel(private val repository: TrackRepository = TrackRepository)
         // 1. FAST-PATH GATE: If trackToPlay.filepath is already a direct playable local file or unexpired CDN stream
         val isAlreadyDirectCdn = (trackToPlay.filepath.contains("googlevideo.com") || trackToPlay.filepath.contains(".googlevideo.")) &&
                 !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(trackToPlay.filepath)
-        val isLocalFile = trackToPlay.filepath.startsWith("/") || trackToPlay.filepath.startsWith("file://") || java.io.File(trackToPlay.filepath).exists()
+        val isLocalFile = trackToPlay.filepath.startsWith("/") || trackToPlay.filepath.startsWith("file://") ||
+                withContext(Dispatchers.IO) { java.io.File(trackToPlay.filepath).exists() }
 
         val knownVideoId = trackToPlay.ytmVideoId?.takeIf { it.isNotBlank() }
             ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(trackToPlay.filepath, trackToPlay.coverArtPath)

@@ -9,6 +9,7 @@ import com.streamify.app.data.network.YouTubeStreamResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -542,5 +543,13 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 }
             }
         }
+    }
+
+    override fun onCleared() {
+        // The speculative-prefetch scope outlives individual searches; without
+        // this it leaked SupervisorJob + IO threads for the ViewModel's
+        // lifetime and beyond (viewModelScope is cancelled separately).
+        prefetchScope.cancel()
+        super.onCleared()
     }
 }

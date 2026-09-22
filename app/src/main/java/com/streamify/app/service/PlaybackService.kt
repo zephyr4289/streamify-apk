@@ -10,6 +10,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.streamify.app.data.network.YouTubeStreamResolver
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.streamify.app.util.SLog
@@ -17,6 +18,10 @@ import com.streamify.app.util.SLog
 class PlaybackService : MediaSessionService() {
 
     private var jamServiceScope: kotlinx.coroutines.CoroutineScope? = null
+    // Scope for one-shot error recovery work (CDN re-resolution etc). Lives
+    // with the service so recovery jobs never outlive it, unlike the previous
+    // ad-hoc CoroutineScope(...).launch per error which leaked unmanaged jobs.
+    private var errorRecoveryScope: kotlinx.coroutines.CoroutineScope? = null
     companion object {
         // LEGACY objects kept alive only for non-chain consumers:
         //  - syncAudioProcessor: Jam lockstep hardware-latency compensation
@@ -153,6 +158,9 @@ class PlaybackService : MediaSessionService() {
         com.streamify.app.jam.JamEngine.attachRuntimeScope(
             requireNotNull(jamServiceScope) { "jamServiceScope must be initialized before JamEngine tether" }
         )
+        errorRecoveryScope = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+        )
         if (com.streamify.app.jam.JamEngine.isActive()) {
             com.streamify.app.jam.JamEngine.startRuntime()
         }
@@ -250,7 +258,8 @@ class PlaybackService : MediaSessionService() {
                         lastRenewalMediaId = mediaId
                         lastRenewalAtMs = System.currentTimeMillis()
 
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        val recoveryScope = errorRecoveryScope ?: return
+                        recoveryScope.launch {
                             try {
                                 val fresh = YouTubeStreamResolver.resolveStreamUrl(mediaId, forceFresh = true)
                                 if (fresh != null && fresh.streamUrl.isNotBlank()) {
@@ -371,6 +380,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         jamServiceScope?.cancel()
+        errorRecoveryScope?.cancel()
         com.streamify.app.jam.JamEngine.attachRuntimeScope(null)
         AudioDeviceManager.release(this)
         EqualizerManager.release()
