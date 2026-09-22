@@ -57,6 +57,7 @@ fun TrackListItem(
                 title = track.title,
                 artist = track.artist,
                 modifier = Modifier.fillMaxSize(),
+                sizeDp = StreamifyDimens.TrackRowArt.value.toInt(),
                 shape = StreamifyShapes.MiniPlayerShape
             )
             if (isCurrentTrack) {

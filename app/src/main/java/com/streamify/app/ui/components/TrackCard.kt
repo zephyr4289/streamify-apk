@@ -28,6 +28,7 @@ fun TrackCard(
             title = track.title,
             artist = track.artist,
             modifier = Modifier.size(StreamifyDimens.CardArtSize),
+            sizeDp = StreamifyDimens.CardArtSize.value.toInt(),
             shape = StreamifyShapes.CardShape
         )
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
