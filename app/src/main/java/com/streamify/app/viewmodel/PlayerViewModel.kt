@@ -32,38 +32,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-enum class PlaybackButtonState {
-    BUFFERING,
-    PLAYING,
-    PAUSED
-}
-
-data class PlayerState(
-    val currentTrack: Track? = null,
-    val queue: List<Track> = emptyList(),
-    val currentIndex: Int = 0,
-    val isPlaying: Boolean = false,
-    val isBuffering: Boolean = false,
-    val currentPosition: Long = 0,
-    val duration: Long = 0,
-    val isShuffleActive: Boolean = false,
-    val isRepeatActive: Boolean = false,
-    val sleepTimerMinutesLeft: Int? = null,
-    val sleepTimerEndTrack: Boolean = false,
-    val isAutoPlayEnabled: Boolean = true,
-    val isVideoMode: Boolean = false,
-    /** Last fatal playback/resolution error for UI surfaces. Null = healthy. */
-    val lastError: String? = null
-) {
-    val buttonState: PlaybackButtonState
-        get() = when {
-            isBuffering -> PlaybackButtonState.BUFFERING
-            isPlaying -> PlaybackButtonState.PLAYING
-            else -> PlaybackButtonState.PAUSED
-        }
-}
-
-class PlayerViewModel(private val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository) : ViewModel(),
+class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository) : ViewModel(),
     com.streamify.app.jam.JamEngine.Bridge {
 
     // ── JamEngine.Bridge: live-player facade for the Lockstep protocol ──
@@ -73,11 +42,12 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
         if (!play) pause()
     }
 
-
     override fun setPlaying(play: Boolean) {
         if (play) this@PlayerViewModel.play() else this@PlayerViewModel.pause()
     }
-    private val _playerState = MutableStateFlow(PlayerState())
+
+    internal val _playerState = MutableStateFlow(PlayerState())
+
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
     // ── HOT POSITION FLOWS ──────────────────────────────────────────
@@ -85,10 +55,13 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
     // stays stable between discrete events, so collectors at the composition
     // root no longer recompose the whole tree five times per second.
     // Leaves (seekbars, time labels) collect these locally and redraw alone.
-    private val _positionMs = MutableStateFlow(0L)
+
+    internal val _positionMs = MutableStateFlow(0L)
+
     val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
 
-    private val _durationMs = MutableStateFlow(0L)
+    internal val _durationMs = MutableStateFlow(0L)
+
     val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
     val currentTrack: StateFlow<Track?> = _playerState
@@ -99,41 +72,56 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
         if (dur > 0L) (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f) else 0f
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
 
-    private var controllerFuture: ListenableFuture<MediaController>? = null
-    private var controller: MediaController? = null
-    private var appContext: Context? = null
-    
-    private var positionPollingJob: Job? = null
+    internal var controllerFuture: ListenableFuture<MediaController>? = null
+
+    internal var controller: MediaController? = null
+
+    internal var appContext: Context? = null
+
+    internal var positionPollingJob: Job? = null
+
     private var sleepTimerJob: Job? = null
+
     private var lastPlayedTrackId: Int? = null
-    private var preResolvingTrackKey: String? = null
-    private var lookaheadJob: Job? = null
+
+    internal var preResolvingTrackKey: String? = null
+
+    internal var lookaheadJob: Job? = null
+
     private var playJob: Job? = null
 
     // Bounded auto-advance: consecutive stream-resolution failures before playback
     // halts instead of churning the queue forever behind a pinned spinner.
     // Exactly three write sites: reset in playTrack(), reset on success,
     // incremented in registerResolutionFailure(). Nothing else may touch it.
-    private var consecutiveResolutionFailures = 0
-    private var autoAdvanceBackoffMs: Long = 0L
-    private val maxResolutionFailures = 3
-    private var hydrateJob: Job? = null
-    private var pendingSeekTargetMs: Long? = null
-    private var isOptimisticSeeking: Boolean = false
-    private var seekTimeoutJob: Job? = null
-    private val processedTitleHashes = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
-    private val sessionPlayedTrackIds = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
+
+    internal var hydrateJob: Job? = null
+
+    internal var pendingSeekTargetMs: Long? = null
+
+    internal var isOptimisticSeeking: Boolean = false
+
+    internal var seekTimeoutJob: Job? = null
+
+    internal val processedTitleHashes = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+
+    internal val sessionPlayedTrackIds = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
     // Dedup guard for lyric fetches: key = "trackId:videoIdOrEmpty" so a retry is only
     // allowed when the video identity actually improved (e.g. after DB registration).
-    private val lyricsFetchAttempts = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
+    internal val lyricsFetchAttempts = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
     private var consecutiveDeadSkips = 0
+
     private val urlRetryAttempts = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     init {
         com.streamify.app.jam.JamEngine.attachBridge(this)
     }
+
     private val isAdvancing = java.util.concurrent.atomic.AtomicBoolean(false)
-    private var playbackStartTimeMs: Long = 0L
+
+    internal var playbackStartTimeMs: Long = 0L
 
     fun getController(): MediaController? = controller
 
@@ -230,58 +218,7 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
         }
     }
 
-    private fun restorePlayerState(context: Context) {
-        val prefs = context.getSharedPreferences("player_state", Context.MODE_PRIVATE)
-        val queueStr = prefs.getString("saved_queue", "") ?: ""
-        if (queueStr.isNotEmpty()) {
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                val ids = queueStr.split(",").mapNotNull { it.toIntOrNull() }
-                if (ids.isNotEmpty()) {
-                    val tracks = repository.getTracksByIds(ids)
-                    if (tracks.isNotEmpty()) {
-                        val currentId = prefs.getInt("saved_current_id", -1)
-                        val currentTrack = tracks.find { it.id == currentId } ?: tracks.first()
-                        val position = prefs.getLong("saved_position", 0L)
-                        val targetIndex = tracks.indexOfFirst { it.id == currentTrack.id }.coerceAtLeast(0)
-                        
-                        withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            // Restore UI state only in PAUSED mode (do not auto-play on app launch)
-                            _playerState.value = _playerState.value.copy(
-                                currentTrack = currentTrack,
-                                currentIndex = targetIndex,
-                                queue = tracks,
-                                isPlaying = false,
-                                isBuffering = false,
-                                currentPosition = position,
-                                duration = (currentTrack.durationSec * 1000L).coerceAtLeast(0L)
-                            )
-                            _positionMs.value = position.coerceAtLeast(0L)
-                            _durationMs.value = (currentTrack.durationSec * 1000L).coerceAtLeast(0L)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Reactive One-Shot Lookahead Trigger (Fires strictly once at >=75% progress or <=30s remaining)
-        viewModelScope.launch {
-            _playerState
-                .map { state ->
-                    val dur = state.duration
-                    val pos = state.currentPosition
-                    state.isPlaying && dur > 0L && (pos.toFloat() / dur.toFloat() >= 0.75f || (dur - pos) <= 30000L)
-                }
-                .distinctUntilChanged()
-                .filter { it }
-                .collect {
-                    val curState = _playerState.value
-                    val currentIdx = controller?.currentMediaItemIndex ?: curState.currentIndex
-                    preResolveLookaheadTrack(currentIdx, curState.queue)
-                }
-        }
-    }
-
-    private val playerListener = object : Player.Listener {
+    internal val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
 
             _playerState.value = _playerState.value.copy(isPlaying = isPlaying)
@@ -627,73 +564,6 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
         }
     }
 
-    private fun setupController(context: Context) {
-        val ctrl = controller ?: return
-        
-        com.streamify.app.service.PlaybackService.onSeekNextListener = {
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                advanceQueue(isUserSkip = true)
-            }
-        }
-        com.streamify.app.service.PlaybackService.onSeekPrevListener = {
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                skipPrevious()
-            }
-        }
-
-        ctrl.removeListener(playerListener)
-        ctrl.addListener(playerListener)
-    }
-    
-    private fun preResolveLookaheadTrack(currentIndex: Int, queue: List<Track>) {
-        if (currentIndex < 0 || currentIndex >= queue.size - 1) return
-        val nextTrack = queue[currentIndex + 1]
-        val trackKey = "${nextTrack.title}_${nextTrack.artist}".lowercase()
-        if (preResolvingTrackKey == trackKey) return
-
-        val needsResolution = nextTrack.filepath.isBlank() ||
-                nextTrack.filepath.startsWith("online://") ||
-                nextTrack.filepath.startsWith("ytsearch:") ||
-                (nextTrack.filepath.startsWith("http") && !nextTrack.filepath.contains("googlevideo.com")) ||
-                (nextTrack.filepath.contains("googlevideo.com") && isCdnExpired(nextTrack.filepath))
-
-        if (needsResolution) {
-            preResolvingTrackKey = trackKey
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack)
-                    val resolved = res.getOrNull()
-                    if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                        val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(resolved.streamUrl)
-                            ?: nextTrack.ytmVideoId
-                        val warmTrack = nextTrack.copy(filepath = resolved.streamUrl, ytmVideoId = vid ?: nextTrack.ytmVideoId)
-                        withContext(Dispatchers.Main) {
-                            val currentQ = _playerState.value.queue
-                            if (currentIndex + 1 < currentQ.size && (currentQ[currentIndex + 1].id == nextTrack.id || currentQ[currentIndex + 1].title == nextTrack.title)) {
-                                val updatedQ = currentQ.toMutableList()
-                                updatedQ[currentIndex + 1] = warmTrack
-                                _playerState.value = _playerState.value.copy(queue = updatedQ)
-                                val ctrl = controller ?: try { controllerFuture?.get() } catch (_: Throwable) { null }
-                                ctrl?.let { c ->
-                                    val warmItem = buildMediaItem(warmTrack)
-                                    if (c.mediaItemCount > 1) {
-                                        c.replaceMediaItem(1, warmItem)
-                                    } else if (c.mediaItemCount == 1) {
-                                        c.addMediaItem(warmItem)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Ignore background pre-resolve error
-                } finally {
-                    if (preResolvingTrackKey == trackKey) preResolvingTrackKey = null
-                }
-            }
-        }
-    }
-
     fun toggleAutoPlay() {
         _playerState.value = _playerState.value.copy(isAutoPlayEnabled = !_playerState.value.isAutoPlayEnabled)
     }
@@ -717,174 +587,8 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
             armLookaheadPreBuffer(currentIndex + 1, currentQueue)
         }
     }
-    
-    private fun updateCurrentTrackFromMediaItem(mediaItem: MediaItem?) {
-        if (mediaItem == null) return
-        
-        val mediaId = mediaItem.mediaId
-        val metaTitle = mediaItem.mediaMetadata.title?.toString()
-        val metaArtist = mediaItem.mediaMetadata.artist?.toString()
 
-        // Match against current logical queue using stable identifier or metadata
-        val track = _playerState.value.queue.find { 
-            (it.id != 0 && it.id.toString() == mediaId) ||
-            "trk_${kotlin.math.abs((it.title.trim().lowercase() + "_" + it.artist.trim().lowercase()).hashCode())}" == mediaId ||
-            (metaTitle != null && metaArtist != null && it.title.equals(metaTitle, ignoreCase = true) && it.artist.equals(metaArtist, ignoreCase = true)) ||
-            (metaTitle != null && it.title.equals(metaTitle, ignoreCase = true))
-        }
-
-        if (track != null) {
-            _playerState.value = _playerState.value.copy(
-                currentTrack = track,
-                duration = if (track.durationSec > 0) track.durationSec * 1000L else _playerState.value.duration
-            )
-        }
-    }
-
-    private fun startPollingPosition() {
-        positionPollingJob?.cancel()
-        positionPollingJob = viewModelScope.launch {
-            while (true) {
-                val now = System.currentTimeMillis()
-                // STATS OVERHAUL: this poller NO LONGER accumulates listening
-                // seconds — PlaybackService's ExoPlayer listener is the single
-                // authoritative writer (double-counting eliminated at source).
-
-                controller?.let { ctrl ->
-                    val now = System.currentTimeMillis()
-                    val curState = _playerState.value
-                    val playerDuration = if (ctrl.duration > 0) ctrl.duration else 0L
-                    val currentTrack = curState.currentTrack
-                    val trackDuration = (currentTrack?.durationSec?.toLong() ?: 0L) * 1000L
-                    val finalDuration = if (playerDuration > 0) playerDuration else if (trackDuration > 0) trackDuration else curState.duration
-
-                    val updatedTrack = if (currentTrack != null && currentTrack.durationSec <= 0 && finalDuration > 0) {
-                        currentTrack.copy(durationSec = (finalDuration / 1000).toInt())
-                    } else currentTrack
-
-                    if (!isOptimisticSeeking) {
-                        val ctrlPos = ctrl.currentPosition.coerceAtLeast(0L)
-                        // HOT PATH: position ticks go to the dedicated flow so the
-                        // UI root never recomposes for them.
-                        _positionMs.value = ctrlPos
-                        _durationMs.value = finalDuration
-
-                        // COLD PATH: full-state copy only when something beyond
-                        // the playhead actually changed (rare).
-                        if (curState.duration != finalDuration || curState.currentTrack !== updatedTrack) {
-                            _playerState.value = curState.copy(
-                                duration = finalDuration,
-                                currentTrack = updatedTrack
-                            )
-                        }
-                    } else {
-                        // Safety fallback: Unlatch optimistic seek if engine caught up within 250ms threshold
-                        pendingSeekTargetMs?.let { target ->
-                            if (kotlin.math.abs(ctrl.currentPosition - target) < 250L) {
-                                isOptimisticSeeking = false
-                                pendingSeekTargetMs = null
-                            }
-                        }
-                    }
-
-                }
-                delay(200)
-            }
-        }
-
-        startJamTicker()
-    }
-
-    // ── JAM PHASE-1: dedicated adaptive tick loop ─────────────────────────
-    // Runs OUTSIDE the 200ms UI position poll so the 50ms end-of-track cadence
-    // is actually achievable, and fires the NEXT_IS pre-hydration intent (P3).
-    private var jamTickerJob: kotlinx.coroutines.Job? = null
-
-    private fun startJamTicker() {
-        if (jamTickerJob?.isActive == true) return
-        jamTickerJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            while (isActive) {
-                val engine = com.streamify.app.jam.JamEngine
-                if (!engine.isActive() || !engine.isHost() || isApplyingJamSync) {
-                    delay(500L)
-                    continue
-                }
-                val ctrl = controller ?: run { delay(500L); continue }
-                if (_playerState.value.isPlaying) {
-                    val cur = _playerState.value.currentTrack
-                    val pos = ctrl.currentPosition.coerceAtLeast(0L)
-                    val dur = ctrl.duration.takeIf { it > 0 } ?: cur?.durationSec?.toLong()?.times(1000L) ?: 0L
-
-                    engine.heartbeatTick(track = cur, positionMs = pos, isPlaying = true)
-
-                    // P3: announce the queue head ~30s before track end.
-                    if (dur > 0 && dur - pos in 1..30_000L) {
-                        val next = engine.queueHead()
-                        if (next != null && engine.announcedNextId != "${next.id}:${next.title}") {
-                            engine.announcedNextId = "${next.id}:${next.title}"
-                            engine.announceNextIs(next)
-                        }
-                    }
-                }
-                delay(engine.tickIntervalMs(ctrl.currentPosition.coerceAtLeast(0L), ctrl.duration))
-            }
-        }
-    }
-
-    private fun stopPollingPosition() {
-        positionPollingJob?.cancel()
-    }
-
-    private fun isCdnExpired(url: String): Boolean {
-        try {
-            val match = Regex("[?&]expire=([0-9]+)").find(url)
-            if (match != null) {
-                val expireSec = match.groupValues[1].toLongOrNull() ?: return false
-                val nowSec = System.currentTimeMillis() / 1000L
-                return nowSec >= (expireSec - 300L) // Expired if within 5 min of expiry
-            }
-        } catch (e: Exception) {
-            // ignore parsing error
-        }
-        return false
-    }
-
-    private fun buildMediaItem(t: Track): MediaItem {
-        val uri = if (t.filepath.startsWith("http://") || t.filepath.startsWith("https://")) {
-            android.net.Uri.parse(t.filepath)
-        } else if (t.filepath.startsWith("file://")) {
-            android.net.Uri.parse(t.filepath)
-        } else if (t.filepath.isNotBlank() && !t.filepath.startsWith("online://") && !t.filepath.startsWith("ytsearch:")) {
-            android.net.Uri.fromFile(java.io.File(t.filepath))
-        } else {
-            android.net.Uri.EMPTY
-        }
-
-        val stableMediaId = if (t.id != 0) {
-            t.id.toString()
-        } else {
-            "trk_${kotlin.math.abs((t.title.trim().lowercase() + "_" + t.artist.trim().lowercase()).hashCode())}"
-        }
-
-        return MediaItem.Builder()
-            .setMediaId(stableMediaId)
-            .setUri(uri)
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(t.title)
-                    .setArtist(t.artist)
-                    .setAlbumTitle(t.album)
-                    .setArtworkUri(if (!t.coverArtPath.isNullOrBlank()) {
-                        if (t.coverArtPath.startsWith("http") || t.coverArtPath.startsWith("file")) {
-                            android.net.Uri.parse(t.coverArtPath)
-                        } else {
-                            android.net.Uri.fromFile(java.io.File(t.coverArtPath))
-                        }
-                    } else null)
-                    .build()
-            )
-            .build()
-    }
+    internal var jamTickerJob: kotlinx.coroutines.Job? = null
 
     fun playFromSearch(tappedTrack: Track, searchContext: List<Track> = listOf(tappedTrack)) {
         playTrack(tappedTrack, searchContext.ifEmpty { listOf(tappedTrack) }, autoHydrateRadio = true)
@@ -897,6 +601,7 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
      * `playerState.currentPosition` is now a cold, event-time field (seek
      * confirmations only) — never read it for "current" position.
      */
+
     fun currentPositionMs(): Long =
         controller?.currentPosition?.coerceAtLeast(0L) ?: _positionMs.value
 
@@ -943,8 +648,6 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
 
     fun playTrack(track: Track, queue: List<Track> = listOf(track), autoHydrateRadio: Boolean = true) {
         // Manual entry point = fresh user intent → fresh failure budget.
-        consecutiveResolutionFailures = 0
-        autoAdvanceBackoffMs = 0L
         val hydratedTrack = repository.hydrateTrack(track)
         val hydratedQueue = queue.map { qTrack ->
             if (qTrack.id == track.id || (qTrack.title.equals(track.title, ignoreCase = true) && qTrack.artist.equals(track.artist, ignoreCase = true))) {
@@ -1010,94 +713,6 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
         }
     }
 
-
-
-    private fun hydrateContinuumRadio(seedTrack: Track) {
-        if (!_playerState.value.isAutoPlayEnabled) return
-        hydrateJob?.cancel()
-        hydrateJob = viewModelScope.launch(Dispatchers.Default) {
-            try {
-                val currentQ = _playerState.value.queue
-
-                // Harvest full 25+ candidate batch across Innertube, Spotify, and Local
-                val radioTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
-                    seedTrack = seedTrack,
-                    activeQueue = currentQ,
-                    targetCount = 25
-                )
-
-                if (radioTracks.isNotEmpty()) {
-                    // O(1) Root Hash & Session History Deduplication: Skip already played songs
-                    val uniqueCandidates = radioTracks.filter { candidate ->
-                        val hash = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(candidate.title)
-                        if (hash == 0L || processedTitleHashes.contains(hash) || sessionPlayedTrackIds.contains(candidate.id)) {
-                            false
-                        } else {
-                            processedTitleHashes.add(hash)
-                            if (candidate.id != 0) sessionPlayedTrackIds.add(candidate.id)
-                            true
-                        }
-                    }
-
-                    if (uniqueCandidates.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            val currentQueue = _playerState.value.queue.toMutableList()
-                            for (rt in uniqueCandidates) {
-                                val isDup = currentQueue.any {
-                                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rt.title, rt.artist)
-                                }
-                                if (!isDup) {
-                                    currentQueue.add(rt)
-                                }
-                            }
-                            _playerState.value = _playerState.value.copy(queue = currentQueue)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                SLog.st("PlayerViewModel", "PlayerViewModel.hydrateContinuumRadio failed", e)
-            }
-        }
-    }
-
-
-    private fun handleAutomaticTimelineTransition() {
-        seekTimeoutJob?.cancel()
-        isOptimisticSeeking = false
-        pendingSeekTargetMs = null
-
-        val curState = _playerState.value
-        val queue = curState.queue
-        val nextIndex = curState.currentIndex + 1
-        if (nextIndex < queue.size) {
-            val activeTrack = queue[nextIndex]
-            _playerState.value = _playerState.value.copy(
-                currentTrack = activeTrack,
-                currentIndex = nextIndex,
-                currentPosition = 0L,
-                isPlaying = true,
-                isBuffering = false,
-                isVideoMode = false
-            )
-            controller?.let { ctrl ->
-                if (ctrl.mediaItemCount > 1) {
-                    ctrl.removeMediaItem(0)
-                }
-            }
-            armLookaheadPreBuffer(nextIndex + 1, queue)
-            viewModelScope.launch(Dispatchers.IO) {
-                com.streamify.app.service.QueueEngine.ensureQueueDepth(this@PlayerViewModel)
-            }
-        } else {
-            advanceQueue(isUserSkip = false)
-        }
-    }
-
-    /**
-     * HISTORY OVERHAUL: drops every queue entry BEFORE the current index.
-     * Now-playing and Up Next are untouched; indices re-base to zero so the
-     * History section can be wiped without disturbing live playback.
-     */
     fun clearPlayedHistory() {
         val cur = _playerState.value
         if (cur.currentIndex <= 0) return
@@ -1207,297 +822,6 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
      * Attempts are deduplicated per (trackId, videoId): a retry is only permitted when
      * the resolved video identity improves (e.g. after async DB registration pins it).
      */
-    private fun maybeFetchLyricsForTrack(playingTrack: Track?) {
-        if (playingTrack == null) return
-        if (!playingTrack.lyricsPath.isNullOrBlank()) return
-
-        val vid = playingTrack.ytmVideoId
-            ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(
-                playingTrack.filepath,
-                playingTrack.coverArtPath
-            )
-
-        val attemptKey = "${playingTrack.id}:${vid ?: ""}"
-        if (!lyricsFetchAttempts.add(attemptKey)) return
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val lyricsText = com.streamify.app.data.network.LyricsResolver.fetchSyncedLyrics(
-                    title = playingTrack.title,
-                    artist = playingTrack.artist,
-                    durationSec = playingTrack.durationSec,
-                    videoId = vid ?: ""
-                ) ?: ""
-
-                if (lyricsText.isNotBlank() && (lyricsText.contains("[") || lyricsText.length > 40)) {
-                    var storedPath: String? = null
-
-                    // 1. Canonical app-private cache — authoritative source for all UI surfaces
-                    val ctx = appContext
-                    if (ctx != null) {
-                        try {
-                            val cachedFile = com.streamify.app.data.LyricsCacheManager.getCachedLyricsFile(
-                                ctx, playingTrack.title, playingTrack.artist
-                            )
-                            cachedFile.writeText(lyricsText)
-                            storedPath = cachedFile.absolutePath
-                        } catch (e: Exception) {
-                            SLog.st("PlayerViewModel", "PlayerViewModel.maybeFetchLyricsForTrack failed", e)
-                        }
-                    }
-
-                    // 2. Optional external mirror for user-accessible .lrc files
-                    try {
-                        val lyricsDir = java.io.File(
-                            android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
-                            ".Streamify/lyrics"
-                        )
-                        if (!lyricsDir.exists()) lyricsDir.mkdirs()
-                        val lrcFile = java.io.File(lyricsDir, "${playingTrack.id}.lrc")
-                        lrcFile.writeText(lyricsText)
-                        if (storedPath == null) storedPath = lrcFile.absolutePath
-                    } catch (_: Exception) {
-                    }
-
-                    if (storedPath != null) {
-                        withContext(Dispatchers.Main) {
-                            val cur = _playerState.value.currentTrack
-                            if (cur != null && cur.id == playingTrack.id && cur.lyricsPath.isNullOrBlank()) {
-                                _playerState.value = _playerState.value.copy(
-                                    currentTrack = cur.copy(lyricsPath = storedPath)
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    // Nothing usable found: clear the attempt so a later transition can retry
-                    lyricsFetchAttempts.remove(attemptKey)
-                }
-            } catch (e: Exception) {
-                SLog.st("PlayerViewModel", "PlayerViewModel.maybeFetchLyricsForTrack failed", e)
-                lyricsFetchAttempts.remove(attemptKey)
-            }
-        }
-    }
-
-    private suspend fun playTrackInternal(track: Track, index: Int, queue: List<Track>) {
-        seekTimeoutJob?.cancel()
-        isOptimisticSeeking = false
-        pendingSeekTargetMs = null
-
-        SLog.i(
-            "PlayerVM",
-            com.streamify.app.util.Trace.pfx() + "PLAY idx=$index '${track.title}' vid=${track.ytmVideoId ?: "?"} path=${track.filepath.take(48)}"
-        )
-
-        _playerState.value = _playerState.value.copy(
-            currentTrack = track,
-            currentIndex = index,
-            currentPosition = 0L,
-            queue = queue,
-            isPlaying = true,
-            isBuffering = true,
-            isVideoMode = false
-        )
-        playbackStartTimeMs = System.currentTimeMillis()
-        com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = null
-
-        // 0. SMART OFFLINE VAULT GATE (0ms instant local playback if pre-cached)
-        // File-stat work (vault index hit + existence/size probe) kept off the
-        // main thread — this runs on every track tap.
-        val vaulted = withContext(Dispatchers.IO) {
-            com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
-        }
-        val trackToPlay = vaulted ?: track
-        if (vaulted != null) {
-            SLog.d("ResolveTrace", "R0 VAULT HIT: ${track.title}")
-        }
-
-        // 1. FAST-PATH GATE: If trackToPlay.filepath is already a direct playable local file or unexpired CDN stream
-        val isAlreadyDirectCdn = (trackToPlay.filepath.contains("googlevideo.com") || trackToPlay.filepath.contains(".googlevideo.")) &&
-                !com.streamify.app.data.network.YouTubeStreamResolver.isCdnExpired(trackToPlay.filepath)
-        val isLocalFile = trackToPlay.filepath.startsWith("/") || trackToPlay.filepath.startsWith("file://") ||
-                withContext(Dispatchers.IO) { java.io.File(trackToPlay.filepath).exists() }
-
-        val knownVideoId = trackToPlay.ytmVideoId?.takeIf { it.isNotBlank() }
-            ?: com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(trackToPlay.filepath, trackToPlay.coverArtPath)
-
-        val resolvedTrack = if (isLocalFile || isAlreadyDirectCdn) {
-            trackToPlay.copy(ytmVideoId = knownVideoId ?: trackToPlay.ytmVideoId)
-        } else {
-            try {
-                withContext(Dispatchers.IO) {
-                    val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(trackToPlay)
-                    val resolved = res.getOrNull()
-                    resolved?.let { com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = it.loudnessDb }
-                    if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                        trackToPlay.copy(filepath = resolved.streamUrl, ytmVideoId = knownVideoId ?: trackToPlay.ytmVideoId)
-                    } else {
-                        trackToPlay.copy(ytmVideoId = knownVideoId ?: trackToPlay.ytmVideoId)
-                    }
-                }
-            } catch (ce: kotlinx.coroutines.CancellationException) {
-                throw ce // user skipped mid-resolve / job cancelled — NOT a resolution failure
-            } catch (t: Throwable) {
-                // Resolution threw instead of returning null: route through the same
-                // strike system, otherwise exceptions bypass the failure cap entirely.
-                SLog.e("PlayerViewModel", "Stream resolution threw for ${track.title}", t)
-                withContext(Dispatchers.Main) {
-                    _playerState.value = _playerState.value.copy(
-                        isBuffering = false,
-                        isPlaying = false,
-                        lastError = "Could not play '${track.title}': ${t.message ?: "resolution error"}"
-                    )
-                    UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not play '${track.title}'. Tap to retry."))
-                }
-                return
-            }
-        }
-
-        val isDirectStream = resolvedTrack.filepath.startsWith("http") &&
-                !resolvedTrack.filepath.contains("youtube.com/watch") &&
-                !resolvedTrack.filepath.contains("music.youtube.com") &&
-                !resolvedTrack.filepath.startsWith("ytsearch:")
-        val isPlayable = isDirectStream ||
-                resolvedTrack.filepath.startsWith("file") ||
-                java.io.File(resolvedTrack.filepath).exists()
-
-        if (isPlayable) {
-            consecutiveResolutionFailures = 0
-            autoAdvanceBackoffMs = 0L
-            val mediaItem = buildMediaItem(resolvedTrack)
-            withContext(Dispatchers.Main) {
-                // Silent-skip guard: a dead/failing MediaSession bind used to fall
-                // through here with zero feedback — track docked, no error, ever.
-                var sessionBindFailed = false
-                try {
-                    val ctrl = controller ?: try { controllerFuture?.get() } catch (_: Throwable) { null }
-                    if (ctrl != null) {
-                        ctrl.setMediaItem(mediaItem, 0L)
-                        ctrl.prepare()
-                        ctrl.play()
-                    } else {
-                        sessionBindFailed = true
-                    }
-                } catch (e: Throwable) {
-                    SLog.st("PlayerViewModel", "PlayerViewModel.playTrackInternal failed", e)
-                }
-                _playerState.value = _playerState.value.copy(
-                    currentTrack = resolvedTrack,
-                    isBuffering = false,
-                    lastError = if (sessionBindFailed) "Player engine unavailable" else null
-                )
-                if (sessionBindFailed) {
-                    SLog.e("PlayerViewModel", "controller NULL after resolve — MediaSession bind failed, cannot start '${track.title}'")
-                    UiEventBus.emitEvent(UiEvent.ShowSnackbar("Player engine unavailable — restart the app"))
-                }
-            }
-
-            // 2. Arm background lookahead pre-buffer for slot 1 (track N+1)
-            armLookaheadPreBuffer(index + 1, queue)
-
-            // 3. Fire-and-Forget Asynchronous Database Registration (Moved OFF critical playback start path)
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val registered = repository.registerStreamedTrack(track, appContext)
-                    if (registered.id > 0) {
-                        withContext(Dispatchers.Main) {
-                            val cur = _playerState.value.currentTrack
-                            if (cur != null && cur.title == track.title && cur.artist == track.artist) {
-                                val finalVid = registered.ytmVideoId ?: track.ytmVideoId ?: resolvedTrack.ytmVideoId
-                                _playerState.value = _playerState.value.copy(
-                                    currentTrack = registered.copy(
-                                        filepath = resolvedTrack.filepath,
-                                        ytmVideoId = finalVid
-                                    )
-                                )
-                                maybeFetchLyricsForTrack(_playerState.value.currentTrack)
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    SLog.st("PlayerViewModel", "PlayerViewModel.playTrackInternal failed", e)
-                }
-            }
-        } else {
-            SLog.e("PlayerViewModel", "Track stream unresolvable for ${track.title}")
-            withContext(Dispatchers.Main) {
-                _playerState.value = _playerState.value.copy(
-                    isBuffering = false,
-                    isPlaying = false,
-                    lastError = "Could not resolve '${track.title}' — all resolver tiers exhausted"
-                )
-                UiEventBus.emitEvent(UiEvent.ShowSnackbar("Could not resolve '${track.title}'"))
-            }
-        }
-    }
-
-    private fun armLookaheadPreBuffer(nextIndex: Int, queue: List<Track>) {
-        if (nextIndex >= queue.size) return
-        val nextTrack = queue[nextIndex]
-        lookaheadJob?.cancel()
-        lookaheadJob = viewModelScope.launch(Dispatchers.IO) {
-            // If upcoming queue is low (<= 2 songs remaining), proactively prefetch next radio batch
-            if (queue.size - nextIndex <= 2 && _playerState.value.isAutoPlayEnabled) {
-                try {
-                    val seed = queue.lastOrNull() ?: nextTrack
-                    val fresh = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
-                        seedTrack = seed,
-                        activeQueue = queue,
-                        targetCount = 15
-                    )
-                    if (fresh.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            val liveQ = _playerState.value.queue.toMutableList()
-                            for (ft in fresh) {
-                                val isDup = liveQ.any {
-                                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, ft.title, ft.artist)
-                                }
-                                if (!isDup) {
-                                    liveQ.add(ft)
-                                }
-                            }
-                            _playerState.value = _playerState.value.copy(queue = liveQ)
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Non-fatal prefetch error
-                }
-            }
-
-            try {
-                val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(nextTrack)
-                val resolved = res.getOrNull()
-                if (resolved != null && resolved.streamUrl.isNotBlank()) {
-                    val vid = com.streamify.app.data.network.YouTubeStreamResolver.extractVideoId(resolved.streamUrl)
-                        ?: nextTrack.ytmVideoId
-                    val warmTrack = nextTrack.copy(filepath = resolved.streamUrl, ytmVideoId = vid ?: nextTrack.ytmVideoId)
-                    val lookaheadItem = buildMediaItem(warmTrack)
-                    withContext(Dispatchers.Main) {
-                        val ctrl = controller ?: try { controllerFuture?.get() } catch (_: Throwable) { null }
-                        ctrl?.let { c ->
-                            if (c.mediaItemCount == 1) {
-                                c.addMediaItem(lookaheadItem)
-                            } else if (c.mediaItemCount > 1) {
-                                c.replaceMediaItem(1, lookaheadItem)
-                            }
-                        }
-                    }
-                }
-
-                appContext?.let { ctx ->
-                    try {
-                        val upcomingSlice = queue.subList(nextIndex, queue.size)
-                        com.streamify.app.service.PredictivePreBufferManager(ctx).preBufferUpcomingTracks(upcomingSlice)
-                    } catch (e: Exception) {
-                        // Non-fatal pre-buffer error
-                    }
-                }
-            } catch (e: Exception) {
-                // Non-fatal background lookahead error
-            }
-        }
-    }
 
     fun togglePlayPause() {
         val ctrl = controller ?: return
@@ -1529,6 +853,7 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
     }
 
     /** Live playback speed — lets the PLL avoid redundant IPC on HOLD. */
+
     fun playbackSpeed(): Float =
         try { controller?.playbackParameters?.speed ?: 1.0f } catch (_: Throwable) { 1.0f }
 
@@ -1597,11 +922,11 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
             NativeBridge.pushTelemetryEvent(NativeBridge.EVENT_VOLUME_CHANGE, currentT.id.toLong(), 1.0f)
         }
     }
-    
+
     fun skipNext() {
         advanceQueue(isUserSkip = true)
     }
-    
+
     fun skipPrevious() {
         val ctrl = controller
         if (ctrl != null && ctrl.currentPosition > 3000L) {
@@ -1620,17 +945,17 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
             }
         }
     }
-    
+
     fun toggleShuffle() {
         val ctrl = controller ?: return
         ctrl.shuffleModeEnabled = !ctrl.shuffleModeEnabled
     }
-    
+
     fun toggleRepeat() {
         val ctrl = controller ?: return
         ctrl.repeatMode = if (ctrl.repeatMode == Player.REPEAT_MODE_OFF) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
     }
-    
+
     fun toggleLike(trackToToggle: Track? = null, context: android.content.Context? = null) {
         val currentTrack = trackToToggle ?: _playerState.value.currentTrack ?: return
 
@@ -1819,4 +1144,3 @@ class PlayerViewModel(private val repository: com.streamify.app.data.TrackReposi
     }
 
 }
-
