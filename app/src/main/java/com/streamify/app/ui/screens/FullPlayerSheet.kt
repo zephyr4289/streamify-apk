@@ -1044,12 +1044,11 @@ fun FullPlayerSheet(
     }
 
     if (showCommentsSheet) {
-        // Scoped collection: the tick subscription lives only while the
-        // comments sheet is open.
-        val livePositionMs by positionFlow.collectAsState()
+        // Scoped collection: the sheet receives the ticker flow itself and
+        // collects inside its own recomposition scope (see CommentsSheet).
         CommentsSheet(
             track = track,
-            currentPositionMs = livePositionMs,
+            positionFlow = positionFlow,
             communityViewModel = communityViewModel,
             onSeekTo = { posMs ->
                 if (durationMs > 0) onSeek(posMs.toFloat() / durationMs.toFloat())
