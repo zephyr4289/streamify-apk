@@ -136,7 +136,7 @@ fun SearchScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(searchSuggestions) { suggestion ->
+                items(searchSuggestions, key = { it }) { suggestion ->
                     Surface(
                         color = BgSurfaceElevated,
                         shape = RoundedCornerShape(16.dp),
@@ -221,7 +221,7 @@ fun SearchScreen(
                             }
                         }
                     }
-                    items(searchHistory.take(5)) { pastQuery ->
+                    items(searchHistory.take(5), key = { it }) { pastQuery ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

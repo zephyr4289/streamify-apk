@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -157,7 +158,7 @@ fun RelatedDiscoverSheet(
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                items(artistTracks) { artTrack ->
+                                items(artistTracks, key = { it.id }) { artTrack ->
                                     Column(
                                         modifier = Modifier
                                             .width(120.dp)
@@ -215,7 +216,7 @@ fun RelatedDiscoverSheet(
                             )
                         }
 
-                        items(relatedTracks) { relTrack ->
+                        itemsIndexed(relatedTracks, key = { i, t -> "rel_${i}_${t.id}" }) { _, relTrack ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

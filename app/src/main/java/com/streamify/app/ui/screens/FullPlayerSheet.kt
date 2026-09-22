@@ -22,6 +22,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -1118,10 +1119,10 @@ private fun LandscapeQueuePane(
                 )
             }
 
-            items(
+            itemsIndexed(
                 items = playedHistory,
-                key = { "hist_${it.id}_${it.filepath.hashCode()}" }
-            ) { itemTrack ->
+                key = { i, t -> "hist_${i}_${t.id}" }
+            ) { _, itemTrack ->
                 YtQueueTrackItem(
                     track = itemTrack,
                     isPlaying = false,
@@ -1184,10 +1185,10 @@ private fun LandscapeQueuePane(
                 )
             }
 
-            items(
+            itemsIndexed(
                 items = upNext,
-                key = { "upnext_${it.id}_${it.filepath.hashCode()}" }
-            ) { itemTrack ->
+                key = { i, t -> "upnext_${i}_${t.id}" }
+            ) { _, itemTrack ->
                 YtQueueTrackItem(
                     track = itemTrack,
                     isPlaying = false,

@@ -172,7 +172,7 @@ fun QueueScreen(
 
                 itemsIndexed(
                     items = visibleHistory,
-                    key = { _, track -> "played_${track.id}" },
+                    key = { i, track -> "played_${i}_${track.id}" },
                     contentType = { _, _ -> "trackRow" }
                 ) { index, track ->
                     val originalPosition = playedTracks.size - index   // absolute queue slot (#1..)
@@ -253,7 +253,7 @@ fun QueueScreen(
 
                 itemsIndexed(
                     items = upNext,
-                    key = { _, track -> "queue_${track.id}" },
+                    key = { i, track -> "queue_${i}_${track.id}" },
                     contentType = { _, _ -> "trackRow" }
                 ) { index, track ->
                     val isBeingDragged = draggedItemIndex == index

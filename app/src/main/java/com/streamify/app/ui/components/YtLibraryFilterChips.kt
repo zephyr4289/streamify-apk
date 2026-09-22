@@ -27,7 +27,7 @@ fun YtLibraryFilterChips(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = modifier.fillMaxWidth()
     ) {
-        items(filters) { filter ->
+        items(filters, key = { it }) { filter ->
             val isActive = filter.equals(selectedFilter, ignoreCase = true)
             Surface(
                 shape = RoundedCornerShape(8.dp),

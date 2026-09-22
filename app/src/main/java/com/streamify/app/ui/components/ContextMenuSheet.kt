@@ -424,7 +424,7 @@ fun ContextMenuSheet(
                         Text("No playlists created yet.", color = StreamifyColors.TextSub)
                     } else {
                         LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
-                            items(playlists) { playlist ->
+                            items(playlists, key = { it.id }) { playlist ->
                                 Text(
                                     text = playlist.name,
                                     color = StreamifyColors.TextMain,

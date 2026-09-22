@@ -100,7 +100,7 @@ fun CommentsSheet(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(state.currentTrackComments) { comment ->
+                    items(state.currentTrackComments, key = { it.id }) { comment ->
                         CommentItem(
                             comment = comment,
                             currentPosMs = currentPositionMs,

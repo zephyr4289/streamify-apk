@@ -33,7 +33,7 @@ fun YtMoodFilterRail(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            items(moods) { mood ->
+            items(moods, key = { it }) { mood ->
                 val isActive = mood.equals(selectedMood, ignoreCase = true)
                 Surface(
                     shape = RoundedCornerShape(8.dp),

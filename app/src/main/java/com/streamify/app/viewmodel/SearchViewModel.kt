@@ -71,7 +71,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         suggestJob = viewModelScope.launch {
             kotlinx.coroutines.delay(150)
             val list = com.streamify.app.data.network.YouTubeMusicSearchApi.fetchSearchSuggestions(clean)
-            _searchSuggestions.value = list
+            _searchSuggestions.value = list.distinct()
         }
     }
 
