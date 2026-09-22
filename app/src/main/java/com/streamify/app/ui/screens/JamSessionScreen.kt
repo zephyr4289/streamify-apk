@@ -477,8 +477,15 @@ fun JamSessionScreen(
                                 )
                             }
                         } else {
+                            // The jam queue lives inside the screen's scrollable Column,
+                            // so it cannot be a LazyColumn (nested scrolling would break).
+                            // Bound the collapsed rendering instead of measuring/composing
+                            // every row a distributed queue can grow to.
+                            var jamQueueExpanded by remember { mutableStateOf(false) }
+                            val maxCollapsedJamRows = 8
+                            val visibleJamQueue = if (jamQueueExpanded) jamQueue else jamQueue.take(maxCollapsedJamRows)
                             Column(modifier = Modifier.padding(vertical = 6.dp)) {
-                                jamQueue.forEachIndexed { index, queueTrack ->
+                                visibleJamQueue.forEachIndexed { index, queueTrack ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -542,6 +549,19 @@ fun JamSessionScreen(
                                             )
                                         }
                                     }
+                                }
+
+                                if (jamQueue.size > maxCollapsedJamRows) {
+                                    Text(
+                                        text = if (jamQueueExpanded) "Collapse queue" else "Show all ${jamQueue.size} tracks",
+                                        style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                        color = ActiveControl,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { jamQueueExpanded = !jamQueueExpanded }
+                                            .padding(vertical = 8.dp),
+                                        textAlign = TextAlign.Center
+                                    )
                                 }
                             }
                         }
