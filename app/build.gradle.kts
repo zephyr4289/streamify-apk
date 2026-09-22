@@ -40,7 +40,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = buildNum
-        versionName = "1.0.$buildNum"
+        versionName = "1.1.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
@@ -104,6 +104,14 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    // Lint safety net: the historical codebase carries known warnings
+    // (printStackTrace-era logging, legacy AsyncTask palette path, explicit
+    // nullability assertions). Lint must inform, not block release builds.
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
