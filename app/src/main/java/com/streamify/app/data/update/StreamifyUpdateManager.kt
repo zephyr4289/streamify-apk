@@ -1,5 +1,4 @@
-package com.streamify.app.data.remote
-
+package com.streamify.app.data.update
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.Context

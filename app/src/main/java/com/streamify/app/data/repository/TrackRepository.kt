@@ -46,7 +46,7 @@ object TrackRepository : TrackRepositoryApi {
 
         // Background Cloud Sync (only sync cloud tracks to avoid local path pollution)
         try {
-            com.streamify.app.data.remote.SupabaseClient.syncCloudLikes(cloudTracks)
+            com.streamify.app.data.supabase.SupabaseClient.syncCloudLikes(cloudTracks)
         } catch (e: Exception) {
             // Ignore offline cloud sync errors
         }
@@ -294,7 +294,7 @@ object TrackRepository : TrackRepositoryApi {
             // 3. Instant Push to Supabase Cloud
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(updatedTrack)
+                    com.streamify.app.data.supabase.SupabaseClient.upsertCloudTrack(updatedTrack)
                 } catch (e: Exception) {
                     SLog.st("TrackRepository", "TrackRepository.registerStreamedTrack failed", e)
                 }
@@ -354,10 +354,10 @@ object TrackRepository : TrackRepositoryApi {
                 kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                     try {
                         if (isNowLiked) {
-                            com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(patchedTrack)
-                            com.streamify.app.data.remote.SupabaseClient.addCloudLike(cloudId)
+                            com.streamify.app.data.supabase.SupabaseClient.upsertCloudTrack(patchedTrack)
+                            com.streamify.app.data.supabase.SupabaseClient.addCloudLike(cloudId)
                         } else {
-                            com.streamify.app.data.remote.SupabaseClient.removeCloudLike(cloudId)
+                            com.streamify.app.data.supabase.SupabaseClient.removeCloudLike(cloudId)
                         }
                     } catch (e: Exception) {
                         SLog.st("TrackRepository", "TrackRepository.toggleLike failed", e)
@@ -440,7 +440,7 @@ object TrackRepository : TrackRepositoryApi {
         val sanitizedTrack = track.copy(id = id, filepath = canonicalPath, coverArtPath = sanitizedCover, ytmVideoId = videoId)
         // Also mirror to Supabase cloud catalog asynchronously
         try {
-            com.streamify.app.data.remote.SupabaseClient.upsertCloudTrack(sanitizedTrack)
+            com.streamify.app.data.supabase.SupabaseClient.upsertCloudTrack(sanitizedTrack)
         } catch (e: Exception) {
             // Ignore
         }

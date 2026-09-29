@@ -651,7 +651,7 @@ fun JamSessionScreen(
                                 Text(
                                     text = when {
                                         m.isHost -> "HOST"
-                                        m.userId == com.streamify.app.data.remote.SupabaseClient.currentUser.value?.id -> "YOU"
+                                        m.userId == com.streamify.app.data.supabase.SupabaseClient.currentUser.value?.id -> "YOU"
                                         else -> "LISTENER"
                                     },
                                     style = LocalAppTypography.current.songArtist.copy(fontSize = 9.sp, letterSpacing = 0.8.sp),

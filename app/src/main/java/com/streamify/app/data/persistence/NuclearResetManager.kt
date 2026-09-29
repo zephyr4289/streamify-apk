@@ -2,7 +2,7 @@ package com.streamify.app.data.persistence
 import android.content.Context
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.iTunesSearchApi
-import com.streamify.app.data.remote.SupabaseClient
+import com.streamify.app.data.supabase.SupabaseClient
 import com.streamify.app.util.StreamifyHapticEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async

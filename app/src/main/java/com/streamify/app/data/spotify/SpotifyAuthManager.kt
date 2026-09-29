@@ -1,5 +1,4 @@
-package com.streamify.app.data.remote
-
+package com.streamify.app.data.spotify
 import android.content.Context
 import android.net.Uri
 import android.util.Base64

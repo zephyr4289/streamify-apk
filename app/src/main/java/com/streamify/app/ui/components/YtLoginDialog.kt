@@ -24,8 +24,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.streamify.app.data.remote.SpotifyAuthManager
-import com.streamify.app.data.remote.YtSessionExtractor
+import com.streamify.app.data.spotify.SpotifyAuthManager
+import com.streamify.app.data.youtube.YtSessionExtractor
 
 @Composable
 fun YtLoginDialog(

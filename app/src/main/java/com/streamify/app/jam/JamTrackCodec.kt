@@ -1,5 +1,4 @@
-package com.streamify.app.data.remote
-
+package com.streamify.app.jam
 import com.streamify.app.util.SLog
 import android.content.Context
 import android.content.SharedPreferences

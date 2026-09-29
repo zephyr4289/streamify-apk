@@ -1,5 +1,4 @@
-package com.streamify.app.data.remote
-
+package com.streamify.app.data.youtube
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap

@@ -25,11 +25,11 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.streamify.app.data.remote.AdminCommentItem
-import com.streamify.app.data.remote.AdminJamSession
-import com.streamify.app.data.remote.AdminTelemetry
-import com.streamify.app.data.remote.SupabaseClient
-import com.streamify.app.data.remote.UserProfile
+import com.streamify.app.data.supabase.AdminCommentItem
+import com.streamify.app.data.supabase.AdminJamSession
+import com.streamify.app.data.supabase.AdminTelemetry
+import com.streamify.app.data.supabase.SupabaseClient
+import com.streamify.app.data.supabase.UserProfile
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
@@ -82,7 +82,7 @@ fun AdminDashboardScreen(
     var telemetry by remember { mutableStateOf<AdminTelemetry?>(null) }
     var jamSessions by remember { mutableStateOf<List<AdminJamSession>>(emptyList()) }
     var recentComments by remember { mutableStateOf<List<AdminCommentItem>>(emptyList()) }
-    var edgeStats by remember { mutableStateOf<com.streamify.app.data.remote.AdminEdgeMeshStats?>(null) }
+    var edgeStats by remember { mutableStateOf<com.streamify.app.data.supabase.AdminEdgeMeshStats?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedUserForDetail by remember { mutableStateOf<UserProfile?>(null) }
@@ -95,9 +95,9 @@ fun AdminDashboardScreen(
     var pendingLiveRecords by remember { mutableStateOf(listOf<JSONObject>()) }
 
     fun applyProfileRecord(
-        base: com.streamify.app.data.remote.AdminTelemetry,
+        base: com.streamify.app.data.supabase.AdminTelemetry,
         record: JSONObject
-    ): com.streamify.app.data.remote.AdminTelemetry {
+    ): com.streamify.app.data.supabase.AdminTelemetry {
         val uId = record.optString("id", "")
         if (uId.isBlank()) return base
         val users = base.userList.toMutableList()
@@ -137,7 +137,7 @@ fun AdminDashboardScreen(
             if (baseTelem != null) {
                 // fold instead of a closure-mutated var: a var captured by a
                 // changing closure never smart-casts to non-null at call sites.
-                val mergedTelem: com.streamify.app.data.remote.AdminTelemetry =
+                val mergedTelem: com.streamify.app.data.supabase.AdminTelemetry =
                     pendingLiveRecords.fold(baseTelem) { acc, record ->
                         applyProfileRecord(acc, record)
                     }

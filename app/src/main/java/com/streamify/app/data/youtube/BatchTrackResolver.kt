@@ -1,5 +1,4 @@
-package com.streamify.app.data.remote
-
+package com.streamify.app.data.youtube
 import android.content.Context
 import com.streamify.app.data.discovery.FuzzyTitleMatcher
 import com.streamify.app.data.repository.PlaylistRepository

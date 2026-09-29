@@ -5,7 +5,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.remote.SpotifyAuthManager
+import com.streamify.app.data.spotify.SpotifyAuthManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

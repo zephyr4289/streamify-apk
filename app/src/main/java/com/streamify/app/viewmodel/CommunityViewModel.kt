@@ -3,7 +3,7 @@ package com.streamify.app.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.remote.*
+import com.streamify.app.data.supabase.SupabaseClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

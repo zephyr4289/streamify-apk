@@ -7,7 +7,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.remote.SpotifyAuthManager
+import com.streamify.app.data.spotify.SpotifyAuthManager
 import java.util.concurrent.TimeUnit
 
 class LibrarySyncWorker(

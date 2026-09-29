@@ -5,7 +5,7 @@ import com.streamify.app.data.NativeBridge
 import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.YouTubeStreamResolver
-import com.streamify.app.data.remote.SupabaseClient
+import com.streamify.app.data.supabase.SupabaseClient
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlin.coroutines.coroutineContext

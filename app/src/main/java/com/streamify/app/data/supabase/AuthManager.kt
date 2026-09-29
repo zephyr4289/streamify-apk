@@ -1,5 +1,4 @@
-package com.streamify.app.data.remote
-
+package com.streamify.app.data.supabase
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.credentials.CredentialManager

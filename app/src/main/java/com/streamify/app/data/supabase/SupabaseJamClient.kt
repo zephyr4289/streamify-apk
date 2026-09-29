@@ -1,5 +1,4 @@
-package com.streamify.app.data.remote
-
+package com.streamify.app.data.supabase
 import com.streamify.app.util.SLog
 import android.content.Context
 import android.content.SharedPreferences
@@ -30,6 +29,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.streamify.app.jam.jamTrackToJson
+import com.streamify.app.jam.jamTrackFromJson
 
 /** Distributed jam sessions: create/join, playback sync, queue broadcast, lease + takeover protocol. */
 internal object SupabaseJamClient {
@@ -47,7 +48,7 @@ internal object SupabaseJamClient {
             val sessionCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions")
 
-            val trackObj = com.streamify.app.data.remote.jamTrackToJson(track)
+            val trackObj = com.streamify.app.jam.jamTrackToJson(track)
 
             val body = JSONObject().apply {
                 put("host_user_id", user.id)
@@ -187,7 +188,7 @@ internal object SupabaseJamClient {
             val safeCode = URLEncoder.encode(sessionCode.uppercase().trim(), "UTF-8")
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/listening_sessions?session_code=eq.$safeCode")
 
-            val trackObj = com.streamify.app.data.remote.jamTrackToJson(track)
+            val trackObj = com.streamify.app.jam.jamTrackToJson(track)
 
             val body = JSONObject().apply {
                 put("current_track_id", track.id.toString())

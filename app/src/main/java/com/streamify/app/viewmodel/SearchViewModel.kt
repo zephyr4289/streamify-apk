@@ -384,7 +384,7 @@ class SearchViewModel(private val repository: com.streamify.app.data.repository.
                     android.widget.Toast.makeText(context, "Resolving Spotify link...", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 
-                val scraped = com.streamify.app.data.remote.PlaylistLinkScraper.scrapePlaylist(url)
+                val scraped = com.streamify.app.data.youtube.PlaylistLinkScraper.scrapePlaylist(url)
                 val newPlaylistId = java.util.UUID.randomUUID().toString()
                 val playlistName = scraped.name.ifBlank { "Imported Spotify Playlist" }
                 val trackIds = mutableListOf<Int>()

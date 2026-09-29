@@ -223,7 +223,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
 
             _playerState.value = _playerState.value.copy(isPlaying = isPlaying)
             if (isPlaying) startPollingPosition() else stopPollingPosition()
-            if (!isApplyingJamSync && com.streamify.app.data.remote.SupabaseClient.activeJam.value != null) {
+            if (!isApplyingJamSync && com.streamify.app.data.supabase.SupabaseClient.activeJam.value != null) {
                 broadcastJamAction(if (isPlaying) "PLAY" else "PAUSE", isPlaying = isPlaying)
             }
         }
@@ -364,7 +364,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
                                 put("hour_of_day", currentHour)
                                 put("action_type", if (wasSkipped && ratio < 0.85f) "SKIP" else "PLAY")
                             }
-                            com.streamify.app.data.remote.SupabaseClient.ingestTelemetryBatch(listOf(eventJson))
+                            com.streamify.app.data.supabase.SupabaseClient.ingestTelemetryBatch(listOf(eventJson))
                         } catch (e: Exception) {
                             // Non-blocking telemetry failure
                         }
@@ -612,7 +612,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
         isPlaying: Boolean = _playerState.value.isPlaying
     ) {
         if (isApplyingJamSync) return
-        if (com.streamify.app.data.remote.SupabaseClient.activeJam.value == null) return
+        if (com.streamify.app.data.supabase.SupabaseClient.activeJam.value == null) return
         // Lockstep routing: hosts emit authoritative epochs, members emit
         // policy-checked intents — receiver-side gates enforce authority.
         com.streamify.app.jam.JamEngine.onLocalPlaybackAction(

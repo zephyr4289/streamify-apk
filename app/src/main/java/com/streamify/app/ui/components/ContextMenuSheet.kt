@@ -217,7 +217,7 @@ fun ContextMenuSheet(
             )
 
             // 3. Jam Session Action
-            val activeJam by com.streamify.app.data.remote.SupabaseClient.activeJam.collectAsState()
+            val activeJam by com.streamify.app.data.supabase.SupabaseClient.activeJam.collectAsState()
             if (activeJam != null) {
                 ContextActionItem(
                     icon = Icons.Filled.QueueMusic,
@@ -226,11 +226,11 @@ fun ContextMenuSheet(
                     onClick = {
                         val session = activeJam
                         if (session != null) {
-                            val currentList = com.streamify.app.data.remote.SupabaseClient.jamQueueUpdates.replayCache.firstOrNull()?.toMutableList() ?: mutableListOf()
+                            val currentList = com.streamify.app.data.supabase.SupabaseClient.jamQueueUpdates.replayCache.firstOrNull()?.toMutableList() ?: mutableListOf()
                             val isDup = currentList.any { com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist) }
                             if (!isDup) {
                                 currentList.add(track)
-                                com.streamify.app.data.remote.SupabaseClient.broadcastJamQueue(session.sessionCode, currentList)
+                                com.streamify.app.data.supabase.SupabaseClient.broadcastJamQueue(session.sessionCode, currentList)
                             }
                             android.widget.Toast.makeText(context, "Added ${track.title} to Jam Queue", android.widget.Toast.LENGTH_SHORT).show()
                         }

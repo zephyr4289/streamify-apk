@@ -77,10 +77,10 @@ object PlaylistRepository {
             for (action in syncChannel) {
                 try {
                     when (action) {
-                        is PlaylistSyncAction.Upsert -> com.streamify.app.data.remote.SupabaseClient.syncPlaylistUpsert(action.playlist)
-                        is PlaylistSyncAction.Delete -> com.streamify.app.data.remote.SupabaseClient.syncPlaylistDelete(action.playlistId)
-                        is PlaylistSyncAction.AddTrack -> com.streamify.app.data.remote.SupabaseClient.syncPlaylistTrackAdd(action.playlistId, action.trackId, action.position)
-                        is PlaylistSyncAction.RemoveTrack -> com.streamify.app.data.remote.SupabaseClient.syncPlaylistTrackRemove(action.playlistId, action.trackId)
+                        is PlaylistSyncAction.Upsert -> com.streamify.app.data.supabase.SupabaseClient.syncPlaylistUpsert(action.playlist)
+                        is PlaylistSyncAction.Delete -> com.streamify.app.data.supabase.SupabaseClient.syncPlaylistDelete(action.playlistId)
+                        is PlaylistSyncAction.AddTrack -> com.streamify.app.data.supabase.SupabaseClient.syncPlaylistTrackAdd(action.playlistId, action.trackId, action.position)
+                        is PlaylistSyncAction.RemoveTrack -> com.streamify.app.data.supabase.SupabaseClient.syncPlaylistTrackRemove(action.playlistId, action.trackId)
                     }
                 } catch (e: Exception) {
                     // Non-fatal background sync

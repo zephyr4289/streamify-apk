@@ -23,7 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.streamify.app.data.remote.AuthManager
+import com.streamify.app.data.supabase.AuthManager
 import com.streamify.app.ui.theme.*
 import kotlinx.coroutines.launch
 

@@ -19,7 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.streamify.app.data.remote.CommunityPlaylist
+import com.streamify.app.data.supabase.CommunityPlaylist
 import com.streamify.app.ui.components.YtThumbnail
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.CommunityViewModel

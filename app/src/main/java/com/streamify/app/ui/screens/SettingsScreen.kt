@@ -28,8 +28,8 @@ import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Download
 import com.streamify.app.BuildConfig
 import com.streamify.app.data.repository.TrackRepository
-import com.streamify.app.data.remote.StreamifyUpdateManager
-import com.streamify.app.data.remote.UpdateState
+import com.streamify.app.data.update.StreamifyUpdateManager
+import com.streamify.app.data.update.UpdateState
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
@@ -69,9 +69,9 @@ fun SettingsScreen(
     var crossfadeValue by remember { mutableStateOf(CrossfadeAudioProcessor.crossfadeDurationMs / 1000f) }
     var showConnectAccountsSheet by remember { mutableStateOf(false) }
 
-    val user by com.streamify.app.data.remote.SupabaseClient.currentUser.collectAsState()
-    val isSpotifyConnected by com.streamify.app.data.remote.SpotifyAuthManager.isSpotifyConnectedFlow.collectAsState()
-    val isYtConnected by com.streamify.app.data.remote.SpotifyAuthManager.isYtConnectedFlow.collectAsState()
+    val user by com.streamify.app.data.supabase.SupabaseClient.currentUser.collectAsState()
+    val isSpotifyConnected by com.streamify.app.data.spotify.SpotifyAuthManager.isSpotifyConnectedFlow.collectAsState()
+    val isYtConnected by com.streamify.app.data.spotify.SpotifyAuthManager.isYtConnectedFlow.collectAsState()
     val currentAppMode by com.streamify.app.data.models.AppMode.currentMode.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -199,7 +199,7 @@ fun SettingsScreen(
                             Button(
                                 onClick = {
                                     scope.launch {
-                                        val res = com.streamify.app.data.remote.AuthManager.signInWithGoogle(context)
+                                        val res = com.streamify.app.data.supabase.AuthManager.signInWithGoogle(context)
                                         if (res.isSuccess) {
                                             android.widget.Toast.makeText(context, "Welcome, ${res.getOrNull()?.displayName}!", android.widget.Toast.LENGTH_SHORT).show()
                                         } else {
@@ -252,7 +252,7 @@ fun SettingsScreen(
                                     }
                                 }
 
-                                TextButton(onClick = { com.streamify.app.data.remote.SupabaseClient.signOut() }) {
+                                TextButton(onClick = { com.streamify.app.data.supabase.SupabaseClient.signOut() }) {
                                     Text("Sign Out", color = StreamifyColors.ErrorRed)
                                 }
                             }
@@ -280,7 +280,7 @@ fun SettingsScreen(
                             }
 
                             // Special Admin Command Center Card
-                            if (com.streamify.app.data.remote.SupabaseClient.isAdmin || user?.isAdmin == true) {
+                            if (com.streamify.app.data.supabase.SupabaseClient.isAdmin || user?.isAdmin == true) {
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Button(
                                     onClick = onNavigateToAdmin,

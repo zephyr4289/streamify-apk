@@ -28,7 +28,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamify.app.data.repository.PlaylistRepository
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.remote.SupabaseClient
+import com.streamify.app.data.supabase.SupabaseClient
 import com.streamify.app.ui.components.*
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.*
@@ -68,7 +68,7 @@ fun LibraryScreen(
     var playlistForOptions by remember { mutableStateOf<com.streamify.app.data.repository.Playlist?>(null) }
     var renameText by remember { mutableStateOf("") }
     var isScraping by remember { mutableStateOf(false) }
-    var importProgress by remember { mutableStateOf<com.streamify.app.data.remote.ImportProgress?>(null) }
+    var importProgress by remember { mutableStateOf<com.streamify.app.data.youtube.ImportProgress?>(null) }
     val contextMenuController = LocalContextMenuController.current
     var isRefreshing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
@@ -252,9 +252,9 @@ fun LibraryScreen(
                 coroutineScope.launch {
                     isScraping = true
                     try {
-                        val scraped = com.streamify.app.data.remote.PlaylistLinkScraper.scrapePlaylist(url)
+                        val scraped = com.streamify.app.data.youtube.PlaylistLinkScraper.scrapePlaylist(url)
                         isScraping = false
-                        com.streamify.app.data.remote.BatchTrackResolver.resolveAndImportPlaylist(scraped, context).collect { progress ->
+                        com.streamify.app.data.youtube.BatchTrackResolver.resolveAndImportPlaylist(scraped, context).collect { progress ->
                             importProgress = progress
                             if (progress.isComplete) {
                                 viewModel.loadLibrary()
@@ -262,7 +262,7 @@ fun LibraryScreen(
                         }
                     } catch (e: Exception) {
                         isScraping = false
-                        importProgress = com.streamify.app.data.remote.ImportProgress(
+                        importProgress = com.streamify.app.data.youtube.ImportProgress(
                             total = 0,
                             completed = 0,
                             currentTrackTitle = "",

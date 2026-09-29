@@ -162,7 +162,7 @@ object OnlineRadioEngine {
     private suspend fun fetchSpotifyRecommendations(seedTrack: Track, want: Int): List<Track> {
         if (want <= 0) return emptyList()
         val context = com.streamify.app.data.repository.TrackRepository.appContext ?: return emptyList()
-        val token = com.streamify.app.data.remote.SpotifyAuthManager(context).getAccessToken()
+        val token = com.streamify.app.data.spotify.SpotifyAuthManager(context).getAccessToken()
             ?: return emptyList()
 
         // 1. BEST SEEDING: exact-track seed when Spotify knows this song

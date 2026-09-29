@@ -278,7 +278,7 @@ internal fun LandscapeLyricsPane(
                     try {
                         val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
                         val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
-                        com.streamify.app.data.remote.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
+                        com.streamify.app.data.supabase.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
                     } catch (e: Exception) {
                         // Non-fatal
                     }

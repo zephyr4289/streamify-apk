@@ -127,7 +127,7 @@ object AppGraph {
         }
 
         try {
-            com.streamify.app.data.remote.SupabaseClient.init(appContext)
+            com.streamify.app.data.supabase.SupabaseClient.init(appContext)
         } catch (e: Throwable) {
             com.streamify.app.util.SLog.e("StreamifyApp", "Failed to initialize SupabaseClient", e)
         }
@@ -159,7 +159,7 @@ object AppGraph {
         // 6. Authenticated YouTube resolution: expose the harvested session to
         // the stream resolver (SAPISIDHASH + cookies past the 2026 bot-wall).
         com.streamify.app.data.network.YouTubeStreamResolver.ytSessionProvider = {
-            val m = com.streamify.app.data.remote.SpotifyAuthManager(appContext)
+            val m = com.streamify.app.data.spotify.SpotifyAuthManager(appContext)
             (m.getYtAuthHeader() ?: "") to (m.getYtRawCookies() ?: "")
         }
     }

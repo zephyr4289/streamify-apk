@@ -1,7 +1,7 @@
 package com.streamify.app.data.telemetry
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.remote.SupabaseClient
-import com.streamify.app.data.remote.TelemetryPayload
+import com.streamify.app.data.supabase.SupabaseClient
+import com.streamify.app.data.supabase.TelemetryPayload
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

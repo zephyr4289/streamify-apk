@@ -9,7 +9,7 @@ import androidx.work.WorkerParameters
 import com.streamify.app.data.repository.EdgeMeshRepository
 import com.streamify.app.data.NativeBridge
 import com.streamify.app.data.repository.TrackRepository
-import com.streamify.app.data.remote.SupabaseClient
+import com.streamify.app.data.supabase.SupabaseClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File

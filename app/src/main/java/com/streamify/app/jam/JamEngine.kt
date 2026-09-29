@@ -1,10 +1,10 @@
 package com.streamify.app.jam
 
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.remote.ListeningSession
-import com.streamify.app.data.remote.SupabaseClient
-import com.streamify.app.data.remote.jamTrackFromJson
-import com.streamify.app.data.remote.jamTrackToJson
+import com.streamify.app.data.supabase.ListeningSession
+import com.streamify.app.data.supabase.SupabaseClient
+import com.streamify.app.jam.jamTrackFromJson
+import com.streamify.app.jam.jamTrackToJson
 import com.streamify.app.util.SLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -1107,7 +1107,7 @@ object JamEngine {
 
     /** A+B succession attempt — extracted so both poll and dead-man paths share it. */
     private suspend fun attemptSuccessionIfEligible(
-        session: com.streamify.app.data.remote.ListeningSession,
+        session: com.streamify.app.data.supabase.ListeningSession,
         snap: SupabaseClient.JamLeaseSnapshot
     ) {
         val myId = myUserId()

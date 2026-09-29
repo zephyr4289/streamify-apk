@@ -3,9 +3,9 @@ package com.streamify.app.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.remote.ListeningSession
-import com.streamify.app.data.remote.SupabaseClient
-import com.streamify.app.data.remote.jamTrackFromJson
+import com.streamify.app.data.supabase.ListeningSession
+import com.streamify.app.data.supabase.SupabaseClient
+import com.streamify.app.jam.jamTrackFromJson
 import com.streamify.app.jam.JamEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
