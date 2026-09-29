@@ -417,7 +417,12 @@ jobs:
           elif [ "${{ matrix.type }}" == "rust" ] && [ "${{ steps.rust_test.outcome }}" == "success" ]; then
             STATUS="PASSED ✅"
           fi
-          sed -i "1s/^/==================================================\nSHARD: ${{ matrix.shard }}\nDESCRIPTION: ${{ matrix.description }}\nSTATUS: $STATUS\n==================================================\n\n/" shard-${{ matrix.shard }}.log
+          # printf + cat, NOT sed: the shard description embeds slashes
+          # ("title/artist") which terminate a sed s/// script early.
+          { printf '==================================================\nSHARD: %s\nDESCRIPTION: %s\nSTATUS: %s\n==================================================\n\n' \
+              "${{ matrix.shard }}" "${{ matrix.description }}" "$STATUS";
+            cat "shard-${{ matrix.shard }}.log"; } > "shard-${{ matrix.shard }}.log.tmp" \
+            && mv "shard-${{ matrix.shard }}.log.tmp" "shard-${{ matrix.shard }}.log"
 
       - name: Upload Shard Log Artifact
         uses: actions/upload-artifact@v4
@@ -508,7 +513,10 @@ jobs:
   emulator-matrix:
     name: "Emulator API ${{ matrix.api }} (ARM64)"
     needs: build-and-compile
-    runs-on: macos-latest
+    # NOT macos-latest: the macos-26-arm64 image does not expose
+    # Hypervisor.Framework (qemu fails with `HVF error: HV_UNSUPPORTED`),
+    # so ARM64 emulators cannot boot. macos-15 arm64 runners do.
+    runs-on: macos-15
     # Advisory: ARM64 emulator runs are slow/flaky on shared runners.
     continue-on-error: true
     if: github.event_name == 'schedule' || github.base_ref == 'main'
