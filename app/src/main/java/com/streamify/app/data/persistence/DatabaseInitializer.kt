@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.persistence
 import com.streamify.app.util.SLog
 import kotlinx.coroutines.CompletableDeferred
 

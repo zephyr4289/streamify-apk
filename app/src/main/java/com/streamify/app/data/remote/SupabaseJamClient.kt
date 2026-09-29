@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.streamify.app.BuildConfig
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.TrackRepository
-import com.streamify.app.data.EdgeMeshRepository
+import com.streamify.app.data.repository.TrackRepository
+import com.streamify.app.data.repository.EdgeMeshRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,7 +122,7 @@ internal object SupabaseJamClient {
 
                     val effectiveTrackJson = rawTrackJson ?: run {
                         if (currentTrackId.isNotBlank()) {
-                            val localTrack = com.streamify.app.data.TrackRepository.getAllTracks().find {
+                            val localTrack = com.streamify.app.data.repository.TrackRepository.getAllTracks().find {
                                 it.id.toString() == currentTrackId || it.filepath.contains(currentTrackId)
                             }
                             localTrack?.let {

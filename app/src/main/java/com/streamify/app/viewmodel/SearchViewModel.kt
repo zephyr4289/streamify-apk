@@ -2,7 +2,7 @@ package com.streamify.app.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.StreamEdgeCache
 import com.streamify.app.data.network.YouTubeStreamResolver
@@ -46,7 +46,7 @@ sealed class SearchUiState {
     data class Error(val message: String) : SearchUiState()
 }
 
-class SearchViewModel(private val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository) : ViewModel() {
+class SearchViewModel(private val repository: com.streamify.app.data.repository.TrackRepositoryApi = com.streamify.app.data.repository.TrackRepository) : ViewModel() {
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
@@ -279,8 +279,8 @@ class SearchViewModel(private val repository: com.streamify.app.data.TrackReposi
                 if (titleLower == qLower) score += 80.0
                 if (artistLower == qLower) score += 60.0
 
-                val simTitle = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(qLower, item.title)
-                val simArtist = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(qLower, item.uploader)
+                val simTitle = com.streamify.app.data.discovery.FuzzyTitleMatcher.calculateSimilarity(qLower, item.title)
+                val simArtist = com.streamify.app.data.discovery.FuzzyTitleMatcher.calculateSimilarity(qLower, item.uploader)
                 score += maxOf(simTitle, simArtist) * 40.0
 
                 if (item.type == SearchResultType.SONG && item.duration in 90..480) {
@@ -420,8 +420,8 @@ class SearchViewModel(private val repository: com.streamify.app.data.TrackReposi
                 
                 if (trackIds.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
-                        val repo = com.streamify.app.data.PlaylistRepository
-                        val p = com.streamify.app.data.Playlist(
+                        val repo = com.streamify.app.data.repository.PlaylistRepository
+                        val p = com.streamify.app.data.repository.Playlist(
                             id = newPlaylistId,
                             name = playlistName,
                             description = "Imported from Spotify ($url)",
@@ -525,8 +525,8 @@ class SearchViewModel(private val repository: com.streamify.app.data.TrackReposi
                 
                 if (trackIds.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
-                        val repo = com.streamify.app.data.PlaylistRepository
-                        val p = com.streamify.app.data.Playlist(
+                        val repo = com.streamify.app.data.repository.PlaylistRepository
+                        val p = com.streamify.app.data.repository.Playlist(
                             id = newPlaylistId,
                             name = playlistName,
                             description = "Imported from local file",

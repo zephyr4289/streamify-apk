@@ -14,7 +14,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.service.PlaybackService
 import kotlinx.coroutines.Job

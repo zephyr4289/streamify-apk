@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.repository
 import com.streamify.app.data.models.Track
 import kotlinx.coroutines.flow.StateFlow
 

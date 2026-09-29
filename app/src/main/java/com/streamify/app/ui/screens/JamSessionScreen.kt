@@ -786,7 +786,7 @@ private fun JamAddSongModalBottomSheet(
     onAddTrack: (com.streamify.app.data.models.Track) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    val allLocalTracks by com.streamify.app.data.TrackRepository.allTracks.collectAsState()
+    val allLocalTracks by com.streamify.app.data.repository.TrackRepository.allTracks.collectAsState()
     var onlineResults by remember { mutableStateOf<List<com.streamify.app.data.models.Track>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
     val context = LocalContext.current

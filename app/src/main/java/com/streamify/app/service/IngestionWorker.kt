@@ -11,7 +11,7 @@ import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.util.MediaStoreScanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

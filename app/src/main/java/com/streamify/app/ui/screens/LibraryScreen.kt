@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.streamify.app.data.PlaylistRepository
+import com.streamify.app.data.repository.PlaylistRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.remote.SupabaseClient
 import com.streamify.app.ui.components.*
@@ -63,9 +63,9 @@ fun LibraryScreen(
 
     var showSpotifyImportDialog by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
-    var playlistToRename by remember { mutableStateOf<com.streamify.app.data.Playlist?>(null) }
-    var playlistToDelete by remember { mutableStateOf<com.streamify.app.data.Playlist?>(null) }
-    var playlistForOptions by remember { mutableStateOf<com.streamify.app.data.Playlist?>(null) }
+    var playlistToRename by remember { mutableStateOf<com.streamify.app.data.repository.Playlist?>(null) }
+    var playlistToDelete by remember { mutableStateOf<com.streamify.app.data.repository.Playlist?>(null) }
+    var playlistForOptions by remember { mutableStateOf<com.streamify.app.data.repository.Playlist?>(null) }
     var renameText by remember { mutableStateOf("") }
     var isScraping by remember { mutableStateOf(false) }
     var importProgress by remember { mutableStateOf<com.streamify.app.data.remote.ImportProgress?>(null) }

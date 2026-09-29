@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.streamify.app.BuildConfig
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.TrackRepository
-import com.streamify.app.data.EdgeMeshRepository
+import com.streamify.app.data.repository.TrackRepository
+import com.streamify.app.data.repository.EdgeMeshRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -511,7 +511,7 @@ object SupabaseClient {
     ): Result<Boolean> = SupabaseEdgeMeshClient.submitEdgeResult(taskId, deviceId, bpm, key, embedding, proof, bandwidthSavedBytes)
     suspend fun getAdminEdgeComputeStats(): Result<AdminEdgeMeshStats> = SupabaseEdgeMeshClient.getAdminEdgeComputeStats()
 
-    suspend fun syncPlaylistUpsert(playlist: com.streamify.app.data.Playlist): Result<Unit> = SupabasePlaylistSyncClient.syncPlaylistUpsert(playlist)
+    suspend fun syncPlaylistUpsert(playlist: com.streamify.app.data.repository.Playlist): Result<Unit> = SupabasePlaylistSyncClient.syncPlaylistUpsert(playlist)
     suspend fun syncPlaylistDelete(playlistId: String): Result<Unit> = SupabasePlaylistSyncClient.syncPlaylistDelete(playlistId)
     suspend fun syncPlaylistTrackAdd(playlistId: String, trackId: Int, positionIdx: Double): Result<Unit> = SupabasePlaylistSyncClient.syncPlaylistTrackAdd(playlistId, trackId, positionIdx)
     suspend fun syncPlaylistTrackRemove(playlistId: String, trackId: Int): Result<Unit> = SupabasePlaylistSyncClient.syncPlaylistTrackRemove(playlistId, trackId)

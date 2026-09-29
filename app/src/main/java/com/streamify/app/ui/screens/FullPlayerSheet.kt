@@ -61,7 +61,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.LyricsData
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track

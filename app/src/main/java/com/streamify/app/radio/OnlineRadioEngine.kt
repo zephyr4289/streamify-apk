@@ -1,9 +1,9 @@
 package com.streamify.app.radio
 
 import com.streamify.app.data.ContinuumRadioEngine
-import com.streamify.app.data.FuzzyTitleMatcher
+import com.streamify.app.data.discovery.FuzzyTitleMatcher
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.AntiDriftScoringEngine
+import com.streamify.app.data.discovery.AntiDriftScoringEngine
 import com.streamify.app.data.network.CanonicalSeedResolver
 import com.streamify.app.data.network.NetworkEngine
 import com.streamify.app.data.network.YouTubeMusicSearchApi
@@ -161,7 +161,7 @@ object OnlineRadioEngine {
      */
     private suspend fun fetchSpotifyRecommendations(seedTrack: Track, want: Int): List<Track> {
         if (want <= 0) return emptyList()
-        val context = com.streamify.app.data.TrackRepository.appContext ?: return emptyList()
+        val context = com.streamify.app.data.repository.TrackRepository.appContext ?: return emptyList()
         val token = com.streamify.app.data.remote.SpotifyAuthManager(context).getAccessToken()
             ?: return emptyList()
 

@@ -177,7 +177,7 @@ class PlaybackService : MediaSessionService() {
                 } else if (lastPlayStartMs > 0L) {
                     val deltaSec = ((now - lastPlayStartMs) / 1000L).coerceAtLeast(0L)
                     if (deltaSec > 0) {
-                        com.streamify.app.data.YtStatsTelemetryEngine.recordListeningSeconds(deltaSec)
+                        com.streamify.app.data.telemetry.YtStatsTelemetryEngine.recordListeningSeconds(deltaSec)
                     }
                     lastPlayStartMs = 0L
                 }
@@ -192,7 +192,7 @@ class PlaybackService : MediaSessionService() {
                 if (lastPlayStartMs > 0L) {
                     val deltaSec = ((now - lastPlayStartMs) / 1000L).coerceAtLeast(0L)
                     if (deltaSec > 0) {
-                        com.streamify.app.data.YtStatsTelemetryEngine.recordListeningSeconds(deltaSec)
+                        com.streamify.app.data.telemetry.YtStatsTelemetryEngine.recordListeningSeconds(deltaSec)
                     }
                     lastPlayStartMs = if (exoPlayer.isPlaying) now else 0L
                 }
@@ -222,7 +222,7 @@ class PlaybackService : MediaSessionService() {
                         val listenedForThisPlay =
                             ((nowMs - (lastPlayStartMs.takeIf { it > 0 } ?: nowMs)) / 1000L)
                                 .coerceIn(0L, 3600L)
-                        com.streamify.app.data.YtStatsTelemetryEngine.recordTrackPlay(track, listenedForThisPlay)
+                        com.streamify.app.data.telemetry.YtStatsTelemetryEngine.recordTrackPlay(track, listenedForThisPlay)
                     }
                 }
             }

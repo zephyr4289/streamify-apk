@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.native
 import com.streamify.app.data.network.NetworkEngine
 import com.streamify.app.data.network.iTunesSearchApi
 import com.streamify.app.data.network.LyricsResolver

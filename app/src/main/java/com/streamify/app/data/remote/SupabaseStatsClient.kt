@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.streamify.app.BuildConfig
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.TrackRepository
-import com.streamify.app.data.EdgeMeshRepository
+import com.streamify.app.data.repository.TrackRepository
+import com.streamify.app.data.repository.EdgeMeshRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,7 +43,7 @@ internal object SupabaseStatsClient {
                     val cloudSec = o.optLong("listening_seconds", 0L)
                     val cloudPlays = o.optInt("total_plays", 0)
                     val topTrack = o.optString("top_track", "")
-                    com.streamify.app.data.YtStatsTelemetryEngine.mergeCloudTelemetry(cloudSec, cloudPlays, topTrack)
+                    com.streamify.app.data.telemetry.YtStatsTelemetryEngine.mergeCloudTelemetry(cloudSec, cloudPlays, topTrack)
                 }
             }
         } catch (e: Exception) {

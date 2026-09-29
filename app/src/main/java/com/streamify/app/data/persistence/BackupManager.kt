@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.persistence
 import android.content.Context
 import android.os.Environment
 import kotlinx.coroutines.Dispatchers
@@ -13,6 +12,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.streamify.app.util.SLog
+import com.streamify.app.data.repository.TrackRepository
+import com.streamify.app.data.repository.Playlist
+import com.streamify.app.data.repository.PlaylistRepository
 
 object BackupManager {
 

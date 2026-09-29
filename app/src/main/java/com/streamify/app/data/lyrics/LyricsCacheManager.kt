@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.lyrics
 import android.content.Context
 import android.media.AudioManager
 import android.os.Build
@@ -18,6 +17,7 @@ import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import com.streamify.app.util.SLog
+import com.streamify.app.data.repository.TrackRepository
 
 /**
  * High-performance Service-Tier SLYR & LRC binary cache manager.

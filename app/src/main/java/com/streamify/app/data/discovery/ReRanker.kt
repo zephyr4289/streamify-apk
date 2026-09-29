@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.discovery
 import com.streamify.app.data.models.Track
 import kotlin.math.abs
 import kotlin.math.exp

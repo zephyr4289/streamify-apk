@@ -178,8 +178,8 @@ class MainActivity : ComponentActivity() {
                     if (!isSplashDone) return@LaunchedEffect
                     withContext(Dispatchers.IO) {
                         playerViewModel.initialize(this@MainActivity)
-                        com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
-                        com.streamify.app.data.TrackRepository.getAllTracks()
+                        com.streamify.app.data.repository.PlaylistRepository.init(this@MainActivity)
+                        com.streamify.app.data.repository.TrackRepository.getAllTracks()
                     }
                     com.streamify.app.data.remote.StreamifyUpdateManager.checkForUpdates(this@MainActivity)
                 }

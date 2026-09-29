@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.ingestion
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.YouTubeStreamResolver
 import com.streamify.app.data.remote.PlaylistLinkScraper

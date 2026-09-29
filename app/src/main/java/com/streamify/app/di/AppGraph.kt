@@ -31,8 +31,8 @@ object AppGraph {
     val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider()
 
     /** Track catalog access, by abstraction. */
-    val trackRepository: com.streamify.app.data.TrackRepositoryApi =
-        com.streamify.app.data.TrackRepository
+    val trackRepository: com.streamify.app.data.repository.TrackRepositoryApi =
+        com.streamify.app.data.repository.TrackRepository
 
     @Volatile
     var initialized: Boolean = false
@@ -69,15 +69,15 @@ object AppGraph {
         )
 
         // 2. Ensure TrackRepository application context and Telemetry Engine are bound.
-        com.streamify.app.data.TrackRepository.appContext = appContext
-        com.streamify.app.data.YtStatsTelemetryEngine.initFromContext(appContext)
+        com.streamify.app.data.repository.TrackRepository.appContext = appContext
+        com.streamify.app.data.telemetry.YtStatsTelemetryEngine.initFromContext(appContext)
 
         // 3. Ensure database directory exists and initialize asynchronously off the main thread.
         try {
             val dbFile = appContext.getDatabasePath("streamify.db")
             dbFile.parentFile?.mkdirs()
             applicationScope.launch(Dispatchers.IO) {
-                com.streamify.app.data.DatabaseInitializer.startInitialization(dbFile.absolutePath)
+                com.streamify.app.data.persistence.DatabaseInitializer.startInitialization(dbFile.absolutePath)
             }
         } catch (e: Throwable) {
             com.streamify.app.util.SLog.e("StreamifyApp", "Failed to schedule NativeBridge Database init", e)

@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.discovery
 object FuzzyTitleMatcher {
 
     // Pre-compiled noise patterns: strips video/audio tags, brackets, features, and release metadata

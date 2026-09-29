@@ -18,6 +18,7 @@ import java.util.Collections
 import java.util.HashSet
 import java.util.zip.GZIPInputStream
 import com.streamify.app.util.SLog
+import com.streamify.app.data.discovery.FuzzyTitleMatcher
 
 val Track.videoId: String
     get() = YouTubeStreamResolver.extractVideoId(filepath, coverArtPath) ?: id.toString()

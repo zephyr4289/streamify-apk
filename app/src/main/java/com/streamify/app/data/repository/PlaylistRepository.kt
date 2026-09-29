@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.repository
 import android.content.Context
 import com.streamify.app.data.models.Track
 import kotlinx.coroutines.CoroutineScope
@@ -15,6 +14,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 import com.streamify.app.util.SLog
+import com.streamify.app.data.ingestion.ParsedTrackItem
 
 data class Playlist(
     val id: String = UUID.randomUUID().toString(),

@@ -193,7 +193,7 @@ class QuantumSonicTokenController {
     }
 
     private fun decodeArtAsync(artUrl: String?) {
-        val ctx = com.streamify.app.data.TrackRepository.appContext ?: return
+        val ctx = com.streamify.app.data.repository.TrackRepository.appContext ?: return
         if (artUrl.isNullOrBlank()) return
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {

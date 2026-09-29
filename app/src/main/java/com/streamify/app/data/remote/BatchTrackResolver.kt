@@ -1,9 +1,9 @@
 package com.streamify.app.data.remote
 
 import android.content.Context
-import com.streamify.app.data.FuzzyTitleMatcher
-import com.streamify.app.data.PlaylistRepository
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.discovery.FuzzyTitleMatcher
+import com.streamify.app.data.repository.PlaylistRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.YouTubeMusicSearchApi
 import com.streamify.app.data.network.YouTubeStreamResolver

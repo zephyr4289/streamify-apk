@@ -1,6 +1,6 @@
 package com.streamify.app.data.network
 
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject

@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.ingestion
 import android.os.Environment
 import com.streamify.app.data.network.NetworkEngine
 import kotlinx.coroutines.Dispatchers

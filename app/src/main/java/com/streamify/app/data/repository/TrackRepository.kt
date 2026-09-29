@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.repository
 import com.streamify.app.util.SLog
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.models.toTrack
@@ -9,6 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.streamify.app.data.persistence.DatabaseInitializer
+import com.streamify.app.data.discovery.FuzzyTitleMatcher
+import com.streamify.app.data.discovery.ReRanker
 
 object TrackRepository : TrackRepositoryApi {
     var appContext: android.content.Context? = null
@@ -118,8 +120,8 @@ object TrackRepository : TrackRepositoryApi {
         val cleanQ = query.trim().lowercase()
         if (cleanQ.length >= 2) {
             val fuzzyMatches = all.mapNotNull { track ->
-                val simTitle = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(cleanQ, track.title)
-                val simArtist = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(cleanQ, track.artist)
+                val simTitle = com.streamify.app.data.discovery.FuzzyTitleMatcher.calculateSimilarity(cleanQ, track.title)
+                val simArtist = com.streamify.app.data.discovery.FuzzyTitleMatcher.calculateSimilarity(cleanQ, track.artist)
                 val maxSim = maxOf(simTitle, simArtist)
                 if (maxSim >= 0.65) Pair(track.copy(isLiked = likedIds.contains(track.id)), maxSim) else null
             }.sortedByDescending { it.second }.map { it.first }
@@ -145,7 +147,7 @@ object TrackRepository : TrackRepositoryApi {
             return true
         }
         return _likedTracks.value.any { liked ->
-            com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(liked.title, liked.artist, track.title, track.artist)
+            com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(liked.title, liked.artist, track.title, track.artist)
         }
     }
 
@@ -176,10 +178,10 @@ object TrackRepository : TrackRepositoryApi {
                     // registerStreamedTrack overwrite another song's canonical pin).
                     (it.ytmVideoId != null && track.ytmVideoId != null && it.ytmVideoId == track.ytmVideoId) ||
                     (
-                        com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist) &&
+                        com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist) &&
                         // Artist gate: title-only fuzzy matching used to merge
                         // different artists' same-titled songs into one identity.
-                        com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(it.artist, track.artist) &&
+                        com.streamify.app.data.discovery.FuzzyTitleMatcher.artistsMatch(it.artist, track.artist) &&
                         // Same rule inside the fuzzy branch: conflicting explicit IDs veto the merge.
                         (it.ytmVideoId == null || track.ytmVideoId == null || it.ytmVideoId == track.ytmVideoId)
                     )
@@ -517,7 +519,7 @@ object TrackRepository : TrackRepositoryApi {
 
     suspend fun getCloudSongRadio(seedTrack: Track, limit: Int = 25): List<Track> = withContext(Dispatchers.IO) {
         val candidates = com.streamify.app.data.network.CandidateAggregator.aggregateCandidates(seedTrack, limit = 100)
-        com.streamify.app.data.ReRanker.scoreAndRankCandidates(
+        com.streamify.app.data.discovery.ReRanker.scoreAndRankCandidates(
             candidates = candidates,
             seedTrack = seedTrack,
             limit = limit

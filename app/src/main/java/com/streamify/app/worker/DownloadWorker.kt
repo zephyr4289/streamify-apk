@@ -12,9 +12,9 @@ import androidx.work.ListenableWorker.Result
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.NativeMetadataTagger
-import com.streamify.app.data.PlaylistRepository
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.native.NativeMetadataTagger
+import com.streamify.app.data.repository.PlaylistRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.network.ParallelStreamDownloader
 import com.streamify.app.data.network.YouTubeStreamResolver
 import com.streamify.app.service.LosslessRemuxer

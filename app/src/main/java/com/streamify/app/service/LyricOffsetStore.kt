@@ -1,7 +1,7 @@
 package com.streamify.app.service
 
 import android.content.Context
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 
 /**
  * Per-track lyric sync offsets, persisted process-wide.

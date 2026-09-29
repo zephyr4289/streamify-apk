@@ -14,7 +14,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.service.PlaybackService
 import kotlinx.coroutines.Job
@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository) : ViewModel(),
+class PlayerViewModel(internal val repository: com.streamify.app.data.repository.TrackRepositoryApi = com.streamify.app.data.repository.TrackRepository) : ViewModel(),
     com.streamify.app.jam.JamEngine.Bridge {
 
     // ── JamEngine.Bridge: live-player facade for the Lockstep protocol ──
@@ -200,7 +200,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
             controller = controllerFuture?.get()
             setupController(appCtx)
             restorePlayerState(appCtx)
-            com.streamify.app.data.SmartOfflineVaultEngine.initialize(appCtx)
+            com.streamify.app.data.persistence.SmartOfflineVaultEngine.initialize(appCtx)
         }, MoreExecutors.directExecutor())
     }
 
@@ -324,7 +324,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                             repository.recordTrackPlay(validId)
                         }
                         appContext?.let { ctx ->
-                            com.streamify.app.data.EdgeMeshRepository.getInstance(ctx).scheduleOpportunisticCompute(
+                            com.streamify.app.data.repository.EdgeMeshRepository.getInstance(ctx).scheduleOpportunisticCompute(
                                 context = ctx,
                                 trackId = (if (validId > 0) validId else currentT.id).toString(),
                                 trackTitle = currentT.title,
@@ -425,7 +425,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                                 val currentQ = _playerState.value.queue.toMutableList()
                                 for (track in continuumRecs) {
                                     val isDup = currentQ.any {
-                                        com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
+                                        com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
                                     }
                                     if (!isDup) {
                                         currentQ.add(track)
@@ -479,7 +479,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                                 val currentQ = _playerState.value.queue.toMutableList()
                                 for (track in newTracks) {
                                     val isDup = currentQ.any {
-                                        com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
+                                        com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
                                     }
                                     if (!isDup) {
                                         currentQ.add(track)
@@ -683,16 +683,16 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
             try {
                 // Register track and prime hash deduplication set without clearing history
                 sessionPlayedTrackIds.add(hydratedTrack.id)
-                val playedH = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(hydratedTrack.title)
+                val playedH = com.streamify.app.data.discovery.FuzzyTitleMatcher.extractRootHash(hydratedTrack.title)
                 if (playedH != 0L) processedTitleHashes.add(playedH)
 
                 for (t in hydratedQueue) {
-                    val h = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(t.title)
+                    val h = com.streamify.app.data.discovery.FuzzyTitleMatcher.extractRootHash(t.title)
                     if (h != 0L) processedTitleHashes.add(h)
                     if (t.id != 0) sessionPlayedTrackIds.add(t.id)
                 }
 
-                com.streamify.app.data.NeuroQueueManager.onTrackStarted(hydratedTrack)
+                com.streamify.app.data.ingestion.NeuroQueueManager.onTrackStarted(hydratedTrack)
                 playTrackInternal(hydratedTrack, targetIndex, hydratedQueue)
 
                 // Asynchronously hydrate upcoming continuum radio queue seeded directly from the tapped track
@@ -788,7 +788,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                             val updatedQueue = queue.toMutableList()
                             for (cand in freshCandidates) {
                                 val isDup = updatedQueue.any {
-                                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, cand.title, cand.artist)
+                                    com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, cand.title, cand.artist)
                                 }
                                 if (!isDup) {
                                     updatedQueue.add(cand)

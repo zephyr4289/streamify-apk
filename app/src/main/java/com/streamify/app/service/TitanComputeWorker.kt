@@ -6,9 +6,9 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.streamify.app.data.EdgeMeshRepository
+import com.streamify.app.data.repository.EdgeMeshRepository
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.remote.SupabaseClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

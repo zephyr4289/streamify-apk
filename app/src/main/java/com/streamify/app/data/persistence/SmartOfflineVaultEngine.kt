@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.persistence
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -18,6 +17,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import com.streamify.app.data.repository.TrackRepository
 
 object SmartOfflineVaultEngine {
 

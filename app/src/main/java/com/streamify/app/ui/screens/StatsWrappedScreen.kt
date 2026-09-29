@@ -21,8 +21,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.streamify.app.data.WrappedStats
-import com.streamify.app.data.YtStatsTelemetryEngine
+import com.streamify.app.data.telemetry.WrappedStats
+import com.streamify.app.data.telemetry.YtStatsTelemetryEngine
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.*
 import com.streamify.app.ui.theme.*

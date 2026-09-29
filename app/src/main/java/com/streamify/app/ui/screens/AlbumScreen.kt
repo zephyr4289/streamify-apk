@@ -16,7 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.streamify.app.data.PlaylistRepository
+import com.streamify.app.data.repository.PlaylistRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.ContextMenuSheet
 import com.streamify.app.ui.components.LocalContextMenuController

@@ -2,7 +2,7 @@ package com.streamify.app.service
 
 import android.content.Context
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.YouTubeStreamResolver
 import com.streamify.app.data.remote.SupabaseClient

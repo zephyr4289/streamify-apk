@@ -61,7 +61,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.LyricsData
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track
@@ -247,7 +247,7 @@ internal fun LandscapeLyricsPane(
     LaunchedEffect(track.id, track.lyricsPath) {
         isLoading = true
         withContext(Dispatchers.IO) {
-            val loadedLines = com.streamify.app.data.LyricsCacheManager.getOrFetchLyrics(context, track, allowNetwork = false)
+            val loadedLines = com.streamify.app.data.lyrics.LyricsCacheManager.getOrFetchLyrics(context, track, allowNetwork = false)
             withContext(Dispatchers.Main) {
                 lyricsLines = loadedLines
                 isLoading = false
@@ -272,7 +272,7 @@ internal fun LandscapeLyricsPane(
             // 2. Persist to Disk LRU, Companion LRC, SQLite DB & Supabase Community
             coroutineScope.launch(Dispatchers.IO) {
                 try {
-                    com.streamify.app.data.LyricsCacheManager.saveLyricsToDiskAndDb(context, track, adjustedLrc)
+                    com.streamify.app.data.lyrics.LyricsCacheManager.saveLyricsToDiskAndDb(context, track, adjustedLrc)
 
                     // Submit to Community Supabase
                     try {

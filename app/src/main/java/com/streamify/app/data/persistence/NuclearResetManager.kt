@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.persistence
 import android.content.Context
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.iTunesSearchApi
@@ -15,6 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.streamify.app.data.repository.TrackRepository
+import com.streamify.app.data.repository.PlaylistRepository
 
 sealed class NukeState {
     object Idle : NukeState()

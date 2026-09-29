@@ -2,7 +2,7 @@ package com.streamify.app.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +18,7 @@ sealed class LibraryUiState {
     data class Error(val message: String) : LibraryUiState()
 }
 
-class LibraryViewModel(private val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository) : ViewModel() {
+class LibraryViewModel(private val repository: com.streamify.app.data.repository.TrackRepositoryApi = com.streamify.app.data.repository.TrackRepository) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()

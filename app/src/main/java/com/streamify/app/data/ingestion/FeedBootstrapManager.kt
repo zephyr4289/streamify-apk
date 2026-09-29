@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.data.ingestion
 import android.content.Context
 import com.streamify.app.data.models.AppMode
 import com.streamify.app.data.models.Track
@@ -9,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import com.streamify.app.data.repository.TrackRepository
 
 object FeedBootstrapManager {
 

@@ -223,7 +223,7 @@ object JamEngine {
     const val OP_REORDER: Int = 3
 
     private fun openOutbox() {
-        val ctx = com.streamify.app.data.TrackRepository.appContext ?: return
+        val ctx = com.streamify.app.data.repository.TrackRepository.appContext ?: return
         outboxReady = try {
             val db = java.io.File(ctx.filesDir, "jam_outbox.db")
             com.streamify.app.data.NativeBridge.jamOutboxOpen(db.absolutePath)

@@ -14,7 +14,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.service.PlaybackService
 import kotlinx.coroutines.Job
@@ -59,7 +59,7 @@ internal suspend fun PlayerViewModel.playTrackInternal(track: Track, index: Int,
     // File-stat work (vault index hit + existence/size probe) kept off the
     // main thread — this runs on every track tap.
     val vaulted = withContext(Dispatchers.IO) {
-        com.streamify.app.data.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
+        com.streamify.app.data.persistence.SmartOfflineVaultEngine.getOfflineTrack(track, appContext)
     }
     val trackToPlay = vaulted ?: track
     if (vaulted != null) {
@@ -240,7 +240,7 @@ internal fun PlayerViewModel.armLookaheadPreBuffer(nextIndex: Int, queue: List<T
                         val liveQ = _playerState.value.queue.toMutableList()
                         for (ft in fresh) {
                             val isDup = liveQ.any {
-                                com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, ft.title, ft.artist)
+                                com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, ft.title, ft.artist)
                             }
                             if (!isDup) {
                                 liveQ.add(ft)
@@ -354,7 +354,7 @@ internal fun PlayerViewModel.hydrateContinuumRadio(seedTrack: Track) {
             if (radioTracks.isNotEmpty()) {
                 // O(1) Root Hash & Session History Deduplication: Skip already played songs
                 val uniqueCandidates = radioTracks.filter { candidate ->
-                    val hash = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(candidate.title)
+                    val hash = com.streamify.app.data.discovery.FuzzyTitleMatcher.extractRootHash(candidate.title)
                     if (hash == 0L || processedTitleHashes.contains(hash) || sessionPlayedTrackIds.contains(candidate.id)) {
                         false
                     } else {
@@ -369,7 +369,7 @@ internal fun PlayerViewModel.hydrateContinuumRadio(seedTrack: Track) {
                         val currentQueue = _playerState.value.queue.toMutableList()
                         for (rt in uniqueCandidates) {
                             val isDup = currentQueue.any {
-                                com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rt.title, rt.artist)
+                                com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, rt.title, rt.artist)
                             }
                             if (!isDup) {
                                 currentQueue.add(rt)

@@ -79,7 +79,7 @@ object AuthManager {
                 kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                     try {
                         SupabaseClient.syncCloudLikes(emptyList())
-                        com.streamify.app.data.TrackRepository.refresh()
+                        com.streamify.app.data.repository.TrackRepository.refresh()
                     } catch (e: Exception) {
                         SLog.st("AuthManager", "AuthManager.signInWithGoogle failed", e)
                     }
@@ -105,11 +105,11 @@ object AuthManager {
         // Clear local database and taste profile to prevent account contamination
         try {
             com.streamify.app.data.NativeBridge.nukeLocalDatabase()
-            com.streamify.app.data.TrackRepository.hardResetState()
-            com.streamify.app.data.PlaylistRepository.hardResetState()
+            com.streamify.app.data.repository.TrackRepository.hardResetState()
+            com.streamify.app.data.repository.PlaylistRepository.hardResetState()
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                com.streamify.app.data.StorageManager.clearAllCache(context)
-                com.streamify.app.data.TrackRepository.refresh()
+                com.streamify.app.data.persistence.StorageManager.clearAllCache(context)
+                com.streamify.app.data.repository.TrackRepository.refresh()
             }
         } catch (e: Exception) {
             SLog.st("AuthManager", "AuthManager.signOut failed", e)

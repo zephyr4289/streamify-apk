@@ -14,7 +14,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.service.PlaybackService
 import kotlinx.coroutines.Job
@@ -154,7 +154,7 @@ internal fun PlayerViewModel.maybeFetchLyricsForTrack(playingTrack: Track?) {
                 val ctx = appContext
                 if (ctx != null) {
                     try {
-                        val cachedFile = com.streamify.app.data.LyricsCacheManager.getCachedLyricsFile(
+                        val cachedFile = com.streamify.app.data.lyrics.LyricsCacheManager.getCachedLyricsFile(
                             ctx, playingTrack.title, playingTrack.artist
                         )
                         cachedFile.writeText(lyricsText)

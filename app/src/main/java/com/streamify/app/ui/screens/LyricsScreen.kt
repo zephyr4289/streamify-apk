@@ -162,7 +162,7 @@ fun LyricsScreen(
                         // 2. Persist to Disk LRU, Companion LRC, SQLite DB & Supabase Community
                         coroutineScope.launch(Dispatchers.IO) {
                             try {
-                                com.streamify.app.data.LyricsCacheManager.saveLyricsToDiskAndDb(context, track, adjustedLrc)
+                                com.streamify.app.data.lyrics.LyricsCacheManager.saveLyricsToDiskAndDb(context, track, adjustedLrc)
 
                                 // Submit to Community Supabase
                                 try {

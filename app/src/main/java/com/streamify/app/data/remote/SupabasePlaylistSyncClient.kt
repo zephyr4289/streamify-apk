@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.streamify.app.BuildConfig
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.TrackRepository
-import com.streamify.app.data.EdgeMeshRepository
+import com.streamify.app.data.repository.TrackRepository
+import com.streamify.app.data.repository.EdgeMeshRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 
 /** Playlist cloud sync: adaptive PostgREST upsert/delete/track add/remove. */
 internal object SupabasePlaylistSyncClient {
-    suspend fun syncPlaylistUpsert(playlist: com.streamify.app.data.Playlist): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun syncPlaylistUpsert(playlist: com.streamify.app.data.repository.Playlist): Result<Unit> = withContext(Dispatchers.IO) {
         val user = SupabaseClient._currentUser.value ?: return@withContext Result.success(Unit)
         try {
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/playlists?on_conflict=id")
