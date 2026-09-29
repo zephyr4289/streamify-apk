@@ -25,16 +25,19 @@ add_library(streamify_native_core SHARED
     engine/TaskOrchestrator.cc
     dsp/LufsNormalizer.cc
     dsp/SoftKneeLimiter.cc
+    dsp/AcousticPhaseResampler.cc
     dsp/kissfft/kiss_fft.c
     dsp/kissfft/kiss_fftr.c
     engine/VectorStore.cc
     jni/jni_bridge.cc
+    jni/jni_bridge_dsp.cc
     engine/StreamifyDB.cc
     engine/RecommendEngine.cc
     engine/EventTracker.cc
     engine/TelemetryEngine.cc
     engine/ChronosProfiler.cc
     engine/PtpEngine.cc
+    engine/HardwareLatencyProfiler.cc
     engine/AirDropPhysicsEngine.cc
     ingest/AudioPipeline.cc
     dsp/LyricAligner.cc
@@ -79,11 +82,25 @@ if (STREAMIFY_BUILD_TESTS)
     target_include_directories(storage_telemetry_test_suite PRIVATE engine third_party/sqlite3 .)
     target_link_libraries(storage_telemetry_test_suite PRIVATE pthread dl)
 
+    # Sub-millisecond acoustic phase-lock core: PTP clock kernel, fractional
+    # sinc resampler, hardware/Bluetooth latency profiler (mission brief 3A/B/C).
+    # Host C++20, no Android SDK needed; the suite carries its own
+    # operator-new allocation guard, so it MUST NOT see -ffast-math/-flto
+    # (fast-math elides the NaN/overflow guards it asserts on).
+    add_executable(dsp_phase_lock_test_suite
+        tests/test_dsp_phase_lock.cc
+        engine/PtpEngine.cc
+        engine/HardwareLatencyProfiler.cc
+        dsp/AcousticPhaseResampler.cc
+    )
+    target_include_directories(dsp_phase_lock_test_suite PRIVATE engine dsp .)
+    target_link_libraries(dsp_phase_lock_test_suite PRIVATE m pthread)
+
     # The suites assert on NaN/Inf/overflow guards and bounded outputs; the
     # global -ffast-math would fold those guards away (the limiter test
     # asserts |sample| <= 1.1). Same rationale as the fuzzer harness below.
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        foreach(tname dsp_test_suite simd_physics_test_suite storage_telemetry_test_suite)
+        foreach(tname dsp_test_suite simd_physics_test_suite storage_telemetry_test_suite dsp_phase_lock_test_suite)
             target_compile_options(${tname} PRIVATE -fno-fast-math)
         endforeach()
     endif()
