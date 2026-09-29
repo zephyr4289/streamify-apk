@@ -1239,5 +1239,4 @@ object JamEngine {
 
     /** Guest-side shadow-prebuffer hook fired when a host NEXT_IS lands. */
     @Volatile var onNextIsListener: ((Track) -> Unit)? = null
-    fun setOnNextIsListener(l: ((Track) -> Unit)?) { onNextIsListener = l }
 }
