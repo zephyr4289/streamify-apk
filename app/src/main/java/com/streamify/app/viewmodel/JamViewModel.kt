@@ -300,7 +300,7 @@ class JamViewModel(
         }
 
         // 3.6 Zero-gap handoff (P3): host NEXT_IS → guest shadow pre-buffer.
-        JamEngine.setOnNextIsListener { nextTrack ->
+        JamEngine.onNextIsListener = { nextTrack ->
             com.streamify.app.service.PredictivePreBufferManager.JamPreBuffer.notifyNextIs(nextTrack)
         }
 
