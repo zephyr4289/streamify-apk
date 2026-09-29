@@ -1,11 +1,10 @@
-package com.streamify.app.data
+package com.streamify.app.data.discovery
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import com.streamify.app.data.discovery.FuzzyTitleMatcher
 
 /**
  * Pure-JVM tests for the identity/fuzzy matching engine.

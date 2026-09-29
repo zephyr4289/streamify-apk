@@ -177,10 +177,9 @@ dependencies {
     // Hardware-Backed KeyStore & EncryptedSharedPreferences
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Unit tests (JVM): the data-identity-fuzzy CI shard runs
-    // testDebugUnitTest --tests "com.streamify.app.data.*"; the JUnit
-    // wiring was missing entirely, so compileDebugUnitTestKotlin could
-    // never succeed.
+    // Unit tests (JVM): the jvm-unit-suite CI shard runs the full
+    // testDebugUnitTest suite (no package filter, so new tests in any
+    // package are picked up automatically).
     testImplementation("junit:junit:4.13.2")
 
     // Instrumented macrobenchmark (StreamifyMacrobenchmark) executed by the
