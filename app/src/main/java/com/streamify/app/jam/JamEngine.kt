@@ -5,6 +5,7 @@ import com.streamify.app.data.remote.ListeningSession
 import com.streamify.app.data.remote.SupabaseClient
 import com.streamify.app.data.remote.jamTrackFromJson
 import com.streamify.app.data.remote.jamTrackToJson
+import com.streamify.app.util.SLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -217,11 +218,9 @@ object JamEngine {
         }
     }
 
-    companion object OpCodes {
-        const val OP_ADD: Int = 1
-        const val OP_REMOVE: Int = 2
-        const val OP_REORDER: Int = 3
-    }
+    const val OP_ADD: Int = 1
+    const val OP_REMOVE: Int = 2
+    const val OP_REORDER: Int = 3
 
     private fun openOutbox() {
         val ctx = com.streamify.app.data.TrackRepository.appContext ?: return
@@ -251,7 +250,7 @@ object JamEngine {
         return 1_000L
     }
 
-    private fun markRegimeChange() {
+    internal fun markRegimeChange() {
         lastRegimeChangeSyncedMs = nowSynced()
         com.streamify.app.data.NativeBridge.kalmanPllReset()
     }

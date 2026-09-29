@@ -20,6 +20,7 @@ import com.streamify.app.service.PlaybackService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -78,7 +79,9 @@ internal fun PlayerViewModel.startPollingPosition() {
                         }
                     }
                 }
-
+                // Explicit Unit keeps the trailing if/else above in statement
+                // position so the inner if needs no else branch (K2 semantics).
+                Unit
             }
             delay(200)
         }
@@ -104,7 +107,8 @@ internal fun PlayerViewModel.startJamTicker() {
                 delay(500L)
                 continue
             }
-            val ctrl = controller ?: run { delay(500L); continue }
+            val ctrl = controller
+            if (ctrl == null) { delay(500L); continue }
             if (_playerState.value.isPlaying) {
                 val cur = _playerState.value.currentTrack
                 val pos = ctrl.currentPosition.coerceAtLeast(0L)
