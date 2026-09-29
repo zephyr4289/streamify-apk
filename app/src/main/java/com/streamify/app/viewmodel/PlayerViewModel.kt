@@ -416,7 +416,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
                     viewModelScope.launch(Dispatchers.IO) {
                         val currentT = _playerState.value.currentTrack
                         if (currentT != null) {
-                            val continuumRecs = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                            val continuumRecs = com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(
                                 seedTrack = currentT,
                                 activeQueue = currentQueue,
                                 targetCount = 15
@@ -470,7 +470,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
                     viewModelScope.launch(Dispatchers.IO) {
                         val currentT = _playerState.value.currentTrack
                         if (currentT != null) {
-                            val newTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                            val newTracks = com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(
                                 seedTrack = currentT,
                                 activeQueue = currentQueue,
                                 targetCount = 15
@@ -1077,7 +1077,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
         val isCurrentPlaying = currentT != null && (target.id == currentT.id || (target.title == currentT.title && target.artist == currentT.artist))
 
         viewModelScope.launch {
-            val radioTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+            val radioTracks = com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(
                 seedTrack = target,
                 activeQueue = if (isCurrentPlaying) _playerState.value.queue else emptyList(),
                 targetCount = 20

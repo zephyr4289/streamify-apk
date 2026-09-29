@@ -1,5 +1,5 @@
 package com.streamify.app.media.playback
-import com.streamify.app.data.ContinuumRadioEngine
+import com.streamify.app.radio.ContinuumRadioEngine
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.CanonicalSeedResolver
 import com.streamify.app.radio.OnlineRadioEngine

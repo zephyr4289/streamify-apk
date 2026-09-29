@@ -55,7 +55,7 @@ fun RelatedDiscoverSheet(
         isLoading = true
         withContext(Dispatchers.IO) {
             val radio = try {
-                com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(track, targetCount = 20)
+                com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(track, targetCount = 20)
             } catch (e: Exception) {
                 emptyList()
             }

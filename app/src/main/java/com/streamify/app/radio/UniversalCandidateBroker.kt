@@ -1,5 +1,4 @@
-package com.streamify.app.data
-
+package com.streamify.app.radio
 import com.streamify.app.data.models.Track
 import com.streamify.app.radio.OnlineRadioEngine
 import kotlinx.coroutines.Dispatchers

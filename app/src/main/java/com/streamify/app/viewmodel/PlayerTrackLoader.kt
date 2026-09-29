@@ -230,7 +230,7 @@ internal fun PlayerViewModel.armLookaheadPreBuffer(nextIndex: Int, queue: List<T
         if (queue.size - nextIndex <= 2 && _playerState.value.isAutoPlayEnabled) {
             try {
                 val seed = queue.lastOrNull() ?: nextTrack
-                val fresh = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                val fresh = com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(
                     seedTrack = seed,
                     activeQueue = queue,
                     targetCount = 15
@@ -345,7 +345,7 @@ internal fun PlayerViewModel.hydrateContinuumRadio(seedTrack: Track) {
             val currentQ = _playerState.value.queue
 
             // Harvest full 25+ candidate batch across Innertube, Spotify, and Local
-            val radioTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+            val radioTracks = com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(
                 seedTrack = seedTrack,
                 activeQueue = currentQ,
                 targetCount = 25
