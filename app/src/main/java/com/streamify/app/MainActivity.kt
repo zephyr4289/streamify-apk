@@ -29,8 +29,8 @@ import androidx.navigation.compose.rememberNavController
 import coil.Coil
 import coil.request.ImageRequest
 import coil.request.SuccessResult
-import com.streamify.app.data.remote.AuthManager
-import com.streamify.app.data.remote.AuthState
+import com.streamify.app.data.supabase.AuthManager
+import com.streamify.app.data.supabase.AuthState
 import com.streamify.app.navigation.AppNavGraph
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -40,7 +40,7 @@ import com.streamify.app.ui.components.LocalQuantumController
 import com.streamify.app.ui.components.MiniPlayerBar
 import com.streamify.app.ui.components.QuantumSonicTokenController
 import com.streamify.app.ui.components.QuantumSonicTokenOverlay
-import com.streamify.app.ui.components.YtBottomNavBar
+import com.streamify.app.ui.components.yt.YtBottomNavBar
 import com.streamify.app.ui.screens.FullPlayerSheet
 import com.streamify.app.ui.screens.PrismaticSplashScreen
 import com.streamify.app.ui.screens.YtOnboardingScreen
@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
             val error = uri.getQueryParameter("error")
             if (!authCode.isNullOrEmpty()) {
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                    val spotifyAuth = com.streamify.app.data.remote.SpotifyAuthManager(this@MainActivity)
+                    val spotifyAuth = com.streamify.app.data.spotify.SpotifyAuthManager(this@MainActivity)
                     val dbPath = getDatabasePath("streamify_universal.db").absolutePath
                     spotifyAuth.handleAuthCallback(authCode, dbPath) { count ->
                         if (count >= 0) {
@@ -147,11 +147,11 @@ class MainActivity : ComponentActivity() {
 
 
             LaunchedEffect(authState) {
-                val user = com.streamify.app.data.remote.SupabaseClient.currentUser.value
+                val user = com.streamify.app.data.supabase.SupabaseClient.currentUser.value
                 if (user != null) {
-                    com.streamify.app.data.remote.SupabaseClient.startRealtimeSync(user.id)
+                    com.streamify.app.data.supabase.SupabaseClient.startRealtimeSync(user.id)
                 } else {
-                    com.streamify.app.data.remote.SupabaseClient.stopRealtimeSync()
+                    com.streamify.app.data.supabase.SupabaseClient.stopRealtimeSync()
                 }
             }
 
@@ -178,10 +178,10 @@ class MainActivity : ComponentActivity() {
                     if (!isSplashDone) return@LaunchedEffect
                     withContext(Dispatchers.IO) {
                         playerViewModel.initialize(this@MainActivity)
-                        com.streamify.app.data.PlaylistRepository.init(this@MainActivity)
-                        com.streamify.app.data.TrackRepository.getAllTracks()
+                        com.streamify.app.data.repository.PlaylistRepository.init(this@MainActivity)
+                        com.streamify.app.data.repository.TrackRepository.getAllTracks()
                     }
-                    com.streamify.app.data.remote.StreamifyUpdateManager.checkForUpdates(this@MainActivity)
+                    com.streamify.app.data.update.StreamifyUpdateManager.checkForUpdates(this@MainActivity)
                 }
 
                 // Dynamic Full-Player Overlay & Dock State
@@ -286,7 +286,7 @@ class MainActivity : ComponentActivity() {
                             // repo hydration and the update network check are
                             // deferred to post-first-frame background work.
                             val prefs = getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
-                            com.streamify.app.service.CrossfadeAudioProcessor.crossfadeDurationMs =
+                            com.streamify.app.media.audio.CrossfadeAudioProcessor.crossfadeDurationMs =
                                 (prefs.getFloat("crossfade_val", 0f) * 1000).toLong()
                             AuthManager.init(this@MainActivity)
                         },
@@ -518,7 +518,7 @@ class MainActivity : ComponentActivity() {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (level >= TRIM_MEMORY_RUNNING_LOW) {
-            com.streamify.app.service.ThermalGovernorManager.handleLowMemory(this)
+            com.streamify.app.media.sync.ThermalGovernorManager.handleLowMemory(this)
         }
     }
 
@@ -535,7 +535,7 @@ class MainActivity : ComponentActivity() {
 
 private fun enqueueMediaScan(context: android.content.Context) {
     val workManager = androidx.work.WorkManager.getInstance(context)
-    val scanRequest = androidx.work.OneTimeWorkRequestBuilder<com.streamify.app.service.IngestionWorker>()
+    val scanRequest = androidx.work.OneTimeWorkRequestBuilder<com.streamify.app.media.ingestion.IngestionWorker>()
         .addTag("ingestion_worker")
         .build()
     workManager.enqueueUniqueWork("media_scan", androidx.work.ExistingWorkPolicy.KEEP, scanRequest)

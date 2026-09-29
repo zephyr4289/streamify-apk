@@ -61,13 +61,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.LyricsData
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track
-import com.streamify.app.service.LyricOffsetStore
-import com.streamify.app.service.LyricPlaybackController
+import com.streamify.app.media.lyrics.LyricOffsetStore
+import com.streamify.app.media.lyrics.LyricPlaybackController
 import com.streamify.app.ui.components.*
+import com.streamify.app.ui.components.yt.*
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.CommunityViewModel
 import com.streamify.app.viewmodel.UiEvent
@@ -247,7 +248,7 @@ internal fun LandscapeLyricsPane(
     LaunchedEffect(track.id, track.lyricsPath) {
         isLoading = true
         withContext(Dispatchers.IO) {
-            val loadedLines = com.streamify.app.data.LyricsCacheManager.getOrFetchLyrics(context, track, allowNetwork = false)
+            val loadedLines = com.streamify.app.data.lyrics.LyricsCacheManager.getOrFetchLyrics(context, track, allowNetwork = false)
             withContext(Dispatchers.Main) {
                 lyricsLines = loadedLines
                 isLoading = false
@@ -272,13 +273,13 @@ internal fun LandscapeLyricsPane(
             // 2. Persist to Disk LRU, Companion LRC, SQLite DB & Supabase Community
             coroutineScope.launch(Dispatchers.IO) {
                 try {
-                    com.streamify.app.data.LyricsCacheManager.saveLyricsToDiskAndDb(context, track, adjustedLrc)
+                    com.streamify.app.data.lyrics.LyricsCacheManager.saveLyricsToDiskAndDb(context, track, adjustedLrc)
 
                     // Submit to Community Supabase
                     try {
                         val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
                         val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
-                        com.streamify.app.data.remote.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
+                        com.streamify.app.data.supabase.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
                     } catch (e: Exception) {
                         // Non-fatal
                     }
@@ -431,7 +432,7 @@ internal fun LandscapeRelatedPane(
         isLoading = true
         withContext(Dispatchers.IO) {
             val radio = try {
-                com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(track, targetCount = 20)
+                com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(track, targetCount = 20)
             } catch (e: Exception) {
                 emptyList()
             }

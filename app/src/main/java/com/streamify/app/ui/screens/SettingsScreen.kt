@@ -27,14 +27,14 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Download
 import com.streamify.app.BuildConfig
-import com.streamify.app.data.TrackRepository
-import com.streamify.app.data.remote.StreamifyUpdateManager
-import com.streamify.app.data.remote.UpdateState
+import com.streamify.app.data.repository.TrackRepository
+import com.streamify.app.data.update.StreamifyUpdateManager
+import com.streamify.app.data.update.UpdateState
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.viewmodel.PlayerViewModel
-import com.streamify.app.service.CrossfadeAudioProcessor
+import com.streamify.app.media.audio.CrossfadeAudioProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.streamify.app.util.SLog
@@ -69,9 +69,9 @@ fun SettingsScreen(
     var crossfadeValue by remember { mutableStateOf(CrossfadeAudioProcessor.crossfadeDurationMs / 1000f) }
     var showConnectAccountsSheet by remember { mutableStateOf(false) }
 
-    val user by com.streamify.app.data.remote.SupabaseClient.currentUser.collectAsState()
-    val isSpotifyConnected by com.streamify.app.data.remote.SpotifyAuthManager.isSpotifyConnectedFlow.collectAsState()
-    val isYtConnected by com.streamify.app.data.remote.SpotifyAuthManager.isYtConnectedFlow.collectAsState()
+    val user by com.streamify.app.data.supabase.SupabaseClient.currentUser.collectAsState()
+    val isSpotifyConnected by com.streamify.app.data.spotify.SpotifyAuthManager.isSpotifyConnectedFlow.collectAsState()
+    val isYtConnected by com.streamify.app.data.spotify.SpotifyAuthManager.isYtConnectedFlow.collectAsState()
     val currentAppMode by com.streamify.app.data.models.AppMode.currentMode.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -199,7 +199,7 @@ fun SettingsScreen(
                             Button(
                                 onClick = {
                                     scope.launch {
-                                        val res = com.streamify.app.data.remote.AuthManager.signInWithGoogle(context)
+                                        val res = com.streamify.app.data.supabase.AuthManager.signInWithGoogle(context)
                                         if (res.isSuccess) {
                                             android.widget.Toast.makeText(context, "Welcome, ${res.getOrNull()?.displayName}!", android.widget.Toast.LENGTH_SHORT).show()
                                         } else {
@@ -252,7 +252,7 @@ fun SettingsScreen(
                                     }
                                 }
 
-                                TextButton(onClick = { com.streamify.app.data.remote.SupabaseClient.signOut() }) {
+                                TextButton(onClick = { com.streamify.app.data.supabase.SupabaseClient.signOut() }) {
                                     Text("Sign Out", color = StreamifyColors.ErrorRed)
                                 }
                             }
@@ -280,7 +280,7 @@ fun SettingsScreen(
                             }
 
                             // Special Admin Command Center Card
-                            if (com.streamify.app.data.remote.SupabaseClient.isAdmin || user?.isAdmin == true) {
+                            if (com.streamify.app.data.supabase.SupabaseClient.isAdmin || user?.isAdmin == true) {
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Button(
                                     onClick = onNavigateToAdmin,
@@ -528,11 +528,11 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         // Dolby Atmos & Spatial Audio Hardware Statement
-                        val isDolbyDetected by com.streamify.app.service.DolbySpatialManager.isDolbyAtmosDetected.collectAsState()
-                        val dolbyDetail by com.streamify.app.service.DolbySpatialManager.hardwareDetail.collectAsState()
+                        val isDolbyDetected by com.streamify.app.media.audio.DolbySpatialManager.isDolbyAtmosDetected.collectAsState()
+                        val dolbyDetail by com.streamify.app.media.audio.DolbySpatialManager.hardwareDetail.collectAsState()
 
                         LaunchedEffect(Unit) {
-                            com.streamify.app.service.DolbySpatialManager.checkHardwareCapabilities(context)
+                            com.streamify.app.media.audio.DolbySpatialManager.checkHardwareCapabilities(context)
                         }
 
                         Row(
@@ -594,7 +594,7 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        val isLoudnessOn by com.streamify.app.service.EqualizerManager.isLoudnessNormalizationEnabled.collectAsState()
+                        val isLoudnessOn by com.streamify.app.media.audio.EqualizerManager.isLoudnessNormalizationEnabled.collectAsState()
                         var autoDownloadLiked by remember {
                             mutableStateOf(audioPrefs.getBoolean("auto_download_liked", false))
                         }
@@ -612,7 +612,7 @@ fun SettingsScreen(
                             }
                             Switch(
                                 checked = isLoudnessOn,
-                                onCheckedChange = { com.streamify.app.service.EqualizerManager.setLoudnessNormalization(it) },
+                                onCheckedChange = { com.streamify.app.media.audio.EqualizerManager.setLoudnessNormalization(it) },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = StreamifyColors.Primary,
                                     checkedTrackColor = StreamifyColors.Primary.copy(alpha = 0.5f)
@@ -652,11 +652,11 @@ fun SettingsScreen(
                 SectionHeader("Storage & 5-Tier Cache")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
 
-                var storageInfo by remember { mutableStateOf<com.streamify.app.data.StorageBreakdown?>(null) }
+                var storageInfo by remember { mutableStateOf<com.streamify.app.data.persistence.StorageBreakdown?>(null) }
                 val scope = rememberCoroutineScope()
 
                 LaunchedEffect(Unit) {
-                    storageInfo = com.streamify.app.data.StorageManager.getStorageBreakdown(context)
+                    storageInfo = com.streamify.app.data.persistence.StorageManager.getStorageBreakdown(context)
                 }
 
                 Card(
@@ -674,7 +674,7 @@ fun SettingsScreen(
                                 Text("250 MB LRU progressive buffer", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
                             }
                             Text(
-                                text = com.streamify.app.data.StorageManager.formatBytes(storageInfo?.audioCacheBytes ?: 0L),
+                                text = com.streamify.app.data.persistence.StorageManager.formatBytes(storageInfo?.audioCacheBytes ?: 0L),
                                 style = StreamifyType.BodyMedium,
                                 color = StreamifyColors.TextMain
                             )
@@ -692,7 +692,7 @@ fun SettingsScreen(
                                 Text("100 MB HD image cache", style = StreamifyType.Caption, color = StreamifyColors.TextSub)
                             }
                             Text(
-                                text = com.streamify.app.data.StorageManager.formatBytes(storageInfo?.imageCacheBytes ?: 0L),
+                                text = com.streamify.app.data.persistence.StorageManager.formatBytes(storageInfo?.imageCacheBytes ?: 0L),
                                 style = StreamifyType.BodyMedium,
                                 color = StreamifyColors.TextMain
                             )
@@ -703,15 +703,15 @@ fun SettingsScreen(
                         Button(
                             onClick = {
                                 scope.launch {
-                                    com.streamify.app.data.StorageManager.clearAllCache(context)
-                                    storageInfo = com.streamify.app.data.StorageManager.getStorageBreakdown(context)
+                                    com.streamify.app.data.persistence.StorageManager.clearAllCache(context)
+                                    storageInfo = com.streamify.app.data.persistence.StorageManager.getStorageBreakdown(context)
                                     android.widget.Toast.makeText(context, "Cache cleared successfully", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = StreamifyColors.BgElevated),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Clear All Cache (${com.streamify.app.data.StorageManager.formatBytes(storageInfo?.totalCacheBytes ?: 0L)})", color = StreamifyColors.Primary)
+                            Text("Clear All Cache (${com.streamify.app.data.persistence.StorageManager.formatBytes(storageInfo?.totalCacheBytes ?: 0L)})", color = StreamifyColors.Primary)
                         }
                     }
                 }
@@ -729,7 +729,7 @@ fun SettingsScreen(
                         scope.launch {
                             try {
                                 val jsonStr = context.contentResolver.openInputStream(it)?.bufferedReader().use { r -> r?.readText() } ?: ""
-                                val result = com.streamify.app.data.BackupManager.importLibraryBackup(context, jsonStr)
+                                val result = com.streamify.app.data.persistence.BackupManager.importLibraryBackup(context, jsonStr)
                                 if (result.isSuccess) {
                                     android.widget.Toast.makeText(context, "Restored ${result.getOrNull()} items successfully", android.widget.Toast.LENGTH_LONG).show()
                                 } else {
@@ -752,7 +752,7 @@ fun SettingsScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     scope.launch {
-                                        val res = com.streamify.app.data.BackupManager.exportLibraryBackup(context)
+                                        val res = com.streamify.app.data.persistence.BackupManager.exportLibraryBackup(context)
                                         if (res.isSuccess) {
                                             android.widget.Toast.makeText(context, "Backup exported to Documents/Streamify", android.widget.Toast.LENGTH_LONG).show()
                                         } else {
@@ -796,8 +796,8 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
 
                 var showConfirmDialog by remember { mutableStateOf(false) }
-                val nukeState by com.streamify.app.data.NuclearResetManager.nukeState.collectAsState()
-                val isNuking = nukeState !is com.streamify.app.data.NukeState.Idle && nukeState !is com.streamify.app.data.NukeState.Error
+                val nukeState by com.streamify.app.data.persistence.NuclearResetManager.nukeState.collectAsState()
+                val isNuking = nukeState !is com.streamify.app.data.persistence.NukeState.Idle && nukeState !is com.streamify.app.data.persistence.NukeState.Error
 
                 Card(
                     colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color(0xFF200A0A)),
@@ -872,7 +872,7 @@ fun SettingsScreen(
                                 onClick = {
                                     showConfirmDialog = false
                                     scope.launch {
-                                        com.streamify.app.data.NuclearResetManager.executeNuclearReset(context)
+                                        com.streamify.app.data.persistence.NuclearResetManager.executeNuclearReset(context)
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFD32F2F))
@@ -1120,8 +1120,8 @@ fun SettingsScreen(
         }
 
         // Full-screen Nuclear Progress Overlay
-        val nukeState by com.streamify.app.data.NuclearResetManager.nukeState.collectAsState()
-        if (nukeState !is com.streamify.app.data.NukeState.Idle) {
+        val nukeState by com.streamify.app.data.persistence.NuclearResetManager.nukeState.collectAsState()
+        if (nukeState !is com.streamify.app.data.persistence.NukeState.Idle) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1133,19 +1133,19 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     when (nukeState) {
-                        is com.streamify.app.data.NukeState.BackingUp -> {
+                        is com.streamify.app.data.persistence.NukeState.BackingUp -> {
                             CircularProgressIndicator(color = androidx.compose.ui.graphics.Color.White, strokeWidth = 3.dp)
                             Text("Backing up to Cloud DB...", color = androidx.compose.ui.graphics.Color.White, style = StreamifyType.BodyLarge)
                         }
-                        is com.streamify.app.data.NukeState.Purging -> {
+                        is com.streamify.app.data.persistence.NukeState.Purging -> {
                             CircularProgressIndicator(color = androidx.compose.ui.graphics.Color(0xFFD32F2F), strokeWidth = 3.dp)
                             Text("Purging Local SQLite & Caches...", color = androidx.compose.ui.graphics.Color.White, style = StreamifyType.BodyLarge)
                         }
-                        is com.streamify.app.data.NukeState.Seeding -> {
+                        is com.streamify.app.data.persistence.NukeState.Seeding -> {
                             CircularProgressIndicator(color = androidx.compose.ui.graphics.Color(0xFF1DB954), strokeWidth = 3.dp)
                             Text("Re-seeding Fresh Content...", color = androidx.compose.ui.graphics.Color.White, style = StreamifyType.BodyLarge)
                         }
-                        is com.streamify.app.data.NukeState.Success -> {
+                        is com.streamify.app.data.persistence.NukeState.Success -> {
                             Icon(
                                 Icons.Filled.CheckCircle,
                                 contentDescription = "Done",
@@ -1154,7 +1154,7 @@ fun SettingsScreen(
                             )
                             Text("Clean Start Complete! 🚀", color = androidx.compose.ui.graphics.Color.White, style = StreamifyType.BodyLarge)
                         }
-                        is com.streamify.app.data.NukeState.Error -> {
+                        is com.streamify.app.data.persistence.NukeState.Error -> {
                             Icon(
                                 Icons.Filled.Close,
                                 contentDescription = "Error",
@@ -1162,11 +1162,11 @@ fun SettingsScreen(
                                 modifier = Modifier.size(48.dp)
                             )
                             Text(
-                                (nukeState as com.streamify.app.data.NukeState.Error).message,
+                                (nukeState as com.streamify.app.data.persistence.NukeState.Error).message,
                                 color = androidx.compose.ui.graphics.Color.White,
                                 style = StreamifyType.BodyLarge
                             )
-                            Button(onClick = { com.streamify.app.data.NuclearResetManager.resetState() }) {
+                            Button(onClick = { com.streamify.app.data.persistence.NuclearResetManager.resetState() }) {
                                 Text("Dismiss")
                             }
                         }

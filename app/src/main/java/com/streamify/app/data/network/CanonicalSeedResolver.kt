@@ -48,12 +48,12 @@ object CanonicalSeedResolver {
                 val topMatch = results.firstOrNull { item ->
                     val vId = YouTubeStreamResolver.extractVideoId(item.url)
                     vId != null && vId.matches(VIDEO_ID_REGEX) &&
-                            com.streamify.app.data.FuzzyTitleMatcher.titlesMatch(track.title, item.title) &&
-                            com.streamify.app.data.FuzzyTitleMatcher.artistsMatch(track.artist, item.uploader)
+                            com.streamify.app.data.discovery.FuzzyTitleMatcher.titlesMatch(track.title, item.title) &&
+                            com.streamify.app.data.discovery.FuzzyTitleMatcher.artistsMatch(track.artist, item.uploader)
                 } ?: results.firstOrNull { item ->
                     val vId = YouTubeStreamResolver.extractVideoId(item.url)
                     vId != null && vId.matches(VIDEO_ID_REGEX) &&
-                            com.streamify.app.data.FuzzyTitleMatcher.titlesMatch(track.title, item.title) &&
+                            com.streamify.app.data.discovery.FuzzyTitleMatcher.titlesMatch(track.title, item.title) &&
                             track.durationSec <= 0 // duration-unknown fallback
                 }
                 if (topMatch != null) {

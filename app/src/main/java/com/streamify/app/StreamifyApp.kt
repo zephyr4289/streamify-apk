@@ -73,7 +73,7 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         super.onTrimMemory(level)
         com.streamify.app.util.SLog.w("LIFECYCLE", "onTrimMemory level=$level")
         if (level >= TRIM_MEMORY_RUNNING_LOW) {
-            com.streamify.app.service.ThermalGovernorManager.handleLowMemory(this)
+            com.streamify.app.media.sync.ThermalGovernorManager.handleLowMemory(this)
         }
     }
 

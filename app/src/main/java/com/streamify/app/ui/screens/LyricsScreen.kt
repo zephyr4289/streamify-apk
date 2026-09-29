@@ -25,10 +25,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track
-import com.streamify.app.service.LyricOffsetStore
-import com.streamify.app.service.LyricPlaybackController
-import com.streamify.app.ui.components.YtLyricsHeader
-import com.streamify.app.ui.components.YtSyllableLine
+import com.streamify.app.media.lyrics.LyricOffsetStore
+import com.streamify.app.media.lyrics.LyricPlaybackController
+import com.streamify.app.ui.components.yt.YtLyricsHeader
+import com.streamify.app.ui.components.yt.YtSyllableLine
 import com.streamify.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
@@ -162,13 +162,13 @@ fun LyricsScreen(
                         // 2. Persist to Disk LRU, Companion LRC, SQLite DB & Supabase Community
                         coroutineScope.launch(Dispatchers.IO) {
                             try {
-                                com.streamify.app.data.LyricsCacheManager.saveLyricsToDiskAndDb(context, track, adjustedLrc)
+                                com.streamify.app.data.lyrics.LyricsCacheManager.saveLyricsToDiskAndDb(context, track, adjustedLrc)
 
                                 // Submit to Community Supabase
                                 try {
                                     val cleanSig = (track.title.trim().lowercase() + "_" + track.artist.trim().lowercase())
                                     val cloudId = "trk_${kotlin.math.abs(cleanSig.hashCode())}"
-                                    com.streamify.app.data.remote.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
+                                    com.streamify.app.data.supabase.SupabaseClient.submitSyncedLyrics(cloudId, adjustedLrc)
                                 } catch (e: Exception) {
                                     // Non-fatal
                                 }

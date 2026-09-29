@@ -211,7 +211,7 @@ fun DownloadScreen(
         }
 
         // Project Titan: Sovereign Edge Mesh Contributor Card
-        val edgeRepo = remember { com.streamify.app.data.EdgeMeshRepository.getInstance(context) }
+        val edgeRepo = remember { com.streamify.app.data.repository.EdgeMeshRepository.getInstance(context) }
         val edgeState by edgeRepo.meshState.collectAsState()
 
         Card(

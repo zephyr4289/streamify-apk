@@ -17,10 +17,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.remote.StreamifyUpdateManager
-import com.streamify.app.data.remote.SupabaseClient
-import com.streamify.app.data.remote.UpdateState
+import com.streamify.app.data.update.StreamifyUpdateManager
+import com.streamify.app.data.supabase.SupabaseClient
+import com.streamify.app.data.update.UpdateState
 import com.streamify.app.ui.components.*
+import com.streamify.app.ui.components.yt.*
 import com.streamify.app.ui.theme.*
 import com.streamify.app.util.ApkInstaller
 import com.streamify.app.viewmodel.CommunityViewModel

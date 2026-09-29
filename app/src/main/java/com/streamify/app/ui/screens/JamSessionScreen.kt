@@ -31,8 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streamify.app.jam.JamEngine
-import com.streamify.app.ui.components.YtActiveEqualizer
-import com.streamify.app.ui.components.YtThumbnail
+import com.streamify.app.ui.components.yt.YtActiveEqualizer
+import com.streamify.app.ui.components.yt.YtThumbnail
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.JamUiState
 import com.streamify.app.viewmodel.JamViewModel
@@ -651,7 +651,7 @@ fun JamSessionScreen(
                                 Text(
                                     text = when {
                                         m.isHost -> "HOST"
-                                        m.userId == com.streamify.app.data.remote.SupabaseClient.currentUser.value?.id -> "YOU"
+                                        m.userId == com.streamify.app.data.supabase.SupabaseClient.currentUser.value?.id -> "YOU"
                                         else -> "LISTENER"
                                     },
                                     style = LocalAppTypography.current.songArtist.copy(fontSize = 9.sp, letterSpacing = 0.8.sp),
@@ -786,7 +786,7 @@ private fun JamAddSongModalBottomSheet(
     onAddTrack: (com.streamify.app.data.models.Track) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    val allLocalTracks by com.streamify.app.data.TrackRepository.allTracks.collectAsState()
+    val allLocalTracks by com.streamify.app.data.repository.TrackRepository.allTracks.collectAsState()
     var onlineResults by remember { mutableStateOf<List<com.streamify.app.data.models.Track>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
     val context = LocalContext.current

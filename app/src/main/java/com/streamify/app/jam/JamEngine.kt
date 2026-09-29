@@ -1,10 +1,10 @@
 package com.streamify.app.jam
 
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.remote.ListeningSession
-import com.streamify.app.data.remote.SupabaseClient
-import com.streamify.app.data.remote.jamTrackFromJson
-import com.streamify.app.data.remote.jamTrackToJson
+import com.streamify.app.data.supabase.ListeningSession
+import com.streamify.app.data.supabase.SupabaseClient
+import com.streamify.app.jam.jamTrackFromJson
+import com.streamify.app.jam.jamTrackToJson
 import com.streamify.app.util.SLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -223,7 +223,7 @@ object JamEngine {
     const val OP_REORDER: Int = 3
 
     private fun openOutbox() {
-        val ctx = com.streamify.app.data.TrackRepository.appContext ?: return
+        val ctx = com.streamify.app.data.repository.TrackRepository.appContext ?: return
         outboxReady = try {
             val db = java.io.File(ctx.filesDir, "jam_outbox.db")
             com.streamify.app.data.NativeBridge.jamOutboxOpen(db.absolutePath)
@@ -1107,7 +1107,7 @@ object JamEngine {
 
     /** A+B succession attempt — extracted so both poll and dead-man paths share it. */
     private suspend fun attemptSuccessionIfEligible(
-        session: com.streamify.app.data.remote.ListeningSession,
+        session: com.streamify.app.data.supabase.ListeningSession,
         snap: SupabaseClient.JamLeaseSnapshot
     ) {
         val myId = myUserId()

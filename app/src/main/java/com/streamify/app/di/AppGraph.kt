@@ -31,8 +31,8 @@ object AppGraph {
     val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider()
 
     /** Track catalog access, by abstraction. */
-    val trackRepository: com.streamify.app.data.TrackRepositoryApi =
-        com.streamify.app.data.TrackRepository
+    val trackRepository: com.streamify.app.data.repository.TrackRepositoryApi =
+        com.streamify.app.data.repository.TrackRepository
 
     @Volatile
     var initialized: Boolean = false
@@ -69,15 +69,15 @@ object AppGraph {
         )
 
         // 2. Ensure TrackRepository application context and Telemetry Engine are bound.
-        com.streamify.app.data.TrackRepository.appContext = appContext
-        com.streamify.app.data.YtStatsTelemetryEngine.initFromContext(appContext)
+        com.streamify.app.data.repository.TrackRepository.appContext = appContext
+        com.streamify.app.data.telemetry.YtStatsTelemetryEngine.initFromContext(appContext)
 
         // 3. Ensure database directory exists and initialize asynchronously off the main thread.
         try {
             val dbFile = appContext.getDatabasePath("streamify.db")
             dbFile.parentFile?.mkdirs()
             applicationScope.launch(Dispatchers.IO) {
-                com.streamify.app.data.DatabaseInitializer.startInitialization(dbFile.absolutePath)
+                com.streamify.app.data.persistence.DatabaseInitializer.startInitialization(dbFile.absolutePath)
             }
         } catch (e: Throwable) {
             com.streamify.app.util.SLog.e("StreamifyApp", "Failed to schedule NativeBridge Database init", e)
@@ -121,19 +121,19 @@ object AppGraph {
 
         // 5. Initialize device & remote services safely.
         try {
-            com.streamify.app.service.AudioDeviceManager.init(appContext)
+            com.streamify.app.media.audio.AudioDeviceManager.init(appContext)
         } catch (e: Throwable) {
             com.streamify.app.util.SLog.e("StreamifyApp", "Failed to initialize AudioDeviceManager", e)
         }
 
         try {
-            com.streamify.app.data.remote.SupabaseClient.init(appContext)
+            com.streamify.app.data.supabase.SupabaseClient.init(appContext)
         } catch (e: Throwable) {
             com.streamify.app.util.SLog.e("StreamifyApp", "Failed to initialize SupabaseClient", e)
         }
 
         try {
-            com.streamify.app.service.OnlineTrackProcessor.init(appContext)
+            com.streamify.app.media.playback.OnlineTrackProcessor.init(appContext)
         } catch (e: Throwable) {
             com.streamify.app.util.SLog.e("StreamifyApp", "Failed to initialize OnlineTrackProcessor", e)
         }
@@ -145,13 +145,13 @@ object AppGraph {
         }
 
         try {
-            com.streamify.app.service.LibrarySyncWorker.schedulePeriodicSync(appContext)
+            com.streamify.app.media.ingestion.LibrarySyncWorker.schedulePeriodicSync(appContext)
         } catch (e: Throwable) {
             // Non-blocking
         }
 
         try {
-            com.streamify.app.service.ThermalGovernorManager.init(appContext)
+            com.streamify.app.media.sync.ThermalGovernorManager.init(appContext)
         } catch (e: Throwable) {
             // Non-blocking
         }
@@ -159,7 +159,7 @@ object AppGraph {
         // 6. Authenticated YouTube resolution: expose the harvested session to
         // the stream resolver (SAPISIDHASH + cookies past the 2026 bot-wall).
         com.streamify.app.data.network.YouTubeStreamResolver.ytSessionProvider = {
-            val m = com.streamify.app.data.remote.SpotifyAuthManager(appContext)
+            val m = com.streamify.app.data.spotify.SpotifyAuthManager(appContext)
             (m.getYtAuthHeader() ?: "") to (m.getYtRawCookies() ?: "")
         }
     }

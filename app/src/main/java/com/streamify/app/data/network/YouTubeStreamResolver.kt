@@ -337,7 +337,7 @@ object YouTubeStreamResolver {
             val canonicalWatchUrl = "https://www.youtube.com/watch?v=$videoId"
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    com.streamify.app.data.TrackRepository.upsertStreamedTrack(
+                    com.streamify.app.data.repository.TrackRepository.upsertStreamedTrack(
                         track.copy(filepath = canonicalWatchUrl, ytmVideoId = videoId)
                     )
                 } catch (_: Exception) {}
@@ -402,7 +402,7 @@ object YouTubeStreamResolver {
                     rejects++
                     return@mapNotNull null
                 }
-                val titleSim = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(track.title.lowercase(), c.title.lowercase())
+                val titleSim = com.streamify.app.data.discovery.FuzzyTitleMatcher.calculateSimilarity(track.title.lowercase(), c.title.lowercase())
                 if (titleSim < 0.25f) {
                     if (rejects < 5) SLog.d("LadderTrace", "${com.streamify.app.util.Trace.pfx()}R2 reject vid=$cid reason=titleSim=${"%.2f".format(titleSim)}")
                     rejects++
@@ -423,7 +423,7 @@ object YouTubeStreamResolver {
                     if (track.id > 0) {
                         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                             try {
-                                com.streamify.app.data.TrackRepository.upsertStreamedTrack(
+                                com.streamify.app.data.repository.TrackRepository.upsertStreamedTrack(
                                     track.copy(
                                         filepath = "https://www.youtube.com/watch?v=$candVideoId",
                                         ytmVideoId = candVideoId

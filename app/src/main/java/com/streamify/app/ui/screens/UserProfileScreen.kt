@@ -21,11 +21,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.streamify.app.data.YtStatsTelemetryEngine
-import com.streamify.app.data.remote.AuthManager
-import com.streamify.app.data.remote.AuthState
-import com.streamify.app.data.remote.SupabaseClient
-import com.streamify.app.ui.components.YtWrappedHeroCard
+import com.streamify.app.data.telemetry.YtStatsTelemetryEngine
+import com.streamify.app.data.supabase.AuthManager
+import com.streamify.app.data.supabase.AuthState
+import com.streamify.app.data.supabase.SupabaseClient
+import com.streamify.app.ui.components.yt.YtWrappedHeroCard
 import com.streamify.app.ui.theme.*
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -366,8 +366,8 @@ fun UserProfileScreen(
         }
 
         // Connected Accounts Card
-        val isSpotifyConn by com.streamify.app.data.remote.SpotifyAuthManager.isSpotifyConnectedFlow.collectAsState()
-        val isYtConn by com.streamify.app.data.remote.SpotifyAuthManager.isYtConnectedFlow.collectAsState()
+        val isSpotifyConn by com.streamify.app.data.spotify.SpotifyAuthManager.isSpotifyConnectedFlow.collectAsState()
+        val isYtConn by com.streamify.app.data.spotify.SpotifyAuthManager.isYtConnectedFlow.collectAsState()
 
         Surface(
             color = BgSurfaceElevated,

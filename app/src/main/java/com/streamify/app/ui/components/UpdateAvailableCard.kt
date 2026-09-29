@@ -18,7 +18,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.streamify.app.data.remote.UpdateState
+import com.streamify.app.data.update.UpdateState
 import com.streamify.app.ui.theme.*
 
 @Composable

@@ -12,6 +12,48 @@
 
 ---
 
+---
+
+## 🗂️ Repository Layout & Documentation Map
+
+The repository is organized as a layered, domain-modular tree. Every folder
+carries its own `README.md`; the three guides below are the entry points:
+
+* **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the system map, dependency rules, and how a song plays end-to-end.
+* **[docs/CODEBASE_GUIDE.md](docs/CODEBASE_GUIDE.md)** — folder-by-folder, file-by-file encyclopedia of the app module.
+* **[docs/ADD_A_FEATURE.md](docs/ADD_A_FEATURE.md)** — step-by-step playbooks for the most common changes.
+
+```
+streamify-apk/
+├── app/src/main/java/com/streamify/app/
+│   ├── data/        repositories · persistence · discovery · ingestion ·
+│   │                telemetry · lyrics · native tagging · network engine ·
+│   │                supabase · spotify · youtube · update · models
+│   ├── media/       playback service · audio DSP · cache policy · clock
+│   │                sync · background workers · lyric playback
+│   ├── jam/         distributed lockstep jam sessions
+│   ├── radio/       radio queue construction
+│   ├── di/          AppGraph (hand-rolled DI) + dispatcher provider
+│   ├── navigation/  Compose navigation graph
+│   ├── ui/          screens · shared components · yt/ widget kit · theme
+│   ├── viewmodel/   presentation state (PlayerViewModel + companions)
+│   ├── util/        cross-cutting utilities + newpipe PO-token pipeline
+│   └── worker/      foreground download worker
+├── native/          C++20 DSP & physics core  (libstreamify_native_core.so)
+├── rust/            Rust I/O & auth engine    (libstreamify_core_rs.so)
+├── supabase/        backend schema + migrations
+├── scripts/ tools/  verification probes & fleet ops
+├── docs/            engine deep-dives + guides (ARCHITECTURE, CODEBASE_GUIDE,
+│                   ADD_A_FEATURE, CI-TESTING-GUIDE, history/)
+└── legacy/          archived pre-Supabase code — NOT built, bit-frozen
+```
+
+Pinned contracts (do not move/rename): `data/models/` + `ui/models/`
+(ProGuard keep rules) and `data/NativeBridge` (name-mangled JNI ABI with
+`rust/` + `native/`).
+
+---
+
 ## 📑 Architectural Index
 
 1. [Master Architecture Topology](#-master-architecture-topology)
@@ -1770,7 +1812,7 @@ The repository executes an 8-shard parallel matrix on every push/PR via `.github
 8. `byzantine-jam-ptp`: 2-Peer Byzantine Consensus, MAD Lyric Drift & PTP PLL Clock.
 
 > [!TIP]
-> All aggregated logs and LibFuzzer outputs are automatically consolidated into the orphan **`testing-log`** branch. See [test-log.md](test-log.md) for instructions on inspecting CI runs.
+> All aggregated logs and LibFuzzer outputs are automatically consolidated into the orphan **`testing-log`** branch. See [docs/CI-TESTING-GUIDE.md](docs/CI-TESTING-GUIDE.md) for instructions on inspecting CI runs.
 
 ---
 

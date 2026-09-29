@@ -14,9 +14,9 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.streamify.app.data.NativeBridge
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
-import com.streamify.app.service.PlaybackService
+import com.streamify.app.media.playback.PlaybackService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository) : ViewModel(),
+class PlayerViewModel(internal val repository: com.streamify.app.data.repository.TrackRepositoryApi = com.streamify.app.data.repository.TrackRepository) : ViewModel(),
     com.streamify.app.jam.JamEngine.Bridge {
 
     // ── JamEngine.Bridge: live-player facade for the Lockstep protocol ──
@@ -200,7 +200,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
             controller = controllerFuture?.get()
             setupController(appCtx)
             restorePlayerState(appCtx)
-            com.streamify.app.data.SmartOfflineVaultEngine.initialize(appCtx)
+            com.streamify.app.data.persistence.SmartOfflineVaultEngine.initialize(appCtx)
         }, MoreExecutors.directExecutor())
     }
 
@@ -223,7 +223,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
 
             _playerState.value = _playerState.value.copy(isPlaying = isPlaying)
             if (isPlaying) startPollingPosition() else stopPollingPosition()
-            if (!isApplyingJamSync && com.streamify.app.data.remote.SupabaseClient.activeJam.value != null) {
+            if (!isApplyingJamSync && com.streamify.app.data.supabase.SupabaseClient.activeJam.value != null) {
                 broadcastJamAction(if (isPlaying) "PLAY" else "PAUSE", isPlaying = isPlaying)
             }
         }
@@ -324,7 +324,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                             repository.recordTrackPlay(validId)
                         }
                         appContext?.let { ctx ->
-                            com.streamify.app.data.EdgeMeshRepository.getInstance(ctx).scheduleOpportunisticCompute(
+                            com.streamify.app.data.repository.EdgeMeshRepository.getInstance(ctx).scheduleOpportunisticCompute(
                                 context = ctx,
                                 trackId = (if (validId > 0) validId else currentT.id).toString(),
                                 trackTitle = currentT.title,
@@ -364,7 +364,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                                 put("hour_of_day", currentHour)
                                 put("action_type", if (wasSkipped && ratio < 0.85f) "SKIP" else "PLAY")
                             }
-                            com.streamify.app.data.remote.SupabaseClient.ingestTelemetryBatch(listOf(eventJson))
+                            com.streamify.app.data.supabase.SupabaseClient.ingestTelemetryBatch(listOf(eventJson))
                         } catch (e: Exception) {
                             // Non-blocking telemetry failure
                         }
@@ -416,7 +416,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                     viewModelScope.launch(Dispatchers.IO) {
                         val currentT = _playerState.value.currentTrack
                         if (currentT != null) {
-                            val continuumRecs = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                            val continuumRecs = com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(
                                 seedTrack = currentT,
                                 activeQueue = currentQueue,
                                 targetCount = 15
@@ -425,7 +425,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                                 val currentQ = _playerState.value.queue.toMutableList()
                                 for (track in continuumRecs) {
                                     val isDup = currentQ.any {
-                                        com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
+                                        com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
                                     }
                                     if (!isDup) {
                                         currentQ.add(track)
@@ -470,7 +470,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                     viewModelScope.launch(Dispatchers.IO) {
                         val currentT = _playerState.value.currentTrack
                         if (currentT != null) {
-                            val newTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+                            val newTracks = com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(
                                 seedTrack = currentT,
                                 activeQueue = currentQueue,
                                 targetCount = 15
@@ -479,7 +479,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                                 val currentQ = _playerState.value.queue.toMutableList()
                                 for (track in newTracks) {
                                     val isDup = currentQ.any {
-                                        com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
+                                        com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, track.title, track.artist)
                                     }
                                     if (!isDup) {
                                         currentQ.add(track)
@@ -501,8 +501,8 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
             isOptimisticSeeking = false
 
             // If PlaybackService is actively renewing the CDN token in-place, defer to it
-            val renewalMediaId = com.streamify.app.service.PlaybackService.lastRenewalMediaId
-            val renewalAt = com.streamify.app.service.PlaybackService.lastRenewalAtMs
+            val renewalMediaId = com.streamify.app.media.playback.PlaybackService.lastRenewalMediaId
+            val renewalAt = com.streamify.app.media.playback.PlaybackService.lastRenewalAtMs
             if (renewalMediaId != null && (System.currentTimeMillis() - renewalAt) < 3000L) {
                 return
             }
@@ -612,7 +612,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
         isPlaying: Boolean = _playerState.value.isPlaying
     ) {
         if (isApplyingJamSync) return
-        if (com.streamify.app.data.remote.SupabaseClient.activeJam.value == null) return
+        if (com.streamify.app.data.supabase.SupabaseClient.activeJam.value == null) return
         // Lockstep routing: hosts emit authoritative epochs, members emit
         // policy-checked intents — receiver-side gates enforce authority.
         com.streamify.app.jam.JamEngine.onLocalPlaybackAction(
@@ -621,11 +621,11 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
     }
 
     fun playSingleTrack(track: Track) {
-        com.streamify.app.service.QueueEngine.playSingle(track, this)
+        com.streamify.app.media.playback.QueueEngine.playSingle(track, this)
     }
 
     fun playCollection(tracks: List<Track>, startIndex: Int = 0) {
-        com.streamify.app.service.QueueEngine.playCollection(tracks, startIndex, this)
+        com.streamify.app.media.playback.QueueEngine.playCollection(tracks, startIndex, this)
     }
 
     fun updateQueueSilently(newQueue: List<Track>, newIndex: Int = _playerState.value.currentIndex) {
@@ -683,16 +683,16 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
             try {
                 // Register track and prime hash deduplication set without clearing history
                 sessionPlayedTrackIds.add(hydratedTrack.id)
-                val playedH = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(hydratedTrack.title)
+                val playedH = com.streamify.app.data.discovery.FuzzyTitleMatcher.extractRootHash(hydratedTrack.title)
                 if (playedH != 0L) processedTitleHashes.add(playedH)
 
                 for (t in hydratedQueue) {
-                    val h = com.streamify.app.data.FuzzyTitleMatcher.extractRootHash(t.title)
+                    val h = com.streamify.app.data.discovery.FuzzyTitleMatcher.extractRootHash(t.title)
                     if (h != 0L) processedTitleHashes.add(h)
                     if (t.id != 0) sessionPlayedTrackIds.add(t.id)
                 }
 
-                com.streamify.app.data.NeuroQueueManager.onTrackStarted(hydratedTrack)
+                com.streamify.app.data.ingestion.NeuroQueueManager.onTrackStarted(hydratedTrack)
                 playTrackInternal(hydratedTrack, targetIndex, hydratedQueue)
 
                 // Asynchronously hydrate upcoming continuum radio queue seeded directly from the tapped track
@@ -766,7 +766,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                     nextIndex < queue.size -> {
                         playTrackInternal(queue[nextIndex], nextIndex, queue)
                         viewModelScope.launch(Dispatchers.IO) {
-                            com.streamify.app.service.QueueEngine.ensureQueueDepth(this@PlayerViewModel)
+                            com.streamify.app.media.playback.QueueEngine.ensureQueueDepth(this@PlayerViewModel)
                         }
                     }
                     // Path B: End of queue reached with REPEAT_ALL enabled
@@ -788,7 +788,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                             val updatedQueue = queue.toMutableList()
                             for (cand in freshCandidates) {
                                 val isDup = updatedQueue.any {
-                                    com.streamify.app.data.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, cand.title, cand.artist)
+                                    com.streamify.app.data.discovery.FuzzyTitleMatcher.isSameSongVariation(it.title, it.artist, cand.title, cand.artist)
                                 }
                                 if (!isDup) {
                                     updatedQueue.add(cand)
@@ -859,17 +859,17 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
 
     fun getAcousticPositionMs(): Long {
         val rawPos = controller?.currentPosition ?: _playerState.value.currentPosition
-        return com.streamify.app.service.PlaybackService.syncAudioProcessor.getAcousticPositionMs(rawPos)
+        return com.streamify.app.media.playback.PlaybackService.syncAudioProcessor.getAcousticPositionMs(rawPos)
     }
 
     fun scheduleAtomicPlayback(
         track: Track,
         targetAtomicTimestampMs: Long,
         startPositionMs: Long = 0L,
-        precisionProtocol: com.streamify.app.service.PrecisionTimeProtocol
+        precisionProtocol: com.streamify.app.media.sync.PrecisionTimeProtocol
     ) {
         val ctrl = controller ?: return
-        val scheduler = com.streamify.app.service.ScheduledAudioScheduler(ctrl, precisionProtocol)
+        val scheduler = com.streamify.app.media.sync.ScheduledAudioScheduler(ctrl, precisionProtocol)
         _playerState.value = _playerState.value.copy(currentTrack = track, queue = listOf(track))
         scheduler.scheduleAtomicPlayback(track, targetAtomicTimestampMs, startPositionMs) {
             _playerState.value = _playerState.value.copy(isPlaying = true)
@@ -991,7 +991,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
                 }
 
                 if (actualIsLiked && currentTrack.filepath.isNotBlank()) {
-                    com.streamify.app.service.AudioCacheManager.markStickyTrack(currentTrack.filepath)
+                    com.streamify.app.media.cache.AudioCacheManager.markStickyTrack(currentTrack.filepath)
                 }
 
                 // Auto-download liked online songs if setting is enabled
@@ -1077,7 +1077,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
         val isCurrentPlaying = currentT != null && (target.id == currentT.id || (target.title == currentT.title && target.artist == currentT.artist))
 
         viewModelScope.launch {
-            val radioTracks = com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(
+            val radioTracks = com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(
                 seedTrack = target,
                 activeQueue = if (isCurrentPlaying) _playerState.value.queue else emptyList(),
                 targetCount = 20
@@ -1135,8 +1135,8 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.TrackRepos
 
     override fun onCleared() {
         super.onCleared()
-        com.streamify.app.service.PlaybackService.onSeekNextListener = null
-        com.streamify.app.service.PlaybackService.onSeekPrevListener = null
+        com.streamify.app.media.playback.PlaybackService.onSeekNextListener = null
+        com.streamify.app.media.playback.PlaybackService.onSeekPrevListener = null
         controller?.removeListener(playerListener)
         controller = null
         controllerFuture?.let { MediaController.releaseFuture(it) }

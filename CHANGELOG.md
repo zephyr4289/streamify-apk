@@ -3,6 +3,42 @@
 All notable changes to Streamify are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — Modular Architecture & Documentation Overhaul
+
+Zero logic changes: a structural + documentation pass that carves the
+monolith into layered, domain-scoped packages and documents every folder.
+
+### Restructured (behavior-preserving package moves)
+- `data/` root grab-bag (21 files) split into `repository/`, `persistence/`,
+  `discovery/`, `ingestion/`, `telemetry/`, `lyrics/`, `native/`.
+- `data/remote/` (16 files) split into `data/supabase/` (11), `data/spotify/`
+  (3), `data/youtube/` (3), `data/update/`; `JamTrackCodec` moved to `jam/`.
+- `service/` (25 files) reorganized into `media/` domains: `playback/`,
+  `audio/`, `cache/`, `sync/`, `ingestion/`, `lyrics/`.
+- 34 `Yt*` widgets grouped under `ui/components/yt/`.
+- Radio strays (`ContinuumRadioEngine`, `UniversalCandidateBroker`) folded
+  into `radio/`. `FuzzyTitleMatcherTest` moved to `data.discovery`.
+
+### Kept stable (hard contracts honored)
+- `data/NativeBridge` package unchanged (name-mangled JNI ABI).
+- `data/models/`, `ui/models/` unchanged (ProGuard keep rules).
+- No logic, behavior, resource, or manifest-permission changes; playback,
+  sync, jam and UI behavior are byte-identical.
+
+### CI
+- JVM shard renamed `data-identity-fuzzy` -> `jvm-unit-suite` and now runs
+  the **full** unit-test suite (no package filter), so reorganizations
+  can't silently de-scope tests and new tests run automatically.
+
+### Documentation
+- 45 new folder-level READMEs (every Kotlin package + every repo directory).
+- New guides: `docs/ARCHITECTURE.md`, `docs/CODEBASE_GUIDE.md`,
+  `docs/ADD_A_FEATURE.md` (feature playbooks), refreshed
+  `docs/CI-TESTING-GUIDE.md`.
+- Root declutter: `goalarchitct.md` -> `docs/architecture/GOALS.md`,
+  `MASTER-README.md` -> `docs/MASTER-STREAM-RESOLUTION.md`,
+  `JAM-ENGINE.md` -> `docs/JAM-ENGINE.md`, historical logs -> `docs/history/`.
+
 ## [1.1.0] — Professional Polish & Performance Refactor
 
 This release is a full-codebase quality pass: jank elimination, error-handling

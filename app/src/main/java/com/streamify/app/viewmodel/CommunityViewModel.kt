@@ -3,11 +3,14 @@ package com.streamify.app.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.remote.*
+import com.streamify.app.data.supabase.SupabaseClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.streamify.app.data.supabase.TrackComment
+import com.streamify.app.data.supabase.FriendActivity
+import com.streamify.app.data.supabase.CommunityPlaylist
 
 data class CommunityUiState(
     val communityPlaylists: List<CommunityPlaylist> = emptyList(),

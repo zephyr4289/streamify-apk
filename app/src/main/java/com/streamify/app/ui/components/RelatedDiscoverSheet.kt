@@ -22,7 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.LocalContextMenuController
 import com.streamify.app.ui.components.MenuOrigin
@@ -55,7 +55,7 @@ fun RelatedDiscoverSheet(
         isLoading = true
         withContext(Dispatchers.IO) {
             val radio = try {
-                com.streamify.app.data.UniversalCandidateBroker.fetchCandidates(track, targetCount = 20)
+                com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(track, targetCount = 20)
             } catch (e: Exception) {
                 emptyList()
             }

@@ -3,9 +3,9 @@ package com.streamify.app.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.remote.ListeningSession
-import com.streamify.app.data.remote.SupabaseClient
-import com.streamify.app.data.remote.jamTrackFromJson
+import com.streamify.app.data.supabase.ListeningSession
+import com.streamify.app.data.supabase.SupabaseClient
+import com.streamify.app.jam.jamTrackFromJson
 import com.streamify.app.jam.JamEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -72,14 +72,14 @@ class JamPhaseLockedLoop(
                     playerViewModel.setPlaybackSpeed(scalarMilli / 1000f)
                     // Secondary path: micro PCM stretch when the processor is
                     // attached to a render chain (no-op on stock ExoPlayer).
-                    com.streamify.app.service.SyncAudioProcessor.setSpeedScalar(scalarMilli / 1000f)
+                    com.streamify.app.media.audio.SyncAudioProcessor.setSpeedScalar(scalarMilli / 1000f)
                 }
             }
             else -> {
                 // HOLD: inside lock band.
                 if (playerViewModel.playbackSpeed() != 1.0f) {
                     playerViewModel.setPlaybackSpeed(1.0f)
-                    com.streamify.app.service.SyncAudioProcessor.setSpeedScalar(1.0f)
+                    com.streamify.app.media.audio.SyncAudioProcessor.setSpeedScalar(1.0f)
                 }
             }
         }
@@ -301,7 +301,7 @@ class JamViewModel(
 
         // 3.6 Zero-gap handoff (P3): host NEXT_IS → guest shadow pre-buffer.
         JamEngine.onNextIsListener = { nextTrack ->
-            com.streamify.app.service.PredictivePreBufferManager.JamPreBuffer.notifyNextIs(nextTrack)
+            com.streamify.app.media.cache.PredictivePreBufferManager.JamPreBuffer.notifyNextIs(nextTrack)
         }
 
         // 4. Reconnect reconciliation: socket healed → re-adopt room truth.

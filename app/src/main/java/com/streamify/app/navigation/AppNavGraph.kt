@@ -193,7 +193,7 @@ fun AppNavGraph(
                     // Cache-only load: PlayerViewModel is the single network fetch owner.
                     // When it lands lyrics it updates currentTrack, which re-fires this
                     // effect and hydrates the freshly written file.
-                    lyricsLines = com.streamify.app.data.LyricsCacheManager.getOrFetchLyrics(context, track, allowNetwork = false)
+                    lyricsLines = com.streamify.app.data.lyrics.LyricsCacheManager.getOrFetchLyrics(context, track, allowNetwork = false)
                 } else {
                     lyricsLines = emptyList()
                 }
@@ -280,7 +280,7 @@ fun AppNavGraph(
         }
         composable("artist/{artistName}") { backStackEntry ->
             val artistName = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("artistName") ?: "", "UTF-8")
-            val libraryState by com.streamify.app.data.TrackRepository.trackFlow.collectAsState(initial = emptyList())
+            val libraryState by com.streamify.app.data.repository.TrackRepository.trackFlow.collectAsState(initial = emptyList())
             ArtistScreen(
                 artistName = artistName,
                 allTracks = libraryState,
@@ -291,7 +291,7 @@ fun AppNavGraph(
         }
         composable("album/{albumName}") { backStackEntry ->
             val albumName = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("albumName") ?: "", "UTF-8")
-            val libraryState by com.streamify.app.data.TrackRepository.trackFlow.collectAsState(initial = emptyList())
+            val libraryState by com.streamify.app.data.repository.TrackRepository.trackFlow.collectAsState(initial = emptyList())
             AlbumScreen(
                 albumName = albumName,
                 allTracks = libraryState,

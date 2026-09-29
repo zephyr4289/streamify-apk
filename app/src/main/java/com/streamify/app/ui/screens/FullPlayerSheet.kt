@@ -61,13 +61,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.LyricsData
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track
-import com.streamify.app.service.LyricOffsetStore
-import com.streamify.app.service.LyricPlaybackController
+import com.streamify.app.media.lyrics.LyricOffsetStore
+import com.streamify.app.media.lyrics.LyricPlaybackController
 import com.streamify.app.ui.components.*
+import com.streamify.app.ui.components.yt.*
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.CommunityViewModel
 import com.streamify.app.viewmodel.UiEvent

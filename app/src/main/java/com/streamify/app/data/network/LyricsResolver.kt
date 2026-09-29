@@ -103,7 +103,7 @@ object LyricsResolver {
         if (cand.isEmpty() || input.isEmpty()) return false
         if (cand == input) return true
 
-        val similarity = com.streamify.app.data.FuzzyTitleMatcher.calculateSimilarity(input, cand)
+        val similarity = com.streamify.app.data.discovery.FuzzyTitleMatcher.calculateSimilarity(input, cand)
         return similarity >= 0.72
     }
 

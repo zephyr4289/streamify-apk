@@ -311,10 +311,10 @@ jobs:
             type: "native"
             target: "storage_telemetry_test_suite"
 
-          - shard: "data-identity-fuzzy"
-            description: "JVM unit tests: CAD identity gates, fuzzy title/artist matching, dedup hashing"
+          - shard: "jvm-unit-suite"
+            description: "Full JVM unit suite: CAD identity gates, fuzzy title/artist matching, dedup hashing"
             type: "android-jvm"
-            target: "com.streamify.app.data.*"
+            target: "all"
 
           - shard: "rust-core-engine"
             description: "Zero-Copy SIMD JSON, Lofty Metadata, Lyric Precompiler & PTP"
@@ -397,7 +397,7 @@ jobs:
         if: matrix.type == 'android-jvm'
         run: |
           chmod +x gradlew
-          ./gradlew testDebugUnitTest -Pstreamify.skipRust=true --tests "${{ matrix.target }}" --stacktrace > shard-${{ matrix.shard }}.log 2>&1
+          ./gradlew testDebugUnitTest -Pstreamify.skipRust=true --stacktrace > shard-${{ matrix.shard }}.log 2>&1
 
       - name: Execute Rust Core Shard
         id: rust_test

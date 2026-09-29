@@ -2,6 +2,7 @@ package com.streamify.app.ui.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.streamify.app.ui.components.yt.YtBottomNavBar
 
 enum class BottomTab { HOME, SEARCH, LIBRARY, DOWNLOADS }
 

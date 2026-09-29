@@ -2,8 +2,8 @@ package com.streamify.app.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.streamify.app.data.ReRanker
-import com.streamify.app.data.TrackRepository
+import com.streamify.app.data.discovery.ReRanker
+import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
 import com.streamify.app.data.network.iTunesSearchApi
 import kotlinx.coroutines.Dispatchers
@@ -42,7 +42,7 @@ sealed class HomeUiState {
 }
 
 class HomeViewModel(
-    private val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository,
+    private val repository: com.streamify.app.data.repository.TrackRepositoryApi = com.streamify.app.data.repository.TrackRepository,
     private val hybridFetcher: com.streamify.app.data.network.HybridGraphFetcher = com.streamify.app.data.network.HybridGraphFetcher()
 ) : ViewModel() {
 
@@ -220,7 +220,7 @@ class HomeViewModel(
                 val hybridRecs = if (distinctSeeds.isNotEmpty()) {
                     try {
                         val timeOfDay = com.streamify.app.util.TimeGreeting.getCurrentTimeOfDay()
-                        val audioDevice = com.streamify.app.service.AudioDeviceManager.getCurrentDeviceType()
+                        val audioDevice = com.streamify.app.media.audio.AudioDeviceManager.getCurrentDeviceType()
                         coroutineScope {
                             val deferredList = distinctSeeds.map { seed ->
                                 async(Dispatchers.IO) {

@@ -97,7 +97,7 @@ class IngestionViewModel : ViewModel() {
             quality: String = "320"
         ) {
             try {
-                val targetContext = context ?: com.streamify.app.data.TrackRepository.appContext ?: return
+                val targetContext = context ?: com.streamify.app.data.repository.TrackRepository.appContext ?: return
                 val workManager = WorkManager.getInstance(targetContext)
                 val inputData = Data.Builder()
                     .putString("url", url)
