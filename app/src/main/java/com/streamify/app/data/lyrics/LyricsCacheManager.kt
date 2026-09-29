@@ -18,6 +18,7 @@ import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import com.streamify.app.util.SLog
 import com.streamify.app.data.repository.TrackRepository
+import com.streamify.app.data.NativeBridge
 
 /**
  * High-performance Service-Tier SLYR & LRC binary cache manager.

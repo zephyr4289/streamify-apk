@@ -15,6 +15,7 @@ import com.streamify.app.util.SLog
 import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.repository.Playlist
 import com.streamify.app.data.repository.PlaylistRepository
+import com.streamify.app.data.NativeBridge
 
 object BackupManager {
 

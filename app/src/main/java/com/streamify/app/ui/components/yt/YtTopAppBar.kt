@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streamify.app.ui.theme.*
+import com.streamify.app.ui.components.SireenBrandingBadge
 
 @Composable
 fun YtTopAppBar(

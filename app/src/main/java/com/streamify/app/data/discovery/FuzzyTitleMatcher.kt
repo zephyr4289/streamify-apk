@@ -1,4 +1,6 @@
 package com.streamify.app.data.discovery
+
+import com.streamify.app.data.NativeBridge
 object FuzzyTitleMatcher {
 
     // Pre-compiled noise patterns: strips video/audio tags, brackets, features, and release metadata

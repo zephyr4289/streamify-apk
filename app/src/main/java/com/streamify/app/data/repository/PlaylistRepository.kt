@@ -15,6 +15,7 @@ import java.io.File
 import java.util.UUID
 import com.streamify.app.util.SLog
 import com.streamify.app.data.ingestion.ParsedTrackItem
+import com.streamify.app.data.NativeBridge
 
 data class Playlist(
     val id: String = UUID.randomUUID().toString(),

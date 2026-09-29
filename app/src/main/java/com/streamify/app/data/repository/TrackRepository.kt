@@ -11,6 +11,7 @@ import kotlinx.coroutines.withContext
 import com.streamify.app.data.persistence.DatabaseInitializer
 import com.streamify.app.data.discovery.FuzzyTitleMatcher
 import com.streamify.app.data.discovery.ReRanker
+import com.streamify.app.data.NativeBridge
 
 object TrackRepository : TrackRepositoryApi {
     var appContext: android.content.Context? = null

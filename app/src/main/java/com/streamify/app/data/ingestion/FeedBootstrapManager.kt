@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import com.streamify.app.data.repository.TrackRepository
+import com.streamify.app.data.NativeBridge
 
 object FeedBootstrapManager {
 

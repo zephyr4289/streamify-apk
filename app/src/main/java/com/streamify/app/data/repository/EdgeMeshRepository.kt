@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import com.streamify.app.util.SLog
+import com.streamify.app.data.NativeBridge
 
 data class LocalEdgeMeshState(
     val deviceId: String = "",

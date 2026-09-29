@@ -18,6 +18,7 @@ import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import com.streamify.app.data.repository.TrackRepository
+import com.streamify.app.data.NativeBridge
 
 object SmartOfflineVaultEngine {
 

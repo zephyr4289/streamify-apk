@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.streamify.app.data.supabase.TrackComment
+import com.streamify.app.data.supabase.FriendActivity
+import com.streamify.app.data.supabase.CommunityPlaylist
 
 data class CommunityUiState(
     val communityPlaylists: List<CommunityPlaylist> = emptyList(),

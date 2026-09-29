@@ -1,6 +1,7 @@
 package com.streamify.app.data.persistence
 import com.streamify.app.util.SLog
 import kotlinx.coroutines.CompletableDeferred
+import com.streamify.app.data.NativeBridge
 
 object DatabaseInitializer {
     private val initDeferred = CompletableDeferred<Unit>()
