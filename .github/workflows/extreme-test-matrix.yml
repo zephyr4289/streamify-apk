@@ -509,17 +509,19 @@ jobs:
           name: log-native-libfuzzer
           path: shard-native-libfuzzer.log
 
-  # 5. MULTI-API ARM64 EMULATOR MATRIX (Nightly & Main PRs)
+  # 5. MULTI-API ARM64 EMULATOR MATRIX (Nightly only — advisory)
   emulator-matrix:
     name: "Emulator API ${{ matrix.api }} (ARM64)"
     needs: build-and-compile
-    # NOT macos-latest: the macos-26-arm64 image does not expose
-    # Hypervisor.Framework (qemu fails with `HVF error: HV_UNSUPPORTED`),
-    # so ARM64 emulators cannot boot. macos-15 arm64 runners do.
+    # ARM64 emulators need Hypervisor.Framework, and GitHub's macOS images
+    # currently cannot use it (qemu aborts with `HVF error: HV_UNSUPPORTED`
+    # on both macos-15 and macos-26; Ubuntu runners have no KVM either), so
+    # these shards have never been able to run. Nightly-only: PRs see them
+    # as skipped; re-enable for pull_request once the runner fleet recovers.
     runs-on: macos-15
     # Advisory: ARM64 emulator runs are slow/flaky on shared runners.
     continue-on-error: true
-    if: github.event_name == 'schedule' || github.base_ref == 'main'
+    if: github.event_name == 'schedule'
     strategy:
       fail-fast: false
       matrix:
@@ -625,13 +627,23 @@ jobs:
           echo "" >> combined-test.log
           cat downloaded-logs/*.log >> combined-test.log 2>/dev/null || echo "WARN: No shard logs found." >> combined-test.log
 
+          # Verdict scan. The emulator matrix is advisory (continue-on-error,
+          # nightly-only — GitHub's macOS fleet currently cannot boot ARM64
+          # emulators at all), so its shard logs are collected for visibility
+          # but excluded from the gating verdict. Same for cancelled/failing
+          # emulator jobs: they must not mask the rest of the matrix.
+          SHARD_FAIL=0
+          for f in downloaded-logs/*.log; do
+            case "$(basename "$f")" in shard-emulator-*) continue ;; esac
+            if grep -q "STATUS: FAILED ❌" "$f" 2>/dev/null; then SHARD_FAIL=1; fi
+          done
+
           # Catch both explicit failures AND cancelled jobs
           if [ "${{ needs.build-and-compile.result }}" == "failure" ] || [ "${{ needs.build-and-compile.result }}" == "cancelled" ] || \
              [ "${{ needs.test-matrix.result }}" == "failure" ] || [ "${{ needs.test-matrix.result }}" == "cancelled" ] || \
              [ "${{ needs.native-deep-fuzz.result }}" == "failure" ] || [ "${{ needs.native-deep-fuzz.result }}" == "cancelled" ] || \
-             [ "${{ needs.emulator-matrix.result }}" == "failure" ] || [ "${{ needs.emulator-matrix.result }}" == "cancelled" ] || \
              [ "${{ needs.codeql-analysis.result }}" == "failure" ] || [ "${{ needs.codeql-analysis.result }}" == "cancelled" ] || \
-             grep -q "STATUS: FAILED ❌" combined-test.log; then
+             [ "$SHARD_FAIL" -eq 1 ]; then
             echo "OVERALL_TEST_RESULT=FAILED" >> $GITHUB_ENV
           else
             echo "OVERALL_TEST_RESULT=PASSED" >> $GITHUB_ENV

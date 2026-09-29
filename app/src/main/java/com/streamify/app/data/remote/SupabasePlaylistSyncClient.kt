@@ -61,7 +61,7 @@ internal object SupabasePlaylistSyncClient {
     }
 
     suspend fun syncPlaylistDelete(playlistId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val user = SupabaseClient._currentUser.value ?: return@withContext Result.success(Unit)
+        SupabaseClient._currentUser.value ?: return@withContext Result.success(Unit)
         try {
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/playlists?id=eq.$playlistId")
             val body = JSONObject().apply {
@@ -80,7 +80,7 @@ internal object SupabasePlaylistSyncClient {
     }
 
     suspend fun syncPlaylistTrackAdd(playlistId: String, trackId: Int, positionIdx: Double): Result<Unit> = withContext(Dispatchers.IO) {
-        val user = SupabaseClient._currentUser.value ?: return@withContext Result.success(Unit)
+        SupabaseClient._currentUser.value ?: return@withContext Result.success(Unit)
         try {
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/playlist_tracks?on_conflict=playlist_id,track_id")
             val body = JSONObject().apply {
@@ -103,7 +103,7 @@ internal object SupabasePlaylistSyncClient {
     }
 
     suspend fun syncPlaylistTrackRemove(playlistId: String, trackId: Int): Result<Unit> = withContext(Dispatchers.IO) {
-        val user = SupabaseClient._currentUser.value ?: return@withContext Result.success(Unit)
+        SupabaseClient._currentUser.value ?: return@withContext Result.success(Unit)
         try {
             val url = URL("${BuildConfig.SUPABASE_URL}/rest/v1/playlist_tracks?playlist_id=eq.$playlistId&track_id=eq.$trackId")
             val body = JSONObject().apply {

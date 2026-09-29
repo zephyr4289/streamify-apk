@@ -38,13 +38,11 @@ internal fun PlayerViewModel.startPollingPosition() {
     positionPollingJob?.cancel()
     positionPollingJob = viewModelScope.launch {
         while (true) {
-            val now = System.currentTimeMillis()
             // STATS OVERHAUL: this poller NO LONGER accumulates listening
             // seconds — PlaybackService's ExoPlayer listener is the single
             // authoritative writer (double-counting eliminated at source).
 
             controller?.let { ctrl ->
-                val now = System.currentTimeMillis()
                 val curState = _playerState.value
                 val playerDuration = if (ctrl.duration > 0) ctrl.duration else 0L
                 val currentTrack = curState.currentTrack
