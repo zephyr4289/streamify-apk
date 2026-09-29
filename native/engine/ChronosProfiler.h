@@ -5,6 +5,7 @@
 #include <vector>
 #include <mutex>
 #include <cstdint>
+#include <string>
 
 class ChronosProfiler {
 public:

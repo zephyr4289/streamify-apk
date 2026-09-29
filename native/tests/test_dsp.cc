@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <cassert>
+#include <iterator>
 #include <cmath>
 #include "../dsp/SoftKneeLimiter.h"
 #include "../dsp/LufsNormalizer.h"

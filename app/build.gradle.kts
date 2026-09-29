@@ -41,6 +41,7 @@ android {
         targetSdk = 34
         versionCode = buildNum
         versionName = "1.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
@@ -175,6 +176,21 @@ dependencies {
 
     // Hardware-Backed KeyStore & EncryptedSharedPreferences
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Unit tests (JVM): the data-identity-fuzzy CI shard runs
+    // testDebugUnitTest --tests "com.streamify.app.data.*"; the JUnit
+    // wiring was missing entirely, so compileDebugUnitTestKotlin could
+    // never succeed.
+    testImplementation("junit:junit:4.13.2")
+
+    // Instrumented macrobenchmark (StreamifyMacrobenchmark) executed by the
+    // emulator-matrix CI job via connectedDebugAndroidTest.
+    androidTestImplementation("androidx.benchmark:benchmark-macro-junit4:1.2.3")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:rules:1.5.0")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    androidTestImplementation("junit:junit:4.13.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
