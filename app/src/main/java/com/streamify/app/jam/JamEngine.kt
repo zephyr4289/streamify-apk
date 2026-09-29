@@ -584,6 +584,10 @@ object JamEngine {
         startRuntime(session)
         election?.becomeFoundingLeader()
         epochCounter.set(1L)
+        // Synchronous telemetry anchor: the LeaderElected event is processed
+        // asynchronously on the collector's dispatcher, and an assertion (or
+        // UI frame) in the very next line must already observe epoch 1.
+        bumpTelemetry { it.copy(authorityEpoch = election?.authorityEpoch?.value ?: 1L) }
         noteSelf()
         SLog.i("JamRoom", "room created: code=$code id=${session.id} (serverless)")
         return session
@@ -1141,7 +1145,11 @@ object JamEngine {
     }
 
     private fun bumpTelemetry(mutate: (SyncTelemetry) -> SyncTelemetry) {
-        _syncTelemetry.value = mutate(_syncTelemetry.value)
+        // CAS-retry update: telemetry is written from the test/UI thread, the
+        // consensus collectors and the 1 s sweeper concurrently — a plain
+        // read-modify-write interleaves and silently reverts fields (e.g. a
+        // racing electionState write stomping a just-landed authorityEpoch).
+        _syncTelemetry.update(mutate)
     }
 
     // ═══════════════ Runtime & loops (FGS-tied) ═══════════════
