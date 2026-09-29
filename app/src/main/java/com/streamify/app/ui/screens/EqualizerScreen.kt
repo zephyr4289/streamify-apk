@@ -15,9 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.media.audio.EqualizerManager
-import com.streamify.app.ui.components.YtPresetFilterChips
-import com.streamify.app.ui.components.YtStudioArcDial
-import com.streamify.app.ui.components.YtVerticalEqSlider
+import com.streamify.app.ui.components.yt.YtPresetFilterChips
+import com.streamify.app.ui.components.yt.YtStudioArcDial
+import com.streamify.app.ui.components.yt.YtVerticalEqSlider
 import com.streamify.app.ui.theme.*
 
 @Composable

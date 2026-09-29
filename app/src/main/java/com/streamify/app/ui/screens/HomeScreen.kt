@@ -21,6 +21,7 @@ import com.streamify.app.data.update.StreamifyUpdateManager
 import com.streamify.app.data.supabase.SupabaseClient
 import com.streamify.app.data.update.UpdateState
 import com.streamify.app.ui.components.*
+import com.streamify.app.ui.components.yt.*
 import com.streamify.app.ui.theme.*
 import com.streamify.app.util.ApkInstaller
 import com.streamify.app.viewmodel.CommunityViewModel

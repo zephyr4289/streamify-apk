@@ -25,6 +25,7 @@ import com.streamify.app.data.telemetry.WrappedStats
 import com.streamify.app.data.telemetry.YtStatsTelemetryEngine
 import com.streamify.app.data.models.Track
 import com.streamify.app.ui.components.*
+import com.streamify.app.ui.components.yt.*
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.PlayerViewModel
 

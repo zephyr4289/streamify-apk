@@ -25,7 +25,7 @@ import com.streamify.app.data.telemetry.YtStatsTelemetryEngine
 import com.streamify.app.data.supabase.AuthManager
 import com.streamify.app.data.supabase.AuthState
 import com.streamify.app.data.supabase.SupabaseClient
-import com.streamify.app.ui.components.YtWrappedHeroCard
+import com.streamify.app.ui.components.yt.YtWrappedHeroCard
 import com.streamify.app.ui.theme.*
 import kotlinx.coroutines.launch
 import java.util.Calendar

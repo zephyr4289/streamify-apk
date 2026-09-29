@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.AppMode
 import com.streamify.app.data.spotify.SpotifyAuthManager
-import com.streamify.app.ui.components.YtLoginDialog
+import com.streamify.app.ui.components.yt.YtLoginDialog
 import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyType
 

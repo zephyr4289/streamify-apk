@@ -40,7 +40,7 @@ import com.streamify.app.ui.components.LocalQuantumController
 import com.streamify.app.ui.components.MiniPlayerBar
 import com.streamify.app.ui.components.QuantumSonicTokenController
 import com.streamify.app.ui.components.QuantumSonicTokenOverlay
-import com.streamify.app.ui.components.YtBottomNavBar
+import com.streamify.app.ui.components.yt.YtBottomNavBar
 import com.streamify.app.ui.screens.FullPlayerSheet
 import com.streamify.app.ui.screens.PrismaticSplashScreen
 import com.streamify.app.ui.screens.YtOnboardingScreen

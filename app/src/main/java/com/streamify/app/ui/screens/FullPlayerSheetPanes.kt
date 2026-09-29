@@ -68,6 +68,7 @@ import com.streamify.app.data.models.Track
 import com.streamify.app.media.lyrics.LyricOffsetStore
 import com.streamify.app.media.lyrics.LyricPlaybackController
 import com.streamify.app.ui.components.*
+import com.streamify.app.ui.components.yt.*
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.CommunityViewModel
 import com.streamify.app.viewmodel.UiEvent

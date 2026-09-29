@@ -31,8 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streamify.app.jam.JamEngine
-import com.streamify.app.ui.components.YtActiveEqualizer
-import com.streamify.app.ui.components.YtThumbnail
+import com.streamify.app.ui.components.yt.YtActiveEqualizer
+import com.streamify.app.ui.components.yt.YtThumbnail
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.JamUiState
 import com.streamify.app.viewmodel.JamViewModel
