@@ -1770,7 +1770,7 @@ The repository executes an 8-shard parallel matrix on every push/PR via `.github
 8. `byzantine-jam-ptp`: 2-Peer Byzantine Consensus, MAD Lyric Drift & PTP PLL Clock.
 
 > [!TIP]
-> All aggregated logs and LibFuzzer outputs are automatically consolidated into the orphan **`testing-log`** branch. See [test-log.md](test-log.md) for instructions on inspecting CI runs.
+> All aggregated logs and LibFuzzer outputs are automatically consolidated into the orphan **`testing-log`** branch. See [docs/CI-TESTING-GUIDE.md](docs/CI-TESTING-GUIDE.md) for instructions on inspecting CI runs.
 
 ---
 
