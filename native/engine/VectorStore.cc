@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <queue>
 #include <fstream>
-#include <mutex>
-#include <shared_mutex>
 
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
 #include <arm_neon.h>

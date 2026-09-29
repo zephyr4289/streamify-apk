@@ -4,9 +4,6 @@
 #include <sstream>
 #include <iomanip>
 #include <functional>
-#include <algorithm>
-#include <utility>
-#include <set>
 
 static std::string hashPin(const std::string& username, const std::string& pin) {
     std::hash<std::string> hasher;

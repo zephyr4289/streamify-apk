@@ -78,15 +78,6 @@ if (STREAMIFY_BUILD_TESTS)
     )
     target_include_directories(storage_telemetry_test_suite PRIVATE engine third_party/sqlite3 .)
     target_link_libraries(storage_telemetry_test_suite PRIVATE pthread dl)
-
-    # The suites assert on NaN/Inf/overflow guards and bounded outputs; the
-    # global -ffast-math would fold those guards away (the limiter test
-    # asserts |sample| <= 1.1). Same rationale as the fuzzer harness below.
-    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        foreach(tname dsp_test_suite simd_physics_test_suite storage_telemetry_test_suite)
-            target_compile_options(${tname} PRIVATE -fno-fast-math)
-        endforeach()
-    endif()
 endif()
 
 # --- LIBFUZZER HARNESS (host clang; requires clang with compiler-rt) ---

@@ -1,7 +1,6 @@
 #include <iostream>
 #include <vector>
 #include <cassert>
-#include <iterator>
 #include <cmath>
 #include "../engine/VectorStore.h"
 #include "../engine/AirDropPhysicsEngine.h"

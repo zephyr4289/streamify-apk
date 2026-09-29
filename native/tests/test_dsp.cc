@@ -1,7 +1,6 @@
 #include <iostream>
 #include <vector>
 #include <cassert>
-#include <iterator>
 #include <cmath>
 #include "../dsp/SoftKneeLimiter.h"
 #include "../dsp/LufsNormalizer.h"
@@ -10,38 +9,16 @@
 int main() {
     std::cout << "[TEST] Starting Native DSP Test Suite..." << std::endl;
 
-    // 1. Test SoftKneeLimiter float processing.
-    // A 5ms-attack limiter (tau ~= 240 samples @ 48kHz) legitimately passes
-    // short transients through unattenuated — the envelope ballistics have
-    // not caught up yet — so a 7-sample burst must not be hard-clamped. The
-    // old assertion (|sample| <= 1.1 for a transient including +-2.0) was
-    // unsatisfiable by design. Assert what the limiter actually guarantees:
-    // it never amplifies, and it does engage soft-knee limiting once the
-    // envelope has converged (4096 samples ~= 17 attack time-constants).
+    // 1. Test SoftKneeLimiter float processing
     streamify::dsp::SoftKneeLimiter limiter(0.80f, 0.10f);
-    std::vector<float> transient = {0.1f, 0.5f, 0.9f, 1.2f, -1.5f, 2.0f, -0.95f};
-    limiter.processFloats(transient.data(), static_cast<int>(transient.size()));
-    for (float sample : transient) {
-        assert(std::isfinite(sample));
-        assert(std::abs(sample) <= 2.0f + 1e-6f); // gain <= 0 dB: never amplifies
-    }
-    std::cout << "  - SoftKneeLimiter transient pass-through: PASSED" << std::endl;
+    std::vector<float> floatPcm = {0.1f, 0.5f, 0.9f, 1.2f, -1.5f, 2.0f, -0.95f};
+    limiter.processFloats(floatPcm.data(), floatPcm.size());
 
-    limiter.reset();
-    std::vector<float> sustained(4096);
-    for (size_t i = 0; i < sustained.size(); ++i) {
-        sustained[i] = (i % 2 == 0) ? 1.5f : -1.5f; // sustained loud square wave
+    for (float sample : floatPcm) {
+        assert(std::isfinite(sample));
+        assert(std::abs(sample) <= 1.1f); // Must be strictly clamped/limited
     }
-    limiter.processFloats(sustained.data(), static_cast<int>(sustained.size()));
-    float maxTail = 0.0f;
-    for (size_t i = sustained.size() - 480; i < sustained.size(); ++i) {
-        maxTail = std::max(maxTail, std::abs(sustained[i]));
-    }
-    assert(std::isfinite(maxTail));
-    // Converged envelope ~= +3.52 dB; soft-knee target with threshold 0.8 dB
-    // and ratio 20 is 0.8 + (3.52-0.8)/20 ~= 0.94 dB ~= 1.114 linear.
-    assert(maxTail <= 1.12f);
-    std::cout << "  - SoftKneeLimiter sustained soft-knee limit: PASSED" << std::endl;
+    std::cout << "  - SoftKneeLimiter float limit: PASSED" << std::endl;
 
     // 2. Test SoftKneeLimiter short processing
     std::vector<int16_t> shortPcm = {100, 5000, 25000, 32000, -32000, 32767, -32768};
