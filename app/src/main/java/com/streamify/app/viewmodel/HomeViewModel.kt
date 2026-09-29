@@ -220,7 +220,7 @@ class HomeViewModel(
                 val hybridRecs = if (distinctSeeds.isNotEmpty()) {
                     try {
                         val timeOfDay = com.streamify.app.util.TimeGreeting.getCurrentTimeOfDay()
-                        val audioDevice = com.streamify.app.service.AudioDeviceManager.getCurrentDeviceType()
+                        val audioDevice = com.streamify.app.media.audio.AudioDeviceManager.getCurrentDeviceType()
                         coroutineScope {
                             val deferredList = distinctSeeds.map { seed ->
                                 async(Dispatchers.IO) {

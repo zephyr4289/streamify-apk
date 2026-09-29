@@ -25,8 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamify.app.data.models.LyricsLine
 import com.streamify.app.data.models.Track
-import com.streamify.app.service.LyricOffsetStore
-import com.streamify.app.service.LyricPlaybackController
+import com.streamify.app.media.lyrics.LyricOffsetStore
+import com.streamify.app.media.lyrics.LyricPlaybackController
 import com.streamify.app.ui.components.YtLyricsHeader
 import com.streamify.app.ui.components.YtSyllableLine
 import com.streamify.app.ui.theme.*

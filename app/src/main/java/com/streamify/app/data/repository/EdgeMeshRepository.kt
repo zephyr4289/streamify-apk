@@ -3,7 +3,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.work.*
 import com.streamify.app.data.supabase.SupabaseClient
-import com.streamify.app.service.TitanComputeWorker
+import com.streamify.app.media.ingestion.TitanComputeWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

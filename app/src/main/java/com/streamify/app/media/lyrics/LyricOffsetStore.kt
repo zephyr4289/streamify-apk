@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.lyrics
 import android.content.Context
 import com.streamify.app.data.repository.TrackRepository
 

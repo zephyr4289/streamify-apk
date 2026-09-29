@@ -121,7 +121,7 @@ object AppGraph {
 
         // 5. Initialize device & remote services safely.
         try {
-            com.streamify.app.service.AudioDeviceManager.init(appContext)
+            com.streamify.app.media.audio.AudioDeviceManager.init(appContext)
         } catch (e: Throwable) {
             com.streamify.app.util.SLog.e("StreamifyApp", "Failed to initialize AudioDeviceManager", e)
         }
@@ -133,7 +133,7 @@ object AppGraph {
         }
 
         try {
-            com.streamify.app.service.OnlineTrackProcessor.init(appContext)
+            com.streamify.app.media.playback.OnlineTrackProcessor.init(appContext)
         } catch (e: Throwable) {
             com.streamify.app.util.SLog.e("StreamifyApp", "Failed to initialize OnlineTrackProcessor", e)
         }
@@ -145,13 +145,13 @@ object AppGraph {
         }
 
         try {
-            com.streamify.app.service.LibrarySyncWorker.schedulePeriodicSync(appContext)
+            com.streamify.app.media.ingestion.LibrarySyncWorker.schedulePeriodicSync(appContext)
         } catch (e: Throwable) {
             // Non-blocking
         }
 
         try {
-            com.streamify.app.service.ThermalGovernorManager.init(appContext)
+            com.streamify.app.media.sync.ThermalGovernorManager.init(appContext)
         } catch (e: Throwable) {
             // Non-blocking
         }

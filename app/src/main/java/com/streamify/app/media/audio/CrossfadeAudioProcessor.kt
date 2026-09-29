@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.audio
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor

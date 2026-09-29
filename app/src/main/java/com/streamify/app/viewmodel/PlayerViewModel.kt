@@ -16,7 +16,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.streamify.app.data.NativeBridge
 import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
-import com.streamify.app.service.PlaybackService
+import com.streamify.app.media.playback.PlaybackService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -501,8 +501,8 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
             isOptimisticSeeking = false
 
             // If PlaybackService is actively renewing the CDN token in-place, defer to it
-            val renewalMediaId = com.streamify.app.service.PlaybackService.lastRenewalMediaId
-            val renewalAt = com.streamify.app.service.PlaybackService.lastRenewalAtMs
+            val renewalMediaId = com.streamify.app.media.playback.PlaybackService.lastRenewalMediaId
+            val renewalAt = com.streamify.app.media.playback.PlaybackService.lastRenewalAtMs
             if (renewalMediaId != null && (System.currentTimeMillis() - renewalAt) < 3000L) {
                 return
             }
@@ -621,11 +621,11 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
     }
 
     fun playSingleTrack(track: Track) {
-        com.streamify.app.service.QueueEngine.playSingle(track, this)
+        com.streamify.app.media.playback.QueueEngine.playSingle(track, this)
     }
 
     fun playCollection(tracks: List<Track>, startIndex: Int = 0) {
-        com.streamify.app.service.QueueEngine.playCollection(tracks, startIndex, this)
+        com.streamify.app.media.playback.QueueEngine.playCollection(tracks, startIndex, this)
     }
 
     fun updateQueueSilently(newQueue: List<Track>, newIndex: Int = _playerState.value.currentIndex) {
@@ -766,7 +766,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
                     nextIndex < queue.size -> {
                         playTrackInternal(queue[nextIndex], nextIndex, queue)
                         viewModelScope.launch(Dispatchers.IO) {
-                            com.streamify.app.service.QueueEngine.ensureQueueDepth(this@PlayerViewModel)
+                            com.streamify.app.media.playback.QueueEngine.ensureQueueDepth(this@PlayerViewModel)
                         }
                     }
                     // Path B: End of queue reached with REPEAT_ALL enabled
@@ -859,17 +859,17 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
 
     fun getAcousticPositionMs(): Long {
         val rawPos = controller?.currentPosition ?: _playerState.value.currentPosition
-        return com.streamify.app.service.PlaybackService.syncAudioProcessor.getAcousticPositionMs(rawPos)
+        return com.streamify.app.media.playback.PlaybackService.syncAudioProcessor.getAcousticPositionMs(rawPos)
     }
 
     fun scheduleAtomicPlayback(
         track: Track,
         targetAtomicTimestampMs: Long,
         startPositionMs: Long = 0L,
-        precisionProtocol: com.streamify.app.service.PrecisionTimeProtocol
+        precisionProtocol: com.streamify.app.media.sync.PrecisionTimeProtocol
     ) {
         val ctrl = controller ?: return
-        val scheduler = com.streamify.app.service.ScheduledAudioScheduler(ctrl, precisionProtocol)
+        val scheduler = com.streamify.app.media.sync.ScheduledAudioScheduler(ctrl, precisionProtocol)
         _playerState.value = _playerState.value.copy(currentTrack = track, queue = listOf(track))
         scheduler.scheduleAtomicPlayback(track, targetAtomicTimestampMs, startPositionMs) {
             _playerState.value = _playerState.value.copy(isPlaying = true)
@@ -991,7 +991,7 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
                 }
 
                 if (actualIsLiked && currentTrack.filepath.isNotBlank()) {
-                    com.streamify.app.service.AudioCacheManager.markStickyTrack(currentTrack.filepath)
+                    com.streamify.app.media.cache.AudioCacheManager.markStickyTrack(currentTrack.filepath)
                 }
 
                 // Auto-download liked online songs if setting is enabled
@@ -1135,8 +1135,8 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
 
     override fun onCleared() {
         super.onCleared()
-        com.streamify.app.service.PlaybackService.onSeekNextListener = null
-        com.streamify.app.service.PlaybackService.onSeekPrevListener = null
+        com.streamify.app.media.playback.PlaybackService.onSeekNextListener = null
+        com.streamify.app.media.playback.PlaybackService.onSeekPrevListener = null
         controller?.removeListener(playerListener)
         controller = null
         controllerFuture?.let { MediaController.releaseFuture(it) }

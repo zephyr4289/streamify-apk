@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.ingestion
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context

@@ -34,7 +34,7 @@ import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.viewmodel.PlayerViewModel
-import com.streamify.app.service.CrossfadeAudioProcessor
+import com.streamify.app.media.audio.CrossfadeAudioProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.streamify.app.util.SLog
@@ -528,11 +528,11 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         // Dolby Atmos & Spatial Audio Hardware Statement
-                        val isDolbyDetected by com.streamify.app.service.DolbySpatialManager.isDolbyAtmosDetected.collectAsState()
-                        val dolbyDetail by com.streamify.app.service.DolbySpatialManager.hardwareDetail.collectAsState()
+                        val isDolbyDetected by com.streamify.app.media.audio.DolbySpatialManager.isDolbyAtmosDetected.collectAsState()
+                        val dolbyDetail by com.streamify.app.media.audio.DolbySpatialManager.hardwareDetail.collectAsState()
 
                         LaunchedEffect(Unit) {
-                            com.streamify.app.service.DolbySpatialManager.checkHardwareCapabilities(context)
+                            com.streamify.app.media.audio.DolbySpatialManager.checkHardwareCapabilities(context)
                         }
 
                         Row(
@@ -594,7 +594,7 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        val isLoudnessOn by com.streamify.app.service.EqualizerManager.isLoudnessNormalizationEnabled.collectAsState()
+                        val isLoudnessOn by com.streamify.app.media.audio.EqualizerManager.isLoudnessNormalizationEnabled.collectAsState()
                         var autoDownloadLiked by remember {
                             mutableStateOf(audioPrefs.getBoolean("auto_download_liked", false))
                         }
@@ -612,7 +612,7 @@ fun SettingsScreen(
                             }
                             Switch(
                                 checked = isLoudnessOn,
-                                onCheckedChange = { com.streamify.app.service.EqualizerManager.setLoudnessNormalization(it) },
+                                onCheckedChange = { com.streamify.app.media.audio.EqualizerManager.setLoudnessNormalization(it) },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = StreamifyColors.Primary,
                                     checkedTrackColor = StreamifyColors.Primary.copy(alpha = 0.5f)

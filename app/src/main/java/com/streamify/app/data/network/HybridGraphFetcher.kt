@@ -3,7 +3,7 @@ package com.streamify.app.data.network
 import com.streamify.app.data.NativeBridge
 import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
-import com.streamify.app.service.AudioDeviceType
+import com.streamify.app.media.audio.AudioDeviceType
 import com.streamify.app.util.TimeOfDay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async

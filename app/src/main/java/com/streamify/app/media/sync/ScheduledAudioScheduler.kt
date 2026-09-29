@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.sync
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.streamify.app.data.models.Track

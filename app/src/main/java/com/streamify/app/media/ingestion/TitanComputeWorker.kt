@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.ingestion
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter

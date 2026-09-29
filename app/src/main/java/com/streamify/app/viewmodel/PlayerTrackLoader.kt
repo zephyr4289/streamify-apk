@@ -16,7 +16,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.streamify.app.data.NativeBridge
 import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
-import com.streamify.app.service.PlaybackService
+import com.streamify.app.media.playback.PlaybackService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -53,7 +53,7 @@ internal suspend fun PlayerViewModel.playTrackInternal(track: Track, index: Int,
         isVideoMode = false
     )
     playbackStartTimeMs = System.currentTimeMillis()
-    com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = null
+    com.streamify.app.media.audio.StreamifyAudioProcessor.currentPreGainDb = null
 
     // 0. SMART OFFLINE VAULT GATE (0ms instant local playback if pre-cached)
     // File-stat work (vault index hit + existence/size probe) kept off the
@@ -82,7 +82,7 @@ internal suspend fun PlayerViewModel.playTrackInternal(track: Track, index: Int,
             withContext(Dispatchers.IO) {
                 val res = com.streamify.app.data.network.YouTubeStreamResolver.resolveStreamJit(trackToPlay)
                 val resolved = res.getOrNull()
-                resolved?.let { com.streamify.app.service.StreamifyAudioProcessor.currentPreGainDb = it.loudnessDb }
+                resolved?.let { com.streamify.app.media.audio.StreamifyAudioProcessor.currentPreGainDb = it.loudnessDb }
                 if (resolved != null && resolved.streamUrl.isNotBlank()) {
                     trackToPlay.copy(filepath = resolved.streamUrl, ytmVideoId = knownVideoId ?: trackToPlay.ytmVideoId)
                 } else {
@@ -208,7 +208,7 @@ internal fun PlayerViewModel.handleAutomaticTimelineTransition() {
         }
         armLookaheadPreBuffer(nextIndex + 1, queue)
         viewModelScope.launch(Dispatchers.IO) {
-            com.streamify.app.service.QueueEngine.ensureQueueDepth(this@handleAutomaticTimelineTransition)
+            com.streamify.app.media.playback.QueueEngine.ensureQueueDepth(this@handleAutomaticTimelineTransition)
         }
     } else {
         advanceQueue(isUserSkip = false)
@@ -277,7 +277,7 @@ internal fun PlayerViewModel.armLookaheadPreBuffer(nextIndex: Int, queue: List<T
             appContext?.let { ctx ->
                 try {
                     val upcomingSlice = queue.subList(nextIndex, queue.size)
-                    com.streamify.app.service.PredictivePreBufferManager(ctx).preBufferUpcomingTracks(upcomingSlice)
+                    com.streamify.app.media.cache.PredictivePreBufferManager(ctx).preBufferUpcomingTracks(upcomingSlice)
                 } catch (e: Exception) {
                     // Non-fatal pre-buffer error
                 }

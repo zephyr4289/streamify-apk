@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.cache
 import android.content.Context
 import android.os.StatFs
 

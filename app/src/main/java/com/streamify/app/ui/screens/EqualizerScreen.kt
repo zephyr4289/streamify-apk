@@ -14,7 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.streamify.app.service.EqualizerManager
+import com.streamify.app.media.audio.EqualizerManager
 import com.streamify.app.ui.components.YtPresetFilterChips
 import com.streamify.app.ui.components.YtStudioArcDial
 import com.streamify.app.ui.components.YtVerticalEqSlider

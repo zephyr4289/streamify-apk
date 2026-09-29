@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.playback
 import android.content.Context
 import com.streamify.app.data.NativeBridge
 import com.streamify.app.data.repository.TrackRepository

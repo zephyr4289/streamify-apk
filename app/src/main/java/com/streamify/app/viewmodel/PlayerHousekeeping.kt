@@ -16,7 +16,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.streamify.app.data.NativeBridge
 import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.models.Track
-import com.streamify.app.service.PlaybackService
+import com.streamify.app.media.playback.PlaybackService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -36,12 +36,12 @@ import kotlinx.coroutines.withContext
 internal fun PlayerViewModel.setupController(context: Context) {
     val ctrl = controller ?: return
     
-    com.streamify.app.service.PlaybackService.onSeekNextListener = {
+    com.streamify.app.media.playback.PlaybackService.onSeekNextListener = {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
             advanceQueue(isUserSkip = true)
         }
     }
-    com.streamify.app.service.PlaybackService.onSeekPrevListener = {
+    com.streamify.app.media.playback.PlaybackService.onSeekPrevListener = {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
             skipPrevious()
         }

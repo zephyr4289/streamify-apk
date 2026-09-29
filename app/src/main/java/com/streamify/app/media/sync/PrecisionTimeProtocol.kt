@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.sync
 import android.os.SystemClock
 import com.streamify.app.util.SLog as Log
 import com.streamify.app.data.NativeBridge

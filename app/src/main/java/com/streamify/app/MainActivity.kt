@@ -286,7 +286,7 @@ class MainActivity : ComponentActivity() {
                             // repo hydration and the update network check are
                             // deferred to post-first-frame background work.
                             val prefs = getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE)
-                            com.streamify.app.service.CrossfadeAudioProcessor.crossfadeDurationMs =
+                            com.streamify.app.media.audio.CrossfadeAudioProcessor.crossfadeDurationMs =
                                 (prefs.getFloat("crossfade_val", 0f) * 1000).toLong()
                             AuthManager.init(this@MainActivity)
                         },
@@ -518,7 +518,7 @@ class MainActivity : ComponentActivity() {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (level >= TRIM_MEMORY_RUNNING_LOW) {
-            com.streamify.app.service.ThermalGovernorManager.handleLowMemory(this)
+            com.streamify.app.media.sync.ThermalGovernorManager.handleLowMemory(this)
         }
     }
 
@@ -535,7 +535,7 @@ class MainActivity : ComponentActivity() {
 
 private fun enqueueMediaScan(context: android.content.Context) {
     val workManager = androidx.work.WorkManager.getInstance(context)
-    val scanRequest = androidx.work.OneTimeWorkRequestBuilder<com.streamify.app.service.IngestionWorker>()
+    val scanRequest = androidx.work.OneTimeWorkRequestBuilder<com.streamify.app.media.ingestion.IngestionWorker>()
         .addTag("ingestion_worker")
         .build()
     workManager.enqueueUniqueWork("media_scan", androidx.work.ExistingWorkPolicy.KEEP, scanRequest)

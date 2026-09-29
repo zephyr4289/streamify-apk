@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.cache
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheEvictor
 import androidx.media3.datasource.cache.CacheSpan

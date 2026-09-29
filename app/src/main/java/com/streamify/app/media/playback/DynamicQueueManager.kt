@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.playback
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player

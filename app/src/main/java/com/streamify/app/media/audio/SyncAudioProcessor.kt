@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.audio
 import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager

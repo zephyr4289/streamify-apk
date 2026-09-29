@@ -1,10 +1,10 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.sync
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.*
 import kotlin.math.abs
+import com.streamify.app.media.audio.SyncAudioProcessor
 
 class PhaseLockedLoopController(
     private val player: Player,

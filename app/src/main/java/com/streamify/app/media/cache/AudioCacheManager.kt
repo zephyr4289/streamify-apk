@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.cache
 import android.content.Context
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.SimpleCache

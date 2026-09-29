@@ -982,7 +982,7 @@ fun LibraryScreen(
 
 private fun enqueueMediaScan(context: android.content.Context) {
     val workManager = androidx.work.WorkManager.getInstance(context)
-    val scanRequest = androidx.work.OneTimeWorkRequestBuilder<com.streamify.app.service.IngestionWorker>()
+    val scanRequest = androidx.work.OneTimeWorkRequestBuilder<com.streamify.app.media.ingestion.IngestionWorker>()
         .addTag("ingestion_worker")
         .build()
     workManager.enqueueUniqueWork("media_scan", androidx.work.ExistingWorkPolicy.REPLACE, scanRequest)

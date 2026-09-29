@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.sync
 import android.app.ActivityManager
 import android.content.Context
 import android.os.Build

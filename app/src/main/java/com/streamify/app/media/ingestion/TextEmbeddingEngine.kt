@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.ingestion
 import android.content.Context
 import com.streamify.app.data.models.Track
 import kotlinx.coroutines.Dispatchers

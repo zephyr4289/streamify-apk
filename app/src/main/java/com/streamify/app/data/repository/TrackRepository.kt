@@ -283,7 +283,7 @@ object TrackRepository : TrackRepositoryApi {
             val ctx = context ?: appContext
             if (ctx != null) {
                 try {
-                    val textEngine = com.streamify.app.service.TextEmbeddingEngine.getInstance(ctx)
+                    val textEngine = com.streamify.app.media.ingestion.TextEmbeddingEngine.getInstance(ctx)
                     val embedding = textEngine.generateEmbedding("${track.artist} - ${track.title} [${albumName}]")
                     NativeBridge.updateTrackEmbedding(savedId, embedding)
                 } catch (e: Exception) {
@@ -302,7 +302,7 @@ object TrackRepository : TrackRepositoryApi {
 
             // 4. Enqueue to OnlineTrackProcessor for autonomous background native C++ DSP processing
             if (updatedTrack.bpm <= 0f || !updatedTrack.isProcessed) {
-                com.streamify.app.service.OnlineTrackProcessor.enqueue(updatedTrack, ctx)
+                com.streamify.app.media.playback.OnlineTrackProcessor.enqueue(updatedTrack, ctx)
             }
         }
 

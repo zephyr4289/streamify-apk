@@ -1,5 +1,4 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.audio
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.Context

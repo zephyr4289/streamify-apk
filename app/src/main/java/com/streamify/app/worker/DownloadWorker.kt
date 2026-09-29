@@ -17,7 +17,7 @@ import com.streamify.app.data.repository.PlaylistRepository
 import com.streamify.app.data.repository.TrackRepository
 import com.streamify.app.data.network.ParallelStreamDownloader
 import com.streamify.app.data.network.YouTubeStreamResolver
-import com.streamify.app.service.LosslessRemuxer
+import com.streamify.app.media.cache.LosslessRemuxer
 import com.streamify.app.viewmodel.UiEvent
 import com.streamify.app.viewmodel.UiEventBus
 import kotlinx.coroutines.Dispatchers
@@ -130,7 +130,7 @@ class DownloadWorker(
                             // Background AI Feature extraction (Throttled single-core execution with buffer gate)
                             withContext(dspDispatcher) {
                                 try {
-                                    while (com.streamify.app.service.PlaybackService.isBuffering.value) {
+                                    while (com.streamify.app.media.playback.PlaybackService.isBuffering.value) {
                                         kotlinx.coroutines.delay(200)
                                     }
                                     NativeBridge.processAudioFile(trackId, targetFile.absolutePath)

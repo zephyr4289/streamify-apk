@@ -1,11 +1,11 @@
-package com.streamify.app.service
-
+package com.streamify.app.media.audio
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor.AudioFormat
 import androidx.media3.common.audio.BaseAudioProcessor
 import com.streamify.app.data.NativeBridge
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import com.streamify.app.media.playback.PlaybackService
 
 /**
  * THE render-path processor. Replaces the old 4-processor chain
