@@ -13,6 +13,10 @@ pub mod downloader;
 pub mod dsp;
 pub mod ffi;
 pub mod governor;
+pub mod jam_clock;
+pub mod jam_crdt;
+pub mod jam_governor;
+pub mod jam_outbox;
 pub mod jni_bridge;
 pub mod json;
 pub mod lyrics;
@@ -22,21 +26,23 @@ pub mod normalizer;
 pub mod playlist_parser;
 pub mod ptp;
 pub mod queue_engine;
-pub mod jam_clock;
-pub mod jam_crdt;
-pub mod jam_governor;
-pub mod jam_outbox;
+// Jam Phase 2 — zero-server P2P mesh fabric (feat/jam-p2p-mesh-transport):
+pub mod chunk_swarmer;
+pub mod dht_signaling;
+pub mod gossip;
+pub mod jni_bridge_p2p;
 pub mod kalman_pll;
+pub mod p2p_mesh;
 pub mod queue_optimizer;
 pub mod radio_scorer;
 pub mod repository;
 pub mod resolver;
-pub mod seek_guard;
-pub mod tick_matrix;
-pub mod spotify_ingest;
 pub mod search;
+pub mod seek_guard;
+pub mod spotify_ingest;
 pub mod tagger;
 pub mod task_orchestrator;
+pub mod tick_matrix;
 
 pub use airdrop::{AirdropPhysicsEngine, AirdropState};
 pub use aligner::{AlignedLine, AlignedSyllable, LyricAlignerEngine};
@@ -58,5 +64,3 @@ pub use radio_scorer::{RadioAntiDriftEngine, ScoredCandidate};
 pub use resolver::StreamResolver;
 pub use search::{FuzzySearchEngine, SearchCandidate};
 pub use tagger::{AudioMetadataEngine, TrackMetadata};
-
-
