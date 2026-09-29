@@ -59,7 +59,7 @@ object Blake3 {
     fun hash(input: ByteArray): ByteArray {
         val h = Hasher()
         h.update(input, 0, input.size)
-        return h.finalize()
+        return h.digest()
     }
 
     fun hash(input: String): ByteArray = hash(input.toByteArray(Charsets.UTF_8))
@@ -239,7 +239,7 @@ object Blake3 {
         private fun addChunkChainingValue(newCv: IntArray, totalChunks: Long) {
             var cv = newCv.copyOf()
             var chunks = totalChunks
-            while (chunks and 1L == 0L) {
+            while ((chunks and 1L) == 0L) {
                 val left = cvStack[--cvStackLen]
                 cv = parentCv(left, cv)
                 chunks = chunks ushr 1
@@ -282,7 +282,7 @@ object Blake3 {
             }
         }
 
-        fun finalize(): ByteArray {
+        fun digest(): ByteArray {
             var output = chunkState.output()
             var remaining = cvStackLen
             while (remaining > 0) {

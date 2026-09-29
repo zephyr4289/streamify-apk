@@ -316,8 +316,10 @@ object JamEngine {
 
     val senderPacked: Long by lazy {
         try {
+            // SHA-256 (not MD5 — CodeQL security gate): we only need a stable
+            // 64-bit identity pack of the device nonce, first 8 bytes.
             java.nio.ByteBuffer.wrap(
-                java.security.MessageDigest.getInstance("MD5").digest(deviceId.toByteArray())
+                java.security.MessageDigest.getInstance("SHA-256").digest(deviceId.toByteArray())
             ).long
         } catch (_: Throwable) {
             deviceId.hashCode().toLong()

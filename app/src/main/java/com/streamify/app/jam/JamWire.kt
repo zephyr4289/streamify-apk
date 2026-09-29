@@ -452,7 +452,7 @@ object JamWire {
         val senderNonce = nonceBytes.toString(Charsets.US_ASCII).trimEnd(' ')
         val epoch = buf.long
         var trackJson: String? = null
-        if (flags and Flags.HAS_TRACK_JSON != 0) {
+        if ((flags and Flags.HAS_TRACK_JSON) != 0) {
             if (buf.remaining() < 4) return null
             val jsonLen = buf.int
             if (jsonLen < 0 || jsonLen > MAX_TRACK_JSON_BYTES) return null
