@@ -93,7 +93,7 @@ fun SireenBrandingBadge(
                 modifier = Modifier.size(width = badgeWidthDp, height = badgeHeightDp)
             ) {
                 val width = size.width
-                val shimmerX = (shimmerProgress * (width + 200f)) - 100f
+                val shimmerX = (shimmerProgress.value * (width + 200f)) - 100f
 
                 val sweepBrush = Brush.horizontalGradient(
                     colors = listOf(

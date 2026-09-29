@@ -363,8 +363,6 @@ internal object SupabaseJamClient {
      * WS dispatcher. JamEngine registers this at runtime — a static callback
      * avoids a circular import (engine already imports this file).
      */
-    @Volatile
-
     fun adoptForeignHost(sessionCode: String, newHostUserId: String?) {
         val current = _activeJam.value ?: return
         if (current.sessionCode != sessionCode) return

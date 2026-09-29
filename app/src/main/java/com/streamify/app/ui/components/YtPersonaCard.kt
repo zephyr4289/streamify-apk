@@ -33,7 +33,7 @@ fun YtPersonaCard(
     LaunchedEffect(durationMs) {
         pulseAlpha.animateTo(
             targetValue = 0.75f,
-            animationSpec = repeat(
+            animationSpec = repeatable(
                 iterations = 7,
                 animation = tween(durationMs, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse

@@ -1261,16 +1261,17 @@ private fun AdminTopSongsPanel() {
         )
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
 
+        val tableRows = rows
         when {
             errorMsg != null -> Text(
                 "⚠ $errorMsg\nApply the stats_overhaul migration to enable this panel.",
                 color = Color(0xFFEF4444),
                 style = StreamifyType.BodySmall
             )
-            rows == null -> CircularProgressIndicator(color = StreamifyColors.Primary, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
+            tableRows == null -> CircularProgressIndicator(color = StreamifyColors.Primary, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
             else -> {
                 val list = buildList {
-                    for (i in 0 until rows.length()) rows.optJSONObject(i)?.let { add(it) }
+                    for (i in 0 until tableRows.length()) tableRows.optJSONObject(i)?.let { add(it) }
                 }
                 if (list.isEmpty()) {
                     Text(

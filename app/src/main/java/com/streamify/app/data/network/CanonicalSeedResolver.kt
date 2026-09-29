@@ -57,11 +57,13 @@ object CanonicalSeedResolver {
                             track.durationSec <= 0 // duration-unknown fallback
                 }
                 if (topMatch != null) {
-                    val resolvedId = YouTubeStreamResolver.extractVideoId(topMatch.url) ?: return@withContext null
-                    synchronized(seedCache) {
-                        seedCache.put(cacheKey, resolvedId)
+                    val resolvedId = YouTubeStreamResolver.extractVideoId(topMatch.url)
+                    if (resolvedId != null) {
+                        synchronized(seedCache) {
+                            seedCache.put(cacheKey, resolvedId)
+                        }
+                        return@withContext resolvedId
                     }
-                    return@withContext resolvedId
                 }
             } catch (e: Exception) {
                 SLog.st("CanonicalSeedResolver", "CanonicalSeedResolver.resolveToCanonicalId failed", e)

@@ -208,7 +208,7 @@ internal fun PlayerViewModel.handleAutomaticTimelineTransition() {
         }
         armLookaheadPreBuffer(nextIndex + 1, queue)
         viewModelScope.launch(Dispatchers.IO) {
-            com.streamify.app.service.QueueEngine.ensureQueueDepth(this@PlayerViewModel)
+            com.streamify.app.service.QueueEngine.ensureQueueDepth(this@handleAutomaticTimelineTransition)
         }
     } else {
         advanceQueue(isUserSkip = false)

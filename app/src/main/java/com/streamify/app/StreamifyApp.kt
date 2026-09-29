@@ -45,7 +45,7 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         // Screen-level lifecycle breadcrumbs for the admin terminal.
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private fun name(a: android.app.Activity) = a.javaClass.simpleName
-            override fun onActivityCreated(a: android.app.Activity, s: android.os.Bundle) {
+            override fun onActivityCreated(a: android.app.Activity, s: android.os.Bundle?) {
                 com.streamify.app.util.SLog.i("LIFECYCLE", "created ${name(a)}")
             }
             override fun onActivityStarted(a: android.app.Activity) {
