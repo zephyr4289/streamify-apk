@@ -72,6 +72,10 @@ class PlaybackService : MediaSessionService() {
         AudioDeviceManager.init(this)
 
         // ─── AUDIO RENDER CHAIN (DIRECT CDN STREAMING) ──────────────────────────────
+        // JAM v4 (mission §C): SyncAudioProcessor rides the AudioSink render
+        // chain as the lockstep drift actuator. Outside a Jam session it is a
+        // strict bit-exact passthrough (zero transformation, zero latency
+        // cost), so the pristine-CDN guarantee below holds for solo listening.
         // NOTE: Custom fused StreamifyAudioProcessor (loudnessDb pre-gain →
         // LUFS normalization → Soft-Knee limiter → Rust parametric EQ) is
         // TEMPORARILY DISABLED.
@@ -93,7 +97,23 @@ class PlaybackService : MediaSessionService() {
         // - Re-implement ITU-R BS.1770-4 K-weighting LUFS metering in C++20 / Rust SIMD.
         // - Introduce an opt-in "Audiophile Mastering" toggle in Settings before re-enabling.
         // ─────────────────────────────────────────────────────────────────────────────
-        val renderersFactory = DefaultRenderersFactory(this)
+        // Media3 1.2.x: custom AudioProcessors enter the render chain through
+        // DefaultAudioSink.Builder (DefaultRenderersFactory no longer exposes
+        // setAudioProcessors). Overriding buildAudioSink() keeps the exact
+        // pipeline DefaultRenderersFactory would have built otherwise.
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: android.content.Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): androidx.media3.exoplayer.audio.AudioSink {
+                return DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf(syncAudioProcessor))
+                    .build()
+            }
+        }
 
         val audioLoadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(

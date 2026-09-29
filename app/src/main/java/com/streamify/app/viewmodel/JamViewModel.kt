@@ -3,10 +3,10 @@ package com.streamify.app.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamify.app.data.models.Track
-import com.streamify.app.data.supabase.ListeningSession
 import com.streamify.app.data.supabase.SupabaseClient
 import com.streamify.app.jam.jamTrackFromJson
 import com.streamify.app.jam.JamEngine
+import com.streamify.app.jam.JamPairing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -20,7 +20,7 @@ import org.json.JSONObject
 sealed class JamUiState {
     object Idle : JamUiState()
     object Loading : JamUiState()
-    data class Active(val session: ListeningSession, val isHost: Boolean) : JamUiState()
+    data class Active(val session: JamEngine.JamSession, val isHost: Boolean) : JamUiState()
     data class Error(val message: String) : JamUiState()
 }
 
@@ -98,12 +98,16 @@ class JamPhaseLockedLoop(
 }
 
 /**
- * JAM VIEWMODEL v2 — thin executor over [JamEngine].
+ * JAM VIEWMODEL v4 — thin executor over [JamEngine] (SERVERLESS).
  *
  * The protocol brain lives in the process-wide engine singleton so sessions
  * survive navigation; this class binds it to a live PlayerViewModel, executes
- * protocol commands against playback, drives presence pulses and performs the
- * authoritative join/reconnect handshake.
+ * protocol commands against playback, and drives the presentation state.
+ *
+ * v4 decoupling: room lifecycle mirrors the ENGINE's serverless session flow
+ * (no Supabase rows); inbound frames are collected by the engine itself off
+ * the P2P mesh; the join handshake asks the live leader for state instead of
+ * fetching a database snapshot.
  */
 class JamViewModel(
     private val appContext: android.content.Context? = null
@@ -118,22 +122,32 @@ class JamViewModel(
     val connStatus: StateFlow<JamEngine.ConnStatus> = JamEngine.connStatus
     val policy: StateFlow<JamEngine.ControlPolicy> = JamEngine.policy
 
+    // Mesh radar + acoustic gauge feeds for the Jam UI.
+    val meshPeers: StateFlow<List<JamEngine.MeshPeer>> = JamEngine.meshPeers
+    val syncTelemetry: StateFlow<JamEngine.SyncTelemetry> = JamEngine.syncTelemetry
+
     private var pll: JamPhaseLockedLoop? = null
     private var attachedPlayer: PlayerViewModel? = null
     private var executorsStarted = false
-    private var wasConnected = false
 
     init {
-        // Room lifecycle mirrors the cloud session row.
+        // Room lifecycle mirrors the ENGINE's serverless session (no DB row).
         viewModelScope.launch {
-            SupabaseClient.activeJam.collect { session ->
+            JamEngine.activeSession.collect { session ->
                 if (session != null) {
-                    val isHost = session.hostUserId == SupabaseClient.currentUser.value?.id
-                    _uiState.value = JamUiState.Active(session, isHost)
+                    _uiState.value = JamUiState.Active(session, JamEngine.isHost())
+                    com.streamify.app.media.audio.SyncAudioProcessor.setJamSyncActive(true)
                 } else if (_uiState.value is JamUiState.Active) {
+                    com.streamify.app.media.audio.SyncAudioProcessor.setJamSyncActive(false)
                     _uiState.value = JamUiState.Idle
                 }
             }
+        }
+        // Identity enrichment (local cache read only — never a server call):
+        // the roster shows the profile name/avatar when one is signed in.
+        SupabaseClient.currentUser.value?.let { user ->
+            JamEngine.myDisplayName = user.displayName ?: "Listener"
+            JamEngine.myAvatarUrl = user.avatarUrl
         }
     }
 
@@ -144,37 +158,28 @@ class JamViewModel(
         }
         viewModelScope.launch {
             _uiState.value = JamUiState.Loading
-            val result = SupabaseClient.createJamSession(currentTrack, currentPosition)
-            result.onSuccess { session ->
-                _uiState.value = JamUiState.Active(session, isHost = true)
-                JamEngine.startRuntime()
-                JamEngine.noteSelf()
-            }.onFailure { err ->
-                _uiState.value = JamUiState.Error(err.message ?: "Failed to create Jam room")
-            }
+            val session = JamEngine.createServerlessRoom()
+            _uiState.value = JamUiState.Active(session, isHost = true)
+            JamEngine.noteSelf()
         }
     }
 
     fun joinJam(code: String, playerViewModel: PlayerViewModel) {
-        val cleanCode = code.trim().uppercase()
-        if (cleanCode.length != 6) {
-            _uiState.value = JamUiState.Error("Please enter a valid 6-character room code")
-            return
-        }
+        val clean = code.trim().uppercase()
         viewModelScope.launch {
             _uiState.value = JamUiState.Loading
-            val result = SupabaseClient.joinJamSession(cleanCode)
-            result.onSuccess { session ->
-                attachedPlayer = playerViewModel
-                pll = JamPhaseLockedLoop(playerViewModel)
-                _uiState.value = JamUiState.Active(session, isHost = false)
-                JamEngine.startRuntime()
-                startExecutors(playerViewModel)
-                // LOCKSTEP HANDSHAKE: adopt the room's exact position immediately.
-                performHandshake(session)
-            }.onFailure { err ->
-                _uiState.value = JamUiState.Error(err.message ?: "Could not join Jam session")
+            // Accepts the full pairing payload (QR / NFC / paste) OR a bare PIN.
+            val ok = JamEngine.joinServerlessRoom(clean)
+            if (!ok) {
+                _uiState.value = JamUiState.Error("Could not join — check the code or pairing link")
+                return@launch
             }
+            attachedPlayer = playerViewModel
+            pll = JamPhaseLockedLoop(playerViewModel)
+            startExecutors(playerViewModel)
+            // LOCKSTEP HANDSHAKE: adopt the leader's exact position via the
+            // mesh (STATE_REQ → extrapolated TRACK_CHANGE).
+            performHandshake()
         }
     }
 
@@ -189,7 +194,7 @@ class JamViewModel(
     // ═══════════════ Shared queue (routed through the engine protocol) ═══════════════
 
     fun addToJamQueue(track: Track) {
-        val name = SupabaseClient.currentUser.value?.displayName ?: "Someone"
+        val name = JamEngine.myDisplayName.ifBlank { "Someone" }
         JamEngine.addToQueue(track, addedByName = name)
     }
 
@@ -204,12 +209,11 @@ class JamViewModel(
     }
 
     fun inviteShareText(): String {
-        val code = (JamUiStateActiveSessionOrNull() ?: return "").sessionCode
-        return "🎵 Join my Streamify Jam!\nCode: $code\nOr tap: streamify://jam/$code"
+        val session = (uiState.value as? JamUiState.Active)?.session ?: return ""
+        val payload = JamPairing.encodePayload(session)
+        return "🎵 Join my Streamify Jam!\nCode: ${session.sessionCode}\n" +
+            "Offline pairing: $payload\nOr tap: streamify://jam/${session.sessionCode}"
     }
-
-    private fun JamUiStateActiveSessionOrNull(): ListeningSession? =
-        (uiState.value as? JamUiState.Active)?.session
 
     // ═══════════════ Protocol executors ═══════════════
 
@@ -221,10 +225,11 @@ class JamViewModel(
         // PHASE 4: engine-owned FGS loops read playhead state via probes.
         JamEngine.attachPlaybackProbe {
             val ctrl = playerViewModel.getController()
-                ?: return@attachPlaybackProbe longArrayOf(0L, 0L)
+                ?: return@attachPlaybackProbe longArrayOf(0L, 0L, 0L)
             val pos = ctrl.currentPosition.coerceAtLeast(0L)
             val dur = ctrl.duration.takeIf { it > 0 } ?: 0L
-            longArrayOf(pos, dur)
+            val playing = if (ctrl.isPlaying) 1L else 0L
+            longArrayOf(pos, dur, playing)
         }
 
         // 1. Execute protocol decisions against live playback.
@@ -281,49 +286,33 @@ class JamViewModel(
                         UiEventBus.emitEvent(UiEvent.ShowSnackbar("Jam ended by host"))
                     }
                     JamEngine.Command.Rehandshake -> {
-                        // PHASE 4: engine-detected demotion/partition — the
-                        // loops live in the FGS scope now; only this player-
-                        // coupled reconciliation stays UI-side.
-                        (uiState.value as? JamUiState.Active)?.session?.let {
-                            performHandshake(it)
-                        }
+                        // Authority changed hands (Death Pivot / partition
+                        // heal): re-adopt the new leader's state.
+                        if (JamEngine.isActive() && !JamEngine.isHost()) performHandshake()
                     }
                 }
             }
         }
 
-        // 2. Feed every inbound wire packet into the protocol brain.
-        viewModelScope.launch {
-            SupabaseClient.jamPlaybackUpdates.collect { payload ->
-                JamEngine.onPayload(payload)
-            }
-        }
+        // 2. Inbound frames: the ENGINE collects NativeBridge.incomingFrames
+        // itself (serverless mesh ingress) — no Supabase channel here anymore.
 
-        // 3.6 Zero-gap handoff (P3): host NEXT_IS → guest shadow pre-buffer.
+        // 3.6 Zero-gap handoff (P3): leader NEXT_IS → guest shadow pre-buffer.
         JamEngine.onNextIsListener = { nextTrack ->
             com.streamify.app.media.cache.PredictivePreBufferManager.JamPreBuffer.notifyNextIs(nextTrack)
-        }
-
-        // 4. Reconnect reconciliation: socket healed → re-adopt room truth.
-        viewModelScope.launch {
-            SupabaseClient.isRealtimeConnected.collect { connected ->
-                if (connected && !wasConnected && JamEngine.isActive()) {
-                    (uiState.value as? JamUiState.Active)?.session?.let { performHandshake(it) }
-                }
-                wasConnected = connected
-            }
         }
     }
 
     /**
-     * Authoritative join/reconnect reconciliation: fetch the DB row, extrapolate
-     * where the host should be RIGHT NOW, and adopt that exact state locally.
+     * Serverless join/reconnect handshake: ask the LIVE LEADER where the room
+     * is (extrapolated through the synced clock) and adopt that exact state.
+     * The leader's TRACK_CHANGE arrives as a normal protocol command, so the
+     * executor path above applies it with the readiness gate.
      */
-    private suspend fun performHandshake(session: ListeningSession) {
+    private suspend fun performHandshake() {
         val pvm = attachedPlayer ?: return
-        val snap = JamEngine.reconcile() ?: return
-        val track = jamTrackFromJson(snap.currentTrackJson) ?: return
-        val expectedPos = JamEngine.extrapolatePosition(snap)
+        val snap = JamEngine.awaitLeaderHandshake(timeoutMs = 5_000L) ?: return
+        val track = jamTrackFromJson(snap.trackJson) ?: return
 
         val current = pvm.playerState.value.currentTrack
         val sameTrack = current?.title?.equals(track.title, ignoreCase = true) == true &&
@@ -338,13 +327,13 @@ class JamViewModel(
                 if (ctrl != null) {
                     com.streamify.app.jam.PlaybackReadyGate.awaitReadyThenSeek(
                         player = ctrl,
-                        positionMs = expectedPos,
+                        positionMs = snap.positionMs,
                         play = snap.isPlaying,
                         tag = "Handshake"
                     )
                 }
             } else {
-                if (expectedPos > 0L) pvm.seekTo(expectedPos)
+                if (snap.positionMs > 0L) pvm.seekTo(snap.positionMs)
                 if (snap.isPlaying != pvm.playerState.value.isPlaying) {
                     if (snap.isPlaying) pvm.play() else pvm.pause()
                 }

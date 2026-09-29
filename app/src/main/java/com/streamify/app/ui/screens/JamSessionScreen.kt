@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streamify.app.jam.JamEngine
+import com.streamify.app.jam.JamPairing
 import com.streamify.app.ui.components.yt.YtActiveEqualizer
 import com.streamify.app.ui.components.yt.YtThumbnail
 import com.streamify.app.ui.theme.*
@@ -47,6 +48,8 @@ fun JamSessionScreen(
     val context = LocalContext.current
     val jamState by jamViewModel.uiState.collectAsState()
     val playerState by playerViewModel.playerState.collectAsState()
+    val meshPeers by jamViewModel.meshPeers.collectAsState()
+    val syncTelemetry by jamViewModel.syncTelemetry.collectAsState()
     var inputRoomCode by remember { mutableStateOf("") }
     var showAddSongSheet by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
@@ -171,8 +174,8 @@ fun JamSessionScreen(
 
                     OutlinedTextField(
                         value = inputRoomCode,
-                        onValueChange = { if (it.length <= 6) inputRoomCode = it.uppercase() },
-                        placeholder = { Text("Enter 6-char PIN (e.g. STRM9X)", color = TextTertiary) },
+                        onValueChange = { if (it.length <= 220) inputRoomCode = it },
+                        placeholder = { Text("6-char PIN, or paste an offline pairing link", color = TextTertiary) },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = ActiveControl,
@@ -188,7 +191,7 @@ fun JamSessionScreen(
 
                     OutlinedButton(
                         onClick = { jamViewModel.joinJam(inputRoomCode, playerViewModel) },
-                        enabled = inputRoomCode.length == 6,
+                        enabled = inputRoomCode.trim().length >= 6,
                         shape = RoundedCornerShape(24.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = ActiveControl),
                         modifier = Modifier
@@ -196,9 +199,9 @@ fun JamSessionScreen(
                             .height(48.dp)
                     ) {
                         Text(
-                            text = "Join with PIN",
+                            text = "Join Room",
                             style = LocalAppTypography.current.chipText.copy(fontSize = 14.sp),
-                            color = if (inputRoomCode.length == 6) ActiveControl else TextTertiary
+                            color = if (inputRoomCode.trim().length >= 6) ActiveControl else TextTertiary
                         )
                     }
                 }
@@ -298,6 +301,53 @@ fun JamSessionScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Copy PIN to Share", color = TextSecondary, style = LocalAppTypography.current.chipText)
                             }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // ── P2P MESH TOPOLOGY RADAR + ACOUSTIC SYNC GAUGE (v4) ──
+                    JamMeshRadar(peers = meshPeers, isHost = state.isHost)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    JamSyncGauge(telemetry = syncTelemetry)
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // ── OFFLINE PAIRING (QR / NFC) ─────────────────────────
+                    Surface(
+                        color = BgSurfaceElevated,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "OFFLINE PAIRING",
+                                style = LocalAppTypography.current.songArtist.copy(
+                                    fontSize = 11.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold
+                                ),
+                                color = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Friends scan this with any camera app, tap NFC,\nor type the PIN — no server, no account, works on airplane mode",
+                                style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                                color = TextTertiary,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            JamPairingQr(payload = JamPairing.encodePayload(session))
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Ephemeral key rotates with the room — it dies when the room dies",
+                                style = LocalAppTypography.current.songArtist.copy(fontSize = 10.sp),
+                                color = TextTertiary,
+                                textAlign = TextAlign.Center
+                            )
                         }
                     }
 
@@ -584,7 +634,7 @@ fun JamSessionScreen(
 
                     // Live presence roster (Lockstep Engine): avatars, host crown, self tag
                     val roster = if (roomMembers.isEmpty())
-                        listOf(JamEngine.Member(session.hostUserId, "Host", null, true, 0L))
+                        listOf(JamEngine.Member(session.hostNonce, "Host", null, true, 0L))
                     else roomMembers.sortedByDescending { it.isHost }
 
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -642,7 +692,7 @@ fun JamSessionScreen(
                                 Text(
                                     text = m.name.ifBlank { "Listener" },
                                     style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
-                                    fontWeight = if (m.userId == session.hostUserId) FontWeight.Bold else FontWeight.Normal,
+                                    fontWeight = if (m.isHost) FontWeight.Bold else FontWeight.Normal,
                                     color = TextMain,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -651,7 +701,7 @@ fun JamSessionScreen(
                                 Text(
                                     text = when {
                                         m.isHost -> "HOST"
-                                        m.userId == com.streamify.app.data.supabase.SupabaseClient.currentUser.value?.id -> "YOU"
+                                        m.userId == JamEngine.myUserId() -> "YOU"
                                         else -> "LISTENER"
                                     },
                                     style = LocalAppTypography.current.songArtist.copy(fontSize = 9.sp, letterSpacing = 0.8.sp),
