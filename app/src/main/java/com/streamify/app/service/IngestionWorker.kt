@@ -15,6 +15,7 @@ import com.streamify.app.data.TrackRepository
 import com.streamify.app.util.MediaStoreScanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.streamify.app.util.SLog
 
 class IngestionWorker(
     appContext: Context,
@@ -106,7 +107,7 @@ class IngestionWorker(
 
             Result.success()
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("IngestionWorker", "IngestionWorker.doWork failed", e)
             Result.failure()
         }
     }

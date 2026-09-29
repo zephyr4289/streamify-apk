@@ -103,18 +103,24 @@ jobs:
         uses: actions/cache@v4
         continue-on-error: true
         with:
+          # Runner-image env vars are NOT part of the Actions `env` context, so
+          # `${ { env.ANDROID_HOME } }` resolved empty and this cache never
+          # stored anything. Pin the real runner SDK path instead.
           path: |
-            ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
-            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+            /usr/local/lib/android/sdk/ndk/26.1.10909125
+            /usr/local/lib/android/sdk/cmake/3.22.1
           key: ${{ runner.os }}-ndk-26.1.10909125-cmake-3.22.1
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
+      # android-actions/setup-android@v3 installs the legacy `tools` package
+      # by default; Google removed that package from the SDK repository, so
+      # the action now fails on every run. GitHub hosted runners already ship
+      # the Android SDK with cmdline-tools available via $ANDROID_HOME.
       - name: Install Android NDK & CMake
         if: steps.ndk-cache.outputs.cache-hit != 'true'
         run: |
-          sdkmanager "ndk;26.1.10909125" "cmake;3.22.1" "build-tools;34.0.0"
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKMANAGER" ] || SDKMANAGER=sdkmanager
+          yes | "$SDKMANAGER" "ndk;26.1.10909125" "cmake;3.22.1" "build-tools;34.0.0" > /dev/null
 
       - name: Configure NDK Environment
         run: |
@@ -254,11 +260,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android NDK & CMake
-        run: sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKMANAGER" ] || SDKMANAGER=sdkmanager
+          yes | "$SDKMANAGER" "ndk;26.1.10909125" "cmake;3.22.1" > /dev/null
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -353,18 +359,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
-            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+            /usr/local/lib/android/sdk/ndk/26.1.10909125
+            /usr/local/lib/android/sdk/cmake/3.22.1
           key: ${{ runner.os }}-ndk-26.1.10909125-cmake-3.22.1
-
-      - name: Setup Android SDK
-        if: matrix.type == 'android-jvm' && steps.ndk-cache.outputs.cache-hit != 'true'
-        uses: android-actions/setup-android@v3
 
       - name: Install Android NDK for AGP Sync
         if: matrix.type == 'android-jvm' && steps.ndk-cache.outputs.cache-hit != 'true'
         run: |
-          sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKMANAGER" ] || SDKMANAGER=sdkmanager
+          yes | "$SDKMANAGER" "ndk;26.1.10909125" "cmake;3.22.1" > /dev/null
 
       - name: Setup Gradle
         if: matrix.type == 'android-jvm'
@@ -378,6 +382,7 @@ jobs:
         run: |
           mkdir -p native/build && cd native/build
           cmake -DCMAKE_CXX_COMPILER=clang++ \
+                -DCMAKE_C_COMPILER=clang \
                 -DCMAKE_C_COMPILER_LAUNCHER=ccache \
                 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
                 -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -O2 -g" \
@@ -412,7 +417,12 @@ jobs:
           elif [ "${{ matrix.type }}" == "rust" ] && [ "${{ steps.rust_test.outcome }}" == "success" ]; then
             STATUS="PASSED ✅"
           fi
-          sed -i "1s/^/==================================================\nSHARD: ${{ matrix.shard }}\nDESCRIPTION: ${{ matrix.description }}\nSTATUS: $STATUS\n==================================================\n\n/" shard-${{ matrix.shard }}.log
+          # printf + cat, NOT sed: the shard description embeds slashes
+          # ("title/artist") which terminate a sed s/// script early.
+          { printf '==================================================\nSHARD: %s\nDESCRIPTION: %s\nSTATUS: %s\n==================================================\n\n' \
+              "${{ matrix.shard }}" "${{ matrix.description }}" "$STATUS";
+            cat "shard-${{ matrix.shard }}.log"; } > "shard-${{ matrix.shard }}.log.tmp" \
+            && mv "shard-${{ matrix.shard }}.log.tmp" "shard-${{ matrix.shard }}.log"
 
       - name: Upload Shard Log Artifact
         uses: actions/upload-artifact@v4
@@ -499,14 +509,19 @@ jobs:
           name: log-native-libfuzzer
           path: shard-native-libfuzzer.log
 
-  # 5. MULTI-API ARM64 EMULATOR MATRIX (Nightly & Main PRs)
+  # 5. MULTI-API ARM64 EMULATOR MATRIX (Nightly only — advisory)
   emulator-matrix:
     name: "Emulator API ${{ matrix.api }} (ARM64)"
     needs: build-and-compile
-    runs-on: macos-latest
+    # ARM64 emulators need Hypervisor.Framework, and GitHub's macOS images
+    # currently cannot use it (qemu aborts with `HVF error: HV_UNSUPPORTED`
+    # on both macos-15 and macos-26; Ubuntu runners have no KVM either), so
+    # these shards have never been able to run. Nightly-only: PRs see them
+    # as skipped; re-enable for pull_request once the runner fleet recovers.
+    runs-on: macos-15
     # Advisory: ARM64 emulator runs are slow/flaky on shared runners.
     continue-on-error: true
-    if: github.event_name == 'schedule' || github.base_ref == 'main'
+    if: github.event_name == 'schedule'
     strategy:
       fail-fast: false
       matrix:
@@ -536,18 +551,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
-            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+            /Users/runner/Library/Android/sdk/ndk/26.1.10909125
+            /Users/runner/Library/Android/sdk/cmake/3.22.1
           key: ${{ runner.os }}-ndk-26.1.10909125-cmake-3.22.1
-
-      - name: Setup Android SDK
-        if: steps.ndk-cache.outputs.cache-hit != 'true'
-        uses: android-actions/setup-android@v3
 
       - name: Install Android NDK for AGP Sync
         if: steps.ndk-cache.outputs.cache-hit != 'true'
         run: |
-          sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKMANAGER" ] || SDKMANAGER=sdkmanager
+          yes | "$SDKMANAGER" "ndk;26.1.10909125" "cmake;3.22.1" > /dev/null
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -614,13 +627,23 @@ jobs:
           echo "" >> combined-test.log
           cat downloaded-logs/*.log >> combined-test.log 2>/dev/null || echo "WARN: No shard logs found." >> combined-test.log
 
+          # Verdict scan. The emulator matrix is advisory (continue-on-error,
+          # nightly-only — GitHub's macOS fleet currently cannot boot ARM64
+          # emulators at all), so its shard logs are collected for visibility
+          # but excluded from the gating verdict. Same for cancelled/failing
+          # emulator jobs: they must not mask the rest of the matrix.
+          SHARD_FAIL=0
+          for f in downloaded-logs/*.log; do
+            case "$(basename "$f")" in shard-emulator-*) continue ;; esac
+            if grep -q "STATUS: FAILED ❌" "$f" 2>/dev/null; then SHARD_FAIL=1; fi
+          done
+
           # Catch both explicit failures AND cancelled jobs
           if [ "${{ needs.build-and-compile.result }}" == "failure" ] || [ "${{ needs.build-and-compile.result }}" == "cancelled" ] || \
              [ "${{ needs.test-matrix.result }}" == "failure" ] || [ "${{ needs.test-matrix.result }}" == "cancelled" ] || \
              [ "${{ needs.native-deep-fuzz.result }}" == "failure" ] || [ "${{ needs.native-deep-fuzz.result }}" == "cancelled" ] || \
-             [ "${{ needs.emulator-matrix.result }}" == "failure" ] || [ "${{ needs.emulator-matrix.result }}" == "cancelled" ] || \
              [ "${{ needs.codeql-analysis.result }}" == "failure" ] || [ "${{ needs.codeql-analysis.result }}" == "cancelled" ] || \
-             grep -q "STATUS: FAILED ❌" combined-test.log; then
+             [ "$SHARD_FAIL" -eq 1 ]; then
             echo "OVERALL_TEST_RESULT=FAILED" >> $GITHUB_ENV
           else
             echo "OVERALL_TEST_RESULT=PASSED" >> $GITHUB_ENV

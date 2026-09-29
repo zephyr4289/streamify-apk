@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
+import com.streamify.app.util.SLog
 
 data class DownloadTask(
     val id: UUID,
@@ -119,7 +120,7 @@ class IngestionViewModel : ViewModel() {
 
                 workManager.enqueue(downloadRequest)
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("IngestionViewModel", "IngestionViewModel.enqueueDownloadDirect failed", e)
             }
         }
     }

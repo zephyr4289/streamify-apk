@@ -477,7 +477,7 @@ fun AdminDashboardScreen(
                             }
                         }
                     } else {
-                        items(edgeStats!!.activeNodes) { node ->
+                        items(edgeStats?.activeNodes.orEmpty(), key = { it.deviceId }) { node ->
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
                                 shape = RoundedCornerShape(12.dp),
@@ -523,7 +523,7 @@ fun AdminDashboardScreen(
                     }
 
                     if (edgeStats?.topContributors != null) {
-                        items(edgeStats!!.topContributors.take(10)) { contributor ->
+                        items(edgeStats?.topContributors.orEmpty().take(10), key = { it.userId }) { contributor ->
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgElevated),
                                 shape = RoundedCornerShape(12.dp),
@@ -565,7 +565,7 @@ fun AdminDashboardScreen(
                     }
 
                     if (edgeStats?.tableStats != null) {
-                        items(edgeStats!!.tableStats) { tbl ->
+                        items(edgeStats?.tableStats.orEmpty(), key = { it.tableName }) { tbl ->
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
                                 shape = RoundedCornerShape(8.dp),
@@ -623,7 +623,7 @@ fun AdminDashboardScreen(
                         Text("Registered Profiles (${filteredUsers.size})", style = StreamifyType.TitleMedium, color = StreamifyColors.TextMain)
                     }
 
-                    items(filteredUsers) { profile ->
+                    items(filteredUsers, key = { it.id }) { profile ->
                         Card(
                             colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
                             shape = RoundedCornerShape(12.dp),
@@ -757,7 +757,7 @@ fun AdminDashboardScreen(
                         }
                     }
 
-                    items(jamSessions) { session ->
+                    items(jamSessions, key = { it.id }) { session ->
                         Card(
                             colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
                             shape = RoundedCornerShape(12.dp),
@@ -840,7 +840,7 @@ fun AdminDashboardScreen(
                         }
                     }
 
-                    items(recentComments) { comment ->
+                    items(recentComments, key = { it.id }) { comment ->
                         Card(
                             colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
                             shape = RoundedCornerShape(12.dp),
@@ -1174,10 +1174,10 @@ private fun UserTelemetrySheet(
                         Text(livePersona?.title ?: user.bio.ifBlank { "Sonic Explorer 🎧" }, style = StreamifyType.BodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = StreamifyColors.Primary)
                     }
 
-                    if (livePersona != null && livePersona!!.description.isNotBlank()) {
+                    livePersona?.takeIf { it.description.isNotBlank() }?.let { persona ->
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = livePersona!!.description,
+                            text = persona.description,
                             style = StreamifyType.Caption.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
                             color = StreamifyColors.TextMain.copy(alpha = 0.85f)
                         )
@@ -1261,16 +1261,17 @@ private fun AdminTopSongsPanel() {
         )
         Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
 
+        val tableRows = rows
         when {
             errorMsg != null -> Text(
                 "⚠ $errorMsg\nApply the stats_overhaul migration to enable this panel.",
                 color = Color(0xFFEF4444),
                 style = StreamifyType.BodySmall
             )
-            rows == null -> CircularProgressIndicator(color = StreamifyColors.Primary, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
+            tableRows == null -> CircularProgressIndicator(color = StreamifyColors.Primary, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
             else -> {
                 val list = buildList {
-                    for (i in 0 until rows!!.length()) rows!!.optJSONObject(i)?.let { add(it) }
+                    for (i in 0 until tableRows.length()) tableRows.optJSONObject(i)?.let { add(it) }
                 }
                 if (list.isEmpty()) {
                     Text(
@@ -1284,7 +1285,7 @@ private fun AdminTopSongsPanel() {
                         contentPadding = PaddingValues(bottom = 80.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        itemsIndexed(list) { index, row ->
+                        itemsIndexed(list, key = { i, row -> "${row.optString("track_sig")}_$i" }) { index, row ->
                             val snap = row.optJSONObject("snapshot")
                             val title = snap?.optString("title", "")?.ifBlank { null }
                                 ?: row.optString("track_sig").substringBefore("_").ifBlank { "Unknown" }

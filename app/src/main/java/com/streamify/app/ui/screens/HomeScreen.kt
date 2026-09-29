@@ -303,7 +303,7 @@ fun HomeScreen(
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    items(communityState.communityPlaylists) { playlist ->
+                                    items(communityState.communityPlaylists, key = { it.id }) { playlist ->
                                         YtSupermixCard(
                                             title = playlist.name,
                                             subtitle = "by ${playlist.creatorName}",

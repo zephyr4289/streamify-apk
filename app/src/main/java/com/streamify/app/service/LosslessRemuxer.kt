@@ -1,6 +1,7 @@
 package com.streamify.app.service
 
 import java.io.File
+import com.streamify.app.util.SLog
 
 object LosslessRemuxer {
 
@@ -45,7 +46,7 @@ object LosslessRemuxer {
             rawFile.delete()
             return true
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("LosslessRemuxer", "LosslessRemuxer.remuxLossless failed", e)
             return false
         }
     }

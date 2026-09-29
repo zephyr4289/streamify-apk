@@ -28,7 +28,7 @@ fun YtPresetFilterChips(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = modifier.fillMaxWidth()
     ) {
-        items(presets) { preset ->
+        items(presets, key = { it }) { preset ->
             val isActive = preset.equals(selectedPreset, ignoreCase = true)
             Surface(
                 shape = RoundedCornerShape(8.dp),

@@ -45,6 +45,8 @@ fun ArtistScreen(
         allTracks.filter { it.artist.contains(artistName, ignoreCase = true) }
     }
     val currentTrack by playerViewModel.currentTrack.collectAsState()
+    val playerState by playerViewModel.playerState.collectAsState()
+    val playerIsPlaying = playerState.isPlaying
     val contextMenuController = LocalContextMenuController.current
 
     val firstTrackWithCover = artistTracks.find { !it.coverArtPath.isNullOrBlank() }
@@ -187,7 +189,8 @@ fun ArtistScreen(
             items(artistTracks, key = { it.id }) { track ->
                 SwipeableTrackListItem(
                     track = track,
-                    isPlaying = currentTrack?.id == track.id,
+                    isCurrentTrack = currentTrack?.id == track.id,
+                    isActuallyPlaying = playerIsPlaying,
                     onClick = { onTrackClick(track, artistTracks) },
                     onOptionsClick = { contextMenuController.show(track, origin = MenuOrigin.HOME) },
                     onSwipeQueue = { playerViewModel.addToQueue(track) },

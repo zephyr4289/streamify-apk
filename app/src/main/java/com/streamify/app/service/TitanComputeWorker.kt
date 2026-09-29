@@ -13,6 +13,7 @@ import com.streamify.app.data.remote.SupabaseClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.streamify.app.util.SLog
 
 class TitanComputeWorker(
     context: Context,
@@ -117,7 +118,7 @@ class TitanComputeWorker(
 
             Result.success()
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("TitanComputeWorker", "TitanComputeWorker.doWork failed", e)
             repo.updateProgress("IDLE", "")
             Result.success()
         }

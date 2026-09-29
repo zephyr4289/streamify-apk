@@ -80,6 +80,21 @@ fun NeonOrbitalIndicator(
     isRefreshing: Boolean,
     modifier: Modifier = Modifier
 ) {
+    if (isRefreshing) {
+        RefreshingOrbitalSpinner(modifier = modifier)
+    } else {
+        PullArcIndicator(progress = progress, modifier = modifier)
+    }
+}
+
+/**
+ * Continuous spinner shown only while a refresh is actually in flight.
+ * Owning the infinite transition inside this composable means the
+ * Choreographer animation loop only runs while [isRefreshing] is true —
+ * not during the whole pull gesture.
+ */
+@Composable
+private fun RefreshingOrbitalSpinner(modifier: Modifier = Modifier) {
     val infiniteTransition = rememberInfiniteTransition(label = "NeonOrbitalTransition")
 
     val rotation by infiniteTransition.animateFloat(
@@ -116,50 +131,70 @@ fun NeonOrbitalIndicator(
             style = Stroke(width = stroke, cap = StrokeCap.Round)
         )
 
-        if (isRefreshing) {
-            // 2. GPU Radial Luminescent Bloom
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        ActiveControl.copy(alpha = 0.45f),
-                        Primary.copy(alpha = 0.15f),
-                        Color.Transparent
-                    ),
-                    center = centerOffset,
-                    radius = (diameter / 1.5f) * pulseScale
+        // 2. GPU Radial Luminescent Bloom
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    ActiveControl.copy(alpha = 0.45f),
+                    Primary.copy(alpha = 0.15f),
+                    Color.Transparent
                 ),
-                radius = (diameter / 1.5f) * pulseScale,
-                center = centerOffset
-            )
+                center = centerOffset,
+                radius = (diameter / 1.5f) * pulseScale
+            ),
+            radius = (diameter / 1.5f) * pulseScale,
+            center = centerOffset
+        )
 
-            // 3. Continuous 360° Neon Pulse Spinner
-            rotate(rotation, pivot = centerOffset) {
-                drawArc(
-                    brush = Brush.sweepGradient(
-                        listOf(
-                            Color.Transparent,
-                            Primary,
-                            ActiveControl
-                        )
-                    ),
-                    startAngle = 0f,
-                    sweepAngle = 300f,
-                    useCenter = false,
-                    style = Stroke(width = stroke, cap = StrokeCap.Round)
-                )
-            }
-        } else {
-            // 4. Kinetic Pull-Driven Arc Morph (0° -> 360°)
-            val sweep = progress * 360f
-            rotate(-90f, pivot = centerOffset) {
-                drawArc(
-                    color = ActiveControl,
-                    startAngle = 0f,
-                    sweepAngle = sweep,
-                    useCenter = false,
-                    style = Stroke(width = stroke, cap = StrokeCap.Round)
-                )
-            }
+        // 3. Continuous 360° Neon Pulse Spinner
+        rotate(rotation, pivot = centerOffset) {
+            drawArc(
+                brush = Brush.sweepGradient(
+                    listOf(
+                        Color.Transparent,
+                        Primary,
+                        ActiveControl
+                    )
+                ),
+                startAngle = 0f,
+                sweepAngle = 300f,
+                useCenter = false,
+                style = Stroke(width = stroke, cap = StrokeCap.Round)
+            )
+        }
+    }
+}
+
+/** Kinetic pull-driven arc morph (0° -> 360°). No animation loop —
+ *  the arc geometry is a pure function of the pull [progress]. */
+@Composable
+private fun PullArcIndicator(
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.size(42.dp)) {
+        val diameter = size.minDimension
+        val stroke = diameter / 9f
+        val centerOffset = Offset(size.width / 2f, size.height / 2f)
+
+        // Background Track Ring
+        drawArc(
+            color = Color.White.copy(alpha = 0.08f),
+            startAngle = 0f,
+            sweepAngle = 360f,
+            useCenter = false,
+            style = Stroke(width = stroke, cap = StrokeCap.Round)
+        )
+
+        val sweep = progress * 360f
+        rotate(-90f, pivot = centerOffset) {
+            drawArc(
+                color = ActiveControl,
+                startAngle = 0f,
+                sweepAngle = sweep,
+                useCenter = false,
+                style = Stroke(width = stroke, cap = StrokeCap.Round)
+            )
         }
     }
 }

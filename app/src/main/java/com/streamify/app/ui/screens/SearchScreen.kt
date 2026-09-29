@@ -45,6 +45,8 @@ fun SearchScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val currentTrack by playerViewModel.currentTrack.collectAsState()
+    val playerState by playerViewModel.playerState.collectAsState()
+    val playerIsPlaying = playerState.isPlaying
     val resolvingTrackUrl by viewModel.resolvingTrackUrl.collectAsState()
     val searchHistory by viewModel.searchHistory.collectAsState()
     val searchSuggestions by viewModel.searchSuggestions.collectAsState()
@@ -136,7 +138,7 @@ fun SearchScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(searchSuggestions) { suggestion ->
+                items(searchSuggestions, key = { it }) { suggestion ->
                     Surface(
                         color = BgSurfaceElevated,
                         shape = RoundedCornerShape(16.dp),
@@ -221,7 +223,7 @@ fun SearchScreen(
                             }
                         }
                     }
-                    items(searchHistory.take(5)) { pastQuery ->
+                    items(searchHistory.take(5), key = { it }) { pastQuery ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -356,6 +358,7 @@ fun SearchScreen(
                                 YtQueueTrackItem(
                                     track = track,
                                     isPlaying = currentTrack?.id == track.id,
+                                    isActuallyPlaying = playerIsPlaying,
                                     showDragHandle = false,
                                     onClick = { onTrackClick(track, localMatches) },
                                     onMoreClick = { contextMenuController.show(track, origin = MenuOrigin.SEARCH) }

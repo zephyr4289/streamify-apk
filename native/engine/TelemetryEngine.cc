@@ -1,6 +1,7 @@
 #include "TelemetryEngine.h"
 #include "StreamifyDB.h"
 #include "../util/stlog.h"
+#include <algorithm>
 #include <cmath>
 
 #define LOG_TAG "TelemetryEngine"

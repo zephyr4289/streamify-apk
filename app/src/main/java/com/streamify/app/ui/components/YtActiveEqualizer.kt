@@ -13,10 +13,47 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.streamify.app.ui.theme.ActiveControl
 
+/**
+ * Equalizer bars indicator.
+ *
+ * [isActive] must reflect the *actual* playback state (not just "row is the
+ * current track"): when false the bars render as a static frozen frame, which
+ * stops the Choreographer animation loop from running while playback is
+ * paused.
+ */
 @Composable
 fun YtActiveEqualizer(
     modifier: Modifier = Modifier,
-    color: Color = ActiveControl
+    color: Color = ActiveControl,
+    isActive: Boolean = true
+) {
+    if (isActive) {
+        AnimatedEqualizerBars(modifier = modifier, color = color)
+    } else {
+        Canvas(modifier = modifier.size(16.dp, 16.dp)) {
+            val barWidth = size.width / 5f
+            val gap = barWidth / 2f
+            // Frozen mid-animation silhouette for the paused state.
+            val heights = listOf(0.55f, 0.82f, 0.45f)
+            heights.forEachIndexed { index, heightFraction ->
+                val barHeight = size.height * heightFraction
+                val xPos = index * (barWidth + gap)
+                val yPos = size.height - barHeight
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(x = xPos, y = yPos),
+                    size = Size(width = barWidth, height = barHeight),
+                    cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnimatedEqualizerBars(
+    modifier: Modifier,
+    color: Color
 ) {
     val transition = rememberInfiniteTransition(label = "equalizer_transition")
 

@@ -28,18 +28,24 @@ import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.util.DurationFormatter
 import com.streamify.app.viewmodel.CommunityViewModel
+import kotlinx.coroutines.flow.StateFlow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CommentsSheet(
     track: Track?,
-    currentPositionMs: Long,
+    positionFlow: StateFlow<Long>,
     communityViewModel: CommunityViewModel,
     onSeekTo: (Long) -> Unit,
     onDismiss: () -> Unit
 ) {
     val state by communityViewModel.uiState.collectAsState()
     var commentInput by remember { mutableStateOf("") }
+
+    // Collect the 5 Hz position ticker HERE, inside the sheet, so its
+    // recomposition scope is confined to the comments UI. Collecting it in
+    // the caller recomposed the entire player sheet five times per second.
+    val currentPositionMs by positionFlow.collectAsState()
 
     LaunchedEffect(track) {
         communityViewModel.loadCommentsForTrack(track)
@@ -100,7 +106,7 @@ fun CommentsSheet(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(state.currentTrackComments) { comment ->
+                    items(state.currentTrackComments, key = { it.id }) { comment ->
                         CommentItem(
                             comment = comment,
                             currentPosMs = currentPositionMs,

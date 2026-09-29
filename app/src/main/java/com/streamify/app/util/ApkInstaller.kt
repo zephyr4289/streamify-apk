@@ -10,6 +10,7 @@ import android.os.Build
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
+import com.streamify.app.util.SLog
 
 object ApkInstaller {
 
@@ -97,7 +98,7 @@ object ApkInstaller {
             context.startActivity(intent)
         } catch (e: Exception) {
             Toast.makeText(context, "Failed to launch installer: ${e.message}", Toast.LENGTH_LONG).show()
-            e.printStackTrace()
+            SLog.st("ApkInstaller", "ApkInstaller.promptInstallation failed", e)
         }
     }
 }

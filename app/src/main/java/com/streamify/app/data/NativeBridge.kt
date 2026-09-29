@@ -3,23 +3,24 @@ package com.streamify.app.data
 import com.streamify.app.data.models.OrchestratorStatusNative
 import com.streamify.app.data.models.RecommendationNative
 import com.streamify.app.data.models.TrackNative
+import com.streamify.app.util.SLog
 
 object NativeBridge {
     init {
         try {
             System.loadLibrary("streamify_core_rs")
         } catch (e: UnsatisfiedLinkError) {
-            e.printStackTrace()
+            SLog.st("NativeBridge", "loadLibrary(streamify_core_rs) failed", e)
         }
         try {
             System.loadLibrary("streamify_native_core")
         } catch (e: UnsatisfiedLinkError) {
-            e.printStackTrace()
+            SLog.st("NativeBridge", "loadLibrary(streamify_native_core) failed", e)
         }
         try {
             System.loadLibrary("streamify_core")
         } catch (e: UnsatisfiedLinkError) {
-            e.printStackTrace()
+            SLog.st("NativeBridge", "loadLibrary(streamify_core) failed", e)
         }
     }
 
@@ -46,7 +47,7 @@ object NativeBridge {
         try {
             nativeInsertVector(trackId, embedding)
         } catch (e: Throwable) {
-            e.printStackTrace()
+            SLog.st("NativeBridge", "NativeBridge.insertVector failed", e)
         }
     }
 

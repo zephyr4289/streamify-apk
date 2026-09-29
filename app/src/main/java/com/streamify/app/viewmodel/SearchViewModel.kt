@@ -9,6 +9,7 @@ import com.streamify.app.data.network.YouTubeStreamResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.streamify.app.util.SLog
 
 enum class SearchResultType { SONG, VIDEO, ARTIST, ALBUM, PLAYLIST }
 
@@ -44,7 +46,7 @@ sealed class SearchUiState {
     data class Error(val message: String) : SearchUiState()
 }
 
-class SearchViewModel(private val repository: TrackRepository = TrackRepository) : ViewModel() {
+class SearchViewModel(private val repository: com.streamify.app.data.TrackRepositoryApi = com.streamify.app.data.TrackRepository) : ViewModel() {
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
@@ -71,7 +73,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
         suggestJob = viewModelScope.launch {
             kotlinx.coroutines.delay(150)
             val list = com.streamify.app.data.network.YouTubeMusicSearchApi.fetchSearchSuggestions(clean)
-            _searchSuggestions.value = list
+            _searchSuggestions.value = list.distinct()
         }
     }
 
@@ -361,9 +363,10 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // Ignore intentional user cancellation
+                // Structured cancellation must propagate, never be swallowed.
+                throw e
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("SearchViewModel", "SearchViewModel.playOnlineTrack failed", e)
             } finally {
                 _resolvingTrackUrl.value = null
             }
@@ -433,7 +436,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("SearchViewModel", "SearchViewModel.importSpotifyPlaylist failed", e)
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "Error importing playlist.", android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -474,9 +477,7 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                 val newPlaylistId = java.util.UUID.randomUUID().toString()
                 var playlistName = "Imported Local JSON"
                 val documentFile = androidx.documentfile.provider.DocumentFile.fromSingleUri(context, uri)
-                if (documentFile != null && documentFile.name != null) {
-                    playlistName = documentFile.name!!.removeSuffix(".json")
-                }
+                documentFile?.name?.removeSuffix(".json")?.let { name -> playlistName = name }
                 
                 val trackIds = mutableListOf<Int>()
                 
@@ -536,11 +537,19 @@ class SearchViewModel(private val repository: TrackRepository = TrackRepository)
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("SearchViewModel", "SearchViewModel.importLocalPlaylistJson failed", e)
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "Failed to parse JSON playlist.", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         }
+    }
+
+    override fun onCleared() {
+        // The speculative-prefetch scope outlives individual searches; without
+        // this it leaked SupervisorJob + IO threads for the ViewModel's
+        // lifetime and beyond (viewModelScope is cancelled separately).
+        prefetchScope.cancel()
+        super.onCleared()
     }
 }

@@ -19,6 +19,7 @@ import java.net.URL
 import java.util.Collections
 import java.util.HashSet
 import kotlin.math.abs
+import com.streamify.app.util.SLog
 
 object OnlineTrackProcessor {
 
@@ -178,7 +179,7 @@ object OnlineTrackProcessor {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("OnlineTrackProcessor", "OnlineTrackProcessor.processTrackInternal failed", e)
         } finally {
             tempChunk?.let {
                 try { if (it.exists()) it.delete() } catch (e: Exception) { /* ignore */ }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import com.streamify.app.util.SLog
 
 sealed interface AuthState {
     object Loading : AuthState
@@ -80,7 +81,7 @@ object AuthManager {
                         SupabaseClient.syncCloudLikes(emptyList())
                         com.streamify.app.data.TrackRepository.refresh()
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        SLog.st("AuthManager", "AuthManager.signInWithGoogle failed", e)
                     }
                 }
             }
@@ -88,7 +89,7 @@ object AuthManager {
         } catch (e: GetCredentialCancellationException) {
             return@withContext Result.failure(Exception("Sign-in cancelled."))
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("AuthManager", "AuthManager.signInWithGoogle failed", e)
             return@withContext Result.failure(e)
         }
     }
@@ -111,7 +112,7 @@ object AuthManager {
                 com.streamify.app.data.TrackRepository.refresh()
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("AuthManager", "AuthManager.signOut failed", e)
         }
     }
 }

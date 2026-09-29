@@ -51,8 +51,11 @@ fun LyricsCanvas(
         while (true) {
             withFrameNanos {
                 val rawMs = progressProvider()
-                val latencyCompensatedMs = (rawMs - com.streamify.app.service.LatencyProbe.estimatedLatencyMs).coerceAtLeast(0L)
-                val newIndex = LyricsEngine.getActiveIndex(latencyCompensatedMs)
+                // NOTE: latency compensation scaffold (LatencyProbe) was removed in
+                // the v1.1.0 refactor — it was never bound to the audio path and its
+                // estimate was permanently 0. Re-introduce an audio-output latency
+                // probe here if karaoke drift compensation becomes a requirement.
+                val newIndex = LyricsEngine.getActiveIndex(rawMs)
 
                 if (newIndex != activeIndexState.intValue) {
                     activeIndexState.intValue = newIndex

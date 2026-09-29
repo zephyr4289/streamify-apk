@@ -74,7 +74,7 @@ fun CommunityHubScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(genres) { genre ->
+            items(genres, key = { it }) { genre ->
                 val isSelected = selectedGenre == genre
                 Surface(
                     color = if (isSelected) BgChipActive else BgChipInactive,

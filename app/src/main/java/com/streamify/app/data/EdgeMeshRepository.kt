@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
+import com.streamify.app.util.SLog
 
 data class LocalEdgeMeshState(
     val deviceId: String = "",
@@ -200,7 +201,7 @@ class EdgeMeshRepository private constructor(private val context: Context) {
 
                     recordContribution(activeTrackTitle.ifBlank { "Stream Audio" }, bytesToAnalyze.toLong())
                 } catch (e: Throwable) {
-                    e.printStackTrace()
+                    SLog.st("EdgeMeshRepository", "EdgeMeshRepository.onPcmChunkReceived failed", e)
                     updateProgress("IDLE", "")
                 } finally {
                     isAnalyzing.set(false)

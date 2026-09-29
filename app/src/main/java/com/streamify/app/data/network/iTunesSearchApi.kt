@@ -10,6 +10,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.zip.GZIPInputStream
+import com.streamify.app.util.SLog
 
 object iTunesSearchApi {
 
@@ -73,7 +74,7 @@ object iTunesSearchApi {
 
             return@withContext results
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("iTunesSearchApi", "iTunesSearchApi.search failed", e)
             return@withContext emptyList()
         }
     }

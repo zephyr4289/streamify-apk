@@ -34,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.streamify.app.util.SLog
 
 @Composable
 fun LyricsScreen(
@@ -180,7 +181,7 @@ fun LyricsScreen(
                                     ).show()
                                 }
                             } catch (e: Exception) {
-                                e.printStackTrace()
+                                SLog.st("LyricsScreen", "LyricsScreen save-synced-lyrics failed", e)
                             }
                         }
                     }
@@ -224,7 +225,7 @@ fun LyricsScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(top = 24.dp, bottom = 160.dp, start = 24.dp, end = 24.dp)
                 ) {
-                    items(currentLyrics) { line ->
+                    itemsIndexed(currentLyrics, key = { i, line -> "unsynced_${i}_${line.timeMs}" }) { _, line ->
                         Text(
                             text = line.text,
                             style = LocalAppTypography.current.headlineMedium.copy(

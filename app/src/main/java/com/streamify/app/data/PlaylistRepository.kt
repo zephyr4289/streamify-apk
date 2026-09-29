@@ -14,6 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+import com.streamify.app.util.SLog
 
 data class Playlist(
     val id: String = UUID.randomUUID().toString(),
@@ -147,7 +148,7 @@ object PlaylistRepository {
             }
             _playlists.value = list
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("PlaylistRepository", "PlaylistRepository.loadPlaylists failed", e)
         }
     }
 
@@ -197,7 +198,7 @@ object PlaylistRepository {
                 tempFile.renameTo(targetFile)
             } catch (e: Exception) {
                 try { tempFile.delete() } catch (_: Exception) {}
-                e.printStackTrace()
+                SLog.st("PlaylistRepository", "PlaylistRepository.savePlaylists failed", e)
             }
         }
     }
@@ -329,8 +330,8 @@ object PlaylistRepository {
         }
         savePlaylists()
 
-        if (finalPos != null) {
-            syncChannel.trySend(PlaylistSyncAction.AddTrack(playlistId, trackId, finalPos!!))
+        finalPos?.let { pos ->
+            syncChannel.trySend(PlaylistSyncAction.AddTrack(playlistId, trackId, pos))
         }
     }
 
@@ -417,7 +418,7 @@ object PlaylistRepository {
                     )
                     queuedCount++
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    SLog.st("PlaylistRepository", "PlaylistRepository.importAndLinkPlaylist failed", e)
                 }
             }
         }
@@ -467,7 +468,7 @@ object PlaylistRepository {
             m3u8File.writeText(sb.toString(), Charsets.UTF_8)
             m3u8File
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("PlaylistRepository", "PlaylistRepository.exportPlaylistToM3U8 failed", e)
             null
         }
     }

@@ -21,6 +21,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.regex.Pattern
+import com.streamify.app.util.SLog
 
 data class RemoteBuildInfo(
     val buildNumber: Int,
@@ -239,7 +240,7 @@ object StreamifyUpdateManager {
                 registerDownloadReceiver(context.applicationContext, downloadId, fileName)
                 return
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("StreamifyUpdateManager", "StreamifyUpdateManager.dispatchUpdate failed", e)
             }
         }
 
@@ -254,7 +255,7 @@ object StreamifyUpdateManager {
             }
             context.startActivity(intent)
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("StreamifyUpdateManager", "StreamifyUpdateManager.openReleasePage failed", e)
         }
     }
 
@@ -286,7 +287,7 @@ object StreamifyUpdateManager {
                                 installApk(ctx, downloadFile)
                             }
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            SLog.st("StreamifyUpdateManager", "StreamifyUpdateManager.onReceive failed", e)
                         }
                     }
                 }
@@ -315,7 +316,7 @@ object StreamifyUpdateManager {
             }
             context.startActivity(installIntent)
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("StreamifyUpdateManager", "StreamifyUpdateManager.installApk failed", e)
         }
     }
 }

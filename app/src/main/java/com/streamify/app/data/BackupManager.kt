@@ -12,6 +12,7 @@ import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.streamify.app.util.SLog
 
 object BackupManager {
 
@@ -84,7 +85,7 @@ object BackupManager {
 
             Result.success(backupFile.absolutePath)
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("BackupManager", "BackupManager.exportLibraryBackup failed", e)
             Result.failure(e)
         }
     }
@@ -133,7 +134,7 @@ object BackupManager {
             TrackRepository.refresh()
             Result.success(importedCount)
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("BackupManager", "BackupManager.importLibraryBackup failed", e)
             Result.failure(e)
         }
     }

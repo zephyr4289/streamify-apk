@@ -4,6 +4,7 @@ import android.util.LruCache
 import com.streamify.app.data.models.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.streamify.app.util.SLog
 
 object CanonicalSeedResolver {
 
@@ -56,14 +57,16 @@ object CanonicalSeedResolver {
                             track.durationSec <= 0 // duration-unknown fallback
                 }
                 if (topMatch != null) {
-                    val resolvedId = YouTubeStreamResolver.extractVideoId(topMatch.url)!!
-                    synchronized(seedCache) {
-                        seedCache.put(cacheKey, resolvedId)
+                    val resolvedId = YouTubeStreamResolver.extractVideoId(topMatch.url)
+                    if (resolvedId != null) {
+                        synchronized(seedCache) {
+                            seedCache.put(cacheKey, resolvedId)
+                        }
+                        return@withContext resolvedId
                     }
-                    return@withContext resolvedId
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                SLog.st("CanonicalSeedResolver", "CanonicalSeedResolver.resolveToCanonicalId failed", e)
             }
         }
 

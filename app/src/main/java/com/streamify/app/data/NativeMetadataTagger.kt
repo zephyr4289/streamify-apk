@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.File
+import com.streamify.app.util.SLog
 
 data class TaggedAudioResult(
     val coverArtPath: String,
@@ -46,7 +47,7 @@ object NativeMetadataTagger {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("NativeMetadataTagger", "NativeMetadataTagger.tagAndExtractAssets failed", e)
         }
 
         // 2. Resolve & Write Synced Lyrics
@@ -58,7 +59,7 @@ object NativeMetadataTagger {
                 lyricsPath = lyricsFile.absolutePath
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("NativeMetadataTagger", "NativeMetadataTagger.tagAndExtractAssets failed", e)
         }
 
         TaggedAudioResult(coverArtPath, lyricsPath)

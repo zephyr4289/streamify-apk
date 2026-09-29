@@ -59,7 +59,7 @@ fun YtPlayerSeekBar(
         derivedStateOf {
             when {
                 isDragging -> dragPositionMs
-                latchedPositionMs != null -> latchedPositionMs!!
+                latchedPositionMs != null -> latchedPositionMs ?: positionState
                 else -> positionState
             }
         }

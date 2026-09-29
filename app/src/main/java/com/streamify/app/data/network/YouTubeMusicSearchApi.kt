@@ -11,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.zip.GZIPInputStream
+import com.streamify.app.util.SLog
 
 enum class SearchFilter(val param: String?, val label: String) {
     ALL(null, "All"),
@@ -223,7 +224,7 @@ object YouTubeMusicSearchApi {
         try {
             findMusicItems(root, results, maxResults)
         } catch (e: Exception) {
-            e.printStackTrace()
+            SLog.st("YouTubeMusicSearchApi", "YouTubeMusicSearchApi.parseInnertubeResponse failed", e)
         }
         return results
     }

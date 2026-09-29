@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <cassert>
+#include <iterator>
 #include <cstdarg>
 #include "../engine/StreamifyDB.h"
 #include "../engine/TelemetryEngine.h"

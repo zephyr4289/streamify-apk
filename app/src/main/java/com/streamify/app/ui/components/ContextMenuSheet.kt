@@ -92,7 +92,7 @@ fun GlobalTrackContextMenuHost(
 ) {
     val state by controller.state.collectAsState()
     if (state.isOpen && state.track != null) {
-        val track = state.track!!
+        val track = state.track ?: return
         ContextMenuSheet(
             track = track,
             onDismissRequest = { controller.dismiss() },
@@ -104,7 +104,7 @@ fun GlobalTrackContextMenuHost(
             onGoToArtist = onGoToArtist,
             onGoToAlbum = onGoToAlbum,
             onRemoveFromPlaylistClick = if (state.origin == MenuOrigin.PLAYLIST && state.playlistId != null) {
-                { PlaylistRepository.removeTrackFromPlaylist(state.playlistId!!, track.id) }
+                { state.playlistId?.let { pid -> PlaylistRepository.removeTrackFromPlaylist(pid, track.id) } }
             } else null
         )
     }
@@ -424,7 +424,7 @@ fun ContextMenuSheet(
                         Text("No playlists created yet.", color = StreamifyColors.TextSub)
                     } else {
                         LazyColumn(modifier = Modifier.heightIn(max = 240.dp)) {
-                            items(playlists) { playlist ->
+                            items(playlists, key = { it.id }) { playlist ->
                                 Text(
                                     text = playlist.name,
                                     color = StreamifyColors.TextMain,
