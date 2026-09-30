@@ -7,6 +7,13 @@
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
 #include <arm_neon.h>
 #define STREAMIFY_HAS_NEON 1
+
+#if defined(__aarch64__)
+#define streamify_fma_f32(acc, a, b) vfmaq_f32((acc), (a), (b))
+#else
+#define streamify_fma_f32(acc, a, b) vmlaq_f32((acc), (a), (b))
+#endif
+
 #endif
 
 namespace streamify::dsp {
@@ -257,7 +264,7 @@ int AcousticPhaseResampler::process(const float* in, int inFrames,
             for (int j = 0; j < T; j += 4) {
                 const float32x4_t a = vld1q_f32(row0 + j);
                 const float32x4_t b = vld1q_f32(row1 + j);
-                vst1q_f32(lerped + j, vfmaq_f32(a, vsubq_f32(b, a), muV));
+                vst1q_f32(lerped + j, streamify_fma_f32(a, vsubq_f32(b, a), muV));
             }
         }
 #else
@@ -292,15 +299,15 @@ int AcousticPhaseResampler::process(const float* in, int inFrames,
             for (int j = 0; j < T; j += 4) {
                 const float32x4x2_t lr = vld2q_f32(xw + j * 2);
                 const float32x4_t tv = vld1q_f32(lerped + j);
-                accL = vfmaq_f32(accL, tv, lr.val[0]);
-                accR = vfmaq_f32(accR, tv, lr.val[1]);
+                accL = streamify_fma_f32(accL, tv, lr.val[0]);
+                accR = streamify_fma_f32(accR, tv, lr.val[1]);
             }
             dst[0] = hsumF32x4(accL);
             dst[1] = hsumF32x4(accR);
         } else if (C == 1 && leadingZeros == 0) {
             float32x4_t acc = vdupq_n_f32(0.0f);
             for (int j = 0; j < T; j += 4)
-                acc = vfmaq_f32(acc, vld1q_f32(lerped + j), vld1q_f32(xw + j));
+                acc = streamify_fma_f32(acc, vld1q_f32(lerped + j), vld1q_f32(xw + j));
             dst[0] = hsumF32x4(acc);
         } else
 #endif
