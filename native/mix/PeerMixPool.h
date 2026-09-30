@@ -205,11 +205,17 @@ private:
     void saturate(float* p, size_t floats) const {
         size_t i = 0;
 #if STREAMIFY_HAVE_NEON
-        // Fast path: if the whole mix stays below the knee, skip entirely.
+        // Fast path: if the whole mix stays below the knee AND carries no
+        // NaN, skip the scalar pass entirely. (NEON fmax is maxNum: it
+        // ignores NaNs, so the sweep is tracked separately via vceq(v,v),
+        // which is all-ones for finite lanes and zero for NaN lanes.)
         float32x4_t vmax = vdupq_n_f32(0.0f);
+        uint32x4_t finite = vdupq_n_u32(0);
         size_t j = 0;
         for (; j + 4 <= floats; j += 4) {
-            vmax = vmaxq_f32(vmax, vabsq_f32(vld1q_f32(p + j)));
+            const float32x4_t v = vld1q_f32(p + j);
+            vmax = vmaxq_f32(vmax, vabsq_f32(v));
+            finite = vorrq_u32(finite, vceqq_f32(v, v));
         }
         float m;
 #if defined(__aarch64__) || defined(_M_ARM64)
@@ -218,8 +224,16 @@ private:
         m = std::max(std::max(vgetq_lane_f32(vmax, 0), vgetq_lane_f32(vmax, 1)),
                      std::max(vgetq_lane_f32(vmax, 2), vgetq_lane_f32(vmax, 3)));
 #endif
-        for (; j < floats; ++j) m = std::max(m, std::fabs(p[j]));
-        if (m <= kSatKnee) return;   // entire block below the knee: identity
+        for (; j < floats; ++j) {
+            const float v = p[j];
+            m = std::max(m, std::fabs(v));
+            if (v == v) finite = vorrq_u32(finite, vdupq_n_u32(~0u));
+        }
+        const uint32x4_t notFinite = vmvnq_u32(finite);
+        if (m <= kSatKnee &&
+            (notFinite[0] | notFinite[1] | notFinite[2] | notFinite[3]) == 0) {
+            return;   // entire block finite and below the knee: identity
+        }
 #endif
         for (; i < floats; ++i) p[i] = saturate(p[i]);
     }

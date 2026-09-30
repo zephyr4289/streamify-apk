@@ -58,12 +58,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 
         std::vector<float> pcm(numFloats);
         std::memcpy(pcm.data(), data, numFloats * sizeof(float));
-        // Plant hostile float patterns deterministically.
-        if (numFloats > 512) {
-            pcm[7] = __builtin_nanf("");
-            pcm[11] = __builtin_inff();
-            pcm[13] = -__builtin_inff();
-        }
 
         streamify::dsp::MasterChain chain;
         chain.configure(48000, 2);
@@ -72,8 +66,26 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         chain.setMonoDownmix(mono);
         chain.setSilentBypass(bypass);
         const int frames = static_cast<int>(numFloats / 2);
-        chain.process(pcm.data(), frames);
-        for (float v : pcm) fuzz_check(__builtin_isfinite(v));
+        if (bypass) {
+            // Silent bypass: the PROCESSED region (frames * 2 floats) must
+            // come back bit-identical; the odd tail float is not touched by
+            // contract. Fuzz bytes may legitimately BE NaN/Inf patterns.
+            std::vector<float> before = pcm;
+            chain.process(pcm.data(), frames);
+            fuzz_check(std::memcmp(pcm.data(), before.data(),
+                                   static_cast<size_t>(frames) * 2 * sizeof(float)) == 0);
+        } else {
+            // Plant hostile float patterns deterministically.
+            if (numFloats > 512) {
+                pcm[7] = __builtin_nanf("");
+                pcm[11] = __builtin_inff();
+                pcm[13] = -__builtin_inff();
+            }
+            chain.process(pcm.data(), frames);
+            for (int i = 0; i < frames * 2; ++i) {   // processed region only;
+                fuzz_check(__builtin_isfinite(pcm[static_cast<size_t>(i)]));  // the odd tail
+            }                                              // float is untouched
+        }                                                   // by contract
     }
 
     // 4. Phase-1: ChannelOps — linear stage: finite input stays finite.
@@ -91,9 +103,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         }
         std::vector<float> fin(numFloats);
         std::memcpy(fin.data(), data, numFloats * sizeof(float));
-        if (numFloats > 64) {
-            fin[31] = 0.0f;
-            fin[33] = 0.0f;
+        // Fuzz floats can be Inf/NaN/near-FLT_MAX (x*sqrt2 would overflow).
+        // The invariant under test is the stage's LOGIC: build a finite,
+        // non-overflowing variant and assert it stays finite after the gain.
+        for (auto& v : fin) {
+            if (!__builtin_isfinite(v)) v = 0.0f;
+            else if (v > 1e36f) v = 1e36f;
+            else if (v < -1e36f) v = -1e36f;
         }
         ops.processInterleaved(fin.data(), numFloats / 2);
         for (float v : fin) fuzz_check(__builtin_isfinite(v));
@@ -155,26 +171,37 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         res.setTargetDriftNanosPerSecond(drift);
         const bool bypass = (data[8] & 1) != 0;
         res.SetSilentBypass(bypass);
-        std::vector<float> in(numFloats);
-        std::memcpy(in.data(), data, numFloats * sizeof(float));
-        std::vector<float> out(numFloats, 0.0f);
         const int frames = static_cast<int>(numFloats / 2);
-        const int r = res.process(in.data(), frames, out.data(), frames + 8);
-        fuzz_check(r >= 0);
-        if (!bypass) {
-            // Linear kernel: all-finite input must produce all-finite output.
-            bool allInFinite = true;
-            for (float v : in) allInFinite = allInFinite && __builtin_isfinite(v);
-            if (allInFinite) {
-                for (size_t i = 0; i < out.size(); ++i) {
-                    fuzz_check(__builtin_isfinite(out[i]));
-                }
+
+        // (a) ACTIVE kernel: finite, non-overflowing input stays finite.
+        {
+            std::vector<float> inA(numFloats);
+            std::memcpy(inA.data(), data, numFloats * sizeof(float));
+            for (auto& v : inA) {
+                if (!__builtin_isfinite(v)) v = 0.0f;
+                else if (v > 1e36f) v = 1e36f;
+                else if (v < -1e36f) v = -1e36f;
             }
-        } else {
-            // Bypass: bit-exact passthrough.
-            fuzz_check(std::memcmp(out.data(), in.data(), in.size() * sizeof(float)) == 0);
+            std::vector<float> outA(numFloats, 0.0f);
+            const int r = res.process(inA.data(), frames, outA.data(), frames + 8);
+            fuzz_check(r >= 0);
+            for (int i = 0; i < r * 2; ++i) {          // only the produced region
+                fuzz_check(__builtin_isfinite(outA[static_cast<size_t>(i)]));
+            }
         }
-        res.SetSilentBypass(false);
+        // (b) BYPASS: bit-exact passthrough of the RAW bytes (NaN/Inf by
+        // design — the resampler must not touch a single sample).
+        {
+            res.SetSilentBypass(true);
+            std::vector<float> inB(numFloats);
+            std::memcpy(inB.data(), data, numFloats * sizeof(float));
+            std::vector<float> outB(numFloats, 0.0f);
+            const int r = res.process(inB.data(), frames, outB.data(), frames + 8);
+            fuzz_check(r == frames);
+            fuzz_check(std::memcmp(outB.data(), inB.data(),
+                                   static_cast<size_t>(frames) * 2 * sizeof(float)) == 0);
+            res.SetSilentBypass(false);
+        }
     }
 
     return 0;
