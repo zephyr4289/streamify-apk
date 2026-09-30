@@ -189,6 +189,12 @@ class MainActivity : ComponentActivity() {
 
                 // Quantum Sonic Token 3D Physics Engine
                 val quantumController = remember { QuantumSonicTokenController() }
+                // Weft plane teardown (I6): revoke the Triad channels when the
+                // hosting scope exits, so a late producer publish becomes a
+                // DROPPED_REVOKED no-op instead of a write into an unowned buffer.
+                DisposableEffect(quantumController) {
+                    onDispose { quantumController.dispose() }
+                }
                 val dockPositionState = remember { mutableStateOf(Offset.Zero) }
                 val contextMenuController = remember { com.streamify.app.ui.components.TrackContextMenuController() }
 

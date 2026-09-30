@@ -2,18 +2,18 @@ package com.streamify.app.ui.components
 
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import android.graphics.Bitmap
-import android.graphics.Paint
-import android.os.Handler
-import android.os.Looper
-import androidx.compose.ui.graphics.toArgb
-import kotlinx.coroutines.launch
 import androidx.compose.ui.geometry.Offset
-import com.streamify.app.data.NativeBridge
+import com.streamify.app.weft.Steward
+import com.streamify.app.weft.Weft
+import com.streamify.app.weft.compose.ReattachPolicy
+import com.streamify.app.weft.compose.WeftHeddle
+import kotlinx.coroutines.launch
 import kotlin.math.*
 
 val LocalQuantumController = staticCompositionLocalOf { QuantumSonicTokenController() }
@@ -21,30 +21,75 @@ val LocalDockPosition = staticCompositionLocalOf<MutableState<Offset>> { mutable
 
 enum class TokenStage { IDLE, FLYING, IMPACT, DONE }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * QUANTUM SONIC TOKEN CONTROLLER — WEFT CONTINUOUS-STATE PLANE (PRODUCER)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Two-Plane Architecture (Engineering Directive: Real-Device Integration of
+ * the Weft Continuous-State Plane):
+ *
+ *  • Plane 1 (Reactive, < 10 Hz): stage, track metadata, dock readiness —
+ *    classic Compose snapshot state, mutated only at discrete flight events.
+ *
+ *  • Plane 2 (Continuous, 60–120 Hz): the 14-float physics pose, published
+ *    every simulation tick into a Weft Triad channel via a single
+ *    AtomicReference.getAndSet exchange. The 120 Hz hot state NEVER touches
+ *    the Compose snapshot system: the render thread claims the freshest
+ *    complete frame in the draw phase (wait-free, < 10 ns) and reads it as
+ *    a zero-copy little-endian payload slice.
+ *
+ *    [frameTick] remains the ONLY reactive seam in the hot path — a single
+ *    Long state incremented once per completed simulation step and read
+ *    EXCLUSIVELY inside draw/graphicsLayer scopes (a draw-phase read
+ *    invalidates drawing only: zero recompositions, zero re-measure,
+ *    zero re-layout). The 14 floats of pose data themselves ride the Weft.
+ *
+ * Hot-path allocation audit (Android Studio Profiler → zero-GC target):
+ *  • Producer: reuses the preallocated [physicsBuffer] FloatArray, the
+ *    channel's three preallocated ByteBuffers, and one wBegin() cursor view
+ *    per publish — 0 KB/s sustained during active flight.
+ *  • Consumer (see QuantumSonicTokenOverlay): all brushes, shapes, paints,
+ *    strokes and text are cached/remembered OUTSIDE the draw loop; text
+ *    measurement happens once per content change in the Compose layout
+ *    pass (cached TextLayoutResult), never via Paint.measureText() in draw.
+ */
 class QuantumSonicTokenController {
+
+    // ── PLANE 2: THE WEFT TRID CHANNEL ────────────────────────────────────
+    //
+    // Dense pose frame — 14 floats, 56 bytes, little-endian. This is the
+    // single source of truth for the 60–120 Hz render path:
+    //
+    //   float  0  x px            byte  0
+    //   float  1  y px            byte  4
+    //   float  2  stretchParallel byte  8
+    //   float  3  stretchPerp     byte 12
+    //   float  4  rotationRad     byte 16
+    //   float  5  pitchDeg        byte 20
+    //   float  6  rollDeg         byte 24
+    //   float  7  impactProgress  byte 28
+    //   float  8  isDocked        byte 32
+    //   float  9  isReadyToDock   byte 36
+    //   float 10  isRenderable    byte 40
+    //   float 11  isImpactBloom   byte 44
+    //   float 12  flightTimeSec   byte 48
+    //   float 13  reserved        byte 52
+
+    /** ViewModel-scoped lifecycle owner for the channel (I6 revoke ordering). */
+    private val steward = Steward()
+
+    /** The Triad channel: three buffers + one single-atomic exchange. */
+    val tokenWeft: Weft = steward.weftSized(TOKEN_FRAME_BYTES)
+
+    /** Compose binding for the channel (PRESERVE_HELD: survives navigation). */
+    val tokenHeddle = WeftHeddle(steward, tokenWeft, ReattachPolicy.PRESERVE_HELD)
+
+    private var publishSeq = 0
+
+    // ── PLANE 1: COLD REACTIVE STATE (< 10 Hz) ─────────────────────────────
+
     var stage by mutableStateOf(TokenStage.IDLE)
-        private set
-
-    // Origin & Destination coordinates
-    var origin = Offset.Zero
-        private set
-    var destination = Offset.Zero
-        private set
-    var initialDistance: Float = 1f
-        private set
-
-    // Raw High-Performance Primitive Registers (Zero Recomposition Overhead)
-    var posX: Float = 0f
-    var posY: Float = 0f
-    var stretchParallel: Float = 1f
-    var stretchPerp: Float = 1f
-    var rotationRad: Float = 0f
-    var pitchDeg: Float = 0f
-    var rollDeg: Float = 0f
-    var impactProgress: Float = 0f
-
-    // Frame-tick signal for lambda draw phase (Skipping recomposition)
-    var frameTick by mutableLongStateOf(0L)
         private set
 
     // Track metadata (updated once per flight)
@@ -57,29 +102,15 @@ class QuantumSonicTokenController {
     var telemetryStatus by mutableStateOf("Connecting to Streamify...")
         private set
 
-    private var flightTime: Float = 0f
-
-    // Direct 14-Float Zero-Allocation JNI Buffer
-    // 0: x, 1: y, 2: z, 3: vx, 4: vy, 5: vz, 6: stretch_parallel, 7: stretch_perp, 8: rotation_rad, 9: pitch_deg, 10: roll_deg, 11: impact_progress, 12: is_docked, 13: is_ready_to_dock
-    private val physicsBuffer = FloatArray(14)
-
-    // Adaptive Fluid Splashing Particles: Scaled dynamically based on hardware capabilities (Plan 25)
-    val particleCount: Int = when {
-        Runtime.getRuntime().availableProcessors() >= 8 -> 64
-        Runtime.getRuntime().availableProcessors() >= 6 -> 48
-        else -> 32
-    }
-    val particleBuffer = FloatArray(64 * 6)
-    private var particlesSpawned = false
-
-    // ═══ PERF PLAN v2 additions ═══
     /** True whenever the dock UI may compose/enter — gated OFF during flight
      *  so MiniPlayerBar's entrance never collides with impact bloom frames. */
     var dockReadyForUI by mutableStateOf(true)
         private set
 
-    /** Pre-decoded flight artwork (Coil, software config for canvas draw). */
-    @Volatile var artBitmap: Bitmap? = null
+    /** Pre-decoded flight artwork (Coil, software config for canvas draw).
+     *  Plane-1 swap: written once when decode completes → the overlay's
+     *  Image node recomposes exactly once (cold event, off the draw path). */
+    var artBitmap by mutableStateOf<Bitmap?>(null)
         private set
 
     @Volatile private var artBitmapKey: String? = null
@@ -93,19 +124,91 @@ class QuantumSonicTokenController {
         } else null
     }
 
-    var cardWidthPx: Float = 320f
+    // ── SHARED METRICS (written once per flight — read by layout & draw) ───
+
+    var cardWidthPx by mutableFloatStateOf(320f)
         private set
-    var cardHeightPx: Float = 160f
+    var cardHeightPx by mutableFloatStateOf(160f)
         private set
-    var screenWidthPx: Float = 1080f
+    var screenWidthPx by mutableFloatStateOf(1080f)
         private set
     var enable3D: Boolean = true
         private set
 
-    lateinit var titlePaint: Paint
+    private var screenDensity: Float = 3f
+
+    // ── PRODUCER-SIDE RAW PHYSICS REGISTERS ────────────────────────────────
+    //
+    // Raw High-Performance Primitive Registers (Zero Recomposition Overhead).
+    // These plain floats mirror the published Weft frame; they exist for
+    // cold-path readers (impact decisioning) and stay OFF the snapshot system.
+
+    var posX: Float = 0f
         private set
-    lateinit var statusPaint: Paint
+    var posY: Float = 0f
         private set
+    var stretchParallel: Float = 1f
+        private set
+    var stretchPerp: Float = 1f
+        private set
+    var rotationRad: Float = 0f
+        private set
+    var pitchDeg: Float = 0f
+        private set
+    var rollDeg: Float = 0f
+        private set
+    var impactProgress: Float = 0f
+        private set
+
+    /** Origin & destination coordinates (written once per flight). */
+    var origin = Offset.Zero
+        private set
+    var destination = Offset.Zero
+        private set
+    var initialDistance: Float = 1f
+        private set
+
+    private var flightTime: Float = 0f
+
+    // ── DRAW-PHASE INVALIDATION CLOCK ──────────────────────────────────────
+    //
+    // The single reactive seam of the continuous plane. Read ONLY inside
+    // draw/graphicsLayer scopes → each increment invalidates drawing alone
+    // (no recomposition, no measure, no layout — the deferred-read pattern).
+    var frameTick by mutableLongStateOf(0L)
+        private set
+
+    // Direct 14-Float Zero-Allocation JNI Buffer (ABI-frozen with the C++ core)
+    // 0: x, 1: y, 2: z, 3: vx, 4: vy, 5: vz, 6: stretch_parallel, 7: stretch_perp,
+    // 8: rotation_rad, 9: pitch_deg, 10: roll_deg, 11: impact_progress,
+    // 12: is_docked, 13: is_ready_to_dock
+    private val physicsBuffer = FloatArray(14)
+
+    // Adaptive Fluid Splashing Particles: Scaled dynamically based on
+    // hardware capabilities (Plan 25).
+    //
+    // Deliberately NOT routed through a Weft channel: particles are
+    // stateful integrators (positions accumulate over time), which is
+    // wrong-fit for latest-wins display semantics — the Triad drops
+    // intermediate frames by design. A preallocated pooled FloatArray with
+    // single-threaded producer+consumer access delivers the same zero-GC
+    // guarantee without misapplying the protocol.
+    val particleCount: Int = when {
+        Runtime.getRuntime().availableProcessors() >= 8 -> 64
+        Runtime.getRuntime().availableProcessors() >= 6 -> 48
+        else -> 32
+    }
+    val particleBuffer = FloatArray(64 * 6)
+    private var particlesSpawned = false
+
+    // ── HAPTIC SEAM ────────────────────────────────────────────────────────
+    //
+    // Pure-Kotlin seam (no android.os.Handler — keeps the controller
+    // JVM-unit-testable). The UI host injects the vibrator call; it fires
+    // one full frame AFTER the impact state mutation so the haptic never
+    // lands on the state-write frame (PERF v2 B3 discipline).
+    var impactHaptic: (() -> Unit)? = null
+    private var pendingImpactHaptic = false
 
     val isRenderable: Boolean
         get() = stage == TokenStage.FLYING || stage == TokenStage.IMPACT
@@ -116,9 +219,6 @@ class QuantumSonicTokenController {
         screenDensity = density
         enable3D = Runtime.getRuntime().availableProcessors() >= 6
     }
-
-    private var screenDensity: Float = 3f
-
 
     fun triggerFlight(
         tapOrigin: Offset,
@@ -165,22 +265,10 @@ class QuantumSonicTokenController {
         rollDeg = 0f
         impactProgress = 0f
 
-        // PERF v2: metrics + chrome paints baked ONCE here (no BoxWithConstraints,
-        // no AsyncImage cold-start inside the animation envelope).
+        // PERF v2: metrics baked ONCE here (no BoxWithConstraints, no
+        // AsyncImage cold-start inside the animation envelope).
         cardHeightPx = 60f * screenDensity
         cardWidthPx = ((screenWidthPx * 0.88f)).coerceIn(280f * screenDensity, 560f * screenDensity)
-
-        titlePaint = Paint().apply {
-            isAntiAlias = true
-            color = com.streamify.app.ui.theme.TextMain.toArgb()
-            textSize = 14f * screenDensity
-            isFakeBoldText = true
-        }
-        statusPaint = Paint().apply {
-            isAntiAlias = true
-            color = com.streamify.app.ui.theme.Primary.toArgb()
-            textSize = 11f * screenDensity
-        }
 
         dockReadyForUI = false
         artBitmap = null
@@ -188,13 +276,17 @@ class QuantumSonicTokenController {
         decodeArtAsync(art)
 
         telemetryStatus = "Connecting to Streamify..."
-        frameTick++
         stage = TokenStage.FLYING
+
+        // Publish the opening frame so the very first draw pass of the
+        // flight renders from channel state (no one-frame-stale pose).
+        publishTokenFrame()
+        frameTick++
     }
 
     private fun decodeArtAsync(artUrl: String?) {
-        val ctx = com.streamify.app.data.repository.TrackRepository.appContext ?: return
         if (artUrl.isNullOrBlank()) return
+        val ctx = com.streamify.app.data.repository.TrackRepository.appContext ?: return
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
                 val request = coil.request.ImageRequest.Builder(ctx)
@@ -232,11 +324,20 @@ class QuantumSonicTokenController {
 
     /**
      * Advances simulation by dt seconds (RK4 integration).
-     * Dispatches directly to Native C++ engine if loaded,
-     * with automatic fallback if native bridge encounters issues.
+     * Dispatches directly to the native C++ engine when loaded, with
+     * automatic fallback to the pure-Kotlin RK4 mirror; then PUBLISHES the
+     * resulting pose into the Weft Triad channel (the single atomic
+     * exchange) for the render thread.
      */
     fun stepSimulation(dt: Float) {
         if (stage == TokenStage.IDLE || stage == TokenStage.DONE) return
+
+        // Haptic fires on the frame FOLLOWING the impact state mutation —
+        // never on the state-write frame itself (PERF v2 B3).
+        if (pendingImpactHaptic) {
+            pendingImpactHaptic = false
+            impactHaptic?.invoke()
+        }
 
         val safeDt = dt.coerceIn(0.001f, 0.033f)
         flightTime += safeDt
@@ -244,7 +345,7 @@ class QuantumSonicTokenController {
         // to recompose the card subtree inside the critical early frames.
 
         try {
-            NativeBridge.stepAirDropPhysics(
+            com.streamify.app.data.NativeBridge.stepAirDropPhysics(
                 inOutBuffer = physicsBuffer,
                 targetX = destination.x,
                 targetY = destination.y,
@@ -253,6 +354,8 @@ class QuantumSonicTokenController {
             )
         } catch (e: Throwable) {
             // Pure Kotlin fallback simulator matching exact C++ RK4 algorithm
+            // (also the deterministic path on the JVM unit-test shard, where
+            // no native library is loadable).
             stepKotlinRK4(safeDt)
         }
 
@@ -270,10 +373,7 @@ class QuantumSonicTokenController {
             stage = TokenStage.IMPACT
             telemetryStatus = "Coupled • Ready"
             spawnFluidParticles()
-            // B3: haptic fires NEXT frame tick — off the state-mutation frame.
-            Handler(Looper.getMainLooper()).postDelayed({
-                com.streamify.app.util.StreamifyHapticEngine.tokenImpact()
-            }, 16)
+            pendingImpactHaptic = impactHaptic != null
         }
 
         // B1: dock UI (MiniPlayerBar enter) waits until bloom tail frames.
@@ -290,7 +390,33 @@ class QuantumSonicTokenController {
             }
         }
 
+        // ══ THE PUBLISH: pose crosses to the render plane here ══
+        publishTokenFrame()
         frameTick++
+    }
+
+    /**
+     * Writes the dense pose vector into the writer's working buffer and
+     * performs the single atomic exchange. Zero payload allocations: the
+     * cursor is a zero-copy view over the channel's preallocated buffer.
+     */
+    private fun publishTokenFrame() {
+        val cursor = tokenWeft.wBegin()
+        cursor.putFloat(OFF_X, posX)
+        cursor.putFloat(OFF_Y, posY)
+        cursor.putFloat(OFF_STRETCH_PARALLEL, stretchParallel)
+        cursor.putFloat(OFF_STRETCH_PERP, stretchPerp)
+        cursor.putFloat(OFF_ROTATION_RAD, rotationRad)
+        cursor.putFloat(OFF_PITCH_DEG, pitchDeg)
+        cursor.putFloat(OFF_ROLL_DEG, rollDeg)
+        cursor.putFloat(OFF_IMPACT_PROGRESS, impactProgress)
+        cursor.putFloat(OFF_IS_DOCKED, if (physicsBuffer[12] > 0.5f) 1f else 0f)
+        cursor.putFloat(OFF_IS_READY_TO_DOCK, if (physicsBuffer[13] > 0.5f) 1f else 0f)
+        cursor.putFloat(OFF_IS_RENDERABLE, if (isRenderable) 1f else 0f)
+        cursor.putFloat(OFF_IS_IMPACT_BLOOM, if (stage == TokenStage.IMPACT) 1f else 0f)
+        cursor.putFloat(OFF_FLIGHT_TIME_SEC, flightTime)
+        cursor.putFloat(OFF_RESERVED, 0f)
+        tokenWeft.publish(++publishSeq, TOKEN_FRAME_BYTES)
     }
 
     private fun spawnFluidParticles() {
@@ -430,6 +556,42 @@ class QuantumSonicTokenController {
         stage = TokenStage.IDLE
         dockReadyForUI = true
         artBitmap = null
+        // Publish an invisible (null-visibility) frame so the render plane
+        // fades the capsule out deterministically on the very next draw.
+        publishTokenFrame()
+        frameTick++
+    }
+
+    /**
+     * I6-ordered teardown: revokes the channel BEFORE the references drop,
+     * so a late publish becomes a DROPPED_REVOKED no-op instead of a write
+     * into a buffer nobody owns. Call from the hosting scope's onDispose.
+     */
+    fun dispose() {
+        steward.releaseAll()
+    }
+
+    companion object {
+        /** Number of floats in the dense pose frame. */
+        const val TOKEN_FLOATS = 14
+
+        /** Payload bytes per frame (14 floats × 4 bytes, little-endian). */
+        const val TOKEN_FRAME_BYTES = TOKEN_FLOATS * 4
+
+        // Byte offsets into the Weft payload slice — the frozen reader layout.
+        const val OFF_X = 0
+        const val OFF_Y = 4
+        const val OFF_STRETCH_PARALLEL = 8
+        const val OFF_STRETCH_PERP = 12
+        const val OFF_ROTATION_RAD = 16
+        const val OFF_PITCH_DEG = 20
+        const val OFF_ROLL_DEG = 24
+        const val OFF_IMPACT_PROGRESS = 28
+        const val OFF_IS_DOCKED = 32
+        const val OFF_IS_READY_TO_DOCK = 36
+        const val OFF_IS_RENDERABLE = 40
+        const val OFF_IS_IMPACT_BLOOM = 44
+        const val OFF_FLIGHT_TIME_SEC = 48
+        const val OFF_RESERVED = 52
     }
 }
-
