@@ -50,9 +50,18 @@
 //!   0x06 GOSSIP_GRAFT           control        (PlumTree tree heal / fetch)
 //!   0x07 CHUNK_HAVE             swarm-routed   (bitfield availability)
 //!   0x08 CHUNK_REQUEST          swarm-routed   (pull a missing chunk)
-//!   0x09 BEACON                 control        (subnet peer discovery)
+//!   0x09 BEACON                 control        (subnet peer discovery; v2
+//!                                              payload = room descriptor)
 //!   0x0A TRACK_MANIFEST         gossip-routed  (chunk-hash table announce)
 //!   0x0B TRACK_MANIFEST_REQUEST swarm-routed   (manifest bootstrap)
+//! Phase 1 governance family (feat/phase1-rust-mesh-32peers):
+//!   0x0C TRANSPORT_INTENT       gossip-routed  (Ed25519-signed, epoch-
+//!                                              fenced transport control;
+//!                                              host-countersigned commits)
+//!   0x0D KICK_DIRECTIVE         gossip-routed  (host-signed targeted eviction)
+//!   0x0E ACL_UPDATE             gossip-routed  (host-signed permission bits)
+//!   0x0F GOSSIP_PRUNE           control        (directional PlumTree prune:
+//!                                              receiver asks source to stop)
 //!
 //! ── TRANSPORT MODEL ──────────────────────────────────────────────────────
 //! Local domain: one bound UDP socket (SO_REUSEADDR + SO_REUSEPORT, optional
@@ -72,17 +81,20 @@
 use std::collections::{BinaryHeap, HashMap};
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
-use rand::Rng;
+use rand::{Rng, RngCore};
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
 
 use crate::chunk_swarmer::{SwarmAction, SwarmEvent, SwarmManager, SwarmParams, TrackSwarmStats};
 use crate::gossip::{Action, GossipEngine, GossipParams, GossipStats, Outcomes};
+use crate::jam_governor::{
+    GovernanceEvent, IntentKind, KickKind, RejectReason, RoomGovernor, Topology,
+};
 
 // ─────────────────────────────────────────────────────────── protocol consts
 
@@ -115,15 +127,34 @@ pub const MSG_CHUNK_REQUEST: u8 = 0x08;
 pub const MSG_BEACON: u8 = 0x09;
 pub const MSG_TRACK_MANIFEST: u8 = 0x0A;
 pub const MSG_TRACK_MANIFEST_REQUEST: u8 = 0x0B;
+// Phase 1 (feat/phase1-rust-mesh-32peers) — governance wire family:
+pub const MSG_TRANSPORT_INTENT: u8 = 0x0C;
+pub const MSG_KICK_DIRECTIVE: u8 = 0x0D;
+pub const MSG_ACL_UPDATE: u8 = 0x0E;
+/// Phase 1 directional prune (classic PlumTree): receiver asks a push
+/// source to demote it — the tree-forming control frame at N=32.
+pub const MSG_GOSSIP_PRUNE: u8 = 0x0F;
 
 /// Message types that flow through the PlumTree engine (dense `sequence`
 /// stream, deviation D3). Everything else is unicast/control and bypasses
-/// the gossip dedupe layer.
-pub const GOSSIP_ROUTED_TYPES: [u8; 3] = [MSG_PTP_SYNC, MSG_CRDT_OP, MSG_TRACK_MANIFEST];
+/// the gossip dedupe layer. Phase 1 additions: host-committed intents and
+/// the governance directives ride the tree so every replica verifies them
+/// independently at its own wire boundary.
+pub const GOSSIP_ROUTED_TYPES: [u8; 6] = [
+    MSG_PTP_SYNC,
+    MSG_CRDT_OP,
+    MSG_TRACK_MANIFEST,
+    MSG_TRANSPORT_INTENT,
+    MSG_KICK_DIRECTIVE,
+    MSG_ACL_UPDATE,
+];
 
 /// Internal control types the JNI surface refuses to inject from the app
-/// layer — protocol traffic must never be spoofable from Kotlin.
-pub const RESERVED_CONTROL_TYPES: [u8; 8] = [
+/// layer — protocol traffic must never be spoofable from Kotlin. Phase 1
+/// governance frames are mesh-internal by construction: intents are only
+/// born signed inside the engine, and unsigned directives die at the
+/// first boundary they cross.
+pub const RESERVED_CONTROL_TYPES: [u8; 12] = [
     MSG_HEARTBEAT,
     MSG_GOSSIP_IHAVE,
     MSG_GOSSIP_GRAFT,
@@ -132,7 +163,155 @@ pub const RESERVED_CONTROL_TYPES: [u8; 8] = [
     MSG_CHUNK_REQUEST,
     MSG_BEACON,
     MSG_TRACK_MANIFEST_REQUEST,
+    MSG_TRANSPORT_INTENT,
+    MSG_KICK_DIRECTIVE,
+    MSG_ACL_UPDATE,
+    MSG_GOSSIP_PRUNE,
 ];
+
+// ─────────────────────────────────── Phase 1 LAN room descriptor (0x09)
+// Directive B / gap #12 — the beacon payload grows a room session
+// descriptor so nearby devices can enumerate live Jam rooms WITHOUT any
+// cloud signaling. Layout (all LE, strictly bounds-checked on parse):
+//
+//   [0..8)    peer_id u64              (legacy — beacon sender)
+//   [8..10)   caps u16                 (legacy)
+//   [10..12)  port u16                 (legacy)
+//   ── v2 room descriptor (directive layout, verbatim) ──
+//   [12..28)  room_id [u8;16]
+//   [28..60)  host_ephemeral_pubkey [u8;32]   (Ed25519 verifying key)
+//   [60..68)  epoch u64
+//   [68]      capacity u8
+//   [69]      member_count u8
+//   ── v2.1 sender identity binding (additive, documented) ──
+//   [70..102) sender_pubkey [u8;32]    (beacon sender's ephemeral key;
+//                                        binds PeerId ↔ pubkey for ACLs)
+//
+// Legacy 12-byte beacons still parse (Phase-0 peers interoperate); a
+// 70-byte beacon carries the room descriptor without the sender binding;
+// 102 bytes is the full v2 form. Unknown trailing bytes are ignored
+// (forward compatibility) — never a panic.
+
+/// Beacon payload length with legacy fields only (Phase-0 interop).
+pub const BEACON_LEGACY_LEN: usize = 12;
+/// Beacon payload length with the room descriptor, no sender binding.
+pub const BEACON_V2_ROOM_LEN: usize = 70;
+/// Beacon payload length with room descriptor + sender pubkey binding +
+/// the topology byte (Phase 1 directive C propagation).
+pub const BEACON_V2_FULL_LEN: usize = 103;
+
+/// One advertised Jam room heard on the LAN (discovery registry entry).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LanRoomEntry {
+    /// 128-bit room id (session UUID domain).
+    pub room_id: [u8; 16],
+    /// Host's ephemeral Ed25519 verifying key — the room's authority.
+    pub host_pubkey: [u8; 32],
+    /// Room epoch (host migrations bump it; anti-downgrade on adopt).
+    pub epoch: u64,
+    /// Maximum members the host will admit (Spotify Jam parity: 32).
+    pub capacity: u8,
+    /// Live member count at beacon emission time.
+    pub member_count: u8,
+    /// Beacon sender's ephemeral pubkey (identity binding).
+    pub sender_pubkey: Option<[u8; 32]>,
+    /// Room topology as advertised: 0 = MultiRender, 1 = SingleRender.
+    pub topology: u8,
+    /// UDP source of the beacon (host candidate for join).
+    pub from_addr: SocketAddr,
+    /// Beacon sender's mesh port.
+    pub port: u16,
+    pub last_seen_ns: i64,
+}
+
+/// Parsed beacon payload.
+#[derive(Debug, Clone)]
+pub struct BeaconPayload {
+    pub peer_id: u64,
+    pub caps: u16,
+    pub port: u16,
+    pub room: Option<LanRoomEntry>,
+}
+
+/// Parses a beacon payload with strict slice bounds. Returns `None` only
+/// for sub-legacy lengths; unknown trailing bytes are tolerated.
+pub fn parse_beacon(payload: &[u8]) -> Option<BeaconPayload> {
+    if payload.len() < BEACON_LEGACY_LEN {
+        return None;
+    }
+    let peer_id = u64::from_le_bytes(payload[0..8].try_into().ok()?);
+    let caps = u16::from_le_bytes(payload[8..10].try_into().ok()?);
+    let port = u16::from_le_bytes(payload[10..12].try_into().ok()?);
+    let room = if payload.len() >= BEACON_V2_ROOM_LEN {
+        let mut room_id = [0u8; 16];
+        room_id.copy_from_slice(&payload[12..28]);
+        let mut host_pubkey = [0u8; 32];
+        host_pubkey.copy_from_slice(&payload[28..60]);
+        let epoch = u64::from_le_bytes(payload[60..68].try_into().ok()?);
+        let capacity = payload[68];
+        let member_count = payload[69];
+        let sender_pubkey = if payload.len() >= 102 {
+            let mut pk = [0u8; 32];
+            pk.copy_from_slice(&payload[70..102]);
+            Some(pk)
+        } else {
+            None
+        };
+        let topology = if payload.len() >= BEACON_V2_FULL_LEN {
+            payload[102]
+        } else {
+            0
+        };
+        Some(LanRoomEntry {
+            room_id,
+            host_pubkey,
+            epoch,
+            capacity,
+            member_count,
+            sender_pubkey,
+            topology,
+            from_addr: "0.0.0.0:0".parse().unwrap(),
+            port,
+            last_seen_ns: 0,
+        })
+    } else {
+        None
+    };
+    Some(BeaconPayload {
+        peer_id,
+        caps,
+        port,
+        room,
+    })
+}
+
+/// Builds the full v2 beacon payload (legacy fields + room descriptor +
+/// sender pubkey binding). Called with the node's live governance state.
+pub fn build_beacon_v2_payload(
+    peer_id: u64,
+    caps: u16,
+    port: u16,
+    room_id: [u8; 16],
+    host_pubkey: [u8; 32],
+    epoch: u64,
+    capacity: u8,
+    member_count: u8,
+    sender_pubkey: [u8; 32],
+    topology: u8,
+) -> Vec<u8> {
+    let mut p = Vec::with_capacity(BEACON_V2_FULL_LEN);
+    p.extend_from_slice(&peer_id.to_le_bytes());
+    p.extend_from_slice(&caps.to_le_bytes());
+    p.extend_from_slice(&port.to_le_bytes());
+    p.extend_from_slice(&room_id);
+    p.extend_from_slice(&host_pubkey);
+    p.extend_from_slice(&epoch.to_le_bytes());
+    p.push(capacity);
+    p.push(member_count);
+    p.extend_from_slice(&sender_pubkey);
+    p.push(topology);
+    p
+}
 
 /// Capability bits advertised in beacons.
 pub const CAP_LAN: u16 = 0x0001;
@@ -344,6 +523,10 @@ pub enum MeshError {
     PeerUnknown,
     NoRemoteTransport,
     PayloadTooLarge(usize),
+    /// Phase 1: a governance operation was rejected (not host, failed
+    /// commit, blacklisted target, …). The wire-boundary statistics
+    /// distinguish the precise reason.
+    GovernanceReject,
 }
 
 impl std::fmt::Display for MeshError {
@@ -368,6 +551,9 @@ impl std::fmt::Display for MeshError {
                 )
             }
             MeshError::PayloadTooLarge(n) => write!(f, "payload {n} exceeds u16 frame budget"),
+            MeshError::GovernanceReject => {
+                write!(f, "governance rejected the operation (see mesh stats)")
+            }
         }
     }
 }
@@ -471,6 +657,19 @@ struct Outbound {
     delay: Duration,
 }
 
+/// Phase 1: parallel outbound stages. A 32-node mesh's egress peaks at
+/// ~30 K datagrams per burst from a single origin; one tokio task among
+/// ~160 competing for 2-4 worker threads drains at ~1/10 of the socket's
+/// measured 328 K/s capacity (the sender-loop bottleneck measured in the
+/// Phase-1 calibration). Sharding destinations across SENDER_SHARDS
+/// loops by peer-hash multiplies node egress accordingly — the origin
+/// star topology's wide first hop depends on it.
+const SENDER_SHARDS: usize = 3;
+
+fn shard_of(addr: &SocketAddr) -> usize {
+    (addr.port() as usize) % SENDER_SHARDS
+}
+
 // ─────────────────────────────────────────────────────────── configuration
 
 /// Router + housekeeping knobs. Defaults are production values; the
@@ -496,6 +695,25 @@ pub struct MeshConfig {
     pub enable_webrtc: bool,
     pub gossip: GossipParams,
     pub swarm: SwarmParams,
+    // ── Phase 1 (directive B/C/D) ───────────────────────────────────────
+    /// Deterministic identity seed for the node's ephemeral Ed25519
+    /// keypair. `None` → random per-process seed (production); `Some` →
+    /// reproducible keys (tests). The derived pubkey is the node's
+    /// governance identity and travels in every v2 beacon.
+    pub identity_seed: Option<[u8; 32]>,
+    /// Listen for FOREIGN-session beacons and maintain the LAN room
+    /// registry (zero-friction discovery, gap #12). Costs one HashMap.
+    pub discovery_listen: bool,
+    /// Room capacity advertised in beacons (Spotify Jam parity: 32).
+    pub room_capacity: u8,
+    /// SingleRender topology: minimum spacing between host PTP_SYNC
+    /// broadcasts ("silent PTP presence" for instant host-migration
+    /// handoffs; directive C). High-frequency ticks below this interval
+    /// are suppressed at the broadcast gate.
+    pub ptp_presence_interval: Duration,
+    /// How long a discovered LAN room stays in the registry after its
+    /// last beacon before expiring.
+    pub lan_room_ttl: Duration,
 }
 
 impl MeshConfig {
@@ -516,6 +734,11 @@ impl MeshConfig {
             enable_webrtc: false,
             gossip: GossipParams::default(),
             swarm: SwarmParams::default(),
+            identity_seed: None,
+            discovery_listen: true,
+            room_capacity: 32,
+            ptp_presence_interval: Duration::from_millis(1_000),
+            lan_room_ttl: Duration::from_secs(60),
         }
     }
 
@@ -553,6 +776,20 @@ struct StatsCounters {
     app_backpressure_drop: AtomicU64,
     peers_discovered: AtomicU64,
     peers_expired: AtomicU64,
+    // Phase 1 governance / discovery / topology telemetry.
+    ptp_suppressed: AtomicU64,
+    beacon_v2_tx: AtomicU64,
+    lan_rooms_seen: AtomicU64,
+    gov_sig_rejects: AtomicU64,
+    gov_epoch_rejects: AtomicU64,
+    gov_acl_rejects: AtomicU64,
+    gov_rate_limited: AtomicU64,
+    gov_replays: AtomicU64,
+    gov_blacklist_rejects: AtomicU64,
+    gov_kicks_applied: AtomicU64,
+    gov_intents_committed: AtomicU64,
+    gov_intents_forwarded: AtomicU64,
+    gov_elections: AtomicU64,
 }
 
 /// Point-in-time snapshot for tests / JNI / PR evidence.
@@ -574,6 +811,20 @@ pub struct MeshStats {
     pub app_backpressure_drop: u64,
     pub peers_discovered: u64,
     pub peers_expired: u64,
+    // Phase 1.
+    pub ptp_suppressed: u64,
+    pub beacon_v2_tx: u64,
+    pub lan_rooms_seen: u64,
+    pub gov_sig_rejects: u64,
+    pub gov_epoch_rejects: u64,
+    pub gov_acl_rejects: u64,
+    pub gov_rate_limited: u64,
+    pub gov_replays: u64,
+    pub gov_blacklist_rejects: u64,
+    pub gov_kicks_applied: u64,
+    pub gov_intents_committed: u64,
+    pub gov_intents_forwarded: u64,
+    pub gov_elections: u64,
 }
 
 /// One inbound application frame (delivered after gossip dedupe).
@@ -599,7 +850,7 @@ pub struct MeshNode {
     id: PeerId,
     session: SessionId,
     sock: Arc<UdpSocket>,
-    outbound_tx: mpsc::UnboundedSender<Outbound>,
+    outbound_txs: [mpsc::UnboundedSender<Outbound>; SENDER_SHARDS],
     stop_tx: watch::Sender<bool>,
     broadcast_target: Option<SocketAddr>,
     peers: RwLock<HashMap<PeerId, PeerEntry>>,
@@ -613,6 +864,22 @@ pub struct MeshNode {
     last_heartbeat_ns: AtomicI64,
     last_sweep_ns: AtomicI64,
     stats: StatsCounters,
+    // ── Phase 1 governance / discovery / topology state ────────────────
+    /// Room governance engine (ACLs, epoch fencing, blacklist, election).
+    governor: Mutex<RoomGovernor>,
+    /// LAN rooms heard on foreign sessions (zero-config discovery).
+    lan_rooms: Mutex<HashMap<[u8; 16], LanRoomEntry>>,
+    /// Pubkey registry: peer id → last-seen ephemeral pubkey (beacon v2).
+    pubkeys: RwLock<HashMap<PeerId, [u8; 32]>>,
+    /// Governance event subscribers (Kotlin listens here for kicks /
+    /// host migrations / ACL changes).
+    gov_subs: Mutex<Vec<mpsc::Sender<GovernanceEvent>>>,
+    /// Whether this node advertises a room in its beacons (startLanBeacon).
+    room_beacon_on: AtomicBool,
+    /// Timestamp of the last PTP_SYNC that passed the presence gate.
+    last_ptp_presence_ns: AtomicI64,
+    /// Latch: host lease expiry already handled (one election per death).
+    election_armed: AtomicBool,
 }
 
 /// Recovers from mutex poisoning instead of panicking (house rule —
@@ -646,18 +913,50 @@ impl MeshNode {
             let _ = sock.join_multicast_v4(group, Ipv4Addr::UNSPECIFIED);
         }
 
-        let (outbound_tx, outbound_rx) = mpsc::unbounded_channel::<Outbound>();
+        let mut outbound_txs = Vec::with_capacity(SENDER_SHARDS);
+        let mut outbound_rxs = Vec::with_capacity(SENDER_SHARDS);
+        for _ in 0..SENDER_SHARDS {
+            let (tx, rx) = mpsc::unbounded_channel::<Outbound>();
+            outbound_txs.push(tx);
+            outbound_rxs.push(rx);
+        }
+        let outbound_txs: [mpsc::UnboundedSender<Outbound>; SENDER_SHARDS] =
+            outbound_txs.try_into().expect("shard count literal");
         let (stop_tx, stop_rx) = watch::channel(false);
 
         let gossip_engine = GossipEngine::new(id.0, cfg.gossip.clone());
         let swarm_manager = SwarmManager::new(id.0, cfg.swarm.clone());
+
+        // Phase 1: ephemeral governance identity. Production derives the
+        // Ed25519 seed from OS entropy mixed with the session+device
+        // domain; tests pin it for deterministic pubkeys/elections.
+        let identity_seed = match cfg.identity_seed {
+            Some(seed) => seed,
+            None => {
+                let mut seed = [0u8; 32];
+                rand::thread_rng().fill_bytes(&mut seed);
+                let domain = blake3::hash(
+                    format!("{}|{}", cfg.session_id, cfg.device_id).as_bytes(),
+                );
+                for (i, b) in seed.iter_mut().enumerate() {
+                    *b ^= domain.as_bytes()[i];
+                }
+                seed
+            }
+        };
+        let governor = RoomGovernor::from_seed(identity_seed);
+        let governor = {
+            let mut g = governor;
+            g.set_capacity(cfg.room_capacity);
+            g
+        };
 
         let node = Arc::new(MeshNode {
             cfg,
             id,
             session,
             sock: Arc::clone(&sock),
-            outbound_tx,
+            outbound_txs,
             stop_tx: stop_tx.clone(),
             broadcast_target,
             peers: RwLock::new(HashMap::new()),
@@ -671,6 +970,13 @@ impl MeshNode {
             last_heartbeat_ns: AtomicI64::new(i64::MIN / 2),
             last_sweep_ns: AtomicI64::new(i64::MIN / 2),
             stats: StatsCounters::default(),
+            governor: Mutex::new(governor),
+            lan_rooms: Mutex::new(HashMap::new()),
+            pubkeys: RwLock::new(HashMap::new()),
+            gov_subs: Mutex::new(Vec::new()),
+            room_beacon_on: AtomicBool::new(false),
+            last_ptp_presence_ns: AtomicI64::new(i64::MIN / 2),
+            election_armed: AtomicBool::new(false),
         });
 
         // Event sink fans swarm events out to subscribers via a weak
@@ -683,12 +989,23 @@ impl MeshNode {
         });
         heal(node.swarm.lock()).set_event_sink(sink);
 
-        tokio::spawn(recv_loop(
-            Arc::clone(&sock),
-            Arc::downgrade(&node),
-            stop_rx.clone(),
-        ));
-        tokio::spawn(sender_loop(sock, outbound_rx, stop_rx.clone()));
+        // Phase 1: PARALLEL ingress. A 32-node mesh floods ~10× the
+        // datagram rate of the 5-node profile; Linux clamps SO_RCVBUF to
+        // rmem_max (~208 KiB) without CAP_NET_ADMIN, so a single recv task
+        // cannot drain fast enough and the kernel silently drops UDP —
+        // REAL loss stacked on top of the simulated one. Three concurrent
+        // readers on the same socket triple the drain ceiling (the buffer
+        // is pre-allocated per task; ingress itself allocates nothing).
+        for _ in 0..3 {
+            tokio::spawn(recv_loop(
+                Arc::clone(&sock),
+                Arc::downgrade(&node),
+                stop_rx.clone(),
+            ));
+        }
+        for rx in outbound_rxs {
+            tokio::spawn(sender_loop(Arc::clone(&sock), rx, stop_rx.clone()));
+        }
         tokio::spawn(housekeeping_loop(Arc::downgrade(&node), stop_rx));
 
         Ok(node)
@@ -733,6 +1050,19 @@ impl MeshNode {
             app_backpressure_drop: s.app_backpressure_drop.load(Ordering::Relaxed),
             peers_discovered: s.peers_discovered.load(Ordering::Relaxed),
             peers_expired: s.peers_expired.load(Ordering::Relaxed),
+            ptp_suppressed: s.ptp_suppressed.load(Ordering::Relaxed),
+            beacon_v2_tx: s.beacon_v2_tx.load(Ordering::Relaxed),
+            lan_rooms_seen: s.lan_rooms_seen.load(Ordering::Relaxed),
+            gov_sig_rejects: s.gov_sig_rejects.load(Ordering::Relaxed),
+            gov_epoch_rejects: s.gov_epoch_rejects.load(Ordering::Relaxed),
+            gov_acl_rejects: s.gov_acl_rejects.load(Ordering::Relaxed),
+            gov_rate_limited: s.gov_rate_limited.load(Ordering::Relaxed),
+            gov_replays: s.gov_replays.load(Ordering::Relaxed),
+            gov_blacklist_rejects: s.gov_blacklist_rejects.load(Ordering::Relaxed),
+            gov_kicks_applied: s.gov_kicks_applied.load(Ordering::Relaxed),
+            gov_intents_committed: s.gov_intents_committed.load(Ordering::Relaxed),
+            gov_intents_forwarded: s.gov_intents_forwarded.load(Ordering::Relaxed),
+            gov_elections: s.gov_elections.load(Ordering::Relaxed),
         }
     }
 
@@ -768,12 +1098,27 @@ impl MeshNode {
 
     // ── peer management ───────────────────────────────────────────────
 
+    /// Fires one beacon at an arbitrary address WITHOUT any session or
+    /// registration expectation — the discovery-flow equivalent of a
+    /// bystander hearing a subnet broadcast (and of a joiner probing a
+    /// room discovered through `lan_rooms`). Cross-session receivers run
+    /// the beacon through `ingest_foreign_beacon` (room registry), and
+    /// same-session receivers run the standard registration handshake.
+    pub fn announce_to(&self, addr: SocketAddr) {
+        let raw = self.build_beacon_packet();
+        let _ = self.outbound_txs[shard_of(&addr)].send(Outbound {
+            to: addr,
+            bytes: raw,
+            delay: Duration::ZERO,
+        });
+    }
+
     /// Seeds a peer by address: fires one beacon at it, which triggers the
     /// auto-registration handshake (both sides learn each other within one
     /// round trip even without broadcast discovery).
     pub fn add_peer(&self, addr: SocketAddr) {
         let raw = self.build_beacon_packet();
-        let _ = self.outbound_tx.send(Outbound {
+        let _ = self.outbound_txs[shard_of(&addr)].send(Outbound {
             to: addr,
             bytes: raw,
             delay: Duration::ZERO,
@@ -884,9 +1229,38 @@ impl MeshNode {
     /// PlumTree broadcast: assigns the next dense sequence number, fans the
     /// frame out through the eager tree, and lazy-announces to the rest.
     /// Returns the assigned sequence number.
+    ///
+    /// PHASE 1 topology gate (directive C): in SingleRender, guests do not
+    /// broadcast clock sync at all (their renderers are silent; only the
+    /// host's clock is authoritative), and the host itself emits PTP_SYNC
+    /// at most once per `ptp_presence_interval` — the "silent PTP
+    /// presence" that keeps a migration-ready phase estimate alive without
+    /// the high-frequency sync traffic multi-render mode needs.
     pub fn broadcast(&self, msg_type: u8, payload: &[u8]) -> Result<u32, MeshError> {
         if payload.len() > MAX_PAYLOAD_LEN {
             return Err(MeshError::PayloadTooLarge(payload.len()));
+        }
+        if msg_type == MSG_PTP_SYNC {
+            let (topology, is_host) = {
+                let g = heal(self.governor.lock());
+                (g.topology(), g.is_host())
+            };
+            if topology == Topology::SingleRender {
+                let now = mono_ns();
+                let spacing = self.cfg.ptp_presence_interval.as_nanos() as i64;
+                let last = self.last_ptp_presence_ns.load(Ordering::Relaxed);
+                let allowed = is_host && now.saturating_sub(last) >= spacing;
+                if allowed {
+                    self.last_ptp_presence_ns.store(now, Ordering::Relaxed);
+                } else {
+                    self.stats.ptp_suppressed.fetch_add(1, Ordering::Relaxed);
+                    // Returning the would-be sequence keeps the dense
+                    // stream unbroken for the caller while the frame itself
+                    // never reaches the wire.
+                    let seq = self.broadcast_seq.fetch_add(1, Ordering::Relaxed) + 1;
+                    return Ok(seq);
+                }
+            }
         }
         let seq = self.broadcast_seq.fetch_add(1, Ordering::Relaxed) + 1;
         let mut h = self.build_header(msg_type, seq);
@@ -970,6 +1344,259 @@ impl MeshNode {
         let _ = self.stop_tx.send(true);
     }
 
+    // ═════════════════════════════════════════════════════════════════
+    // PHASE 1 — topology, discovery, governance public surface
+    // (directives B, C, D; frozen JNI `NativeMeshEngine` bindings below)
+    // ═════════════════════════════════════════════════════════════════
+
+    /// Sets the rendering topology (directive C). `0` = MultiRender,
+    /// `1` = SingleRender — the exact jint mapping of the frozen JNI
+    /// `setTopology` contract. Unknown values are ignored (returns false).
+    pub fn set_topology(&self, topology: Topology) -> bool {
+        let mut g = heal(self.governor.lock());
+        g.set_topology(topology);
+        true
+    }
+
+    pub fn topology(&self) -> Topology {
+        heal(self.governor.lock()).topology()
+    }
+
+    /// Self-declares this node the room host. Idempotent; this is the
+    /// "room creation" authority bootstrap (the device that called
+    /// `startLanBeacon` owns the room).
+    pub fn declare_host(&self) {
+        let mut g = heal(self.governor.lock());
+        g.declare_host();
+    }
+
+    /// This node's ephemeral governance pubkey (32-byte Ed25519 key).
+    pub fn my_pubkey(&self) -> [u8; 32] {
+        heal(self.governor.lock()).pubkey()
+    }
+
+    /// Starts broadcasting the room session descriptor in every beacon
+    /// (directive B / gap #12). `room_id` may be any string (the 128-bit
+    /// room id derives via the session hash domain); declaring the beacon
+    /// also declares host authority on this node.
+    pub fn start_lan_beacon(&self, room_id: &str) {
+        {
+            let mut g = heal(self.governor.lock());
+            g.declare_host();
+            g.set_beacon_suppressed(false);
+        }
+        // Pin the advertised 16-byte room id from the provided string.
+        let room = SessionId::from_session_str(room_id);
+        let mut rooms = heal(self.lan_rooms.lock());
+        rooms.insert(room.0, LanRoomEntry {
+            room_id: room.0,
+            host_pubkey: self.my_pubkey(),
+            epoch: 1,
+            capacity: self.cfg.room_capacity,
+            member_count: 1,
+            sender_pubkey: Some(self.my_pubkey()),
+            topology: 0,
+            from_addr: self.local_addr(),
+            port: self.local_addr().port(),
+            last_seen_ns: mono_ns(),
+        });
+        drop(rooms);
+        self.room_beacon_on.store(true, Ordering::Relaxed);
+        // Fire one beacon immediately so the room shows up on nearby
+        // devices without waiting a full beacon interval.
+        self.send_beacons();
+    }
+
+    /// Stops advertising the room descriptor (beacons revert to legacy
+    /// 12-byte form — the node stays in the mesh).
+    pub fn stop_lan_beacon(&self) {
+        self.room_beacon_on.store(false, Ordering::Relaxed);
+        let mut g = heal(self.governor.lock());
+        g.set_beacon_suppressed(true);
+    }
+
+    pub fn lan_beacon_active(&self) -> bool {
+        self.room_beacon_on.load(Ordering::Relaxed)
+    }
+
+    /// Poll API (directive B): nearby rooms heard on the LAN, most recent
+    /// first. This is the zero-cloud discovery list for the Kotlin UI.
+    pub fn lan_rooms(&self) -> Vec<LanRoomEntry> {
+        let mut rooms: Vec<LanRoomEntry> = heal(self.lan_rooms.lock()).values().cloned().collect();
+        rooms.sort_by_key(|r| std::cmp::Reverse(r.last_seen_ns));
+        rooms
+    }
+
+    /// Subscribes to governance events (kick / host migration / ACL change
+    /// / blacklisted join attempt). Kotlin's JamEngine listens here.
+    pub fn subscribe_governance_events(&self, capacity: usize) -> mpsc::Receiver<GovernanceEvent> {
+        let (tx, rx) = mpsc::channel(capacity.max(1));
+        heal(self.gov_subs.lock()).push(tx);
+        rx
+    }
+
+    /// Governance snapshot for tests / JNI telemetry.
+    pub fn governance_snapshot(&self) -> crate::jam_governor::GovernanceSnapshot {
+        heal(self.governor.lock()).snapshot()
+    }
+
+    /// Submits a transport control (directive C): builds the atomic,
+    /// epoch-fenced, Ed25519-signed intent, then routes by topology:
+    ///
+    /// * SingleRender, this node is a guest → UNICAST to the host only
+    ///   (`gov_intents_forwarded`); the host verifies, applies, and
+    ///   countersigns a committed frame that rides the gossip tree back
+    ///   to every node.
+    /// * SingleRender, this node is the host → apply locally (deliver to
+    ///   local app subscribers) and countersign + gossip the committed
+    ///   frame (`gov_intents_committed`).
+    /// * MultiRender → gossip the intent; every node verifies at its own
+    ///   wire boundary and applies locally.
+    pub fn submit_transport_intent(&self, kind: IntentKind, body: [u8; 16]) -> Result<(), MeshError> {
+        let (topology, is_host) = {
+            let g = heal(self.governor.lock());
+            (g.topology(), g.is_host())
+        };
+        let frame = {
+            let mut g = heal(self.governor.lock());
+            g.build_intent(kind, body)
+        };
+
+        if topology == Topology::SingleRender && !is_host {
+            // Guest: route the signed intent directly to the host.
+            let host_pubkey = {
+                let g = heal(self.governor.lock());
+                g.snapshot().host_pubkey
+            };
+            let host_peer = self.peer_id_of_pubkey(&host_pubkey);
+            let Some(host) = host_peer else {
+                return Err(MeshError::PeerUnknown);
+            };
+            self.send_to_peer(host, MSG_TRANSPORT_INTENT, &frame)?;
+            self.stats.gov_intents_forwarded.fetch_add(1, Ordering::Relaxed);
+            return Ok(());
+        }
+
+        if topology == Topology::SingleRender && is_host {
+            // Host: verify our own intent, countersign, gossip the commit.
+            let committed = {
+                let mut g = heal(self.governor.lock());
+                g.commit_intent(&frame)
+            };
+            if let Some(committed) = committed {
+                self.stats
+                    .gov_intents_committed
+                    .fetch_add(1, Ordering::Relaxed);
+                // Deliver locally (our own app layer).
+                self.dispatch_intent_to_apps(&frame);
+                self.broadcast(MSG_TRANSPORT_INTENT, &committed)?;
+                return Ok(());
+            }
+            // Commit failed (verification) — treat as a rejected intent.
+            return Err(MeshError::GovernanceReject);
+        }
+
+        // MultiRender: gossip the signed intent; every node verifies + applies.
+        self.broadcast(MSG_TRANSPORT_INTENT, &frame)?;
+        Ok(())
+    }
+
+    /// Host-side ACL mutation (directive D): applies locally AND broadcasts
+    /// the signed ACL_UPDATE so every replica enforces it at ingress.
+    pub fn set_member_acl(&self, peer_pubkey: [u8; 32], permissions: u8) -> Result<(), MeshError> {
+        let frame = {
+            let mut g = heal(self.governor.lock());
+            if !g.is_host() {
+                return Err(MeshError::GovernanceReject);
+            }
+            let frame = g.build_acl_update(peer_pubkey, permissions);
+            // Host applies its own update immediately.
+            if let Ok(update) = g.verify_acl_update(&frame) {
+                g.apply_acl_update(&update);
+            }
+            frame
+        };
+        self.broadcast(MSG_ACL_UPDATE, &frame)?;
+        self.emit_governance_events();
+        Ok(())
+    }
+
+    /// Host-side targeted kick (directive D / gap #18): builds the signed
+    /// KICK_DIRECTIVE, unicasts it to the target AND gossips it mesh-wide
+    /// so every node drops the target from its ACL table and (when
+    /// banning) blacklists the pubkey for the session duration.
+    pub fn kick_peer(&self, peer_pubkey: [u8; 32], ban: bool) -> Result<(), MeshError> {
+        let (frame, target_peer) = {
+            let mut g = heal(self.governor.lock());
+            if !g.is_host() {
+                return Err(MeshError::GovernanceReject);
+            }
+            let kind = if ban {
+                KickKind::KickAndBan
+            } else {
+                KickKind::Kick
+            };
+            let frame = g.build_kick(kind, 0x0000_0001, peer_pubkey);
+            // Host applies its own directive immediately (blacklist + event).
+            if let Ok(kick) = g.verify_kick(&frame) {
+                g.apply_kick(&kick);
+                self.stats.gov_kicks_applied.fetch_add(1, Ordering::Relaxed);
+            }
+            let target_peer = self.peer_id_of_pubkey(&peer_pubkey);
+            (frame, target_peer)
+        };
+        // Targeted delivery first (the evicted peer learns immediately),
+        // then mesh-wide propagation for blacklist convergence.
+        if let Some(target) = target_peer {
+            let _ = self.send_to_peer(target, MSG_KICK_DIRECTIVE, &frame);
+        }
+        self.broadcast(MSG_KICK_DIRECTIVE, &frame)?;
+        self.emit_governance_events();
+        Ok(())
+    }
+
+    /// Resolves the PeerId currently bound to a governance pubkey.
+    pub fn peer_id_of_pubkey(&self, pubkey: &[u8; 32]) -> Option<PeerId> {
+        let map = heal(self.pubkeys.read());
+        map.iter().find(|(_, pk)| *pk == pubkey).map(|(id, _)| *id)
+    }
+
+    /// Pubkey last seen for a peer id (beacon v2 binding).
+    pub fn pubkey_of_peer(&self, peer: PeerId) -> Option<[u8; 32]> {
+        heal(self.pubkeys.read()).get(&peer).copied()
+    }
+
+    /// Delivers a locally generated intent frame to app subscribers.
+    fn dispatch_intent_to_apps(&self, frame: &[u8]) {
+        let h = self.build_header(MSG_TRANSPORT_INTENT, 0);
+        let dp = DecodedPacket {
+            header: h,
+            payload: frame.to_vec(),
+            raw: Vec::new(),
+        };
+        self.dispatch_to_apps(&dp, self.id, self.local_addr());
+    }
+
+    /// Fans queued governance events out to subscribers (bounded queues;
+    /// slow consumers keep their subscription, events are dropped).
+    fn emit_governance_events(&self) {
+        let events = {
+            let mut g = heal(self.governor.lock());
+            g.drain_events()
+        };
+        if events.is_empty() {
+            return;
+        }
+        let mut subs = heal(self.gov_subs.lock());
+        subs.retain(|s| {
+            events.iter().all(|ev| match s.try_send(ev.clone()) {
+                Ok(()) => true,
+                Err(mpsc::error::TrySendError::Closed(_)) => false,
+                Err(mpsc::error::TrySendError::Full(_)) => true,
+            })
+        });
+    }
+
     // ───────────────────────── internal machinery ─────────────────────
 
     fn build_header(&self, msg_type: u8, sequence: u32) -> P2pPacketHeader {
@@ -990,6 +1617,37 @@ impl MeshNode {
         let caps = (self.cfg.enable_lan.then_some(CAP_LAN).unwrap_or(0))
             | (self.cfg.enable_webrtc.then_some(CAP_WEBRTC).unwrap_or(0));
         let port = self.local_addr().port();
+        // Phase 1: every member of a governed room (host OR guest that
+        // adopted the host claim) embeds the full room session descriptor
+        // (directive B) + its own pubkey binding. Guest beacons advertising
+        // the room is what makes the pubkey registry — and therefore
+        // deterministic host-death elections — converge mesh-wide.
+        let room_ad = heal(self.governor.lock()).advertise_room();
+        if let Some((host_pubkey, epoch)) = room_ad {
+            let topology = {
+                let g = heal(self.governor.lock());
+                if g.topology() == crate::jam_governor::Topology::SingleRender {
+                    1u8
+                } else {
+                    0u8
+                }
+            };
+            let payload = build_beacon_v2_payload(
+                self.id.0,
+                caps,
+                port,
+                self.session.0,
+                host_pubkey,
+                epoch,
+                self.cfg.room_capacity,
+                (self.peer_count() + 1).min(255) as u8,
+                self.my_pubkey(),
+                topology,
+            );
+            let mut h = self.build_header(MSG_BEACON, 0);
+            self.stats.beacon_v2_tx.fetch_add(1, Ordering::Relaxed);
+            return encode_packet(&mut h, &payload);
+        }
         let mut payload = Vec::with_capacity(12);
         payload.extend_from_slice(&self.id.0.to_le_bytes());
         payload.extend_from_slice(&caps.to_le_bytes());
@@ -1034,7 +1692,7 @@ impl MeshNode {
                     self.stats.tx_loss_dropped.fetch_add(1, Ordering::Relaxed);
                     return;
                 }
-                let _ = self.outbound_tx.send(Outbound {
+                let _ = self.outbound_txs[shard_of(&addr)].send(Outbound {
                     to: addr,
                     bytes: bytes.to_vec(),
                     delay,
@@ -1099,6 +1757,16 @@ impl MeshNode {
     }
 
     /// Datagram ingress: validate → register peer → route by message type.
+    ///
+    /// PHASE 1 ordering rules:
+    ///   1. BEACON frames parse BEFORE the session filter — discovery is
+    ///      precisely about hearing OTHER rooms on the subnet (gap #12).
+    ///      Foreign-session beacons update the LAN room registry and stop.
+    ///   2. Governance frames (0x0C/0x0D/0x0E) are verified at this
+    ///      boundary — signature, epoch fence, blacklist, replay, rate,
+    ///      ACL — BEFORE any delivery to the app layer or CRDT queue
+    ///      (directive D). Rejected frames never reach the queue; each
+    ///      rejection reason lands in the stats block.
     fn handle_datagram(&self, buf: &[u8], from: SocketAddr) {
         self.stats.rx_datagrams.fetch_add(1, Ordering::Relaxed);
         self.stats
@@ -1125,6 +1793,18 @@ impl MeshNode {
             }
         };
 
+        // ── Phase 1: beacons are session-agnostic (discovery first). ──
+        if dp.header.msg_type == MSG_BEACON && dp.header.session_id != self.session.0 {
+            if !self.cfg.discovery_listen {
+                self.stats
+                    .rx_session_mismatch
+                    .fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+            self.ingest_foreign_beacon(&dp, from);
+            return;
+        }
+
         if dp.header.session_id != self.session.0 {
             self.stats
                 .rx_session_mismatch
@@ -1141,7 +1821,43 @@ impl MeshNode {
 
         match dp.header.msg_type {
             MSG_BEACON => {
-                let caps = parse_beacon_caps(&dp.payload);
+                let parsed = parse_beacon(&dp.payload);
+                // Blacklist enforcement at the registration boundary: a
+                // kicked pubkey (or legacy kicked peer id) can never
+                // re-enter the mesh for the session duration.
+                if let Some(pk) = parsed.as_ref().and_then(|b| b.room.as_ref()).and_then(|r| r.sender_pubkey) {
+                    if heal(self.governor.lock()).is_blacklisted_pubkey(&pk) {
+                        self.stats
+                            .gov_blacklist_rejects
+                            .fetch_add(1, Ordering::Relaxed);
+                        self.emit_governance_events();
+                        return;
+                    }
+                    heal(self.pubkeys.write()).insert(sender, pk);
+                }
+                if heal(self.governor.lock()).is_blacklisted_peer(sender.0) {
+                    self.stats
+                        .gov_blacklist_rejects
+                        .fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+                // Host claim + topology adoption (beacon v2 carries room
+                // authority and the SingleRender/MultiRender flag).
+                if let Some(room) = parsed.as_ref().and_then(|b| b.room.as_ref()) {
+                    let host = room.host_pubkey;
+                    let epoch = room.epoch;
+                    let topo = room.topology;
+                    let mut g = heal(self.governor.lock());
+                    g.observe_host_claim(host, epoch);
+                    if let Some(t) = crate::jam_governor::Topology::from_jint(topo as i32) {
+                        // Adopt unless WE are the declared host (our own
+                        // topology setting wins locally).
+                        if !g.snapshot().is_host {
+                            g.set_topology(t);
+                        }
+                    }
+                }
+                let caps = parsed.as_ref().map(|b| b.caps);
                 if self.register_or_refresh(sender, from, caps, now) {
                     self.on_peer_joined(sender);
                 }
@@ -1150,7 +1866,7 @@ impl MeshNode {
                 self.register_or_refresh(sender, from, None, now);
                 self.handle_heartbeat(&dp.payload, sender);
             }
-            MSG_GOSSIP_IHAVE | MSG_GOSSIP_GRAFT => {
+            MSG_GOSSIP_IHAVE | MSG_GOSSIP_GRAFT | MSG_GOSSIP_PRUNE => {
                 // Control frames are always sent directly by the peer whose
                 // id is in the header.
                 self.register_or_refresh(sender, from, None, now);
@@ -1176,6 +1892,73 @@ impl MeshNode {
                 };
                 for a in actions {
                     self.execute_swarm_action(a);
+                }
+            }
+            // ── Phase 1 governance family: wire-boundary enforcement ──
+            MSG_TRANSPORT_INTENT => {
+                let Some(link) = self.link_peer_of_addr(from) else {
+                    self.stats.rx_unknown_link.fetch_add(1, Ordering::Relaxed);
+                    return;
+                };
+                {
+                    let map = heal(self.peers.read());
+                    if let Some(e) = map.get(&link) {
+                        e.last_seen_ns.store(now, Ordering::Relaxed);
+                    }
+                }
+                let outcomes: Outcomes = {
+                    let mut g = heal(self.gossip.lock());
+                    g.on_data(link.0, &dp.header, &dp.raw, now)
+                };
+                if outcomes.delivered_new {
+                    self.governance_ingest_intent(&dp, sender, from, now);
+                }
+                for a in outcomes.actions {
+                    self.execute_gossip_action(a);
+                }
+            }
+            MSG_KICK_DIRECTIVE => {
+                let Some(link) = self.link_peer_of_addr(from) else {
+                    self.stats.rx_unknown_link.fetch_add(1, Ordering::Relaxed);
+                    return;
+                };
+                {
+                    let map = heal(self.peers.read());
+                    if let Some(e) = map.get(&link) {
+                        e.last_seen_ns.store(now, Ordering::Relaxed);
+                    }
+                }
+                let outcomes: Outcomes = {
+                    let mut g = heal(self.gossip.lock());
+                    g.on_data(link.0, &dp.header, &dp.raw, now)
+                };
+                if outcomes.delivered_new {
+                    self.governance_ingest_kick(&dp);
+                }
+                for a in outcomes.actions {
+                    self.execute_gossip_action(a);
+                }
+            }
+            MSG_ACL_UPDATE => {
+                let Some(link) = self.link_peer_of_addr(from) else {
+                    self.stats.rx_unknown_link.fetch_add(1, Ordering::Relaxed);
+                    return;
+                };
+                {
+                    let map = heal(self.peers.read());
+                    if let Some(e) = map.get(&link) {
+                        e.last_seen_ns.store(now, Ordering::Relaxed);
+                    }
+                }
+                let outcomes: Outcomes = {
+                    let mut g = heal(self.gossip.lock());
+                    g.on_data(link.0, &dp.header, &dp.raw, now)
+                };
+                if outcomes.delivered_new {
+                    self.governance_ingest_acl(&dp);
+                }
+                for a in outcomes.actions {
+                    self.execute_gossip_action(a);
                 }
             }
             // Gossip-routed data (PTP_SYNC, CRDT_OP, TRACK_MANIFEST, and
@@ -1216,6 +1999,165 @@ impl MeshNode {
                 for a in outcomes.actions {
                     self.execute_gossip_action(a);
                 }
+            }
+        }
+    }
+
+    // ── Phase 1 governance / discovery ingest (wire boundary) ─────────
+
+    /// Foreign-session beacon: zero-config LAN room discovery (gap #12).
+    /// Updates the room registry keyed by 16-byte room id; newer epochs
+    /// replace stale entries (host migration), same-epoch refreshes just
+    /// bump `last_seen`.
+    fn ingest_foreign_beacon(&self, dp: &DecodedPacket, from: SocketAddr) {
+        let Some(parsed) = parse_beacon(&dp.payload) else {
+            self.stats.rx_length_reject.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        let Some(mut room) = parsed.room else {
+            return; // legacy foreign beacon: no descriptor, nothing to learn
+        };
+        room.from_addr = from;
+        room.last_seen_ns = mono_ns();
+        let mut rooms = heal(self.lan_rooms.lock());
+        match rooms.get(&room.room_id) {
+            Some(existing) if existing.epoch > room.epoch => return, // stale claim
+            _ => {}
+        }
+        if !rooms.contains_key(&room.room_id) {
+            self.stats.lan_rooms_seen.fetch_add(1, Ordering::Relaxed);
+        }
+        rooms.insert(room.room_id, room);
+    }
+
+    /// Intent ingress: verify at the boundary; the host then commits
+    /// (countersign + gossip) guest intents, while guests apply only
+    /// committed intents (SingleRender) or any valid intent (MultiRender).
+    fn governance_ingest_intent(
+        &self,
+        dp: &DecodedPacket,
+        sender: PeerId,
+        from: SocketAddr,
+        now: i64,
+    ) {
+        let (topology, is_host) = {
+            let g = heal(self.governor.lock());
+            (g.topology(), g.is_host())
+        };
+        let verified = {
+            let mut g = heal(self.governor.lock());
+            g.verify_intent(&dp.payload, now)
+        };
+        let intent = match verified {
+            Ok(v) => v,
+            Err(reason) => {
+                self.count_intent_reject(reason);
+                return;
+            }
+        };
+
+        if is_host && !intent.committed {
+            // Host: this is a guest's intent addressed to us. Commit it
+            // (countersign) and let the whole mesh see the authoritative
+            // frame via gossip.
+            let committed = {
+                let mut g = heal(self.governor.lock());
+                g.commit_intent(&dp.payload)
+            };
+            if let Some(committed) = committed {
+                self.stats
+                    .gov_intents_committed
+                    .fetch_add(1, Ordering::Relaxed);
+                // Locally applied (host's own app layer), then propagated.
+                self.dispatch_to_apps(dp, sender, from);
+                let _ = self.broadcast(MSG_TRANSPORT_INTENT, &committed);
+            }
+            return;
+        }
+
+        if topology == Topology::SingleRender && !is_host && !intent.committed {
+            // Guest seeing an uncommitted intent that was not addressed to
+            // it (leak / Byzantine direct send): not authoritative — drop.
+            self.stats
+                .gov_sig_rejects
+                .fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+
+        // Committed intent (or MultiRender intent): deliver to the app.
+        self.dispatch_to_apps(dp, sender, from);
+    }
+
+    /// Kick directive ingress: host signature required; applies the
+    /// blacklist / self-removal semantics on every replica.
+    fn governance_ingest_kick(&self, dp: &DecodedPacket) {
+        let verified = {
+            let mut g = heal(self.governor.lock());
+            g.verify_kick(&dp.payload)
+        };
+        match verified {
+            Ok(kick) => {
+                // Resolve the target's PeerId so legacy (pubkey-less)
+                // re-joins are shut out too.
+                let target_peer = self.peer_id_of_pubkey(&kick.target_pubkey);
+                {
+                    let mut g = heal(self.governor.lock());
+                    g.apply_kick(&kick);
+                    if let Some(peer) = target_peer {
+                        g.blacklist_peer_id(peer.0);
+                    }
+                }
+                self.stats.gov_kicks_applied.fetch_add(1, Ordering::Relaxed);
+                self.emit_governance_events();
+            }
+            Err(reason) => {
+                self.count_intent_reject(reason);
+            }
+        }
+    }
+
+    /// ACL update ingress: host signature required.
+    fn governance_ingest_acl(&self, dp: &DecodedPacket) {
+        let verified = {
+            let mut g = heal(self.governor.lock());
+            g.verify_acl_update(&dp.payload)
+        };
+        match verified {
+            Ok(update) => {
+                let mut g = heal(self.governor.lock());
+                g.apply_acl_update(&update);
+                drop(g);
+                self.emit_governance_events();
+            }
+            Err(reason) => {
+                self.count_intent_reject(reason);
+            }
+        }
+    }
+
+    /// Maps a rejection reason onto the stats block.
+    fn count_intent_reject(&self, reason: RejectReason) {
+        match reason {
+            RejectReason::Malformed | RejectReason::UnknownKind => {
+                self.stats.rx_length_reject.fetch_add(1, Ordering::Relaxed);
+            }
+            RejectReason::BadSignature | RejectReason::NotHost => {
+                self.stats.gov_sig_rejects.fetch_add(1, Ordering::Relaxed);
+            }
+            RejectReason::EpochFence => {
+                self.stats.gov_epoch_rejects.fetch_add(1, Ordering::Relaxed);
+            }
+            RejectReason::Blacklisted => {
+                self.stats.gov_blacklist_rejects.fetch_add(1, Ordering::Relaxed);
+            }
+            RejectReason::AclDenied => {
+                self.stats.gov_acl_rejects.fetch_add(1, Ordering::Relaxed);
+            }
+            RejectReason::RateLimited => {
+                self.stats.gov_rate_limited.fetch_add(1, Ordering::Relaxed);
+            }
+            RejectReason::Replayed => {
+                self.stats.gov_replays.fetch_add(1, Ordering::Relaxed);
             }
         }
     }
@@ -1317,12 +2259,85 @@ impl MeshNode {
             self.last_sweep_ns.store(now, Ordering::Relaxed);
             self.sweep_expired_peers(now);
         }
+
+        // ── Phase 1 housekeeping ────────────────────────────────────────
+        // 1. Host-lease watch: once the current host's peer entry has been
+        //    swept (or was never present past bootstrap), run the v3
+        //    deterministic election over the surviving member pubkeys and
+        //    advance the epoch exactly once per death (latched).
+        self.watch_host_lease(now);
+        // 2. LAN room registry TTL sweep (stale advertisements expire).
+        self.sweep_lan_rooms(now);
+        // 3. Deliver queued governance events to subscribers.
+        self.emit_governance_events();
+    }
+
+    /// Host-death failover (directive A / gap #11): when the mesh no
+    /// longer contains the host AND the host is not us, every survivor
+    /// independently elects the same successor (lowest member pubkey hex,
+    /// the v3 U3 rule) and bumps the epoch by exactly one. The latch
+    /// guarantees one election per death event and re-arms once the new
+    /// host becomes visible, so a SECOND host death also fails over.
+    fn watch_host_lease(&self, _now: i64) {
+        let (host_pubkey, is_host) = {
+            let g = heal(self.governor.lock());
+            (g.snapshot().host_pubkey, g.is_host())
+        };
+        if is_host {
+            return; // we hold authority; no election needed
+        }
+        // Host still present in the routing table → lease healthy; a
+        // present host also re-arms the latch for the NEXT death cycle.
+        if let Some(peer) = self.peer_id_of_pubkey(&host_pubkey) {
+            let present = heal(self.peers.read()).contains_key(&peer);
+            if present {
+                if self.election_armed.load(Ordering::Relaxed) {
+                    self.election_armed.store(false, Ordering::Relaxed);
+                }
+                return;
+            }
+        } else if self.election_armed.load(Ordering::Relaxed) {
+            return; // already failed over; new host not yet visible
+        } else {
+            // Never seen this host: wait for claims instead of electing a
+            // successor against an incomplete member view.
+            let seen_host = heal(self.pubkeys.read()).values().any(|pk| *pk == host_pubkey);
+            if !seen_host {
+                return;
+            }
+        }
+        if self.election_armed.load(Ordering::Relaxed) {
+            return;
+        }
+        // Collect the surviving member pubkeys (self included).
+        let members: Vec<[u8; 32]> = {
+            let mut pks: Vec<[u8; 32]> = heal(self.pubkeys.read()).values().copied().collect();
+            pks.push(self.my_pubkey());
+            pks.sort();
+            pks.dedup();
+            pks
+        };
+        let elected = {
+            let mut g = heal(self.governor.lock());
+            g.elect_on_host_death(&members)
+        };
+        if elected.is_some() {
+            self.election_armed.store(true, Ordering::Relaxed);
+            self.stats.gov_elections.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Expires LAN room entries whose last beacon predates the TTL.
+    fn sweep_lan_rooms(&self, now: i64) {
+        let ttl_ns = self.cfg.lan_room_ttl.as_nanos() as i64;
+        let mut rooms = heal(self.lan_rooms.lock());
+        rooms.retain(|_, r| now.saturating_sub(r.last_seen_ns) < ttl_ns);
     }
 
     fn send_beacons(&self) {
         let raw = self.build_beacon_packet();
         if let Some(bcast) = self.broadcast_target {
-            let _ = self.outbound_tx.send(Outbound {
+            let _ = self.outbound_txs[shard_of(&bcast)].send(Outbound {
                 to: bcast,
                 bytes: raw.clone(),
                 delay: Duration::ZERO,
@@ -1504,8 +2519,11 @@ fn build_socket(addr: &SocketAddr, cfg: &MeshConfig) -> io::Result<UdpSocket> {
     }
     // Large receive buffer: a 1000-op gossip flood bursts ~4000 datagrams
     // per node; the default ~200 KB rcvbuf would overflow and add REAL
-    // loss on top of the simulated one.
+    // loss on top of the simulated one. (The kernel clamps the request to
+    // rmem_max; parallel recv tasks are the real drain-rate fix.)
     let _ = sock.set_recv_buffer_size(cfg.recv_buffer_bytes);
+    // Phase 1: symmetric send headroom so a burst egress does not EAGAIN.
+    let _ = sock.set_send_buffer_size(cfg.recv_buffer_bytes);
     sock.set_nonblocking(true)?;
     sock.bind(&socket2::SockAddr::from(*addr))?;
     let std_sock: std::net::UdpSocket = sock.into();

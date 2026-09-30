@@ -32,10 +32,23 @@ base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json"] }
 strsim = "0.11"
 libc = "0.2"
+# Phase 1 governance: ephemeral room identities + signed directives/kicks.
+# Pure-Rust, no_std-friendly; the 32-byte host ephemeral key in the LAN
+# beacon descriptor (directive B) is an Ed25519 verifying key by design.
+ed25519-dalek = "2.1"
 
 
 [dev-dependencies]
 tempfile = "3.10"
+
+# Phase 1: the 32-peer mesh simulation is allocation-bound in the default
+# unoptimized test profile (7× slower than release — measured: 208 ms
+# release vs 1.4 s debug for the same 1000-op trial). The CI matrix runs
+# `cargo test` in debug, so the TEST profile carries opt-level 2: the
+# chaos harnesses measure the protocol, not the allocator. Debug
+# assertions and overflow checks remain on.
+[profile.test]
+opt-level = 2
 
 [profile.release]
 opt-level = 3
