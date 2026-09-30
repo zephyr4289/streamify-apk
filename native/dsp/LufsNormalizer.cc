@@ -223,7 +223,8 @@ void LufsNormalizer::updateGainSetpoint() {
         -static_cast<double>(maxCorrectionDb_),
         static_cast<double>(maxCorrectionDb_));
     // EMA in the dB domain, tau = 0.5 s at the 10 Hz chunk rate.
-    constexpr double kEmaPerHop = 1.0 - std::exp(-0.1 / 0.5);
+    // (const, not constexpr: NDK clang's libc++ marks ::exp non-constexpr.)
+    const double kEmaPerHop = 1.0 - std::exp(-0.1 / 0.5);
     gainDb_ = static_cast<float>(
         static_cast<double>(gainDb_) +
         (targetDb - static_cast<double>(gainDb_)) * kEmaPerHop);
