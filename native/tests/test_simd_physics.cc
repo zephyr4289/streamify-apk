@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <cassert>
+#include <cstdio>
 #include <iterator>
 #include <cmath>
 #include "../engine/VectorStore.h"
@@ -30,7 +31,10 @@ int main() {
     }
     std::cout << "  - AirDrop RK4 ODE Simulation: PASSED" << std::endl;
 
-    // 2. Test VectorStore
+    // 2. Test VectorStore. Remove any stale state first: the store appends
+    // to the backing file, and identical vectors from a previous run make
+    // the top-1 self-match assertion order-dependent (flaky shard).
+    std::remove("/tmp/test_vector_store.bin");
     VectorStore& store = VectorStore::getInstance();
     store.init("/tmp/test_vector_store.bin", 64);
     

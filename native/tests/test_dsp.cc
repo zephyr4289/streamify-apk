@@ -10,6 +10,11 @@
 int main() {
     std::cout << "[TEST] Starting Native DSP Test Suite..." << std::endl;
 
+    // Phase-1 audiophile DSP + 32-peer jam suite (BEHIND.md #11/#13/#39/#41).
+    // Runs first so its allocation guard sees only its own hot-path calls.
+    extern int run_dsp_phase1_tests();
+    run_dsp_phase1_tests();
+
     // 1. Test SoftKneeLimiter float processing.
     // A 5ms-attack limiter (tau ~= 240 samples @ 48kHz) legitimately passes
     // short transients through unattenuated — the envelope ballistics have

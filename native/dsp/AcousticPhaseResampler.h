@@ -134,6 +134,29 @@ public:
 
     void reset();   // clear stream position/history (keeps tables & config)
 
+    // ---- Silent PLL (Gap #13, SINGLE_RENDER party mode) -------------------
+    // While bypass is active, process() is a bit-exact memcpy passthrough:
+    // zero synthesis kernel work, zero allocations, zero AudioTrack buffer
+    // write amplification. The Kalman/PTP clock filter itself is driven by
+    // the network timestamp path (nativePtpProcessTimestamps) and therefore
+    // keeps converging regardless — this is what lets any guest take over
+    // rendering with no resync delay.
+    //
+    // The drift state machine ALSO keeps tracking: per bypass block the
+    // per-frame slew recurrence is advanced in closed form, so the applied
+    // rate is already at the commanded value when bypass lifts.
+    //
+    // Any bypass TRANSITION restarts the stream at the current live position
+    // (the bypass-era audio was already rendered passthrough); the rate
+    // estimate and the controller command survive the transition.
+    void setSilentBypass(bool silentBypass);
+    void SetSilentBypass(bool silentBypass) {   // directive-named alias
+        setSilentBypass(silentBypass);
+    }
+    bool silentBypass() const {
+        return silentBypass_.load(std::memory_order_relaxed);
+    }
+
     // Introspection for tests / telemetry.
     int channels() const { return cfg_.channels; }
     double sampleRateHz() const { return cfg_.sampleRateHz; }
@@ -175,6 +198,13 @@ private:
     std::atomic<int64_t> targetDriftNanoPerSec_{0};   // command, ns/s
     double driftPpm_ = 0.0;                           // slewed state
     double slewAlpha_ = 0.0;    // per-output-frame slew coefficient
+
+    // Silent PLL (Gap #13). bypassEpoch_ bumps on every setSilentBypass()
+    // call; process() detects the change on the audio thread and restarts
+    // the stream (keeping drift + command) — race-free, lock-free.
+    std::atomic<bool> silentBypass_{false};
+    std::atomic<uint32_t> bypassEpoch_{0};
+    uint32_t seenBypassEpoch_ = 0;   // audio-thread-private
 };
 
 } // namespace streamify::dsp

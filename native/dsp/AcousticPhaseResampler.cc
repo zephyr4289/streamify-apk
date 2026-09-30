@@ -4,16 +4,12 @@
 #include <cstdlib>
 #include <cstring>
 
+// Shared SIMD / alignment shims (Phase 1): streamify_fma_f32 + posix_memalign.
+#include "../util/NeonCompat.h"
+
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
-#include <arm_neon.h>
 #define STREAMIFY_HAS_NEON 1
-
-#if defined(__aarch64__)
-#define streamify_fma_f32(acc, a, b) vfmaq_f32((acc), (a), (b))
-#else
-#define streamify_fma_f32(acc, a, b) vmlaq_f32((acc), (a), (b))
-#endif
-
+#include <arm_neon.h>
 #endif
 
 namespace streamify::dsp {
@@ -200,6 +196,14 @@ void AcousticPhaseResampler::reset() {
 }
 
 // ---------------------------------------------------------------------------
+// Silent PLL (Gap #13, SINGLE_RENDER party mode)
+// ---------------------------------------------------------------------------
+void AcousticPhaseResampler::setSilentBypass(bool silentBypass) {
+    silentBypass_.store(silentBypass, std::memory_order_relaxed);
+    bypassEpoch_.fetch_add(1, std::memory_order_acq_rel);
+}
+
+// ---------------------------------------------------------------------------
 // Streaming kernel
 // ---------------------------------------------------------------------------
 int AcousticPhaseResampler::process(const float* in, int inFrames,
@@ -215,6 +219,34 @@ int AcousticPhaseResampler::process(const float* in, int inFrames,
     // the next one.
     if (ringFrames_ + inFrames > ringCapacity_) return -5;  // backpressure:
     // drain with process(nullptr, 0, out, cap), then re-feed this block.
+
+    // ---- Silent PLL transitions (applied on the audio thread) ------------
+    const uint32_t epoch = bypassEpoch_.load(std::memory_order_acquire);
+    if (epoch != seenBypassEpoch_) {
+        seenBypassEpoch_ = epoch;
+        // Restart the stream at the live position on ANY transition; the
+        // rate estimate and the controller command survive it.
+        const double keepDrift = driftPpm_;
+        resetStreamState();
+        driftPpm_ = keepDrift;
+    }
+    if (silentBypass_.load(std::memory_order_relaxed)) {
+        // Bit-exact passthrough with zero synthesis. The drift state machine
+        // still tracks the live command: the per-frame slew recurrence,
+        // advanced over this whole block in closed form, converges to the
+        // commanded rate while we render nothing.
+        const double targetPpmBypass =
+            static_cast<double>(targetDriftNanoPerSec_.load(std::memory_order_relaxed)) / 1000.0;
+        if (slewAlpha_ > 0.0 && inFrames > 0) {
+            const double decay = std::pow(1.0 - slewAlpha_, static_cast<double>(inFrames));
+            driftPpm_ += (targetPpmBypass - driftPpm_) * (1.0 - decay);
+        }
+        if (out != nullptr && out != in) {
+            std::memcpy(out, in, static_cast<size_t>(inFrames) * cfg_.channels * sizeof(float));
+        }
+        // (out == in: caller-aliased passthrough — nothing to copy.)
+        return inFrames;
+    }
 
     const int C = cfg_.channels;
     const int T = cfg_.tapsPerPhase;

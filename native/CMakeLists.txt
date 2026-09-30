@@ -26,11 +26,14 @@ add_library(streamify_native_core SHARED
     dsp/LufsNormalizer.cc
     dsp/SoftKneeLimiter.cc
     dsp/AcousticPhaseResampler.cc
+    dsp/ChannelOps.cc
+    dsp/MasterChain.cc
     dsp/kissfft/kiss_fft.c
     dsp/kissfft/kiss_fftr.c
     engine/VectorStore.cc
     jni/jni_bridge.cc
     jni/jni_bridge_dsp.cc
+    jni/jni_bridge_native_dsp_engine.cc
     engine/StreamifyDB.cc
     engine/RecommendEngine.cc
     engine/EventTracker.cc
@@ -54,13 +57,18 @@ option(STREAMIFY_BUILD_TESTS "Build native test suites" OFF)
 if (STREAMIFY_BUILD_TESTS)
     add_executable(dsp_test_suite
         tests/test_dsp.cc
+        tests/test_dsp_phase1.cc
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
+        dsp/ChannelOps.cc
+        dsp/MasterChain.cc
+        dsp/AcousticPhaseResampler.cc
+        engine/PtpEngine.cc
         dsp/LyricAligner.cc
         dsp/kissfft/kiss_fft.c
         dsp/kissfft/kiss_fftr.c
     )
-    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft .)
+    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine .)
     target_link_libraries(dsp_test_suite PRIVATE m pthread)
 
     add_executable(simd_physics_test_suite
@@ -116,8 +124,11 @@ if (STREAMIFY_BUILD_FUZZERS)
         fuzz/dsp_fuzzer_harness.cc
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
+        dsp/ChannelOps.cc
+        dsp/MasterChain.cc
+        dsp/AcousticPhaseResampler.cc
     )
-    target_include_directories(dsp_fuzzer_harness PRIVATE dsp .)
+    target_include_directories(dsp_fuzzer_harness PRIVATE dsp mix .)
     # Sanitizers replace global -O3/-flto/-ffast-math for this target: fast-math
     # elides the NaN guards the harness exists to exercise.
     target_compile_options(dsp_fuzzer_harness PRIVATE

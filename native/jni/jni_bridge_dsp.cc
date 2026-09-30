@@ -85,6 +85,7 @@
 #include "../engine/PtpEngine.h"
 #include "../engine/HardwareLatencyProfiler.h"
 #include "../dsp/AcousticPhaseResampler.h"
+#include "SharedInstances.h"
 
 using streamify::PtpEngine;
 using streamify::dsp::AcousticPhaseResampler;
@@ -92,16 +93,15 @@ using streamify::engine::HardwareLatencyProfiler;
 
 namespace {
 
-// Process-wide engine instances. Function-local statics: thread-safe init,
-// destroyed after main() returns — never during a live audio session.
+// Process-wide engine instances. Singletons shared with the Phase-1 bridge
+// (jni_bridge_native_dsp_engine.cc) via SharedInstances.h — one toggle
+// (setSilentBypass) reaches both bridges' engines.
 AcousticPhaseResampler& resamplerInstance() {
-    static AcousticPhaseResampler engine;   // 48 kHz stereo defaults
-    return engine;
+    return streamify::jni::sharedResampler();
 }
 
 HardwareLatencyProfiler& profilerInstance() {
-    static HardwareLatencyProfiler profiler;
-    return profiler;
+    return streamify::jni::sharedProfiler();
 }
 
 } // namespace
