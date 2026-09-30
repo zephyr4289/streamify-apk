@@ -1,6 +1,6 @@
 # ROADMAP_PHASES.md — 4-Phase Concurrent Engineering Plan (27 Spotify Gaps)
 
-> **Core Objective:** Build a completely ad-free, bloat-free, music-first daily driver with all extreme features Spotify and YouTube Music provide (via high-performance reverse engineering and serverless P2P mesh).
+> **Core Objective:** Build a completely ad-free, bloat-free, music-first daily driver with all extreme features Spotify and YouTube Music provide (via high-performance reverse engineering, scraping, and serverless P2P mesh).
 >
 > **Execution Model:** Work across **4 sequential phases**. Within each phase, **all 3 engineers work concurrently** on strictly decoupled sub-modules (`native/`, `rust/`, `app/`) with frozen ABIs and independent CI verification.
 
@@ -9,13 +9,17 @@
 ## The Tri-Layer Engineering Matrix
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      TRI-LAYER SPECIALIZATION MATRIX                        │
-├───────────────────────┬─────────────────────────┬───────────────────────────┤
-│ Engineer 1 (Native)   │ Engineer 2 (Rust)       │ Engineer 3 (Kotlin/App)   │
-│ C++20 / DSP / Shaders │ Mesh / Scrapers / CRDT  │ Compose / Media3 / UI     │
-│ Target: native/       │ Target: rust/           │ Target: app/              │
-└───────────────────────┴─────────────────────────┴───────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                           TRI-LAYER ARCHITECTURE & PIPELINE                             │
+├─────────────────────────┬───────────────────────────┬───────────────────────────────────┤
+│ Engineer 1 (Native C++) │ Engineer 2 (Rust)         │ Engineer 3 (Kotlin / Android)     │
+│ Low-Level Math & DSP    │ Algorithmic & Mesh Engine │ Scrapers, Media3 & UI             │
+│ Target: native/         │ Target: rust/             │ Target: app/                      │
+├─────────────────────────┼───────────────────────────┼───────────────────────────────────┤
+│ • SIMD NEON Math        │ • Radio Scorer & Markov   │ • OkHttp InnerTube/YTM Scrapers   │
+│ • LUFS Normalizer & PLL │ • CRDT State & Voting     │ • Spotify/iTunes/Lyrics Scrapers  │
+│ • AGSL Shaders & Mixers │ • PlumTree Gossip Mesh    │ • Jetpack Compose UI & Weft       │
+└─────────────────────────┴───────────────────────────┴───────────────────────────────────┘
 ```
 
 ---
@@ -24,8 +28,8 @@
 
 ```mermaid
 flowchart LR
-    P1["Phase 1: Jam 32-Scale, Single Aux & Sound Fidelity"] --> P2["Phase 2: Group Blend, Smart Discovery & Social"]
-    P2 --> P3["Phase 3: Scraping Ladder, Canvas/Clips & Offline"]
+    P1["Phase 1: Jam 32-Scale, Single Aux & Sound Fidelity"] --> P2["Phase 2: Scraper-Powered Blend, Discovery & Social"]
+    P2 --> P3["Phase 3: Media Scraping (Canvas/Clips), Downloads & Library"]
     P3 --> P4["Phase 4: Everywhere Playback (Auto, Connect, Cast, Wear)"]
 ```
 
@@ -49,13 +53,13 @@ flowchart LR
 | Engineer | Sub-Module | Scope of Work |
 |---|---|---|
 | **Engineer 1** *(Native/C++20)* | `native/` | - SIMD NEON multi-stream audio mixer for 32-member audio routing.<br>- Calibrated LUFS -14 normalizer filter & soft-knee limiter.<br>- Mono downmix & L/R channel balance processor.<br>- Silent PLL lock mode (zero CPU audio bypass for single-speaker guests). |
-| **Engineer 2** *(Rust/Mesh)* | `rust/` | - 32-node PlumTree gossip fanout optimization in `gossip.rs`.<br>- 32-node loopback chaos test harness (15-25% packet loss, join storms).<br>- LAN mDNS/NSD broadcast service & UDP Beacon `0x09` discovery.<br>- Member ACL token validation & targeted kick/ban frame dispatch.<br>- `Topology::SingleRender` intent forwarding & leader lease authority. |
-| **Engineer 3** *(Kotlin/App)* | `app/` | - Virtualized 32-member roster list & Jam queue in Compose.<br>- BLE tap-to-join scanner/advertiser & LAN auto-prompt join sheet.<br>- `JamEngine.Topology.SINGLE_RENDER` state machine & party mode toggle.<br>- Host governance UI: kick/block modal, guest permissions (control/volume).<br>- Audiophile DSP settings screen (LUFS target, gapless, crossfade 0-12s, mono). |
+| **Engineer 2** *(Rust/Mesh)* | `rust/` | - 32-node PlumTree gossip fanout optimization in `gossip.rs`.<br>- 32-node loopback chaos test harness (15-25% packet loss, join storms).<br>- Member ACL token validation & targeted kick/ban frame dispatch.<br>- `Topology::SingleRender` intent forwarding & leader lease authority. |
+| **Engineer 3** *(Kotlin/App)* | `app/` | - Virtualized 32-member roster list & Jam queue in Compose.<br>- BLE tap-to-join scanner/advertiser & LAN mDNS discovery prompt sheet.<br>- `JamEngine.Topology.SINGLE_RENDER` state machine & party mode toggle.<br>- Host governance UI: kick/block modal, guest permissions (control/volume).<br>- Audiophile DSP settings screen (LUFS target, gapless, crossfade 0-12s, mono). |
 
 ---
 
-## Phase 2: Group Taste Blend, Smart Discovery & Social Graph
-**Focus:** Multi-user taste merging, democratic queue voting, dynamic Daylist scheduling, and friend activity.
+## Phase 2: Scraper-Powered Taste Blend, Smart Discovery & Social Graph
+**Focus:** Scrape YouTube Music/Spotify algorithmic continuations & mood shelves (no heavy on-device ML models), democratic queue voting, dynamic Daylist scheduling, and friend activity.
 
 ### Gaps Covered from `BEHIND.md`:
 - **#15: Group-Taste Blend Engine (Jam)**
@@ -72,14 +76,14 @@ flowchart LR
 ### Detailed Work Breakdown:
 | Engineer | Sub-Module | Scope of Work |
 |---|---|---|
-| **Engineer 1** *(Native/Math)* | `native/` | - 128-D vector cosine similarity & taste union SIMD kernel.<br>- Fast harmonic key & BPM transition matrix calculator.<br>- Circadian curve math for Daypart recommendation weighting. |
-| **Engineer 2** *(Rust/CRDT/Recs)* | `rust/` | - Multi-user taste vector aggregator & co-occurrence graph scorer in `radio_scorer.rs`.<br>- CRDT democratic queue voting engine (`OpType.Vote=4` merge & threshold promotion).<br>- Scheduled recommendation pipeline for Daily Mixes 1-6 & Weekly/Radar.<br>- Collaborative playlist CRDT operational transform & delta sync. |
-| **Engineer 3** *(Kotlin/App)* | `app/` | - Blend playlist UI & "X friends like this" badges in Jam queue.<br>- Dynamic Daylist home banner & time-of-day morphing shelf.<br>- Friend Activity real-time feed with one-tap listen/join.<br>- Threaded comments UI with timestamp anchors and upvoting.<br>- Collaborative playlist role management (`viewer`, `editor`, `admin`).<br>- Taste exclusion toggles in Settings & Playlist options. |
+| **Engineer 1** *(Native/Math)* | `native/` | - Fast string/ID hashing & SIMD candidate deduplication.<br>- Harmonic BPM & Camelot key transition matrix calculator for smooth track sequencing. |
+| **Engineer 2** *(Rust/CRDT/Scoring)* | `rust/` | - `radio_scorer.rs`: Anti-drift candidate ranker and group taste overlap scoring.<br>- `jam_crdt.rs`: Implement democratic queue voting (`OpType.Vote=4` merge & threshold promoter).<br>- Collaborative playlist CRDT operational transform & multi-peer delta sync. |
+| **Engineer 3** *(Kotlin/Scraper/UI)* | `app/` | - **Scraper Pipeline:** `YouTubeMusicRadioApi.kt` — Scrape YTM `youtubei/v1/next` radio continuations, similar artists, and curated mood shelves.<br>- **Blend Scraper:** Concurrently query seeds for Member A & Member B and interleave tracks with "Both of you like this" badges.<br>- **Daylist Scheduler:** Map device clock (morning, afternoon, evening, night) to YTM mood queries for a dynamic 4-hour mutating home banner.<br>- **UI & Social:** Compose screens for Blend, Daylist, Friend Activity live feed, threaded comments, and Jam queue vote buttons. |
 
 ---
 
-## Phase 3: Deep Scraping Ladder, Canvas Loops & Power Library
-**Focus:** Rich media scraping (Canvas loops, 30s vertical clips, high-bitrate ladders), background downloads, and power library management.
+## Phase 3: Media Scraping (Canvas/Clips), Background Downloads & Power Library
+**Focus:** Scrape rich visual media (Spotify Canvas 8s loops, 30s vertical clips, high-bitrate audio streams), background downloads, and power library management.
 
 ### Gaps Covered from `BEHIND.md`:
 - **#28: Pre-Saves & Release Watcher**
@@ -97,8 +101,8 @@ flowchart LR
 | Engineer | Sub-Module | Scope of Work |
 |---|---|---|
 | **Engineer 1** *(Native/AGSL/Video)* | `native/` | - AGSL ambient glow shader & seamless 8s video loop renderer.<br>- Audio frame remuxer & bitstream packet validator.<br>- Bitmap palette color extractor for custom playlist covers. |
-| **Engineer 2** *(Rust/Scrapers/Swarm)* | `rust/` | - Reverse-engineered Canvas & 30s vertical Clips scrapers.<br>- InnerTube multi-client audio format resolver with fallback ladder (Opus251/AAC140).<br>- P2P chunk swarmer LAN transfer engine for local file sync.<br>- Artist release poller & pre-save notification watcher. |
-| **Engineer 3** *(Kotlin/Media3/Storage)* | `app/` | - Video Canvas player layer in Now Playing screen.<br>- Vertical 30s Clips discovery feed.<br>- WorkManager resumable chunk background downloader.<br>- Playlist folders, pinned items, custom cover cropper, and bulk queue editor.<br>- Library multi-criteria sort/filter bar & "Your Updates" release hub.<br>- Smart Shuffle interleave injector & QR Code share card generator. |
+| **Engineer 2** *(Rust/Mesh/Swarm)* | `rust/` | - P2P chunk swarmer LAN transfer engine for local file sync.<br>- High-throughput chunk streaming & byte-range integrity verifier. |
+| **Engineer 3** *(Kotlin/Scrapers/Media3)* | `app/` | - **Media Scrapers:** Reverse-engineer & scrape Canvas 8s video loops and vertical 30s artist Clips endpoints.<br>- **Release Watcher:** Scrape artist release feeds for pre-save alerts and release day notifications.<br>- **Media3 Player:** Canvas video player layer in Now Playing & vertical Clips discovery feed.<br>- **Storage & Library:** WorkManager resumable downloader, playlist folders, custom cover cropper, pin lists, and library sort/filter bar. |
 
 ---
 
@@ -129,15 +133,15 @@ flowchart LR
   - [ ] Engineer 2 (Rust 32-Peer Gossip, mDNS & ACL)
   - [ ] Engineer 3 (Kotlin 32-Roster UI, Party Mode & DSP Settings)
   - [ ] CI Verification & Release Test Build
-- [ ] **Phase 2: Group Taste Blend, Smart Discovery & Social Graph**
-  - [ ] Engineer 1 (Native Cosine Similarity & Harmonic Math)
+- [ ] **Phase 2: Scraper-Powered Taste Blend, Smart Discovery & Social Graph**
+  - [ ] Engineer 1 (Native String Hashing & Harmonic Math)
   - [ ] Engineer 2 (Rust Blend Scorer, CRDT Voting & Mixes)
-  - [ ] Engineer 3 (Kotlin Blend UI, Daylist & Friend Activity)
+  - [ ] Engineer 3 (Kotlin YTM Radio Scrapers, Daylist, Blend UI & Social)
   - [ ] CI Verification & Release Test Build
-- [ ] **Phase 3: Deep Scraping Ladder, Canvas Loops & Power Library**
+- [ ] **Phase 3: Media Scraping (Canvas/Clips), Background Downloads & Power Library**
   - [ ] Engineer 1 (Native AGSL Canvas Loops & Audio Remuxer)
-  - [ ] Engineer 2 (Rust Canvas/Clips Scrapers & Chunk Swarmer)
-  - [ ] Engineer 3 (Kotlin Canvas UI, Background Downloader & Folders)
+  - [ ] Engineer 2 (Rust Chunk Swarmer & Local LAN Sync)
+  - [ ] Engineer 3 (Kotlin Canvas Scrapers, UI, Background Downloader & Folders)
   - [ ] CI Verification & Release Test Build
 - [ ] **Phase 4: Everywhere Playback (Connect, Cast, Car & Wear)**
   - [ ] Engineer 1 (Native Low-Latency Audio Sinks)
