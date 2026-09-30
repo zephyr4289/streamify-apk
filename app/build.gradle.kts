@@ -114,6 +114,14 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+    testOptions {
+        // JAM v4: the Jam engine is logging-heavy (SLog → android.util.Log);
+        // default-value stubs keep the whole state machine runnable on the
+        // JVM unit-test shard without Robolectric.
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
     }
@@ -181,6 +189,16 @@ dependencies {
     // testDebugUnitTest suite (no package filter, so new tests in any
     // package are picked up automatically).
     testImplementation("junit:junit:4.13.2")
+
+    // JAM v4: offline pairing QR generation (pure-JVM zxing core — no
+    // Android artifact, safe for the JVM test shard).
+    implementation("com.google.zxing:core:3.5.2")
+
+    // JAM v4: real org.json on the JVM test classpath — the android.jar
+    // stubs throw "not mocked" for JSONObject in unit tests; this artifact
+    // (test-only, never packaged) keeps the Jam wire track JSON codecs
+    // exercisable in testDebugUnitTest.
+    testImplementation("org.json:json:20240303")
 
     // Instrumented macrobenchmark (StreamifyMacrobenchmark) executed by the
     // emulator-matrix CI job via connectedDebugAndroidTest.

@@ -1193,5 +1193,288 @@ object NativeBridge {
     private external fun nativeCalculatePtp(
         seqId: Int, t0: Long, t1: Long, t2: Long, t3: Long, outResults: LongArray
     )
+
+    // ═══════════════════════════════════════════════════════════════
+    // ZERO-SERVER JAM MESH v4 — FROZEN JNI ABI + KOTLIN TRANSPORT SEAM
+    // ═══════════════════════════════════════════════════════════════
+    //
+    // Contract owners (cross-team frozen ABI — names + signatures locked):
+    //   • Engineer 1 implements the C++ symbols in libstreamify_native_core:
+    //     PTP clock discipline + Sinc resampler + DAC playout-delay probe.
+    //   • Engineer 2 implements the Rust symbols in libstreamify_core_rs:
+    //     the leaderless P2P mesh (Wi-Fi Direct / 5 GHz LAN UDP / WebRTC).
+    //   • The Kotlin side MUST NOT rename or re-shape these declarations.
+    //
+    // Safe wrappers below follow this file's long-standing convention:
+    // every call site goes through a `try { … } catch (Throwable)` wrapper so
+    // a device without the native artifact (JVM test shard, x86 emulator,
+    // skipRust CI builds) degrades to documented fallbacks instead of
+    // crashing the Jam stack. Wrappers delegate 1:1 to the frozen symbols.
+
+    /**
+     * Upcall surface the Rust mesh invokes when frames / peer lifecycle
+     * events arrive. Registered via [nativeP2pRegisterIncomingCallback].
+     * Default (empty) methods keep the surface forward-compatible.
+     */
+    interface P2pIncomingListener {
+        /** Raw frame landed from peer [peerIdHex] (mesh-level identity). */
+        fun onP2pFrame(peerIdHex: String, msgType: Int, payload: ByteArray) {}
+
+        /** A peer completed mesh-level connection (handshake done). */
+        fun onP2pPeerJoined(peerIdHex: String) {}
+
+        /** A peer dropped (battery death, Wi-Fi loss, graceful leave). */
+        fun onP2pPeerLeft(peerIdHex: String) {}
+    }
+
+    /** Mesh-frame event fanned out on [incomingFrames]. */
+    data class P2pFrameEvent(
+        val peerIdHex: String,
+        val msgType: Int,
+        val payload: ByteArray
+    )
+
+    /** Peer lifecycle event fanned out on [peerEvents]. */
+    data class P2pPeerEvent(
+        val peerIdHex: String,
+        val joined: Boolean
+    )
+
+    /**
+     * Test/loopback seam for the mesh transport. When non-null every P2P
+     * wrapper routes here instead of JNI — this is the injection point used
+     * by MockNativeBridge's virtual room (multi-device frame routing,
+     * host-drop-and-failover, clock-jitter injection).
+     */
+    interface P2pMesh {
+        fun start(sessionId: String, deviceId: String, enableLan: Boolean, enableWebRtc: Boolean): Boolean
+        fun stop()
+        fun broadcast(msgType: Int, payload: ByteArray): Boolean
+        fun sendToPeer(peerIdHex: String, msgType: Int, payload: ByteArray): Boolean
+        fun connectedPeerCount(): Int
+        fun registerIncoming(listener: P2pIncomingListener): Boolean
+    }
+
+    @Volatile
+    var meshOverride: P2pMesh? = null
+
+    /** Test hook: overrides the synced nanosecond clock (virtual time). */
+    @Volatile
+    var syncedClockOverride: (() -> Long)? = null
+
+    private val _incomingFrames = kotlinx.coroutines.flow.MutableSharedFlow<P2pFrameEvent>(
+        extraBufferCapacity = 512,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
+
+    /** Raw incoming mesh frames — collected by the JamEngine dispatcher. */
+    val incomingFrames: kotlinx.coroutines.flow.SharedFlow<P2pFrameEvent> = _incomingFrames
+
+    private val _peerEvents = kotlinx.coroutines.flow.MutableSharedFlow<P2pPeerEvent>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
+
+    /** Mesh peer join/leave lifecycle — drives Merkle reconciliation. */
+    val peerEvents: kotlinx.coroutines.flow.SharedFlow<P2pPeerEvent> = _peerEvents
+
+    /** Internal listener bridging native upcalls into the coroutine flows. */
+    private val meshFlowListener = object : P2pIncomingListener {
+        override fun onP2pFrame(peerIdHex: String, msgType: Int, payload: ByteArray) {
+            _incomingFrames.tryEmit(P2pFrameEvent(peerIdHex, msgType, payload))
+        }
+
+        override fun onP2pPeerJoined(peerIdHex: String) {
+            _peerEvents.tryEmit(P2pPeerEvent(peerIdHex, joined = true))
+        }
+
+        override fun onP2pPeerLeft(peerIdHex: String) {
+            _peerEvents.tryEmit(P2pPeerEvent(peerIdHex, joined = false))
+        }
+    }
+
+    // ── FROZEN ABI: Engineer 1 — C++ DSP & Clock (libstreamify_native_core) ──
+
+    @JvmStatic
+    external fun nativePtpProcessTimestamps(t0: Long, t1: Long, t2: Long, t3: Long): Long
+
+    @JvmStatic
+    external fun nativeGetSynchronizedClockNanos(): Long
+
+    @JvmStatic
+    external fun nativePtpReset()
+
+    @JvmStatic
+    external fun nativeResamplerSetTargetDriftNanos(driftNanos: Long)
+
+    @JvmStatic
+    external fun nativeResamplerProcessBuffer(
+        input: java.nio.ByteBuffer, output: java.nio.ByteBuffer,
+        frameCount: Int, channels: Int, sampleRate: Int
+    ): Int
+
+    @JvmStatic
+    external fun nativeGetHardwarePlayoutDelayNanos(): Long
+
+    // ── FROZEN ABI: Engineer 2 — Rust P2P Mesh (libstreamify_core_rs) ───────
+
+    @JvmStatic
+    external fun nativeP2pStart(
+        sessionId: String, deviceId: String, enableLan: Boolean, enableWebRtc: Boolean
+    ): Boolean
+
+    @JvmStatic
+    external fun nativeP2pStop()
+
+    @JvmStatic
+    external fun nativeP2pBroadcast(msgType: Int, payload: ByteArray): Boolean
+
+    @JvmStatic
+    external fun nativeP2pSendToPeer(peerIdHex: String, msgType: Int, payload: ByteArray): Boolean
+
+    @JvmStatic
+    external fun nativeP2pGetConnectedPeerCount(): Int
+
+    /**
+     * Registers the JVM upcall listener the Rust mesh retains globally.
+     * (Referenced by the mission ABI §A — the incoming-frame conduit.)
+     */
+    @JvmStatic
+    external fun nativeP2pRegisterIncomingCallback(listener: P2pIncomingListener): Boolean
+
+    // ── Safe wrappers (see conventions at the top of this section) ──────────
+
+    /** PTP offset estimate in nanos; 0 when native clock is unavailable. */
+    fun ptpProcessTimestampsNanos(t0: Long, t1: Long, t2: Long, t3: Long): Long = try {
+        nativePtpProcessTimestamps(t0, t1, t2, t3)
+    } catch (_: Throwable) {
+        0L
+    }
+
+    /**
+     * THE atomic room clock (nanoseconds). Falls back to the raw local
+     * monotonic clock when the native PTP discipline is unavailable — all
+     * room math stays in one domain either way.
+     */
+    fun synchronizedClockNanos(): Long {
+        syncedClockOverride?.let { return it() }
+        return try {
+            nativeGetSynchronizedClockNanos()
+        } catch (_: Throwable) {
+            System.nanoTime()
+        }
+    }
+
+    fun ptpReset() {
+        try { nativePtpReset() } catch (_: Throwable) {}
+    }
+
+    /** Feeds the measured drift (nanos) to the native Sinc resampler. */
+    fun resamplerSetTargetDriftNanos(driftNanos: Long) {
+        try { nativeResamplerSetTargetDriftNanos(driftNanos) } catch (_: Throwable) {}
+    }
+
+    /**
+     * Streams one PCM buffer through the C++ Sinc resampler. Returns frames
+     * produced, or -1 when the native core is unavailable (caller must use
+     * its Kotlin fallback path).
+     */
+    fun resamplerProcessBuffer(
+        input: java.nio.ByteBuffer, output: java.nio.ByteBuffer,
+        frameCount: Int, channels: Int, sampleRate: Int
+    ): Int = try {
+        nativeResamplerProcessBuffer(input, output, frameCount, channels, sampleRate)
+    } catch (_: Throwable) {
+        -1
+    }
+
+    /** DAC / Bluetooth A2DP playout delay in nanos; -1 = unknown. */
+    fun hardwarePlayoutDelayNanos(): Long = try {
+        nativeGetHardwarePlayoutDelayNanos()
+    } catch (_: Throwable) {
+        -1L
+    }
+
+    /** Boots the Rust mesh for this room; false = transport unavailable. */
+    fun p2pStart(
+        sessionId: String, deviceId: String, enableLan: Boolean, enableWebRtc: Boolean
+    ): Boolean {
+        // Both transports (native Rust mesh AND the test mock override) must
+        // bridge their upcalls into [incomingFrames] — the early-return below
+        // previously left the mock unregistered, killing ingress in the JVM
+        // test shard exactly like a silent radio.
+        meshOverride?.let {
+            val ok = it.start(sessionId, deviceId, enableLan, enableWebRtc)
+            if (ok) runCatching { it.registerIncoming(meshFlowListener) }
+            return ok
+        }
+        return try {
+            val ok = nativeP2pStart(sessionId, deviceId, enableLan, enableWebRtc)
+            if (ok) try { nativeP2pRegisterIncomingCallback(meshFlowListener) } catch (_: Throwable) {}
+            ok
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun p2pStop() {
+        meshOverride?.let { return it.stop() }
+        try { nativeP2pStop() } catch (_: Throwable) {}
+    }
+
+    /** Fan-out broadcast on the mesh; false = transport down (caller retries). */
+    fun p2pBroadcast(msgType: Int, payload: ByteArray): Boolean {
+        meshOverride?.let { return it.broadcast(msgType, payload) }
+        return try {
+            nativeP2pBroadcast(msgType, payload)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun p2pSendToPeer(peerIdHex: String, msgType: Int, payload: ByteArray): Boolean {
+        meshOverride?.let { return it.sendToPeer(peerIdHex, msgType, payload) }
+        return try {
+            nativeP2pSendToPeer(peerIdHex, msgType, payload)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun p2pConnectedPeerCount(): Int {
+        meshOverride?.let { return it.connectedPeerCount() }
+        return try {
+            nativeP2pGetConnectedPeerCount()
+        } catch (_: Throwable) {
+            0
+        }
+    }
+
+    /**
+     * Registers the flow-bridging listener with the mesh (native or
+     * override). The JamEngine transport loop calls this once on start.
+     */
+    fun p2pRegisterIncoming(listener: P2pIncomingListener): Boolean {
+        meshOverride?.let { return it.registerIncoming(listener) }
+        return try {
+            nativeP2pRegisterIncomingCallback(listener)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Test injection: feed a raw frame into [incomingFrames] exactly as the
+     * native upcall would. MockNativeBridge drives the engine's dispatcher
+     * through this gate so production and test share one code path.
+     */
+    fun simulateIncomingFrame(peerIdHex: String, msgType: Int, payload: ByteArray) {
+        meshFlowListener.onP2pFrame(peerIdHex, msgType, payload)
+    }
+
+    /** Test injection: synthesize mesh peer lifecycle events. */
+    fun simulatePeerEvent(peerIdHex: String, joined: Boolean) {
+        if (joined) meshFlowListener.onP2pPeerJoined(peerIdHex) else meshFlowListener.onP2pPeerLeft(peerIdHex)
+    }
 }
 

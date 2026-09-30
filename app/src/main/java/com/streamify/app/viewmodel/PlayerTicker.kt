@@ -122,8 +122,17 @@ internal fun PlayerViewModel.startJamTicker() {
                         engine.announceNextIs(next)
                     }
                 }
+            } else {
+                // JAM v4: a paused-but-live leader still heartbeats (frozen
+                // position, playing=false) — heartbeat-loss detection must
+                // never mistake a paused host for a dead one.
+                engine.heartbeatTick(
+                    track = _playerState.value.currentTrack,
+                    positionMs = ctrl.currentPosition.coerceAtLeast(0L),
+                    isPlaying = false
+                )
             }
-            delay(engine.tickIntervalMs(ctrl.currentPosition.coerceAtLeast(0L), ctrl.duration))
+            delay(engine.tickIntervalMs(ctrl.currentPosition.coerceAtLeast(0L), ctrl.duration, _playerState.value.isPlaying))
         }
     }
 }
