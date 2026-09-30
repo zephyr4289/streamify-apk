@@ -54,6 +54,14 @@ inline float hsumF32x4(float32x4_t v) {
 
 constexpr int kPhaseFractionBits = 32;   // sub-sample accumulator width
 
+inline void* allocateAligned(size_t alignment, size_t size) {
+    void* ptr = nullptr;
+    if (posix_memalign(&ptr, alignment, size) != 0) {
+        return nullptr;
+    }
+    return ptr;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -86,7 +94,7 @@ AcousticPhaseResampler::AcousticPhaseResampler(const Config& cfg)
     const size_t ringBytes =
         static_cast<size_t>(ringCapacity_) * cfg_.channels * sizeof(float);
     ring_.reset(static_cast<float*>(
-        ::aligned_alloc(32, ((ringBytes + 31) / 32) * 32)));
+        allocateAligned(32, ((ringBytes + 31) / 32) * 32)));
 
     resetStreamState();
 }
@@ -108,7 +116,7 @@ void AcousticPhaseResampler::buildFilterTable() {
     const size_t rows = static_cast<size_t>(P) + 1;
     const size_t floats = rows * static_cast<size_t>(T);
     const size_t bytes = ((floats * sizeof(float) + 31) / 32) * 32;
-    table_.reset(static_cast<float*>(::aligned_alloc(32, bytes)));
+    table_.reset(static_cast<float*>(allocateAligned(32, bytes)));
 
     for (int phi = 0; phi <= P; ++phi) {
         const double frac = static_cast<double>(phi) / static_cast<double>(P);
@@ -150,7 +158,7 @@ bool AcousticPhaseResampler::configure(int channels, double sampleRateHz) {
     const size_t ringBytes =
         static_cast<size_t>(ringCapacity_) * cfg_.channels * sizeof(float);
     ring_.reset(static_cast<float*>(
-        ::aligned_alloc(32, ((ringBytes + 31) / 32) * 32)));
+        allocateAligned(32, ((ringBytes + 31) / 32) * 32)));
     resetStreamState();
     return true;
 }
