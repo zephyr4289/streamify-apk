@@ -199,11 +199,17 @@ class DspPreferencesTest {
         assertTrue(StreamifyAudioProcessor.gaplessEnabled)
         assertEquals(4000L, CrossfadeAudioProcessor.crossfadeDurationMs)
 
-        // Restore a neutral state so other tests are unaffected.
+        // Restore a neutral state so other tests are unaffected. NOTE: the
+        // factory default keeps loudness normalization ON at −14 LUFS — the
+        // neutral target is the default value, not null.
         DspPreferences().apply()
-        assertNull(StreamifyAudioProcessor.normalizeTargetLufs)
+        assertEquals(DspPreferences.DEFAULT_TARGET_LUFS, StreamifyAudioProcessor.normalizeTargetLufs)
         assertFalse(StreamifyAudioProcessor.limiterEnabled)
-        assertNotNull(StreamifyAudioProcessor.limiterCeilingDbfs)
+        assertEquals(DspPreferences.TRUE_PEAK_CEILING_DBFS, StreamifyAudioProcessor.limiterCeilingDbfs)
+        assertFalse(StreamifyAudioProcessor.monoDownmixEnabled)
+        assertEquals(0, StreamifyAudioProcessor.stereoBalancePercent)
+        assertTrue(StreamifyAudioProcessor.gaplessEnabled)
+        assertEquals(0L, CrossfadeAudioProcessor.crossfadeDurationMs)
     }
 
     @Test
@@ -214,15 +220,18 @@ class DspPreferencesTest {
     }
 
     @Test
-    fun `active crossfade keeps gapless semantics on`() {
-        // Gapless may be switched off explicitly, but a crossfade > 0 s is
-        // itself a gapless-quality transition — the derived flag must hold.
+    fun `crossfade replaces the gapless splice while zero-crossfade keeps it`() {
+        // Semantics of DspPreferences.apply(): gaplessEnabled is derived as
+        // `gaplessEnabled || crossfade inactive` — an ACTIVE crossfade
+        // replaces the zero-silence splice, so an explicit gapless-off with
+        // crossfade > 0 s reports gapless OFF.
         DspPreferences(gaplessEnabled = false, crossfadeSeconds = 3f).apply()
-        assertTrue(StreamifyAudioProcessor.gaplessEnabled)
-
-        // With everything off, gapless is genuinely off.
-        DspPreferences(gaplessEnabled = false, crossfadeSeconds = 0f).apply()
         assertFalse(StreamifyAudioProcessor.gaplessEnabled)
+
+        // Crossfade at 0 s with gapless off: the transition is a hard splice
+        // with zero inserted silence — the gapless contract still holds.
+        DspPreferences(gaplessEnabled = false, crossfadeSeconds = 0f).apply()
+        assertTrue(StreamifyAudioProcessor.gaplessEnabled)
 
         DspPreferences().apply()
     }

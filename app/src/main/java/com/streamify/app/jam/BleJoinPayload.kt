@@ -131,6 +131,7 @@ object BleJoinPayload {
 
         val out = ByteArray(OFFSET_HOST_NAME + nameBytes.size)
         out[OFFSET_MAGIC] = MAGIC_0
+        out[OFFSET_MAGIC + 1] = MAGIC_1
         out[OFFSET_VERSION] = VERSION
         out[OFFSET_FLAGS] = flags.toByte()
         System.arraycopy(code.toByteArray(Charsets.US_ASCII), 0, out, OFFSET_CODE, CODE_BYTES)
