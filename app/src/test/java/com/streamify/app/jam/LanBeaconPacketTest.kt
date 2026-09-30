@@ -21,7 +21,7 @@ class LanBeaconPacketTest {
     private val sessionId = ByteArray(16) { (it * 7 + 3).toByte() }
 
     private fun beacon(
-        sender: Long = 0xA1B2C3D4E5F60718L,
+        sender: Long = 0x21B2C3D4E5F60718L,
         caps: Int = LanBeaconPacket.CAP_LAN or LanBeaconPacket.CAP_WEBRTC,
         port: Int = LanBeaconPacket.DEFAULT_MESH_PORT
     ): ByteArray = LanBeaconPacket.encodeBeacon(sender, sessionId, caps, port)!!
