@@ -80,8 +80,14 @@ object JamEngine {
         val name: String,
         val avatarUrl: String?,
         val isHost: Boolean,
-        val lastSeenMs: Long
-    )
+        val lastSeenMs: Long,
+        val nonce: String = "",
+        val role: JamGovernance.Role = JamGovernance.Role.MEMBER,
+        val allowControl: Boolean = true,
+        val allowVolume: Boolean = true
+    ) {
+        val isCoHost: Boolean get() = role == JamGovernance.Role.CO_HOST
+    }
 
     enum class ConnStatus { LIVE, DEGRADED, OFFLINE }
     enum class ControlPolicy { HOST_ONLY, EVERYONE }
@@ -141,6 +147,12 @@ object JamEngine {
             val durationMs: Long,
             val play: Boolean
         ) : Command()
+        /**
+         * Party Mode audio discipline: guests in SINGLE_RENDER suppress
+         * local audio output (the host speaker is the only renderer) while
+         * the PLL keeps running silently for an instant flip back.
+         */
+        data class ApplyRenderSuppression(val suppressed: Boolean) : Command()
         object SessionEnded : Command()
         object Rehandshake : Command()
     }
@@ -161,6 +173,24 @@ object JamEngine {
 
     private val _policy = MutableStateFlow(ControlPolicy.EVERYONE)
     val policy: StateFlow<ControlPolicy> = _policy.asStateFlow()
+
+    // ── Phase 1: Topology (Gap #13) + Governance (Gaps #14/#18) ──────────
+
+    /** Room render topology — MULTI_RENDER default, SINGLE_RENDER = Party. */
+    private val _topology = MutableStateFlow(JamTopology.MULTI_RENDER)
+    val topology: StateFlow<JamTopology> = _topology.asStateFlow()
+
+    /** Highest TOPOLOGY regime epoch applied — stale-frame guard. */
+    @Volatile private var latestTopologyEpoch = 0L
+
+    /** Governance table: member ACLs, block list, report inbox. */
+    val governance = JamGovernance.Table()
+
+    private val _governanceRows = MutableStateFlow<List<JamGovernance.MemberAcl>>(emptyList())
+    val governanceRows: StateFlow<List<JamGovernance.MemberAcl>> = _governanceRows.asStateFlow()
+
+    private val _memberReports = MutableStateFlow<List<JamGovernance.MemberReport>>(emptyList())
+    val memberReports: StateFlow<List<JamGovernance.MemberReport>> = _memberReports.asStateFlow()
 
     private val _queue = MutableStateFlow<List<Track>>(emptyList())
     val queue: StateFlow<List<Track>> = _queue.asStateFlow()
@@ -285,6 +315,160 @@ object JamEngine {
             JamWire.Msg.POLICY,
             JamWire.encodePolicy(deviceId, currentEpoch(), if (next == ControlPolicy.EVERYONE) 1 else 0)
         )
+    }
+
+    // ═══════════════ Phase 1: Topology + Governance host actions ═══════════
+
+    /**
+     * Host flips the room topology (Party Mode on/off). Guests adopt the
+     * broadcast TOPOLOGY frame; this device applies the local audio-output
+     * directive immediately through the command channel.
+     */
+    fun setTopology(target: JamTopology): TopologyDecision {
+        val decision = JamTopologyMachine.request(
+            current = _topology.value,
+            isActive = isActive(),
+            isHost = isHost(),
+            target = target,
+            nextEpoch = epochCounter.incrementAndGet(),
+            leaderNonce = election?.leaderNonce?.value,
+            requesterNonce = deviceId
+        )
+        if (decision is TopologyDecision.Applied) {
+            latestTopologyEpoch = decision.epoch
+            _topology.value = decision.topology
+            markRegimeChange()
+            broadcastFrame(
+                JamWire.Msg.TOPOLOGY,
+                JamWire.encodeTopology(deviceId, decision.epoch, if (decision.topology == JamTopology.SINGLE_RENDER) 1 else 0)
+            )
+            // Local audio-output discipline: guests mute; host keeps rendering.
+            if (!isHost()) {
+                _commands.tryEmit(
+                    Command.ApplyRenderSuppression(JamTopologyMachine.rendersLocally(decision.topology, isHost()) == false)
+                )
+            }
+            SLog.i("JamTopology", "room topology -> ${decision.topology} @ epoch ${decision.epoch}")
+        }
+        return decision
+    }
+
+    /** True when this device is a Party Mode remote controller (guest in SINGLE_RENDER). */
+    fun isRemoteController(): Boolean =
+        JamTopologyMachine.isRemoteController(_topology.value, isHost())
+
+    /** True when this device should render audio under the current topology. */
+    fun rendersLocally(): Boolean =
+        JamTopologyMachine.rendersLocally(_topology.value, isHost())
+
+    /** Host publishes one member-ACL row (control / volume / co-host). */
+    fun setMemberAcl(targetNonce: String, allowControl: Boolean? = null, allowVolume: Boolean? = null) {
+        val hostNonce = deviceId
+        val decision1 = allowControl?.let {
+            governance.setAllowControl(hostNonce, deviceId, targetNonce, it)
+        }
+        val decision2 = allowVolume?.let {
+            governance.setAllowVolume(hostNonce, deviceId, targetNonce, it)
+        }
+        if (decision1 is JamGovernance.Decision.Refused && decision2 == null) return
+        publishGovernanceRow(targetNonce)
+    }
+
+    /** Host grants/revokes co-host (secondary leader-intent emitter). */
+    fun setMemberRole(targetNonce: String, role: JamGovernance.Role) {
+        val decision = governance.setRole(deviceId, deviceId, targetNonce, role)
+        if (decision is JamGovernance.Decision.Refused) return
+        publishGovernanceRow(targetNonce)
+    }
+
+    /**
+     * Kick (Gap #14): targeted removal + block for the room lifetime. The
+     * kicked device receives the KICK frame and ends locally; peers block.
+     */
+    fun kickMember(targetNonce: String) {
+        val decision = governance.kick(deviceId, deviceId, targetNonce)
+        if (decision is JamGovernance.Decision.Refused) return
+        broadcastFrame(
+            JamWire.Msg.GOVERNANCE,
+            JamWire.encodeGovernance(
+                deviceId, epochCounter.incrementAndGet(), targetNonce,
+                roleOrdinal = JamGovernance.Role.MEMBER.ordinal,
+                allowControl = false, allowVolume = false,
+                actionOrdinal = JamWire.GovernanceBody.GOV_ACTION_KICK
+            )
+        )
+        broadcastFrame(JamWire.Msg.KICK, JamWire.encodeKick(deviceId, epochCounter.get(), targetNonce))
+        dropMemberLocally(targetNonce)
+        SLog.i("JamGovernance", "kicked $targetNonce")
+    }
+
+    /** Ban without kick — queue spammers stay blocked until room end. */
+    fun banMember(targetNonce: String) {
+        val decision = governance.ban(deviceId, deviceId, targetNonce)
+        if (decision is JamGovernance.Decision.Refused) return
+        broadcastFrame(
+            JamWire.Msg.GOVERNANCE,
+            JamWire.encodeGovernance(
+                deviceId, epochCounter.incrementAndGet(), targetNonce,
+                roleOrdinal = JamGovernance.Role.MEMBER.ordinal,
+                allowControl = false, allowVolume = false,
+                actionOrdinal = JamWire.GovernanceBody.GOV_ACTION_BAN
+            )
+        )
+        _governanceRows.value = governance.members()
+    }
+
+    /** Guest affordance (Gap #18): report a disruptive member to the host. */
+    fun reportMember(targetNonce: String, reason: JamGovernance.ReportReason): Boolean {
+        if (!isActive() || targetNonce.isBlank()) return false
+        if (!governance.mayEmitControlIntent(deviceId, election?.leaderNonce?.value ?: deviceId, _policy.value) &&
+            deviceId == targetNonce) return false
+        val sent = broadcastFrame(
+            JamWire.Msg.REPORT,
+            JamWire.encodeReport(deviceId, targetNonce, reason.wireCode, nowSynced())
+        )
+        return sent
+    }
+
+    /** Host: clear the report inbox (read by the governance sheet). */
+    fun clearMemberReports() {
+        governance.clearReports()
+        _memberReports.value = emptyList()
+    }
+
+    /** Host (or this device in single-member rooms) mirrors a row to the mesh. */
+    private fun publishGovernanceRow(targetNonce: String) {
+        val row = governance.aclOf(targetNonce) ?: return
+        broadcastFrame(
+            JamWire.Msg.GOVERNANCE,
+            JamWire.encodeGovernance(
+                deviceId, epochCounter.incrementAndGet(), targetNonce,
+                roleOrdinal = row.role.ordinal,
+                allowControl = row.allowControl,
+                allowVolume = row.allowVolume,
+                actionOrdinal = JamWire.GovernanceBody.GOV_ACTION_UPSERT
+            )
+        )
+        _governanceRows.value = governance.members()
+        refreshMemberGovernanceFields()
+    }
+
+    /** Removes a member row locally (kick echo / leave / timeout). */
+    private fun dropMemberLocally(nonce: String) {
+        governance.remove(nonce)
+        _members.update { list -> list.filterNot { it.nonce == nonce || it.userId == myUserIdOf(nonce) } }
+        _governanceRows.value = governance.members()
+        refreshConnStatus()
+    }
+
+    /** Syncs governance rows into the roster view (badges + toggles). */
+    private fun refreshMemberGovernanceFields() {
+        _members.update { list ->
+            list.map { m ->
+                val row = governance.aclOf(m.nonce)
+                if (row == null) m else m.copy(role = row.role, allowControl = row.allowControl, allowVolume = row.allowVolume)
+            }
+        }
     }
 
     private fun currentEpoch(): Long = epochCounter.get()
@@ -719,6 +903,45 @@ object JamEngine {
     }
 
     /**
+     * Fractional-index reorder (Gap #11): moves [track] to [toPosition] in
+     * the shared queue by emitting an OP_REORDER op whose frac is the
+     * midpoint between the new neighbours — the classic Jepsen fractional
+     * scheme, so concurrent reorders from 32 members interleave without
+     * conflicts and every replica converges on the same order after the
+     * CRDT fold. Falls back to the legacy snapshot path when the native
+     * CRDT is unavailable.
+     */
+    fun moveInQueue(track: Track, toPosition: Int): Boolean {
+        if (!isActive()) return false
+        val current = _queue.value.toMutableList()
+        val from = current.indexOfFirst { it.id == track.id }
+        if (from < 0) return false
+        val to = toPosition.coerceIn(0, current.size - 1)
+        if (from == to) return true
+
+        val cad = cadFor(track)
+        if (cad == 0L) return false
+
+        current.removeAt(from)
+        current.add(to, track)
+
+        val beforeFrac = if (to > 0) fracByCad[cadFor(current[to - 1])] else null
+        val afterFrac = if (to < current.size - 1) fracByCad[cadFor(current[to + 1])] else null
+        val newFrac = when {
+            beforeFrac != null && afterFrac != null -> (beforeFrac + afterFrac) / 2.0
+            afterFrac != null -> FractionalIndexEngine.before(afterFrac).value
+            else -> FractionalIndexEngine.after(beforeFrac).value
+        }
+        val ok = mutate(JamOpWire.OP_REORDER, track, { newFrac })
+        if (!ok) {
+            // Legacy best-effort: optimistic local move + snapshot broadcast.
+            _queue.value = current
+            broadcastQueueSnapshot()
+        }
+        return true
+    }
+
+    /**
      * Rebuilds the UI queue from the authoritative CRDT fold, resolving cad
      * identities back to Track objects via the cache.
      */
@@ -798,7 +1021,15 @@ object JamEngine {
                 val p = JamWire.parsePresence(frame) ?: return
                 lastHostTickAt = System.currentTimeMillis() // mesh + room alive
                 deviceUserMap[sender] = p.name
-                noteMember(myUserIdOf(sender), p.name, p.avatarUrl, p.isHost)
+                // Gap #11 + #18 admission gate: 32-member hard cap and the
+                // room-lifetime block list. Refused nonces never join the
+                // roster and their frames are ignored from here on.
+                if (sender != deviceId && !governance.admits(sender, _members.value.size) &&
+                    !senderIsLeader(sender)) {
+                    SLog.d("JamRoom", "presence from $sender refused (cap/block)")
+                    return
+                }
+                noteMember(myUserIdOf(sender), p.name, p.avatarUrl, p.isHost, sender)
                 peerRadar[sender] = MeshPeer(
                     peerIdHex = peerIdHex,
                     nonce = sender,
@@ -831,8 +1062,100 @@ object JamEngine {
                 }
             }
 
+            JamWire.Msg.TOPOLOGY -> {
+                // Leader flips the room render topology (Gap #13). Guests
+                // adopt epoch-gated; stale out-of-order frames are dropped.
+                if (!senderIsLeader(sender)) return
+                val ordinal = JamWire.parseTopology(frame) ?: return
+                val target = if (ordinal == 1) JamTopology.SINGLE_RENDER else JamTopology.MULTI_RENDER
+                val decision = JamTopologyMachine.ingest(
+                    current = _topology.value,
+                    isActive = isActive(),
+                    senderIsLeader = true,
+                    frameTopology = target,
+                    frameEpoch = frame.epoch,
+                    appliedEpoch = latestTopologyEpoch
+                )
+                when (decision) {
+                    is TopologyDecision.Applied -> {
+                        latestTopologyEpoch = decision.epoch
+                        _topology.value = decision.topology
+                        markRegimeChange()
+                        if (frame.epoch > epochCounter.get()) epochCounter.set(frame.epoch)
+                        // Party Mode audio discipline: this guest suppresses
+                        // local render (PLL stays silently warm).
+                        _commands.tryEmit(
+                            Command.ApplyRenderSuppression(!JamTopologyMachine.rendersLocally(decision.topology, isHost()))
+                        )
+                        SLog.i("JamTopology", "adopted topology ${decision.topology} @ epoch ${decision.epoch}")
+                    }
+                    is TopologyDecision.RefusedStaleEpoch ->
+                        SLog.d("JamTopology", "dropped stale topology frame (epoch ${frame.epoch})")
+                    else -> Unit
+                }
+            }
+
+            JamWire.Msg.GOVERNANCE -> {
+                // Leader-published ACL row / kick / ban (Gaps #14 + #18).
+                if (!senderIsLeader(sender)) return
+                val body = JamWire.parseGovernance(frame) ?: return
+                when {
+                    body.isKickAction -> {
+                        governance.kick(sender, sender, body.targetNonce)
+                        dropMemberLocally(body.targetNonce)
+                    }
+                    body.isBanAction -> {
+                        governance.ban(sender, sender, body.targetNonce)
+                        _governanceRows.value = governance.members()
+                    }
+                    else -> {
+                        governance.upsert(
+                            JamGovernance.MemberAcl(
+                                nonce = body.targetNonce,
+                                role = JamGovernance.Role.entries[body.roleOrdinal],
+                                allowControl = body.allowControl,
+                                allowVolume = body.allowVolume
+                            )
+                        )
+                        refreshMemberGovernanceFields()
+                    }
+                }
+                _governanceRows.value = governance.members()
+            }
+
+            JamWire.Msg.KICK -> {
+                // Targeted removal: the named device ends its session; other
+                // peers drop the member and block re-admission.
+                if (!senderIsLeader(sender)) return
+                val target = JamWire.parseKick(frame) ?: return
+                if (target == deviceId) {
+                    SLog.w("JamRoom", "kicked by host — ending local session")
+                    endLocally()
+                    return
+                }
+                governance.kick(sender, sender, target)
+                dropMemberLocally(target)
+            }
+
+            JamWire.Msg.REPORT -> {
+                // Guest → host abuse report (Gap #18): rate-limited ingestion.
+                if (!isHost()) return
+                val body = JamWire.parseReport(frame) ?: return
+                val reason = JamGovernance.ReportReason.fromWire(body.reasonWireCode) ?: return
+                governance.fileReport(sender, body.targetNonce, reason, body.reportedAtMs)
+                _memberReports.value = governance.pendingReports()
+                SLog.i("JamGovernance", "report against ${body.targetNonce} (${reason.label})")
+            }
+
             JamWire.Msg.OP -> {
                 val op = JamWire.parseOp(frame) ?: return
+                // Per-member ACL at intent ingress (Gap #14): blocked or
+                // control-revoked senders' queue ops are dropped here.
+                if (sender != deviceId &&
+                    !governance.mayEmitControlIntent(sender, election?.leaderNonce?.value ?: deviceId, _policy.value)) {
+                    SLog.d("JamGovernance", "OP from $sender dropped by ACL")
+                    return
+                }
                 applyWireOp(JamWire.MerkleDeltaOp(op, null))
             }
 
@@ -1032,6 +1355,15 @@ object JamEngine {
         // Authority gate: leaders always; others only under EVERYONE policy.
         if (!senderIsHost && _policy.value != ControlPolicy.EVERYONE) return
 
+        // Phase 1 governance gate (Gap #14): per-member ACLs (kick/ban,
+        // control-revoked, co-host) enforced at intent ingress — epoch-gated
+        // drop before any playback mutation.
+        if (sender != deviceId &&
+            !governance.mayEmitControlIntent(sender, election?.leaderNonce?.value ?: deviceId, _policy.value)) {
+            SLog.d("JamGovernance", "control intent from $sender dropped by ACL")
+            return
+        }
+
         val epoch = frame.epoch
         // Epoch gate: never regress to an older playback regime.
         if (frame.msgType != JamWire.Msg.TICK) {
@@ -1119,11 +1451,24 @@ object JamEngine {
 
     // ═══════════════ Presence bookkeeping & connection status ═══════════════
 
-    private fun noteMember(userId: String, name: String, avatarUrl: String?, isHostFlag: Boolean) {
+    private fun noteMember(
+        userId: String,
+        name: String,
+        avatarUrl: String?,
+        isHostFlag: Boolean,
+        nonce: String = ""
+    ) {
         val now = System.currentTimeMillis()
         _members.update { list ->
             val existing = list.firstOrNull { it.userId == userId }
-            val member = Member(userId, name, avatarUrl, isHostFlag, now)
+            val row = governance.rowOf(nonce)
+            val member = Member(
+                userId = userId, name = name, avatarUrl = avatarUrl,
+                isHost = isHostFlag, lastSeenMs = now, nonce = nonce,
+                role = if (isHostFlag) JamGovernance.Role.HOST else row.role,
+                allowControl = if (isHostFlag) true else row.allowControl,
+                allowVolume = if (isHostFlag) true else row.allowVolume
+            )
             if (existing != null) list.map { if (it.userId == userId) member else it } else list + member
         }
     }
@@ -1131,7 +1476,7 @@ object JamEngine {
     /** Seeds self into roster + device map right after create/join. */
     fun noteSelf() {
         deviceUserMap[deviceId] = myUserId()
-        noteMember(myUserId(), myDisplayName, myAvatarUrl, isHost())
+        noteMember(myUserId(), myDisplayName, myAvatarUrl, isHost(), deviceId)
         refreshConnStatus()
     }
 
@@ -1296,6 +1641,16 @@ object JamEngine {
         lastVerifiedHostTick = null
         currentHostTrack = null
         announcedNextId = null
+        // Phase 1 teardown: topology + governance mirror the room lifetime —
+        // the block list dies with the room, exactly like Spotify rooms.
+        _topology.value = JamTopology.MULTI_RENDER
+        latestTopologyEpoch = 0L
+        governance.reset()
+        _governanceRows.value = emptyList()
+        _memberReports.value = emptyList()
+        // Restore local render in case we left while suppressed (guest in
+        // SINGLE_RENDER) — the next session must never start muted.
+        _commands.tryEmit(Command.ApplyRenderSuppression(false))
     }
 
     // ═══════════════ Player-bridge & FGS attachment ═══════════════
@@ -1397,7 +1752,11 @@ object JamEngine {
 
     private suspend fun presencePulseLoop() {
         while (true) {
-            delay(3_000)
+            // Gap #11 degraded-mode policy: past 16 members the presence
+            // pulse backs off (3 s → 5 s) so 32-member rooms do not melt the
+            // mesh with redundant identity frames.
+            val rosterSize = _members.value.size
+            delay(if (rosterSize >= 16) 5_000L else 3_000L)
             if (isActive()) pulsePresence(myDisplayName, myAvatarUrl)
         }
     }
@@ -1431,5 +1790,10 @@ object JamEngine {
         pendingInviteCode = null
         pendingPairingPayload = null
         cachedLocalUserId = null
+        latestTopologyEpoch = 0L
+        governance.reset()
+        _governanceRows.value = emptyList()
+        _memberReports.value = emptyList()
+        _topology.value = JamTopology.MULTI_RENDER
     }
 }

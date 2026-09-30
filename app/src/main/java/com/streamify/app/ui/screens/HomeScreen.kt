@@ -20,6 +20,7 @@ import com.streamify.app.data.models.Track
 import com.streamify.app.data.update.StreamifyUpdateManager
 import com.streamify.app.data.supabase.SupabaseClient
 import com.streamify.app.data.update.UpdateState
+import com.streamify.app.jam.JoinFabric
 import com.streamify.app.ui.components.*
 import com.streamify.app.ui.components.yt.*
 import com.streamify.app.ui.theme.*
@@ -27,11 +28,13 @@ import com.streamify.app.util.ApkInstaller
 import com.streamify.app.viewmodel.CommunityViewModel
 import com.streamify.app.viewmodel.HomeUiState
 import com.streamify.app.viewmodel.HomeViewModel
+import com.streamify.app.viewmodel.JamViewModel
 import com.streamify.app.viewmodel.PlayerViewModel
 
 @Composable
 fun HomeScreen(
     playerViewModel: PlayerViewModel,
+    jamViewModel: JamViewModel,
     viewModel: HomeViewModel = viewModel(),
     communityViewModel: CommunityViewModel = viewModel(),
     dominantColor: Color = BgBase,
@@ -59,6 +62,14 @@ fun HomeScreen(
 
     var selectedMood by remember { mutableStateOf("All") }
 
+    // Gap #12 — Join Fabric rails (BLE proximity + LAN beacon 0x09 +
+    // speaker connect): discovery runs exactly while Home is composed and
+    // every scanner / listener job is torn down on dispose — zero leak.
+    DisposableEffect(Unit) {
+        JoinFabric.startDiscovery()
+        onDispose { JoinFabric.stopDiscovery() }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -84,7 +95,7 @@ fun HomeScreen(
         )
 
         // 3. YouTube Music Shelves Content
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.weight(1f).fillMaxSize()) {
             when (val state = uiState) {
                 is HomeUiState.Loading -> {
                     YtHomeSkeleton()
@@ -319,5 +330,15 @@ fun HomeScreen(
                 }
             }
         }
+
+        // 4. JOIN FABRIC RAIL (Gap #12) — zero-friction proximity join:
+        // BLE tap-to-join (≤ 1 m), LAN beacon 0x09 room notice, and the
+        // speaker-connect hosting prompt. Anchored at the bottom of Home;
+        // renders only while a live sighting exists.
+        JoinPromptRail(
+            jamViewModel = jamViewModel,
+            playerViewModel = playerViewModel,
+            onOpenJamScreen = onNavigateToJam
+        )
     }
 }

@@ -74,6 +74,7 @@ fun AppNavGraph(
         composable("home") {
             HomeScreen(
                 playerViewModel = playerViewModel,
+                jamViewModel = jamViewModel,
                 communityViewModel = communityViewModel,
                 dominantColor = dominantColor,
                 onTrackClick = { track, _ ->

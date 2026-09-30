@@ -96,6 +96,11 @@ object JamWire {
         const val TRACK_META = 21
         const val QUEUE_SNAPSHOT = 22
         const val STATE_REQ = 23
+        // ── Phase 1 additions (Gaps #13, #14, #18) ─────────────────────────
+        const val TOPOLOGY = 24
+        const val GOVERNANCE = 25
+        const val KICK = 26
+        const val REPORT = 27
 
         fun nameOf(type: Int): String = when (type) {
             TICK -> "TICK"; PRESENCE -> "PRESENCE"; OP -> "OP"; CONTINUATION -> "CONTINUATION"
@@ -107,6 +112,8 @@ object JamWire {
             MERKLE_DELTA_REQ -> "MERKLE_DELTA_REQ"; MERKLE_DELTA -> "MERKLE_DELTA"
             TRACK_META -> "TRACK_META"; QUEUE_SNAPSHOT -> "QUEUE_SNAPSHOT"
             STATE_REQ -> "STATE_REQ"
+            TOPOLOGY -> "TOPOLOGY"; GOVERNANCE -> "GOVERNANCE"; KICK -> "KICK"
+            REPORT -> "REPORT"
             else -> "UNKNOWN($type)"
         }
     }
@@ -431,6 +438,73 @@ object JamWire {
     fun encodeStateReq(senderNonce: String, epoch: Long): ByteArray =
         assemble(Msg.STATE_REQ, senderNonce, epoch, ByteArray(0), null)
 
+    // ═════════ Phase 1: Topology / Governance / Moderation ═════════
+
+    /**
+     * TOPOLOGY — the leader flips the room between MULTI_RENDER (0) and
+     * SINGLE_RENDER (1, Party Mode). Guests adopt and re-style their UI +
+     * audio-output policy. Epoch-gated like every regime change.
+     */
+    fun encodeTopology(senderNonce: String, epoch: Long, topologyOrdinal: Int): ByteArray =
+        assemble(Msg.TOPOLOGY, senderNonce, epoch, byteArrayOf(topologyOrdinal.coerceIn(0, 1).toByte()), null)
+
+    /**
+     * GOVERNANCE — the leader publishes one member-ACL row (or a kick/ban
+     * action) so every device's enforcement table stays converged.
+     *
+     * Body: [targetNonce 8B ASCII][role 1B][allowControl 1B][allowVolume 1B][action 1B]
+     */
+    fun encodeGovernance(
+        senderNonce: String,
+        epoch: Long,
+        targetNonce: String,
+        roleOrdinal: Int,
+        allowControl: Boolean,
+        allowVolume: Boolean,
+        actionOrdinal: Int
+    ): ByteArray {
+        val b = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN)
+        val nonce = ByteArray(8) { ' '.code.toByte() }
+        val nb = targetNonce.toByteArray(Charsets.US_ASCII)
+        System.arraycopy(nb, 0, nonce, 0, minOf(nb.size, 8))
+        b.put(nonce)
+        b.put(roleOrdinal.coerceIn(0, 2).toByte())
+        b.put(if (allowControl) 1 else 0.toByte())
+        b.put(if (allowVolume) 1 else 0.toByte())
+        b.put(actionOrdinal.coerceIn(0, 3).toByte())
+        return assemble(Msg.GOVERNANCE, senderNonce, epoch, b.array(), null)
+    }
+
+    /**
+     * KICK — host-targeted removal: the named device must end its session
+     * locally; every other peer drops the member and blocks the nonce for
+     * the room lifetime (rejoin refused at admission).
+     */
+    fun encodeKick(senderNonce: String, epoch: Long, targetNonce: String): ByteArray {
+        val b = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
+        val nonce = ByteArray(8) { ' '.code.toByte() }
+        val nb = targetNonce.toByteArray(Charsets.US_ASCII)
+        System.arraycopy(nb, 0, nonce, 0, minOf(nb.size, 8))
+        b.put(nonce)
+        return assemble(Msg.KICK, senderNonce, epoch, b.array(), null)
+    }
+
+    /**
+     * REPORT — guest → host abuse report against a disruptive member.
+     *
+     * Body: [targetNonce 8B ASCII][reason 1B][reportedAtMs 8B]
+     */
+    fun encodeReport(senderNonce: String, targetNonce: String, reasonWireCode: Int, reportedAtMs: Long): ByteArray {
+        val b = ByteBuffer.allocate(17).order(ByteOrder.LITTLE_ENDIAN)
+        val nonce = ByteArray(8) { ' '.code.toByte() }
+        val nb = targetNonce.toByteArray(Charsets.US_ASCII)
+        System.arraycopy(nb, 0, nonce, 0, minOf(nb.size, 8))
+        b.put(nonce)
+        b.put(reasonWireCode.coerceIn(1, 4).toByte())
+        b.putLong(reportedAtMs)
+        return assemble(Msg.REPORT, senderNonce, 0L, b.array(), null)
+    }
+
     // ═════════ Decoding ═════════
 
     /**
@@ -483,6 +557,10 @@ object JamWire {
         Msg.MERKLE_ROOT_REQ -> 36
         Msg.MERKLE_ROOT_ACK -> 37
         Msg.QUEUE_SNAPSHOT, Msg.STATE_REQ -> 0
+        Msg.TOPOLOGY -> 1
+        Msg.GOVERNANCE -> 12
+        Msg.KICK -> 8
+        Msg.REPORT -> 17
         else -> -1
     }
 
@@ -675,4 +753,77 @@ object JamWire {
         if (frame.msgType == Msg.QUEUE_SNAPSHOT) frame.trackJson else null
 
     fun isStateReq(frame: Frame): Boolean = frame.msgType == Msg.STATE_REQ
+
+    // ═════════ Phase 1 parsers ═════════
+
+    fun parseTopology(frame: Frame): Int? {
+        if (frame.msgType != Msg.TOPOLOGY || frame.body.size != 1) return null
+        val v = frame.body[0].toInt()
+        return if (v in 0..1) v else null
+    }
+
+    fun parseGovernance(frame: Frame): GovernanceBody? {
+        if (frame.msgType != Msg.GOVERNANCE || frame.body.size != 12) return null
+        val b = bodyBuf(frame)
+        val nonce = ByteArray(8); b.get(nonce)
+        val role = b.get().toInt()
+        val allowControl = b.get().toInt() != 0
+        val allowVolume = b.get().toInt() != 0
+        val action = b.get().toInt()
+        if (role !in 0..2 || action !in 0..3) return null
+        return GovernanceBody(
+            targetNonce = nonce.toString(Charsets.US_ASCII).trimEnd(' '),
+            roleOrdinal = role,
+            allowControl = allowControl,
+            allowVolume = allowVolume,
+            actionOrdinal = action
+        )
+    }
+
+    fun parseKick(frame: Frame): String? {
+        if (frame.msgType != Msg.KICK || frame.body.size != 8) return null
+        val nonce = ByteArray(8)
+        System.arraycopy(frame.body, 0, nonce, 0, 8)
+        return nonce.toString(Charsets.US_ASCII).trimEnd(' ')
+    }
+
+    fun parseReport(frame: Frame): ReportBody? {
+        if (frame.msgType != Msg.REPORT || frame.body.size != 17) return null
+        val b = bodyBuf(frame)
+        val nonce = ByteArray(8); b.get(nonce)
+        val reason = b.get().toInt()
+        val atMs = b.long
+        if (reason !in 1..4) return null
+        return ReportBody(
+            targetNonce = nonce.toString(Charsets.US_ASCII).trimEnd(' '),
+            reasonWireCode = reason,
+            reportedAtMs = atMs
+        )
+    }
+
+    /** GOVERNANCE frame body — one member-ACL row or kick/ban action. */
+    data class GovernanceBody(
+        val targetNonce: String,
+        val roleOrdinal: Int,
+        val allowControl: Boolean,
+        val allowVolume: Boolean,
+        val actionOrdinal: Int
+    ) {
+        val isKickAction: Boolean get() = actionOrdinal == GOV_ACTION_KICK
+        val isBanAction: Boolean get() = actionOrdinal == GOV_ACTION_BAN
+
+        companion object {
+            const val GOV_ACTION_UPSERT = 0
+            const val GOV_ACTION_KICK = 1
+            const val GOV_ACTION_BAN = 2
+            const val GOV_ACTION_UNBLOCK = 3
+        }
+    }
+
+    /** REPORT frame body — guest abuse report. */
+    data class ReportBody(
+        val targetNonce: String,
+        val reasonWireCode: Int,
+        val reportedAtMs: Long
+    )
 }

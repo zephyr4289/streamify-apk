@@ -11,6 +11,20 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- ═══ Phase 1 Join Fabric (BEHIND.md Gap #12): BLE tap-to-Join ═══ -->
+    <!-- API 31+ modern BLE permissions; scanning asserts neverForLocation so
+         the prompt needs no location consent on Android 12+. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"
+        tools:targetApi="s" />
+    <!-- Legacy (API 26-30): BLE scanning was gated behind location. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+
     <application
         android:name=".StreamifyApp"
         android:allowBackup="true"

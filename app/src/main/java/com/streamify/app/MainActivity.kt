@@ -120,6 +120,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         handleSpotifyCallback(intent)
         com.streamify.app.data.models.AppMode.initialize(this)
+        // Gap #12 — Join Fabric: process-level attach (app context for BLE /
+        // LAN rails + audio-route watch for the speaker prompt). Torn down in
+        // onDestroy — every scanner, listener and coroutine dies with the UI.
+        com.streamify.app.jam.JoinFabric.attach(this)
 
         setContent {
             val audioPrefs = remember { getSharedPreferences("audio_settings", android.content.Context.MODE_PRIVATE) }
@@ -535,6 +539,9 @@ class MainActivity : ComponentActivity() {
         } catch (e: Throwable) {
             // Ignore
         }
+        // Gap #12 — Join Fabric full teardown: BLE advertiser/scanner, LAN
+        // beacon listener, speaker watch — zero leaked jobs on process death.
+        com.streamify.app.jam.JoinFabric.detach()
         super.onDestroy()
     }
 }

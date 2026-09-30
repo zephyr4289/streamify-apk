@@ -381,6 +381,18 @@ fun SettingsScreen(
             }
 
             item {
+                // ── AUDIO QUALITY & DSP (Gaps #39 & #41) ────────────────────
+                // Loudness normalization (-23…-11 LUFS, default -14), gapless,
+                // crossfade 0–12s, mono + stereo balance, true-peak limiter at
+                // -1.0 dBFS — all applied to the live render path through the
+                // frozen NativeDspEngine JNI contract.
+                SectionHeader("Audio Quality & DSP")
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+                DspSettingsSection()
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+            }
+
+            item {
                 SectionHeader("Storage & Integration")
                 Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
                 

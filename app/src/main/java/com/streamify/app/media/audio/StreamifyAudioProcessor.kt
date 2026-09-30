@@ -56,6 +56,31 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         /** PHASE 2 SAFETY: soft-knee ceiling after every gain stage. */
         @Volatile var limiterEnabled: Boolean = false // opt-in after device testing
 
+        // ═══ Phase 1 AUDIOPHILE DSP PREFERENCES (Gaps #39 + #41) ═══
+        // Published by DspPreferences.apply() — read lock-free on the audio
+        // callback thread. These are USER-FACING contracts: they take effect
+        // even while the development DSP_BYPASS fast-path is active (the
+        // bypass stays 100% bit-exact only while every one of them is off).
+
+        /** True-peak limiter ceiling in dBFS (EU compliance: −1.0). */
+        @Volatile var limiterCeilingDbfs: Float = DspPreferences.TRUE_PEAK_CEILING_DBFS
+
+        /** Accessibility mono downmix (L+R)/2. */
+        @Volatile var monoDownmixEnabled: Boolean = false
+
+        /** Stereo balance: −100 (full left) … +100 (full right). 0 = centred. */
+        @Volatile var stereoBalancePercent: Int = 0
+
+        /**
+         * Loudness normalization target in LUFS (null = normalization off).
+         * Shifts the per-stream loudness pre-gain relative to the −14
+         * calibration: preGain = loudnessDb + (target − (−14)).
+         */
+        @Volatile var normalizeTargetLufs: Float? = null
+
+        /** Gapless playback discipline (JIT pre-hydration + hard splice). */
+        @Volatile var gaplessEnabled: Boolean = true
+
         /**
          * GLOBAL DSP BYPASS:
          * When true, all audio frames pass through 100% bit-exact and unaltered.
@@ -130,11 +155,21 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         val remainingBytes = inputBuffer.remaining()
         if (remainingBytes == 0) return
 
-        // Global DSP bypass fast-path: zero allocations, 100% bit-exact passthrough
+        // Global DSP bypass fast-path: zero allocations, 100% bit-exact
+        // passthrough — EXCEPT the user-facing Phase 1 channel policy
+        // (mono / balance / true-peak limiter), which are explicit user
+        // toggles and must work regardless of the development DSP bypass.
+        // While every one of them is off the path remains bit-exact.
         if (DSP_BYPASS) {
-            val out = replaceOutputBuffer(remainingBytes)
-            out.put(inputBuffer)
-            out.flip()
+            val channels = currentFormat.channelCount.coerceAtLeast(1)
+            val needsChannelPolicy = channels >= 2 && (monoDownmixEnabled || stereoBalancePercent != 0)
+            if (!needsChannelPolicy && !limiterEnabled) {
+                val out = replaceOutputBuffer(remainingBytes)
+                out.put(inputBuffer)
+                out.flip()
+                return
+            }
+            applyUserChannelPolicyBypass(inputBuffer, remainingBytes, channels)
             return
         }
 
@@ -168,7 +203,14 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
             nativeOutputBuffer.position(0)
             nativeOutputBuffer.limit(sampleCount * 4)
 
-            val preGainLin = currentPreGainDb?.let { Math.pow(10.0, it / 20.0).toFloat() }
+            // Phase 1 audiophile contract: the target-LUFS slider shifts the
+            // per-stream loudness pre-gain relative to the −14 calibration
+            // (loudnessDb is measured against −14); null disables the
+            // normalization stage entirely (bit-exact loudness).
+            val preGainLin = currentPreGainDb?.let { db ->
+                val adjustedDb = normalizeTargetLufs?.let { target -> db + (target + 14f) } ?: db
+                Math.pow(10.0, adjustedDb / 20.0).toFloat()
+            }
             if (preGainLin != null && preGainLin != 1.0f) {
                 for (i in 0 until sampleCount) {
                     val idx = i * 4
@@ -243,15 +285,18 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
      * PHASE 2 POST STAGE — applied to EVERY rendered buffer:
      *   1. Rust parametric EQ when this stream is RUST-owned (44.1 kHz),
      *      using live gains published from EqualizerManager.
-     *   2. C++ SoftKneeLimiter at −1 dB threshold / 2 dB knee — the always-on
-     *      true-peak safety net that makes loudness pre-gain clip-free.
+     *   2. Phase 1 user channel policy: mono downmix + stereo balance.
+     *   3. C++ SoftKneeLimiter at the user ceiling (default −1 dBFS) / 2 dB
+     *      knee — the always-on true-peak safety net that makes loudness
+     *      pre-gain clip-free.
      * One reusable scratch array; one bulk copy in/out per buffer.
      */
     private fun postProcessFloat(buffer: java.nio.ByteBuffer, sampleCount: Int, channels: Int) {
         if (sampleCount <= 0) return
         val gains = eqBandGainsDb
         val needsEq = activeEqEngine == "RUST" && gains != null && gains.size == 10
-        if (!needsEq && !limiterEnabled) return
+        val needsChannelPolicy = channels >= 2 && (monoDownmixEnabled || stereoBalancePercent != 0)
+        if (!needsEq && !limiterEnabled && !needsChannelPolicy) return
 
         if (scratchFloats.size < sampleCount) scratchFloats = FloatArray(sampleCount * 2)
         buffer.position(0)
@@ -269,12 +314,16 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
             }
         }
 
+        if (needsChannelPolicy) {
+            applyChannelPolicy(scratchFloats, sampleCount, channels)
+        }
+
         if (limiterEnabled) {
             runCatching {
                 NativeBridge.processLimiterFloats(
                     buffer = scratchFloats,
                     length = sampleCount,
-                    threshold = -1.0f,
+                    threshold = limiterCeilingDbfs,
                     kneeWidth = 2.0f
                 )
             }
@@ -284,6 +333,102 @@ class StreamifyAudioProcessor : BaseAudioProcessor() {
         buffer.asFloatBuffer().put(scratchFloats, 0, sampleCount)
         buffer.position(0)
         buffer.limit(sampleCount * 4)
+    }
+
+    /**
+     * Phase 1 user channel policy on the bypass fast-path: mono downmix
+     * and/or stereo balance and/or the true-peak limiter, applied to the
+     * raw passthrough bytes in the stream's own encoding. Zero allocation
+     * per buffer (scratch reuse), full [inputBuffer] consumption contract
+     * preserved.
+     */
+    private fun applyUserChannelPolicyBypass(inputBuffer: ByteBuffer, remainingBytes: Int, channels: Int) {
+        val is16Bit = currentFormat.encoding == C.ENCODING_PCM_16BIT
+        val frameBytes = if (is16Bit) channels * 2 else channels * 4
+        val sampleCount = remainingBytes / frameBytes * channels
+        val tail = remainingBytes % frameBytes
+
+        if (scratchFloats.size < sampleCount) scratchFloats = FloatArray(sampleCount.coerceAtLeast(1) * 2)
+        // Unpack (input is consumed as we read it).
+        var i = 0
+        if (is16Bit) {
+            while (i < sampleCount) {
+                scratchFloats[i] = inputBuffer.short.toFloat() / 32767.0f
+                i++
+            }
+        } else {
+            while (i < sampleCount) {
+                scratchFloats[i] = inputBuffer.float
+                i++
+            }
+        }
+
+        applyChannelPolicy(scratchFloats, sampleCount, channels)
+        if (limiterEnabled) {
+            runCatching {
+                NativeBridge.processLimiterFloats(
+                    buffer = scratchFloats,
+                    length = sampleCount,
+                    threshold = limiterCeilingDbfs,
+                    kneeWidth = 2.0f
+                )
+            }
+        }
+
+        val outBytes = if (is16Bit) sampleCount * 2 else sampleCount * 4
+        val out = replaceOutputBuffer(outBytes + tail)
+        if (is16Bit) {
+            for (s in 0 until sampleCount) {
+                val v = scratchFloats[s].coerceIn(-1f, 1f)
+                out.putShort((v * 32767f).toInt().toShort())
+            }
+        } else {
+            for (s in 0 until sampleCount) out.putFloat(scratchFloats[s].coerceIn(-1f, 1f))
+        }
+        // Sub-frame tail: bit-exact passthrough (channel policy is
+        // frame-based; a lone byte cannot be transformed).
+        if (tail > 0) {
+            val mark = inputBuffer.position()
+            out.put(inputBuffer)
+            inputBuffer.position(mark)
+        }
+        out.flip()
+    }
+
+    /**
+     * Mono downmix (L+R)/2 followed by constant-gain stereo balance
+     * (−100 % = full left, +100 % = full right). In-place, frame-paired;
+     * mono applies to every channel pair, balance to the first pair —
+     * matching the accessibility semantics of the OS mono toggle.
+     */
+    private fun applyChannelPolicy(samples: FloatArray, sampleCount: Int, channels: Int) {
+        if (channels < 2) return
+        val mono = monoDownmixEnabled
+        val balance = stereoBalancePercent.coerceIn(-100, 100)
+        if (!mono && balance == 0) return
+        val leftGain: Float
+        val rightGain: Float
+        if (balance >= 0) {
+            leftGain = 1f - balance / 100f
+            rightGain = 1f
+        } else {
+            leftGain = 1f
+            rightGain = 1f + balance / 100f
+        }
+        var f = 0
+        while (f + channels <= sampleCount) {
+            val l = samples[f]
+            val r = samples[f + 1]
+            if (mono) {
+                val m = (l + r) * 0.5f
+                samples[f] = m * leftGain
+                samples[f + 1] = m * rightGain
+            } else {
+                samples[f] = l * leftGain
+                samples[f + 1] = r * rightGain
+            }
+            f += channels
+        }
     }
 
     /** Fallback: convert the staged i16 copy in nativeInputBuffer to the declared output encoding. */

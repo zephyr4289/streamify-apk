@@ -597,6 +597,37 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
     var isApplyingJamSync: Boolean = false
 
     /**
+     * Party Mode audio discipline (Phase 1, Gap #13): when the room runs
+     * SINGLE_RENDER, guests suppress LOCAL audio output — the host speaker
+     * is the only renderer. Implemented as player volume 0 (NOT pausing the
+     * decoder): the PLL + resampler keep running silently so a mid-party
+     * flip back to MULTI_RENDER re-locks audio with zero handshake latency.
+     *
+     * Restores the pre-suppression volume on un-suppress.
+     */
+    private var jamSuppressedVolumeFraction: Float? = null
+
+    fun setJamRenderSuppressed(suppressed: Boolean) {
+        val ctrl = controller ?: return
+        try {
+            if (suppressed) {
+                if (jamSuppressedVolumeFraction == null) {
+                    val current = ctrl.volume
+                    if (current > 0f) jamSuppressedVolumeFraction = current
+                }
+                if (ctrl.volume > 0f) ctrl.volume = 0f
+            } else {
+                jamSuppressedVolumeFraction?.let { restore ->
+                    ctrl.volume = restore
+                }
+                jamSuppressedVolumeFraction = null
+            }
+        } catch (e: Exception) {
+            com.streamify.app.util.SLog.st("PlayerViewModel", "setJamRenderSuppressed failed", e)
+        }
+    }
+
+    /**
      * Live playhead with controller-first fallback to the hot position flow.
      * `playerState.currentPosition` is now a cold, event-time field (seek
      * confirmations only) — never read it for "current" position.
