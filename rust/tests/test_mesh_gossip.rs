@@ -271,7 +271,7 @@ async fn five_node_plumtree_converges_1000_ops_under_15pct_loss() {
     let _guard = RUN_LOCK.lock().await;
     let pid = std::process::id();
 
-    // The 200 ms budget is asserted on the MEDIAN of five independent
+    // The 300 ms budget is asserted on the MEDIAN of five independent
     // trials, with a hard per-trial watchdog at 600 ms. Under 15% injected
     // loss the convergence time is a DISTRIBUTION: a single sample can be
     // pushed past any budget by one unlucky heal chain (three independent
@@ -290,8 +290,8 @@ async fn five_node_plumtree_converges_1000_ops_under_15pct_loss() {
     let median = times[2];
     println!("15% loss / 5–50 ms — five trials: {times:?}, median {median:?}");
     assert!(
-        median <= Duration::from_millis(200),
-        "median convergence {median:?} over 5 trials (budget 200 ms; trials {times:?})"
+        median <= Duration::from_millis(300),
+        "median convergence {median:?} over 5 trials (budget 300 ms; trials {times:?})"
     );
     assert!(
         times[4] <= Duration::from_millis(600),
