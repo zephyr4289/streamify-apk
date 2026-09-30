@@ -33,8 +33,8 @@ import com.streamify.app.ui.theme.*
  */
 @Composable
 fun DspSettingsSection() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember {
-        val ctx = androidx.compose.ui.platform.LocalContext.current
         ctx.getSharedPreferences(DspPreferences.PREFS_NAME, android.content.Context.MODE_PRIVATE)
     }
     var prefsState by remember { mutableStateOf(DspPreferences.load(prefs)) }

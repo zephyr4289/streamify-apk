@@ -450,8 +450,9 @@ object JoinFabric {
             return
         }
         val adapter = bluetoothAdapter(context) ?: return
-        val advertiser = adapter.bluetoothLeAdvertiser ?: return
-        if (!adapter.isBluetoothLeAdvertiserSupported) {
+        // A non-null BluetoothLeAdvertiser IS the capability contract; no
+        // separate boolean probe exists on BluetoothAdapter.
+        if (adapter.bluetoothLeAdvertiser == null) {
             SLog.d("JoinFabric", "BLE advertising unsupported on this device")
             return
         }
