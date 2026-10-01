@@ -4,6 +4,9 @@
 
 #include "HarmonicTransitionEngine.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace streamify {
 namespace math {
 namespace {
@@ -109,11 +112,55 @@ float keyTransitionScore(int32_t numberA, bool isMinorA, int32_t numberB,
     }
 }
 
+float bpmTransitionScore(float bpmA, float bpmB) {
+    // Missing/invalid tempo metadata is NEUTRAL, never punishing.
+    if (!std::isfinite(bpmA) || !std::isfinite(bpmB) || bpmA <= 0.0f ||
+        bpmB <= 0.0f) {
+        return kBpmNeutral;
+    }
+
+    float r = bpmB / bpmA;
+
+    // Harmonic double-time / half-time detection (directive example:
+    // 75 BPM <-> 150 BPM): ratios within +-5% of the octave fold to unity
+    // before the tolerance window is applied. The boundary is a deliberate
+    // detection threshold (see header). The +1e-4 slack absorbs float
+    // representation noise at the edge (190/100 == 1.8999999762f would
+    // otherwise miss the fold by one rounding step); it widens the window
+    // by < 0.1% and keeps the boundary deterministic on every ABI.
+    constexpr float kFoldSlack = 1.0e-4f;
+    if (std::fabs(r - 2.0f) <= 2.0f * kBpmOctaveTolerance + kFoldSlack) {
+        r *= 0.5f;
+    } else if (std::fabs(r - 0.5f) <= 0.5f * kBpmOctaveTolerance + kFoldSlack) {
+        r *= 2.0f;
+    }
+
+    const float d = std::fabs(r - 1.0f);
+    if (d <= kBpmToleranceWindow) {
+        // Inside the +-8% directive window: 1.0 at equal tempo, 0.68 at the
+        // edge (kBpmWindowEdgeScore == 1 - 4 * window, kept literal here).
+        return 1.0f - 4.0f * d;
+    }
+    // Beyond the window: value-continuous exponential decay toward 0.
+    const float score =
+        kBpmWindowEdgeScore * std::exp(-(d - kBpmToleranceWindow) /
+                                       kBpmToleranceWindow);
+    return score > 0.0f ? score : 0.0f;
+}
+
+float transitionCompatibility(int32_t numberA, bool isMinorA, float bpmA,
+                              int32_t numberB, bool isMinorB, float bpmB) {
+    const float key = keyTransitionScore(numberA, isMinorA, numberB, isMinorB);
+    const float bpm = bpmTransitionScore(bpmA, bpmB);
+    const float combined = kKeyWeight * key + kBpmWeight * bpm;
+    return std::min(std::max(combined, 0.0f), 1.0f);
+}
+
 }  // namespace math
 }  // namespace streamify
 
 // ---------------------------------------------------------------------------
-// Frozen C-ABI (Rust FFI) — key half.
+// Frozen C-ABI (Rust FFI).
 // ---------------------------------------------------------------------------
 extern "C" {
 
@@ -123,6 +170,21 @@ STREAMIFY_MATH_API float streamify_key_transition_score(int32_t numberA,
                                                         int32_t isMinorB) {
     return streamify::math::keyTransitionScore(numberA, isMinorA != 0, numberB,
                                                isMinorB != 0);
+}
+
+STREAMIFY_MATH_API float streamify_bpm_transition_score(float bpmA, float bpmB) {
+    return streamify::math::bpmTransitionScore(bpmA, bpmB);
+}
+
+STREAMIFY_MATH_API float streamify_transition_score(int32_t numberA,
+                                                    int32_t isMinorA,
+                                                    float bpmA,
+                                                    int32_t numberB,
+                                                    int32_t isMinorB,
+                                                    float bpmB) {
+    return streamify::math::transitionCompatibility(numberA, isMinorA != 0,
+                                                    bpmA, numberB,
+                                                    isMinorB != 0, bpmB);
 }
 
 }  // extern "C"

@@ -100,12 +100,54 @@ KeyRelation classifyKeyTransition(int32_t numberA, bool isMinorA,
 float keyTransitionScore(int32_t numberA, bool isMinorA, int32_t numberB,
                          bool isMinorB);
 
+// ---------------------------------------------------------------------------
+// BPM transition matrix + combined coefficient (directive §3B)
+// ---------------------------------------------------------------------------
+//
+//  bpmTransitionScore(bpmA, bpmB) — continuous tempo compatibility in [0,1]:
+//
+//   * Invalid tempo data (non-finite, <= 0) scores the NEUTRAL 0.5 — a
+//     missing BPM must not punish an otherwise perfect pair.
+//   * Octave folding: ratios within +-5% of 2.0 (double-time) or 0.5
+//     (half-time) fold to 1.0 first — 75 BPM <-> 150 BPM is a PERFECT
+//     beat-aligned match (75 <-> 148, 120 <-> 62 all fold cleanly).
+//     The fold boundary is a deliberate detection threshold: 75 vs 143
+//     (ratio 1.907) folds to 0.80, 75 vs 142 (1.893) is a genuine tempo
+//     clash near 0.
+//   * Tolerance window (directive: delta-BPM <= 8%): deviation d = |r - 1|
+//     scores 1.0 - 4d inside the window (1.0 at equal, 0.68 at the 8% edge).
+//   * Beyond the window: smooth exponential decay 0.68 * exp(-(d - 0.08)/0.08)
+//     (value-continuous at the boundary, decaying to ~0 for tempo cliffs).
+//
+//  transitionCompatibility(...) — the single normalized coefficient the
+//  directive mandates, in [0.0, 1.0]:
+//
+//      combined = clamp(0.6 * keyScore + 0.4 * bpmScore, 0, 1)
+//
+//  Harmonic key compatibility carries the weight (a key clash is audible
+//  for the whole crossfade; a tempo gap can be ridden out by a DJ).
+//  Both-invalid inputs are fully neutral (0.5), never punishing.
+// ---------------------------------------------------------------------------
+
+inline constexpr float kBpmNeutral = 0.50f;         // missing/invalid BPM
+inline constexpr float kBpmToleranceWindow = 0.08f; // +-8% directive window
+inline constexpr float kBpmWindowEdgeScore = 0.68f; // 1 - 4 * 0.08
+inline constexpr float kBpmOctaveTolerance = 0.05f; // +-5% around 2x / 0.5x
+inline constexpr float kKeyWeight = 0.60f;
+inline constexpr float kBpmWeight = 0.40f;
+
+// Continuous BPM compatibility in [0,1] (see above for the full contract).
+float bpmTransitionScore(float bpmA, float bpmB);
+
+// Combined key + BPM transition compatibility coefficient in [0,1].
+float transitionCompatibility(int32_t numberA, bool isMinorA, float bpmA,
+                              int32_t numberB, bool isMinorB, float bpmB);
+
 }  // namespace math
 }  // namespace streamify
 
 // ---------------------------------------------------------------------------
-// Frozen C-ABI for Rust consumers — key half (BPM half arrives with
-// HarmonicTransitionEngine's BPM matrix; see streamify_transition_score).
+// Frozen C-ABI for Rust consumers (extern "C" blocks in Engineer 2's crates).
 // ---------------------------------------------------------------------------
 extern "C" {
 
@@ -114,6 +156,17 @@ STREAMIFY_MATH_API float streamify_key_transition_score(int32_t numberA,
                                                         int32_t isMinorA,
                                                         int32_t numberB,
                                                         int32_t isMinorB);
+
+// Continuous BPM compatibility in [0,1] (octave folding + 8% window).
+STREAMIFY_MATH_API float streamify_bpm_transition_score(float bpmA, float bpmB);
+
+// Combined key + BPM transition compatibility coefficient in [0,1].
+STREAMIFY_MATH_API float streamify_transition_score(int32_t numberA,
+                                                    int32_t isMinorA,
+                                                    float bpmA,
+                                                    int32_t numberB,
+                                                    int32_t isMinorB,
+                                                    float bpmB);
 
 }  // extern "C"
 
