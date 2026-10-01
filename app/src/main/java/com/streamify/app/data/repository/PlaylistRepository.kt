@@ -277,6 +277,53 @@ object PlaylistRepository {
         return true
     }
 
+    /**
+     * Phase 3 — sets a custom cropped cover image (local file path) on a
+     * playlist; bumps version + updatedAt and syncs upsert to the cloud.
+     */
+    fun updatePlaylistCover(playlistId: String, coverPath: String): Boolean {
+        if (coverPath.isBlank()) return false
+        val now = System.currentTimeMillis()
+        var updatedPlaylist: Playlist? = null
+        _playlists.value = _playlists.value.map {
+            if (it.id == playlistId) {
+                val updated = it.copy(coverUrl = coverPath, version = it.version + 1, updatedAt = now)
+                updatedPlaylist = updated
+                updated
+            } else it
+        }
+        savePlaylists()
+        updatedPlaylist?.let { pl -> syncChannel.trySend(PlaylistSyncAction.Upsert(pl)) }
+        return true
+    }
+
+    /**
+     * Phase 3 — batch removal for in-playlist bulk edit. Removes every
+     * listed track id in ONE pass (single save + single cloud sync), in
+     * contrast to N sequential removeTrackFromPlaylist calls.
+     */
+    fun removeTracksFromPlaylist(playlistId: String, trackIds: List<Int>): Boolean {
+        if (trackIds.isEmpty()) return false
+        val now = System.currentTimeMillis()
+        val removalSet = trackIds.toHashSet()
+        var updatedPlaylist: Playlist? = null
+        _playlists.value = _playlists.value.map {
+            if (it.id == playlistId) {
+                val updated = it.copy(
+                    trackIds = it.trackIds.filterNot { tId -> tId in removalSet },
+                    trackPositions = it.trackPositions.filterKeys { tId -> tId !in removalSet },
+                    version = it.version + 1,
+                    updatedAt = now
+                )
+                updatedPlaylist = updated
+                updated
+            } else it
+        }
+        savePlaylists()
+        updatedPlaylist?.let { pl -> syncChannel.trySend(PlaylistSyncAction.Upsert(pl)) }
+        return true
+    }
+
     fun overwritePlaylistTracks(playlistId: String, trackIds: List<Int>) {
         val now = System.currentTimeMillis()
         var curPos = 1000.0

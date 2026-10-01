@@ -55,6 +55,20 @@ fun LibraryScreen(
     val playlists by PlaylistRepository.playlists.collectAsState()
     val user by SupabaseClient.currentUser.collectAsState()
 
+    // ── Phase 3: Power Library — folders, pins, multi-criteria sort ──────
+    val pinnedIds by com.streamify.app.data.repository.PlaylistFolderStore.pinnedIds.collectAsState()
+    val libraryFolders by com.streamify.app.data.repository.PlaylistFolderStore.folders.collectAsState()
+    var librarySort by remember {
+        mutableStateOf(com.streamify.app.data.repository.LibraryOrganizer.LibrarySort.RECENTLY_ADDED)
+    }
+    var expandedFolderIds by remember { mutableStateOf(setOf<String>()) }
+    var showCreateFolderDialog by remember { mutableStateOf(false) }
+    var playlistForFolderMove by remember { mutableStateOf<com.streamify.app.data.repository.Playlist?>(null) }
+    var newFolderName by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        com.streamify.app.data.repository.PlaylistFolderStore.init(context)
+    }
+
     var selectedFilter by remember { mutableStateOf("Playlists") }
     var isGridView by remember { mutableStateOf(false) }
     var selectedPlaylistId by remember { mutableStateOf<String?>(null) }
@@ -73,6 +87,7 @@ fun LibraryScreen(
     val contextMenuController = LocalContextMenuController.current
     var isRefreshing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    var showSortMenu by remember { mutableStateOf(false) }
 
     // --- PILLAR 1: Deterministic Hierarchical Back Trapping ---
     BackHandler(enabled = showCreatePlaylistDialog) {
@@ -237,6 +252,118 @@ fun LibraryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { playlistToDelete = null }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = BgSurfaceElevated,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    // ── Phase 3: Create Folder dialog ────────────────────────────────────
+    if (showCreateFolderDialog) {
+        BackHandler(enabled = true) { showCreateFolderDialog = false }
+        AlertDialog(
+            onDismissRequest = { showCreateFolderDialog = false },
+            title = { Text("New Folder", color = TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = newFolderName,
+                    onValueChange = { newFolderName = it },
+                    singleLine = true,
+                    label = { Text("Folder Name") },
+                    placeholder = { Text("e.g. Workout Mixes") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Primary,
+                        unfocusedBorderColor = BorderChip,
+                        cursorColor = Primary,
+                        focusedTextColor = TextMain,
+                        unfocusedTextColor = TextMain
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newFolderName.isNotBlank()) {
+                            com.streamify.app.data.repository.PlaylistFolderStore.createFolder(newFolderName)
+                        }
+                        newFolderName = ""
+                        showCreateFolderDialog = false
+                    },
+                    enabled = newFolderName.isNotBlank()
+                ) {
+                    Text(
+                        "Create",
+                        color = if (newFolderName.isNotBlank()) Primary else TextSecondary,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    newFolderName = ""
+                    showCreateFolderDialog = false
+                }) { Text("Cancel", color = TextSecondary) }
+            },
+            containerColor = BgSurfaceElevated,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    // ── Phase 3: Move Playlist To Folder dialog ───────────────────────────
+    if (playlistForFolderMove != null) {
+        val moving = playlistForFolderMove ?: return
+        BackHandler(enabled = true) { playlistForFolderMove = null }
+        AlertDialog(
+            onDismissRequest = { playlistForFolderMove = null },
+            title = { Text("Move \"${moving.name}\"", color = TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        "Choose a folder (playlists keep their songs):",
+                        color = TextSecondary, fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Root option
+                    Text(
+                        text = "• No folder (root)",
+                        color = Primary,
+                        fontSize = 14.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                com.streamify.app.data.repository.PlaylistFolderStore.movePlaylistToFolder(moving.id, null)
+                                playlistForFolderMove = null
+                            }
+                            .padding(vertical = 8.dp)
+                    )
+                    libraryFolders.forEach { folder ->
+                        Text(
+                            text = "• ${folder.name}",
+                            color = TextMain,
+                            fontSize = 14.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    com.streamify.app.data.repository.PlaylistFolderStore.movePlaylistToFolder(moving.id, folder.id)
+                                    playlistForFolderMove = null
+                                }
+                                .padding(vertical = 8.dp)
+                        )
+                    }
+                    if (libraryFolders.isEmpty()) {
+                        Text(
+                            "No folders yet — create one from the Playlists tab.",
+                            color = TextTertiary, fontSize = 12.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { playlistForFolderMove = null }) {
                     Text("Cancel", color = TextSecondary)
                 }
             },
@@ -439,13 +566,42 @@ fun LibraryScreen(
             }
         )
 
-        // 3. Sort & View Mode Selector
-        YtSortFilterBar(
-            sortLabel = "Recent activity",
-            isGridView = isGridView,
-            onSortClick = { /* Handle sort */ },
-            onToggleView = { isGridView = !isGridView }
-        )
+        // 3. Sort & View Mode Selector — Phase 3: real multi-criteria sort menu
+        Box {
+            YtSortFilterBar(
+                sortLabel = librarySort.label,
+                isGridView = isGridView,
+                onSortClick = { showSortMenu = !showSortMenu },
+                onToggleView = { isGridView = !isGridView }
+            )
+            DropdownMenu(
+                expanded = showSortMenu,
+                onDismissRequest = { showSortMenu = false },
+                modifier = Modifier.background(BgSurfaceElevated)
+            ) {
+                com.streamify.app.data.repository.LibraryOrganizer.LibrarySort.entries.forEach { option ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                option.label,
+                                color = if (librarySort == option) Primary else TextMain,
+                                fontWeight = if (librarySort == option) androidx.compose.ui.text.font.FontWeight.Bold
+                                else androidx.compose.ui.text.font.FontWeight.Normal
+                            )
+                        },
+                        leadingIcon = {
+                            if (librarySort == option) {
+                                Icon(Icons.Filled.Check, contentDescription = null, tint = Primary, modifier = Modifier.size(18.dp))
+                            }
+                        },
+                        onClick = {
+                            librarySort = option
+                            showSortMenu = false
+                        }
+                    )
+                }
+            }
+        }
 
         when (val state = uiState) {
             is LibraryUiState.Loading -> {
@@ -464,6 +620,51 @@ fun LibraryScreen(
             is LibraryUiState.Success -> {
                 val allTracks = state.tracks
                 val likedTracks = state.likedTracks
+
+                // ── Phase 3: Power Library organization (hoisted — LazyListScope
+                // is not composable, so all remember{} calls live here) ─────────
+                val visiblePlaylists = remember(playlists) { playlists.filter { !it.isDeleted } }
+                val playlistById = remember(visiblePlaylists) {
+                    visiblePlaylists.associateBy { it.id }
+                }
+                val folderOfPlaylist = remember(libraryFolders) {
+                    val map = HashMap<String, com.streamify.app.data.repository.PlaylistFolderStore.Folder>()
+                    libraryFolders.forEach { folder ->
+                        folder.playlistIds.forEach { pid -> map[pid] = folder }
+                    }
+                    map
+                }
+                // Organizer: pinned float first (pin recency), then sort key.
+                val organizedPlaylists = remember(
+                    visiblePlaylists, pinnedIds, librarySort
+                ) {
+                    val organized = com.streamify.app.data.repository.LibraryOrganizer.organize(
+                        items = visiblePlaylists.map { pl ->
+                            com.streamify.app.data.repository.LibraryOrganizer.Organizable(
+                                id = pl.id,
+                                name = pl.name,
+                                creator = pl.description,
+                                createdAtMs = pl.createdAt,
+                                isPlaylist = true
+                            )
+                        },
+                        filter = com.streamify.app.data.repository.LibraryOrganizer.LibraryFilter.PLAYLISTS,
+                        sort = librarySort,
+                        pinnedIds = pinnedIds
+                    )
+                    organized.mapNotNull { playlistById[it.id] }
+                }
+                val rootPlaylists = remember(organizedPlaylists, folderOfPlaylist) {
+                    organizedPlaylists.filter { folderOfPlaylist[it.id] == null }
+                }
+                val pinnedPlaylists = remember(organizedPlaylists, pinnedIds) {
+                    val pinnedSet = pinnedIds.toHashSet()
+                    organizedPlaylists.filter { it.id in pinnedSet }
+                }
+                val rootUnpinnedPlaylists = remember(rootPlaylists, pinnedIds) {
+                    val pinnedSet = pinnedIds.toHashSet()
+                    rootPlaylists.filter { it.id !in pinnedSet }
+                }
 
                 val albums = remember(allTracks) {
                     allTracks.groupBy { it.album.ifBlank { "Unknown Album" } }
@@ -553,72 +754,188 @@ fun LibraryScreen(
                             }
 
                             if (!isGridView) {
-                                items(
-                                    items = playlists,
-                                    key = { "playlist_${it.id}" },
-                                    contentType = { "playlistRow" }
-                                ) { playlist ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(56.dp)
-                                            .clickable { selectedPlaylistId = playlist.id }
-                                            .padding(horizontal = 16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
+                                // ── Phase 3: pinned-first + folder-grouped list ──
+                                // (all derives are hoisted to the composable body)
+
+                                // Pinned section (across folders — pin always floats)
+                                if (pinnedPlaylists.isNotEmpty()) {
+                                    item(key = "pinned_section_header") {
+                                        Text(
+                                            text = "PINNED",
+                                            style = LocalAppTypography.current.songArtist.copy(
+                                                fontSize = 11.sp,
+                                                letterSpacing = 0.6.sp,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                            ),
+                                            color = Primary,
+                                            modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp)
+                                        )
+                                    }
+                                    items(
+                                        items = pinnedPlaylists,
+                                        key = { "pinned_playlist_${it.id}" },
+                                        contentType = { "playlistRow" }
+                                    ) { playlist ->
+                                        PlaylistRow(
+                                            playlist = playlist,
+                                            isPinned = true,
+                                            showPin = true,
+                                            onOpen = { selectedPlaylistId = playlist.id },
+                                            onPinToggle = {
+                                                com.streamify.app.data.repository.PlaylistFolderStore.togglePin(playlist.id)
+                                            },
+                                            onRename = {
+                                                renameText = playlist.name
+                                                playlistToRename = playlist
+                                            },
+                                            onOptions = { playlistForOptions = playlist },
+                                            onMoveToFolder = { playlistForFolderMove = playlist }
+                                        )
+                                    }
+                                }
+
+                                // Folder sections (expandable, playlists inside)
+                                libraryFolders.forEach { folder ->
+                                    val folderPlaylists = folder.playlistIds
+                                        .mapNotNull { playlistById[it] }
+                                        .sortedBy { pl ->
+                                            organizedPlaylists.indexOfFirst { it.id == pl.id }.let { idx ->
+                                                if (idx >= 0) idx else Int.MAX_VALUE
+                                            }
+                                        }
+                                    item(key = "folder_${folder.id}") {
+                                        Row(
                                             modifier = Modifier
-                                                .size(48.dp)
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(BgSurfaceElevated),
-                                            contentAlignment = Alignment.Center
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    expandedFolderIds = if (folder.id in expandedFolderIds) {
+                                                        expandedFolderIds - folder.id
+                                                    } else {
+                                                        expandedFolderIds + folder.id
+                                                    }
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Filled.QueueMusic,
-                                                contentDescription = "Playlist",
+                                                imageVector = if (folder.id in expandedFolderIds) Icons.Filled.FolderOpen else Icons.Filled.Folder,
+                                                contentDescription = "Folder",
                                                 tint = Primary,
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(22.dp)
                                             )
-                                        }
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
+                                            Spacer(modifier = Modifier.width(10.dp))
                                             Text(
-                                                text = playlist.name,
-                                                style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
+                                                text = folder.name,
+                                                style = LocalAppTypography.current.songTitle.copy(
+                                                    fontSize = 15.sp,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                                ),
                                                 color = TextMain
                                             )
+                                            Spacer(modifier = Modifier.width(8.dp))
                                             Text(
-                                                text = "Playlist • ${playlist.trackIds.size} songs",
+                                                text = "${folderPlaylists.size}",
                                                 style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
                                                 color = TextSecondary
                                             )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                renameText = playlist.name
-                                                playlistToRename = playlist
+                                            Spacer(modifier = Modifier.weight(1f))
+                                            IconButton(
+                                                onClick = {
+                                                    com.streamify.app.data.repository.PlaylistFolderStore.deleteFolder(folder.id)
+                                                },
+                                                modifier = Modifier.size(30.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Delete,
+                                                    contentDescription = "Delete folder",
+                                                    tint = TextTertiary.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
                                             }
-                                        ) {
                                             Icon(
-                                                imageVector = Icons.Filled.Edit,
-                                                contentDescription = "Rename",
-                                                tint = TextSecondary,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                playlistForOptions = playlist
-                                            }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.MoreVert,
-                                                contentDescription = "Options",
+                                                imageVector = if (folder.id in expandedFolderIds) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                                contentDescription = if (folder.id in expandedFolderIds) "Collapse" else "Expand",
                                                 tint = TextSecondary,
                                                 modifier = Modifier.size(20.dp)
                                             )
                                         }
                                     }
+                                    if (folder.id in expandedFolderIds) {
+                                        items(
+                                            items = folderPlaylists,
+                                            key = { "folder_playlist_${folder.id}_${it.id}" },
+                                            contentType = { "playlistRow" }
+                                        ) { playlist ->
+                                            Box(modifier = Modifier.padding(start = 24.dp)) {
+                                                PlaylistRow(
+                                                    playlist = playlist,
+                                                    isPinned = playlist.id in pinnedIds,
+                                                    showPin = false,
+                                                    onOpen = { selectedPlaylistId = playlist.id },
+                                                    onPinToggle = {
+                                                        com.streamify.app.data.repository.PlaylistFolderStore.togglePin(playlist.id)
+                                                    },
+                                                    onRename = {
+                                                        renameText = playlist.name
+                                                        playlistToRename = playlist
+                                                    },
+                                                    onOptions = { playlistForOptions = playlist },
+                                                    onMoveToFolder = { playlistForFolderMove = playlist }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Create Folder row
+                                item(key = "create_folder_row") {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(52.dp)
+                                            .clickable { showCreateFolderDialog = true }
+                                            .padding(horizontal = 16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.CreateNewFolder,
+                                            contentDescription = "New Folder",
+                                            tint = Primary,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(14.dp))
+                                        Text(
+                                            text = "New folder",
+                                            style = LocalAppTypography.current.songTitle.copy(
+                                                fontSize = 14.sp,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                            ),
+                                            color = Primary
+                                        )
+                                    }
+                                }
+
+                                // Root-level playlists (not inside any folder)
+                                items(
+                                    items = rootUnpinnedPlaylists,
+                                    key = { "playlist_${it.id}" },
+                                    contentType = { "playlistRow" }
+                                ) { playlist ->
+                                    PlaylistRow(
+                                        playlist = playlist,
+                                        isPinned = false,
+                                        showPin = true,
+                                        onOpen = { selectedPlaylistId = playlist.id },
+                                        onPinToggle = {
+                                            com.streamify.app.data.repository.PlaylistFolderStore.togglePin(playlist.id)
+                                        },
+                                        onRename = {
+                                            renameText = playlist.name
+                                            playlistToRename = playlist
+                                        },
+                                        onOptions = { playlistForOptions = playlist },
+                                        onMoveToFolder = { playlistForFolderMove = playlist }
+                                    )
                                 }
                             }
                         }
@@ -1033,4 +1350,93 @@ private fun enqueueMediaScan(context: android.content.Context) {
         .addTag("ingestion_worker")
         .build()
     workManager.enqueueUniqueWork("media_scan", androidx.work.ExistingWorkPolicy.REPLACE, scanRequest)
+}
+
+/**
+ * Phase 3 — one playlist row with pin / rename / options / move-to-folder.
+ * Pin = PlaylistFolderStore toggle; pinned rows render with a filled pin
+ * and a "Pinned" label.
+ */
+@Composable
+private fun PlaylistRow(
+    playlist: com.streamify.app.data.repository.Playlist,
+    isPinned: Boolean,
+    showPin: Boolean,
+    onOpen: () -> Unit,
+    onPinToggle: () -> Unit,
+    onRename: () -> Unit,
+    onOptions: () -> Unit,
+    onMoveToFolder: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(BgSurfaceElevated),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Filled.QueueMusic,
+                contentDescription = "Playlist",
+                tint = if (isPinned) Primary else StreamifyColors.TextSub,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = playlist.name,
+                style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
+                color = TextMain,
+                maxLines = 1
+            )
+            Text(
+                text = if (isPinned) "Pinned • ${playlist.trackIds.size} songs"
+                else "Playlist • ${playlist.trackIds.size} songs",
+                style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                color = if (isPinned) Primary else TextSecondary,
+                maxLines = 1
+            )
+        }
+        if (showPin) {
+            IconButton(onClick = onPinToggle, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.PushPin,
+                    contentDescription = if (isPinned) "Unpin" else "Pin to top",
+                    tint = if (isPinned) Primary else TextTertiary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+        IconButton(
+            onClick = onRename,
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Edit,
+                contentDescription = "Rename",
+                tint = TextSecondary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        IconButton(
+            onClick = onOptions,
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.MoreVert,
+                contentDescription = "Options",
+                tint = TextSecondary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
 }
