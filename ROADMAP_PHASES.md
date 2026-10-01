@@ -133,11 +133,11 @@ flowchart LR
   - [x] Engineer 2 (Rust 32-Peer Gossip, mDNS & ACL) — Merged in PR #16
   - [x] Engineer 3 (Kotlin 32-Roster UI, Party Mode & DSP Settings) — Merged in PR #14
   - [x] CI Verification & Release Test Build — All 12/12 Shards Green
-- [ ] **Phase 2: Scraper-Powered Taste Blend, Smart Discovery & Social Graph**
-  - [ ] Engineer 1 (Native String Hashing & Harmonic Math)
-  - [ ] Engineer 2 (Rust Blend Scorer, CRDT Voting & Mixes)
-  - [ ] Engineer 3 (Kotlin YTM Radio Scrapers, Daylist, Blend UI & Social)
-  - [ ] CI Verification & Release Test Build
+- [x] **Phase 2: Scraper-Powered Taste Blend, Smart Discovery & Social Graph**
+  - [x] Engineer 1 (Native String Hashing & Harmonic Math) — Merged in PR #17
+  - [x] Engineer 2 (Rust Blend Scorer, CRDT Voting & Mixes) — Merged in PR #18
+  - [x] Engineer 3 (Kotlin YTM Radio Scrapers, Daylist, Blend UI & Social) — Merged in PR #19
+  - [x] CI Verification & Release Test Build — All 12/12 Shards Green
 - [ ] **Phase 3: Media Scraping (Canvas/Clips), Background Downloads & Power Library**
   - [ ] Engineer 1 (Native AGSL Canvas Loops & Audio Remuxer)
   - [ ] Engineer 2 (Rust Chunk Swarmer & Local LAN Sync)
