@@ -220,7 +220,7 @@ object YouTubeMusicRadioApi {
         if (direct.tracks.isNotEmpty()) return direct
         val candidates = runCatching { search(query) }.getOrDefault(emptyList())
         for (videoId in candidates.take(2)) {
-            if (videoId.length != 11) continue
+            if (videoId.isBlank()) continue
             val page = runCatching { radio(videoId) }.getOrDefault(RadioPage())
             if (page.tracks.isNotEmpty()) return page
         }
