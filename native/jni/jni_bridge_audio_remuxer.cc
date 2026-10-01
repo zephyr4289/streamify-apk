@@ -233,7 +233,10 @@ JNIEXPORT void JNICALL
 Java_com_streamify_app_audio_NativeAudioRemuxer_nativeDestroySession(
     JNIEnv* /* env */, jclass /* clazz */, jlong handle) {
     RemuxSession* s = sessionFromHandle(handle);
-    delete s;  // nullptr-safe by contract
+    if (s == nullptr) {
+        return;  // zero/stale handle: nothing owned, nothing to free
+    }
+    delete s;
 }
 
 // ---- standalone validators (stateless) -------------------------------------

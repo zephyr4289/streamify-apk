@@ -100,8 +100,10 @@ ParseStatus OpusPacketParser::parse(const uint8_t* data, size_t len,
         if (size2 < 0) {
             return ParseStatus::kBadFrameLength;  // size1 exceeds payload
         }
-        if (size1 > OpusPacketParser::kMaxOpusFrameBytes ||
-            size2 > OpusPacketParser::kMaxOpusFrameBytes) {
+        // Only size2 needs the frame-ceiling bound: size1 is a single
+        // length byte (<= 255) and can never exceed the 1275-byte Opus
+        // frame ceiling. (The dead size1 disjunct tripped CodeQL.)
+        if (size2 > OpusPacketParser::kMaxOpusFrameBytes) {
             return ParseStatus::kBadFrameLength;
         }
         largest = size1 > size2 ? size1 : size2;
