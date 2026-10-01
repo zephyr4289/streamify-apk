@@ -46,15 +46,15 @@ Installing NDK (Side by side) 25.1.8937393 in /usr/local/lib/android/sdk/ndk/25.
 > Task :app:mapDebugSourceSetPaths
 > Task :app:generateDebugResources
 > Task :app:packageDebugResources
+> Task :app:mergeDebugResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
 > Task :app:parseDebugLocalResources
-> Task :app:mergeDebugResources
 > Task :app:processDebugMainManifest
 > Task :app:processDebugManifest
 > Task :app:preDebugUnitTestBuild UP-TO-DATE
 > Task :app:javaPreCompileDebug
-> Task :app:javaPreCompileDebugUnitTest
+> Task :app:javaPreCompileDebugUnitTest FROM-CACHE
 > Task :app:processDebugManifestForPackage
 > Task :app:processDebugResources
 > Task :app:compileDebugKotlin
@@ -239,13 +239,10 @@ w: file:///home/runner/work/streamify-apk/streamify-apk/app/src/main/java/com/st
 
 > Task :app:testDebugUnitTest
 
-com.streamify.app.jam.MerkleStateReconcilerTest > mid-sync mutation triggers a restart that still converges FAILED
-    java.util.NoSuchElementException at MerkleStateReconcilerTest.kt:306
-
 com.streamify.app.jam.MerkleStateReconcilerTest > identical states converge with zero ops transferred FAILED
     java.lang.AssertionError at MerkleStateReconcilerTest.kt:140
 
-248 tests completed, 2 failed
+248 tests completed, 1 failed
 
 > Task :app:testDebugUnitTest FAILED
 
@@ -428,8 +425,8 @@ Caused by: org.gradle.api.internal.exceptions.MarkedVerificationException: There
 	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
 
 
-BUILD FAILED in 3m 18s
-24 actionable tasks: 24 executed
+BUILD FAILED in 3m 35s
+24 actionable tasks: 23 executed, 1 from cache
 ==================================================
 SHARD: native-dsp
 DESCRIPTION: KissFFT 2048 STFT, Krumhansl Key, Ellis BPM & EBU R128 LUFS
