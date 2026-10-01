@@ -109,6 +109,8 @@ fun AlbumScreen(
     var selectedTrackIds by remember { mutableStateOf(setOf<Int>()) }
     var showCoverCropper by remember { mutableStateOf(false) }
     var showAddToPlaylistDialog by remember { mutableStateOf(false) }
+    // Phase 3 — wave QR share card for playlist/album.
+    var showQrShareCard by remember { mutableStateOf(false) }
     val allPlaylists by PlaylistRepository.playlists.collectAsState()
 
     fun exitBulkEdit() {
@@ -126,6 +128,29 @@ fun AlbumScreen(
 
     androidx.activity.compose.BackHandler(enabled = bulkEditMode) {
         exitBulkEdit()
+    }
+
+    // Phase 3 — playlist/album wave QR share card.
+    if (showQrShareCard) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showQrShareCard = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            val isPlaylist = explicitTracks != null
+            com.streamify.app.ui.components.QrShareCard(
+                kindLabel = if (isPlaylist) "PLAYLIST" else "ALBUM",
+                title = displayTitle,
+                subtitle = if (isPlaylist) "${albumTracks.size} songs" else (firstTrack?.artist ?: "Unknown Artist"),
+                artworkUrl = firstTrack?.coverArtPath,
+                link = if (isPlaylist && playlistId != null) {
+                    com.streamify.app.ui.components.ShareLinkBuilder.playlistLink(playlistId)
+                } else {
+                    com.streamify.app.ui.components.ShareLinkBuilder.albumLink(displayTitle)
+                },
+                modifier = Modifier.padding(16.dp),
+                onDismiss = { showQrShareCard = false }
+            )
+        }
     }
 
     if (showCoverCropper && playlistId != null) {
@@ -333,6 +358,15 @@ fun AlbumScreen(
                                 bulkEditMode = true
                             },
                             leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null, tint = TextMain) }
+                        )
+                        // Phase 3 — wave QR share card
+                        DropdownMenuItem(
+                            text = { Text("Share QR Card", color = TextMain) },
+                            onClick = {
+                                showOptionsMenu = false
+                                showQrShareCard = true
+                            },
+                            leadingIcon = { Icon(Icons.Filled.QrCode2, contentDescription = null, tint = TextMain) }
                         )
                         DropdownMenuItem(
                             text = { Text("Export to M3U8", color = TextMain) },

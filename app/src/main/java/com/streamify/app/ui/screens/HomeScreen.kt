@@ -48,7 +48,9 @@ fun HomeScreen(
     onListenAlong: (String, String) -> Unit = { _, _ -> },
     onJoinJam: () -> Unit = {},
     onBlend: (String, String) -> Unit = { _, _ -> },
-    onViewProfile: (String, String, String) -> Unit = { _, _, _ -> }
+    onViewProfile: (String, String, String) -> Unit = { _, _, _ -> },
+    /** Phase 3 — "Your Updates" hub entry (new releases + pre-save alerts). */
+    onOpenUpdatesHub: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val communityState by communityViewModel.uiState.collectAsState()
@@ -90,6 +92,7 @@ fun HomeScreen(
             onSearchClick = onSearchClick,
             onAvatarClick = onNavigateToProfile,
             onCastClick = onNavigateToJam,
+            onNotificationsClick = onOpenUpdatesHub,
             avatarUrl = user?.avatarUrl,
             avatarInitial = user?.displayName?.take(1) ?: "S"
         )

@@ -56,6 +56,21 @@ fun ArtistScreen(
     var showClipsFeed by remember { mutableStateOf(false) }
     var resumeAudioOnClipsClose by remember { mutableStateOf(false) }
 
+    // ── Phase 3: upcoming-release countdown banner + Pre-Save ─────────────
+    var releaseWatch by remember { mutableStateOf<com.streamify.app.data.network.ReleaseWatcherApi.ReleaseWatch?>(null) }
+    var preSaveIds by remember { mutableStateOf(setOf<String>()) }
+    var nowTickMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(artistName) {
+        releaseWatch = com.streamify.app.data.network.ReleaseWatcherApi.watchArtist(artistName)
+        preSaveIds = com.streamify.app.data.network.PreSaveStore.loadAll().map { it.releaseId }.toSet()
+    }
+    LaunchedEffect(Unit) {
+        while (kotlinx.coroutines.isActive) {
+            kotlinx.coroutines.delay(1000)
+            nowTickMs = System.currentTimeMillis()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -183,6 +198,36 @@ fun ArtistScreen(
                             Text("Shuffle", color = StreamifyColors.Primary)
                         }
                     }
+                }
+            }
+
+            // ── Phase 3: upcoming-release countdown banner + Pre-Save ─────
+            val upcoming = releaseWatch?.nextUpcoming
+            if (upcoming != null) {
+                item(key = "artist_release_countdown") {
+                    com.streamify.app.ui.components.ArtistCountdownBanner(
+                        artistName = artistName,
+                        release = upcoming,
+                        nowMs = nowTickMs,
+                        isPreSaved = upcoming.releaseId in preSaveIds,
+                        onTogglePreSave = {
+                            if (upcoming.releaseId in preSaveIds) {
+                                com.streamify.app.data.network.PreSaveStore.removePreSave(upcoming.releaseId)
+                            } else {
+                                com.streamify.app.data.network.PreSaveStore.addPreSave(
+                                    com.streamify.app.data.network.PreSaveStore.PreSave(
+                                        releaseId = upcoming.releaseId,
+                                        artistName = artistName,
+                                        title = upcoming.title,
+                                        expectedAtMs = upcoming.expectedAtMs
+                                    )
+                                )
+                            }
+                            preSaveIds = com.streamify.app.data.network.PreSaveStore.loadAll()
+                                .map { it.releaseId }.toSet()
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
                 }
             }
 

@@ -114,7 +114,9 @@ fun AppNavGraph(
                             "/" + android.net.Uri.encode(name) +
                             "/" + android.net.Uri.encode(avatar)
                     )
-                }
+                },
+                // Phase 3 — "Your Updates" hub (followed-artist releases).
+                onOpenUpdatesHub = { navController.navigate("updates_hub") }
             )
         }
 
@@ -388,6 +390,15 @@ fun AppNavGraph(
                 playerViewModel = playerViewModel,
                 onBack = { navController.popBackStack() },
                 onTrackClick = { track, list -> playerViewModel.playCollection(list, list.indexOf(track).coerceAtLeast(0)) }
+            )
+        }
+        // Phase 3 — "Your Updates" hub: new releases + alerts from followed artists.
+        composable("updates_hub") {
+            UpdatesHubScreen(
+                onBack = { navController.popBackStack() },
+                onArtistClick = { artistName ->
+                    navController.navigate("artist/" + android.net.Uri.encode(artistName))
+                }
             )
         }
     }

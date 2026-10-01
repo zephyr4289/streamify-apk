@@ -130,6 +130,8 @@ fun ContextMenuSheet(
     var showEditDialog by remember { mutableStateOf(false) }
     var showPlaylistDialog by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    // Phase 3 — wave QR share card dialog.
+    var showQrCardDialog by remember { mutableStateOf(false) }
     val playlists by PlaylistRepository.playlists.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -400,13 +402,22 @@ fun ContextMenuSheet(
                 }
             )
 
-            // 9. Share Track
+            // 9. Share Track (system sheet)
             ContextActionItem(
                 icon = Icons.Filled.Share,
                 text = "Share",
                 onClick = {
                     com.streamify.app.util.TrackShareCard.shareTrack(context, track)
                     onDismissRequest()
+                }
+            )
+
+            // 9b. Share Wave QR Card (Phase 3 — Spotify-style visual card)
+            ContextActionItem(
+                icon = Icons.Filled.QrCode2,
+                text = "Share QR Card",
+                onClick = {
+                    showQrCardDialog = true
                 }
             )
 
@@ -417,6 +428,24 @@ fun ContextMenuSheet(
                 onClick = {
                     showEditDialog = true
                 }
+            )
+        }
+    }
+
+    // ── Phase 3: wave QR share card dialog ────────────────────────────────
+    if (showQrCardDialog) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showQrCardDialog = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            QrShareCard(
+                kindLabel = "TRACK",
+                title = track.title,
+                subtitle = track.artist,
+                artworkUrl = track.coverArtPath,
+                link = com.streamify.app.ui.components.ShareLinkBuilder.trackLink(track),
+                modifier = Modifier.padding(16.dp),
+                onDismiss = { showQrCardDialog = false }
             )
         }
     }
