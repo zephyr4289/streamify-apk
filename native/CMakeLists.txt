@@ -26,6 +26,7 @@ include_directories(
 add_library(streamify_native_core SHARED
     engine/TaskOrchestrator.cc
     math/CandidateHasher.cc
+    math/HarmonicTransitionEngine.cc
     dsp/LufsNormalizer.cc
     dsp/SoftKneeLimiter.cc
     dsp/AcousticPhaseResampler.cc
