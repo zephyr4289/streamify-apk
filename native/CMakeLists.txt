@@ -14,6 +14,7 @@ endif()
 
 include_directories(
     agsl
+    audio
     dsp
     dsp/kissfft
     engine
@@ -33,6 +34,9 @@ add_library(streamify_native_core SHARED
     video/CanvasLoopMath.cc
     video/CanvasLoopRenderer.cc
     agsl/AmbientGlowShader.cc
+    audio/OpusPacketParser.cc
+    audio/AdtsFrameParser.cc
+    audio/AudioFrameRemuxer.cc
     dsp/LufsNormalizer.cc
     dsp/SoftKneeLimiter.cc
     dsp/AcousticPhaseResampler.cc
