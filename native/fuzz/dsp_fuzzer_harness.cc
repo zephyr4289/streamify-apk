@@ -353,8 +353,11 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 
     // 11. Phase-2: candidate hashing — determinism, production == reference,
     //     bulk == single, across arbitrary byte spans (any length 0..64).
+    //     (Length byte = data[23], the LAST byte: data[24] on a minimum-size
+    //     24-byte input is a one-past-end read — caught by CI LibFuzzer,
+    //     crash-5ebf58bb, after the local fixed-buffer soak missed it.)
     if (size >= 24) {
-        const uint32_t spanLen = data[24] % 65;
+        const uint32_t spanLen = data[23] % 65;
         if (static_cast<size_t>(1 + spanLen) <= size) {
             const char* span = reinterpret_cast<const char*>(data) + 1;
             const uint64_t h1 = streamify::math::hashCandidateId(span, spanLen);
