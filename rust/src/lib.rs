@@ -48,7 +48,10 @@ pub use airdrop::{AirdropPhysicsEngine, AirdropState};
 pub use aligner::{AlignedLine, AlignedSyllable, LyricAlignerEngine};
 
 pub use backup::{BackupArchiveEngine, BackupRecord};
-pub use consensus::ConsensusEngine;
+pub use consensus::{
+    CollabPlaylistState, PlaylistApplyResult, PlaylistItemView, PlaylistOp, PlaylistOpKind,
+    PlaylistReject, PlaylistRole, ConsensusEngine,
+};
 pub use crossfade::CrossfadeDspEngine;
 pub use crypto::VaultCryptoEngine;
 pub use downloader::{DownloadProgress, StreamDownloader};
@@ -57,7 +60,9 @@ pub use json::{InnertubeParser, ParsedCandidate, ResolvedStreamFormat};
 pub use lyrics::{CompiledLyricEntry, CompiledLyrics, LyricCompiler};
 pub use markov::MarkovEngine;
 pub use neuro_queue::{BrainState, NeuroCandidate, NeuroQueueEngine};
-pub use playlist_parser::{ParsedPlaylistResult, ParsedPlaylistTrack, PlaylistParser};
+pub use playlist_parser::{
+    import_parsed_playlist, ParsedPlaylistResult, ParsedPlaylistTrack, PlaylistParser,
+};
 pub use ptp::PtpFilter;
 pub use queue_optimizer::{CandidateTrack, QueueOptimizer};
 pub use radio_scorer::{
