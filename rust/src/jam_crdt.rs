@@ -25,6 +25,27 @@
 //!   that id in `target_add_op_id`; tombstoning suppresses late replays of the
 //!   Add regardless of delivery order. Folds ship tombstones alongside the
 //!   queue so fresh replicas cannot resurrect removed elements.
+//!
+//! ═══════════════════════════════════════════════════════════════════════
+//! PHASE 2 (feat/phase2-rust-crdt-blend-voting) — Democratic group queue
+//! voting CRDT (directive A / BEHIND.md gap #37):
+//!
+//!   • `OpType::Vote` (=4) merge logic in `apply_op`: positive upvotes AND
+//!     vote retractions tracked per `target_add_op_id`, mapped by voter
+//!     identity — one vote per peer per track, idempotent. The vote state
+//!     per (target, voter) is an LWW register keyed by the strictly
+//!     monotonic `op_id`, so out-of-order delivery and replayed frames are
+//!     immune by construction (a stale op can never clobber a newer one).
+//!   • `VoterId` — 32-byte voter identity. Strong path: the Ed25519
+//!     governance pubkey verified at the mesh wire boundary
+//!     (`apply_op_as`). Legacy path: the 4-byte device-nonce namespace
+//!     (`apply_op`, e.g. the solo-queue JNI surface).
+//!   • Threshold auto-promotion (see `reconcile_promotions`): a track whose
+//!     net upvotes reach `PromotionPolicy::effective_threshold`
+//!     (⌊N/2⌋+1 majority or host-configured ratio) bubbles up into the
+//!     active playback queue via deterministic fractional-index
+//!     repositioning that never disturbs un-voted items.
+//! ═══════════════════════════════════════════════════════════════════════
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
@@ -37,13 +58,22 @@ const FNV1A_32_PRIME: u32 = 0x0100_0193;
 /// Wire size of [`JamOp`] (repr(C): 48 bytes, naturally aligned).
 pub const JAM_OP_SIZE: usize = 48;
 
+/// `policy_flags` bit carried by Vote ops: set = positive upvote,
+/// clear = vote retraction (Phase 2 directive A).
+pub const VOTE_FLAG_UP: u8 = 0x01;
+
+/// Hard cap on distinct vote targets held in the ledger. Beyond the cap the
+/// oldest target (smallest latest op-id, tie by target id) is evicted — a
+/// pure function of ledger content, so eviction is replica-convergent.
+pub const MAX_VOTE_TARGETS: usize = 4096;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum OpType {
     Add = 1,
     Remove = 2,
     Reorder = 3,
-    Vote = 4, // reserved — not yet merged by apply_op
+    Vote = 4, // Phase 2 directive A — merged by apply_op since feat/phase2-rust-crdt-blend-voting
 }
 
 // Global op-id generator state (per process).
@@ -210,6 +240,141 @@ fn frac_key(frac_index: f64, add_op_id: u64) -> (u64, u64) {
     (frac_index.to_bits(), add_op_id)
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// PHASE 2 — democratic voting ledger (directive A / gap #37)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// 32-byte voter identity. Two namespaces, byte-disjoint:
+///   • `from_pubkey` — the Ed25519 governance pubkey verified at the mesh
+///     wire boundary (the "peer_pubkey" the directive maps votes by);
+///   • `from_nonce` — the legacy 4-byte device-nonce domain
+///     (`[0x01, 0×27, nonce]`). A real Ed25519 verifying key colliding with
+///     that fixed prefix is cryptographically impossible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct VoterId(pub [u8; 32]);
+
+impl VoterId {
+    /// Strong identity: a verified 32-byte Ed25519 governance pubkey.
+    pub fn from_pubkey(pk: &[u8; 32]) -> Self {
+        VoterId(*pk)
+    }
+
+    /// Legacy identity: the 4-byte device nonce carried by `JamOp` itself.
+    pub fn from_nonce(nonce: &[u8; 4]) -> Self {
+        let mut k = [0u8; 32];
+        k[0] = 0x01;
+        k[28..32].copy_from_slice(nonce);
+        VoterId(k)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+/// One voter's standing vote for one track: LWW register — the strictly
+/// monotonic `op_id` (48-bit unix_ms << 16 | counter) is the timestamp, so
+/// merge order never matters and replays are inert.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VoteState {
+    up: bool,
+    op_id: u64,
+}
+
+/// What a Vote op did to the ledger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoteOutcome {
+    /// Ledger state changed (new vote, retraction, or direction flip).
+    Recorded,
+    /// Exact replay of an already-known op (same op_id) — idempotent no-op.
+    Duplicate,
+    /// Stale frame: older than the voter's standing vote — dropped.
+    Superseded,
+    /// Structurally invalid (zero target id).
+    Rejected,
+}
+
+/// Per-target vote table: `target_add_op_id → (voter → standing vote)`.
+#[derive(Debug, Default)]
+struct VoteLedger {
+    per_target: HashMap<u64, HashMap<VoterId, VoteState>>,
+}
+
+impl VoteLedger {
+    /// Net upvote count for one target (retracted voters excluded).
+    fn count(&self, target: u64) -> u32 {
+        self.per_target
+            .get(&target)
+            .map(|m| m.values().filter(|v| v.up).count() as u32)
+            .unwrap_or(0)
+    }
+
+    /// Voter roster for one target, byte-order sorted (deterministic folds).
+    fn roster(&self, target: u64) -> Vec<VoterId> {
+        let mut ids: Vec<VoterId> = self
+            .per_target
+            .get(&target)
+            .map(|m| m.keys().copied().collect())
+            .unwrap_or_default();
+        ids.sort();
+        ids
+    }
+
+    /// Standing vote of one voter on one target (`Some(true)` = upvote).
+    fn voted_by(&self, target: u64, voter: &VoterId) -> Option<bool> {
+        self.per_target.get(&target)?.get(voter).map(|v| v.up)
+    }
+
+    /// Merges one vote event (LWW by `op_id`).
+    fn apply(&mut self, target: u64, voter: VoterId, up: bool, op_id: u64) -> VoteOutcome {
+        if target == 0 {
+            return VoteOutcome::Rejected; // Add ops mint op_ids >= 1; 0 is hostile
+        }
+        let per = self.per_target.entry(target).or_default();
+        if let Some(st) = per.get(&voter) {
+            if st.op_id == op_id {
+                return VoteOutcome::Duplicate;
+            }
+            if st.op_id > op_id {
+                return VoteOutcome::Superseded;
+            }
+        }
+        per.insert(voter, VoteState { up, op_id });
+        // Deterministic capacity eviction: the oldest target (smallest
+        // latest op-id, tie by target id) leaves first — content-addressed,
+        // so every replica holding the same ledger evicts identically.
+        while self.per_target.len() > MAX_VOTE_TARGETS {
+            let mut victim: Option<(u64, u64)> = None; // (latest op_id, target)
+            for (t, voters) in &self.per_target {
+                let latest = voters.values().map(|v| v.op_id).max().unwrap_or(0);
+                match victim {
+                    Some((lo, lt)) if (latest, *t) >= (lo, lt) => {}
+                    _ => victim = Some((latest, *t)),
+                }
+            }
+            match victim {
+                Some((_, t)) => {
+                    self.per_target.remove(&t);
+                }
+                None => break,
+            }
+        }
+        VoteOutcome::Recorded
+    }
+
+    /// Sorted target list (deterministic folds / queries).
+    fn targets(&self) -> Vec<u64> {
+        let mut ts: Vec<u64> = self.per_target.keys().copied().collect();
+        ts.sort_unstable();
+        ts
+    }
+
+    /// Total tracked (target, voter) pairs — telemetry / tests.
+    fn total_events(&self) -> usize {
+        self.per_target.values().map(|m| m.len()).sum()
+    }
+}
+
 #[derive(Debug, Clone)]
 struct QueueEntry {
     cad_id: u64,
@@ -225,6 +390,8 @@ pub struct JamCrdtState {
     /// Latched when adjacent fractions fall within relative ULP range.
     /// Reset externally after a successful rebalance pass.
     pub needs_rebalance: bool,
+    /// Phase 2: democratic vote ledger (directive A / gap #37).
+    votes: VoteLedger,
 }
 
 impl JamCrdtState {
@@ -276,7 +443,21 @@ impl JamCrdtState {
                 }
                 // Reordering an absent/tombstoned element is a no-op.
             }
-            _ => return false, // unknown/Vote — reserved
+            4 => {
+                // Phase 2 (directive A): democratic vote merge. `policy_flags`
+                // bit0 carries the direction (upvote / retraction) and
+                // `target_add_op_id` the voted element. Voter identity on
+                // this legacy path derives from the device nonce; the strong
+                // pubkey-verified path is [`JamCrdtState::apply_op_as`].
+                let voter = VoterId::from_nonce(&op.sender_nonce);
+                self.votes.apply(
+                    op.target_add_op_id,
+                    voter,
+                    op.policy_flags & VOTE_FLAG_UP != 0,
+                    op.op_id,
+                );
+            }
+            _ => return false, // unknown op types stay rejected at the boundary
         }
 
         self.check_rebalance();
@@ -335,6 +516,63 @@ impl JamCrdtState {
     /// Live view for UI binding: [(frac, add_op_id, cad_id)] in play order.
     pub fn snapshot_vec(&self) -> Vec<(f64, u64, u64)> {
         self.fold_to_snapshot().0
+    }
+
+    // ── Phase 2: democratic voting surface (directive A / gap #37) ─────
+
+    /// Strong-path op merge: the caller supplies the voter's VERIFIED 32-byte
+    /// governance pubkey (mesh wire-boundary path). Vote ops are recorded
+    /// against that pubkey; every other op type ignores `voter` and follows
+    /// the standard merge. Returns `Some(VoteOutcome)` for Vote ops and
+    /// `None` for every other op type (the boolean `apply_op` remains the
+    /// compatibility contract).
+    pub fn apply_op_as(&mut self, op: &JamOp, voter: &VoterId) -> Option<VoteOutcome> {
+        if !op.is_valid() || !op.frac_index.is_finite() {
+            return None; // corrupt wire payload or NaN poisoning attempt
+        }
+        if op.op_type == 4 {
+            let outcome = self.votes.apply(
+                op.target_add_op_id,
+                *voter,
+                op.policy_flags & VOTE_FLAG_UP != 0,
+                op.op_id,
+            );
+            if outcome == VoteOutcome::Rejected {
+                return Some(VoteOutcome::Rejected);
+            }
+            self.check_rebalance();
+            Some(outcome)
+        } else {
+            let _ = self.apply_op(op);
+            None
+        }
+    }
+
+    /// Net upvote count for one queue element (retractions subtract).
+    pub fn vote_count(&self, target_add_op_id: u64) -> u32 {
+        self.votes.count(target_add_op_id)
+    }
+
+    /// Voter roster for one queue element, byte-order sorted — the exact
+    /// voter set behind a track's vote count (UI "who voted" sheet, tests).
+    pub fn voter_roster(&self, target_add_op_id: u64) -> Vec<VoterId> {
+        self.votes.roster(target_add_op_id)
+    }
+
+    /// One voter's standing vote on one element (`Some(true)` = upvote,
+    /// `Some(false)` = retracted-but-recorded, `None` = never voted).
+    pub fn voted_by(&self, target_add_op_id: u64, voter: &VoterId) -> Option<bool> {
+        self.votes.voted_by(target_add_op_id, voter)
+    }
+
+    /// All targets that carry at least one recorded vote event, sorted.
+    pub fn voted_targets(&self) -> Vec<u64> {
+        self.votes.targets()
+    }
+
+    /// Total (target, voter) pairs tracked — ledger size telemetry.
+    pub fn vote_event_count(&self) -> usize {
+        self.votes.total_events()
     }
 }
 
@@ -456,5 +694,135 @@ mod tests {
     fn expect_eq_u64(v: u64, hex: &str) {
         let parsed = u64::from_str_radix(hex, 16).expect("hex cad");
         assert_eq!(v, parsed, "u64 variant must match formatted pipeline");
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // PHASE 2 — democratic voting ledger (directive A / gap #37)
+    // ═════════════════════════════════════════════════════════════════
+
+    fn vote_op(op_id: u64, nonce: [u8; 4], up: bool, target: u64) -> JamOp {
+        JamOp::new(op_id, nonce, OpType::Vote, if up { VOTE_FLAG_UP } else { 0 }, 0, 0.0, target)
+    }
+
+    fn voter_pk(seed: u8) -> VoterId {
+        let mut pk = [0u8; 32];
+        pk[0] = seed;
+        pk[31] = 0xAA;
+        VoterId::from_pubkey(&pk)
+    }
+
+    #[test]
+    fn vote_ledger_idempotent_one_vote_per_peer() {
+        let mut st = JamCrdtState::new();
+        let t = 5001u64;
+
+        // Three distinct voters (strong pubkey path), one duplicate replay.
+        let v1 = vote_op(2001, [1; 4], true, t);
+        let v2 = vote_op(2002, [2; 4], true, t);
+        let v3 = vote_op(2003, [3; 4], true, t);
+        assert_eq!(
+            st.apply_op_as(&v1, &voter_pk(1)),
+            Some(VoteOutcome::Recorded)
+        );
+        assert_eq!(
+            st.apply_op_as(&v2, &voter_pk(2)),
+            Some(VoteOutcome::Recorded)
+        );
+        assert_eq!(
+            st.apply_op_as(&v3, &voter_pk(3)),
+            Some(VoteOutcome::Recorded)
+        );
+        // Replay of the exact same op: idempotent, count unchanged.
+        assert_eq!(
+            st.apply_op_as(&v1, &voter_pk(1)),
+            Some(VoteOutcome::Duplicate)
+        );
+        assert_eq!(st.vote_count(t), 3, "one vote per peer per track");
+        assert_eq!(st.voter_roster(t).len(), 3);
+        assert_eq!(st.vote_event_count(), 3);
+        assert_eq!(st.voted_targets(), vec![t]);
+
+        // A second vote op from the SAME voter with a NEWER op_id does not
+        // double-count — it replaces the standing vote (still one entry).
+        let v1_again = vote_op(2004, [1; 4], true, t);
+        assert_eq!(
+            st.apply_op_as(&v1_again, &voter_pk(1)),
+            Some(VoteOutcome::Recorded)
+        );
+        assert_eq!(st.vote_count(t), 3, "re-vote replaces, never stacks");
+    }
+
+    #[test]
+    fn vote_retraction_and_out_of_order_lww() {
+        let mut st = JamCrdtState::new();
+        let t = 5002u64;
+
+        let up = vote_op(3001, [7; 4], true, t);
+        let retract = vote_op(3002, [7; 4], false, t);
+        assert_eq!(st.apply_op_as(&up, &voter_pk(7)), Some(VoteOutcome::Recorded));
+        assert_eq!(st.vote_count(t), 1);
+
+        // Retraction (newer op_id) → net count drops to 0, roster keeps history.
+        assert_eq!(
+            st.apply_op_as(&retract, &voter_pk(7)),
+            Some(VoteOutcome::Recorded)
+        );
+        assert_eq!(st.vote_count(t), 0, "retraction subtracts");
+        assert_eq!(st.voter_roster(t).len(), 1, "roster retains retracted voter");
+        assert_eq!(st.voted_by(t, &voter_pk(7)), Some(false));
+
+        // Stale out-of-order delivery (older op_id after the retraction).
+        let stale = vote_op(3000, [7; 4], true, t);
+        assert_eq!(
+            st.apply_op_as(&stale, &voter_pk(7)),
+            Some(VoteOutcome::Superseded)
+        );
+        assert_eq!(st.vote_count(t), 0, "stale vote cannot resurrect");
+
+        // Re-upvote with a newer op_id wins again.
+        let reup = vote_op(3003, [7; 4], true, t);
+        assert_eq!(st.apply_op_as(&reup, &voter_pk(7)), Some(VoteOutcome::Recorded));
+        assert_eq!(st.vote_count(t), 1);
+    }
+
+    #[test]
+    fn vote_merge_order_independence_and_legacy_path() {
+        let t1 = 6001u64;
+        let t2 = 6002u64;
+        let ops = [
+            vote_op(4001, [1; 4], true, t1),
+            vote_op(4002, [2; 4], true, t1),
+            vote_op(4003, [1; 4], false, t2),
+            vote_op(4004, [3; 4], true, t2),
+            vote_op(4005, [2; 4], false, t1), // voter 2 retracts t1 (newer)
+        ];
+
+        let mut a = JamCrdtState::new();
+        let mut b = JamCrdtState::new();
+        for op in &ops {
+            // Strong path keyed by distinct pubkeys.
+            let _ = a.apply_op_as(op, &voter_pk(op.sender_nonce[0]));
+        }
+        for op in ops.iter().rev() {
+            let _ = b.apply_op_as(op, &voter_pk(op.sender_nonce[0]));
+        }
+        assert_eq!(a.vote_count(t1), b.vote_count(t1));
+        assert_eq!(a.vote_count(t1), 1, "voter2 retracted, voter1 stands");
+        assert_eq!(a.vote_count(t2), b.vote_count(t2));
+        assert_eq!(a.vote_count(t2), 1);
+
+        // Legacy nonce path via apply_op: distinct nonces → distinct voters.
+        let mut legacy = JamCrdtState::new();
+        assert!(legacy.apply_op(&ops[0]));
+        assert!(legacy.apply_op(&ops[1]));
+        assert!(legacy.apply_op(&ops[4]));
+        assert_eq!(legacy.vote_count(t1), 1);
+
+        // Hostile zero-target vote rejected on both paths.
+        let hostile = vote_op(4999, [9; 4], true, 0);
+        assert_eq!(
+            legacy.apply_op_as(&hostile, &voter_pk(9)),
+            Some(VoteOutcome::Rejected)
+        );
     }
 }
