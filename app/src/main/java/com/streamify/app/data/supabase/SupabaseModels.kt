@@ -105,7 +105,9 @@ data class FriendActivity(
     val trackTitle: String,
     val trackArtist: String,
     val coverUrl: String,
-    val lastActiveAt: String
+    val lastActiveAt: String,
+    /** Live Jam session this friend is in (Gap #32 one-tap "Join Jam"). */
+    val sessionCode: String? = null
 )
 
 data class CommunityPlaylist(

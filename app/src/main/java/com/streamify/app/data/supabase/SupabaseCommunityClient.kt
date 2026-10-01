@@ -155,7 +155,10 @@ internal object SupabaseCommunityClient {
                                 trackTitle = "Listening on Streamify",
                                 trackArtist = o.optString("favorite_genre", "Top Hits"),
                                 coverUrl = "",
-                                lastActiveAt = "Active now"
+                                lastActiveAt = "Active now",
+                                // Gap #32: live jam presence when the profile row carries it.
+                                sessionCode = o.optString("active_jam_code")
+                                    .takeIf { it.isNotBlank() && it != "null" }
                             )
                         )
                     }

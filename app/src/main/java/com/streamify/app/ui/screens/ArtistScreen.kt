@@ -126,6 +126,14 @@ fun ArtistScreen(
 
                     Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
 
+                    // ── Gap #31: one-tap Follow + live follower count ──────
+                    com.streamify.app.ui.components.FollowButton(
+                        type = com.streamify.app.data.social.FollowGraphStore.FollowType.ARTIST,
+                        id = artistName
+                    )
+
+                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+
                     // Play All & Shuffle Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
