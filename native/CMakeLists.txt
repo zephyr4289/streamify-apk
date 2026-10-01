@@ -13,6 +13,7 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
 endif()
 
 include_directories(
+    agsl
     dsp
     dsp/kissfft
     engine
@@ -20,6 +21,7 @@ include_directories(
     jni
     math
     util
+    video
     third_party/sqlite3
 )
 
@@ -28,6 +30,9 @@ add_library(streamify_native_core SHARED
     math/CandidateHasher.cc
     math/HarmonicTransitionEngine.cc
     math/CircadianCurves.cc
+    video/CanvasLoopMath.cc
+    video/CanvasLoopRenderer.cc
+    agsl/AmbientGlowShader.cc
     dsp/LufsNormalizer.cc
     dsp/SoftKneeLimiter.cc
     dsp/AcousticPhaseResampler.cc
