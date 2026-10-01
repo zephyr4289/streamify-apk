@@ -106,6 +106,30 @@ fun AppNavGraph(
                 }
             )
         }
+
+        // ── Gap #25: Blend playlist screen (shared taste merge) ────────────
+        composable(
+            route = "blend?friendName={friendName}&seeds={seeds}",
+            arguments = listOf(
+                androidx.navigation.navArgument("friendName") { defaultValue = "Friend" },
+                androidx.navigation.navArgument("seeds") { defaultValue = "" }
+            )
+        ) { entry ->
+            val friendName = entry.arguments?.getString("friendName") ?: "Friend"
+            val friendSeeds = (entry.arguments?.getString("seeds") ?: "")
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            BlendScreen(
+                playerViewModel = playerViewModel,
+                friendName = friendName,
+                friendSeeds = friendSeeds,
+                onBack = { navController.popBackStack() },
+                onTrackClick = { track, _ ->
+                    playerViewModel.playSingleTrack(track)
+                }
+            )
+        }
         composable("library") {
             LibraryScreen(
                 playerViewModel = playerViewModel,
