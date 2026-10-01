@@ -590,17 +590,30 @@ object RadioResponseParser {
     }
 
     private fun harvestContinuations(obj: JSONObject, state: WalkState, isRadioLane: Boolean) {
-        val conts = obj.optJSONArray("continuations") ?: return
-        for (i in 0 until conts.length()) {
-            val c = conts.optJSONObject(i) ?: continue
-            val token = c.optJSONObject("nextContinuationData")?.optString("continuation", "")
-                ?: c.optJSONObject("nextRadioContinuationData")?.optString("continuation", "")
-            if (!token.isNullOrBlank() && token !in state.continuationTokens) {
-                state.continuationTokens.add(token)
-                if (isRadioLane && state.radioLaneContinuation == null) {
-                    state.radioLaneContinuation = token
-                }
+        val conts = obj.optJSONArray("continuations")
+        if (conts != null) {
+            for (i in 0 until conts.length()) {
+                val c = conts.optJSONObject(i) ?: continue
+                val token = c.optJSONObject("nextContinuationData")?.optString("continuation", "")
+                    ?: c.optJSONObject("nextRadioContinuationData")?.optString("continuation", "")
+                noteContinuation(token, state, isRadioLane)
             }
+        }
+        // The modern "load more" shape: a bare continuationItemRenderer
+        // sibling whose continuationCommand carries the token — real /next
+        // music shelves ship this form, so it must be harvested too.
+        obj.optJSONObject("continuationItemRenderer")?.let { item ->
+            val token = item.optJSONObject("continuationCommand")?.optString("token", "")
+                ?: item.optJSONObject("nextRadioContinuationData")?.optString("continuation", "")
+            noteContinuation(token, state, isRadioLane)
+        }
+    }
+
+    private fun noteContinuation(token: String?, state: WalkState, isRadioLane: Boolean) {
+        if (token.isNullOrBlank() || token in state.continuationTokens) return
+        state.continuationTokens.add(token)
+        if (isRadioLane && state.radioLaneContinuation == null) {
+            state.radioLaneContinuation = token
         }
     }
 
