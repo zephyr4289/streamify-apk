@@ -78,6 +78,10 @@ object AppGraph {
 
         // 2. Ensure TrackRepository application context and Telemetry Engine are bound.
         com.streamify.app.data.repository.TrackRepository.appContext = appContext
+
+        // 2b. Taste Profile exclusion store (Gap #27) — loads before any
+        //     telemetry / seed-pool path can fire.
+        com.streamify.app.data.discovery.TasteProfileGuard.initialize(appContext)
         com.streamify.app.data.telemetry.YtStatsTelemetryEngine.initFromContext(appContext)
 
         // 3. Ensure database directory exists and initialize asynchronously off the main thread.
