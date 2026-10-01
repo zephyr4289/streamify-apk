@@ -79,9 +79,19 @@ if (STREAMIFY_BUILD_TESTS)
         tests/test_dsp.cc
         tests/test_dsp_phase1.cc
         tests/test_harmonic_math.cc
+        tests/test_canvas_loop_agsl.cc
+        tests/test_audio_remuxer.cc
+        tests/test_media_palette.cc
         math/CandidateHasher.cc
         math/HarmonicTransitionEngine.cc
         math/CircadianCurves.cc
+        video/CanvasLoopMath.cc
+        video/CanvasLoopRenderer.cc
+        agsl/AmbientGlowShader.cc
+        audio/OpusPacketParser.cc
+        audio/AdtsFrameParser.cc
+        audio/AudioFrameRemuxer.cc
+        palette/BitmapPalette.cc
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
         dsp/ChannelOps.cc
@@ -92,7 +102,7 @@ if (STREAMIFY_BUILD_TESTS)
         dsp/kissfft/kiss_fft.c
         dsp/kissfft/kiss_fftr.c
     )
-    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine math util .)
+    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine math util video agsl audio palette .)
     target_link_libraries(dsp_test_suite PRIVATE m pthread)
 
     add_executable(simd_physics_test_suite

@@ -20,6 +20,15 @@ int main() {
     extern int run_harmonic_math_tests();
     run_harmonic_math_tests();
 
+    // Phase-3 media suites (BEHIND.md #45/#38/#44/#57): canvas loop + AGSL
+    // ambient glow, audio remuxer + bitstream validators, palette extractor.
+    extern int run_canvas_loop_agsl_tests();
+    run_canvas_loop_agsl_tests();
+    extern int run_audio_remuxer_tests();
+    run_audio_remuxer_tests();
+    extern int run_media_palette_tests();
+    run_media_palette_tests();
+
     // 1. Test SoftKneeLimiter float processing.
     // A 5ms-attack limiter (tau ~= 240 samples @ 48kHz) legitimately passes
     // short transients through unattenuated — the envelope ballistics have

@@ -42,18 +42,17 @@ namespace mix = streamify::mix;
 // ---------------------------------------------------------------------------
 // Allocation guard (zero-alloc proof for the hot paths). Since Phase 2 the
 // counters + guard struct live in AllocGuard.h (shared with
-// test_harmonic_math.cc); THIS TU still owns the single definition of the
-// thread_locals and of the global operator new/delete replacements.
+// test_harmonic_math.cc and the Phase-3 suites); THIS TU still owns the
+// single definition of the global operator new/delete replacements.
+// Since Phase 3 the counters are inline function-local thread_locals
+// (see AllocGuard.h for the GCC-14 -O2 extern-TLS rationale).
 // ---------------------------------------------------------------------------
 #include "AllocGuard.h"
 
-namespace streamify_test {
-thread_local int g_guardDepth = 0;
-thread_local unsigned long long g_allocCount = 0;
-}  // namespace streamify_test
-
 void* operator new(std::size_t sz) {
-    if (streamify_test::g_guardDepth > 0) ++streamify_test::g_allocCount;
+    if (streamify_test::guardDepthRef() > 0) {
+        ++streamify_test::allocCountRef();
+    }
     void* p = std::malloc(sz ? sz : 1);
     if (p == nullptr) throw std::bad_alloc();
     return p;

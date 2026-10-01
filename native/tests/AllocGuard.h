@@ -5,10 +5,21 @@
 // ============================================================================
 //
 //  The dsp_test_suite binary links several test TUs; the global
-//  operator new/delete replacements and the thread-local counters live in
-//  exactly ONE TU (test_dsp_phase1.cc, which owns them since Phase 1).
-//  Other suites (test_harmonic_math.cc, ...) include this header to arm
-//  the same guard around their own hot-path calls.
+//  operator new/delete replacements live in exactly ONE TU
+//  (test_dsp_phase1.cc, which owns them since Phase 1) and route every
+//  allocation through the counters below. All suites (phase 1/2/3)
+//  include this header to arm the same guard around their hot paths.
+//
+//  Implementation note (Phase 3): the counters are function-local
+//  `static thread_local` references behind inline accessors instead of
+//  cross-TU `extern thread_local` variables. GCC 14 -O2 miscompiles the
+//  UBSan instrumentation of extern-TLS accesses from OTHER TUs (the
+//  address goes through a null check that fires, making every count()
+//  read 0 — silently VACUOUS zero-alloc proofs on local g++ builds;
+//  clean at -O0/-O1 and on CI clang-17). The inline-guard-function
+//  pattern is well-formed on every toolchain: the TLS object is
+//  uniquely defined in a COMDAT section, initialized on first use, and
+//  needs no TLS-init wrapper.
 //
 //  Usage:   { streamify_test::AllocGuard g; hotPathCall(...);
 //            check(g.count() == 0, "zero allocs"); }
@@ -16,17 +27,23 @@
 
 namespace streamify_test {
 
-// Defined in test_dsp_phase1.cc (single TU).
-extern thread_local int g_guardDepth;
-extern thread_local unsigned long long g_allocCount;
+inline int& guardDepthRef() {
+    static thread_local int depth = 0;
+    return depth;
+}
+
+inline unsigned long long& allocCountRef() {
+    static thread_local unsigned long long count = 0;
+    return count;
+}
 
 struct AllocGuard {
     AllocGuard() {
-        ++g_guardDepth;
-        g_allocCount = 0;
+        ++guardDepthRef();
+        allocCountRef() = 0;
     }
-    ~AllocGuard() { --g_guardDepth; }
-    unsigned long long count() const { return g_allocCount; }
+    ~AllocGuard() { --guardDepthRef(); }
+    unsigned long long count() const { return allocCountRef(); }
 };
 
 }  // namespace streamify_test
