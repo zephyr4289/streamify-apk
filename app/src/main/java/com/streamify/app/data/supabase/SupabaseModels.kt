@@ -65,6 +65,8 @@ data class TrackComment(
     val timestampMs: Long,
     val commentText: String,
     val likesCount: Int = 0,
+    /** Gap #34 threading: id of the comment this replies to (null = root). */
+    val parentId: String? = null,
     val createdAt: String = ""
 )
 
