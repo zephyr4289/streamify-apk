@@ -27,7 +27,7 @@ import java.util.Locale
 object FollowGraphStore {
 
     private const val TAG = "FollowGraph"
-    private const val PREFS = "follow_graph"
+    private const val PREFS_NAME = "follow_graph"
     private const val KEY_JSON = "graph_json"
 
     enum class FollowType(val wire: String) { ARTIST("artist"), USER("user") }
@@ -43,7 +43,7 @@ object FollowGraphStore {
     private var prefs: android.content.SharedPreferences? = null
 
     fun initialize(context: Context) {
-        prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val raw = prefs?.getString(KEY_JSON, null) ?: return
         runCatching { decode(raw) }.let { result ->
             result.onSuccess { (following, counts) ->

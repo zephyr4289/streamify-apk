@@ -65,7 +65,7 @@ class TasteExclusionIndex(
 object TasteProfileGuard {
 
     private const val TAG = "TasteProfile"
-    private const val PREFS = "taste_profile"
+    private const val PREFS_NAME = "taste_profile"
     private const val KEY_JSON = "exclusions_json"
 
     private val indexRef = AtomicReference(TasteExclusionIndex())
@@ -75,7 +75,7 @@ object TasteProfileGuard {
     fun index(): TasteExclusionIndex = indexRef.get()
 
     fun initialize(context: Context) {
-        prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val raw = prefs?.getString(KEY_JSON, null)
         if (raw != null) {
             runCatching { decode(raw) }.onSuccess { indexRef.set(it) }

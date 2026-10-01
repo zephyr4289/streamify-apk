@@ -19,8 +19,8 @@ class BlendInterleaverTest {
 
     @Test
     fun `round robin interleaves member provenance`() {
-        val poolA = (1..3).map { cand("AAAAAAAAAA$i", "A Song $it", "Artist A") }
-        val poolB = (1..3).map { cand("BBBBBBBBBB$i", "B Song $it", "Artist B") }
+        val poolA = (1..3).map { cand("AAAAAAAAAA$it", "A Song $it", "Artist A") }
+        val poolB = (1..3).map { cand("BBBBBBBBBB$it", "B Song $it", "Artist B") }
         val rows = BlendInterleaver.interleave(
             listOf(poolA, poolB),
             listOf(setOf("artist a"), setOf("artist b")),
@@ -51,9 +51,9 @@ class BlendInterleaverTest {
             listOf(setOf("the artist"), setOf("zed"))
         )
         // First occurrence survives; the fuzzy duplicate is dropped.
-        assertEquals(1, rows.count { it.titleKey == "same song" })
+        assertEquals(1, rows.count { it.candidate.titleKey == "same song" })
         assertTrue(rows.none { it.videoId == "BBBBBBBBBB1" })
-        assertEquals(1, rows.count { it.titleKey == "else" })
+        assertEquals(1, rows.count { it.candidate.titleKey == "else" })
     }
 
     @Test

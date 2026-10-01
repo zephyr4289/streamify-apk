@@ -199,11 +199,10 @@ fun UserProfileScreen(
             // ── Gap #31: live follower graph on the profile header ──────────
             // Viewing someone else → one-tap Follow + their live count;
             // viewing self → your followers/following snapshot.
-            val viewingOther = profileUserId != null
-            if (viewingOther) {
+            if (profileUserId != null) {
                 com.streamify.app.ui.components.FollowButton(
                     type = com.streamify.app.data.social.FollowGraphStore.FollowType.USER,
-                    id = profileUserId ?: ""
+                    id = profileUserId
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(

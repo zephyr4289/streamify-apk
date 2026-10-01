@@ -194,11 +194,10 @@ class YouTubeMusicRadioApiTest {
 
     @Test
     fun `shelf category keyword heuristic buckets live titles`() {
-        val cat = YouTubeMusicRadioApi.ShelfCategory.categorize
-        assertEquals(YouTubeMusicRadioApi.ShelfCategory.SIMILAR_ARTISTS, cat("Fans like these too"))
-        assertEquals(YouTubeMusicRadioApi.ShelfCategory.DISCOVER_DEEP_CUTS, cat("Discover new releases"))
-        assertEquals(YouTubeMusicRadioApi.ShelfCategory.MIXED_FOR_YOU, cat("Recommended for you"))
-        assertEquals(YouTubeMusicRadioApi.ShelfCategory.OTHER, cat("Totally unlabelled"))
+        assertEquals(YouTubeMusicRadioApi.ShelfCategory.SIMILAR_ARTISTS, YouTubeMusicRadioApi.ShelfCategory.categorize("Fans like these too"))
+        assertEquals(YouTubeMusicRadioApi.ShelfCategory.DISCOVER_DEEP_CUTS, YouTubeMusicRadioApi.ShelfCategory.categorize("Discover new releases"))
+        assertEquals(YouTubeMusicRadioApi.ShelfCategory.MIXED_FOR_YOU, YouTubeMusicRadioApi.ShelfCategory.categorize("Recommended for you"))
+        assertEquals(YouTubeMusicRadioApi.ShelfCategory.OTHER, YouTubeMusicRadioApi.ShelfCategory.categorize("Totally unlabelled"))
     }
 
     @Test
@@ -217,7 +216,7 @@ class YouTubeMusicRadioApiTest {
                     .put(JSONObject().put("videoRenderer", JSONObject().put("videoId", "CCC")))
                     .put(JSONObject().put("videoRenderer", JSONObject().put("videoId", 12345)))
                     .put(JSONObject().put("playlistPanelVideoRenderer", "string-not-object"))
-                    .put(JSONArray().put(null).put(42.0))
+                    .put(JSONArray().put(JSONObject.NULL).put(42.0))
                     .put(JSONObject.NULL))
             )
             .put("continuationItemRenderer", JSONObject().put("continuationCommand", JSONObject().put("token", "tk")))
