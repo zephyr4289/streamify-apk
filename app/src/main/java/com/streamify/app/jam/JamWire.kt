@@ -101,6 +101,7 @@ object JamWire {
         const val GOVERNANCE = 25
         const val KICK = 26
         const val REPORT = 27
+        const val VOTE = 28
 
         fun nameOf(type: Int): String = when (type) {
             TICK -> "TICK"; PRESENCE -> "PRESENCE"; OP -> "OP"; CONTINUATION -> "CONTINUATION"
@@ -114,6 +115,7 @@ object JamWire {
             STATE_REQ -> "STATE_REQ"
             TOPOLOGY -> "TOPOLOGY"; GOVERNANCE -> "GOVERNANCE"; KICK -> "KICK"
             REPORT -> "REPORT"
+            VOTE -> "VOTE"
             else -> "UNKNOWN($type)"
         }
     }
@@ -505,6 +507,28 @@ object JamWire {
         return assemble(Msg.REPORT, senderNonce, 0L, b.array(), null)
     }
 
+    /**
+     * VOTE — democratic queue upvote (Gap #37). Any member broadcasts one
+     * toggle per queue element; every receiving peer folds it into the live
+     * tally. The vote itself rides this control frame (the 48-byte CRDT op
+     * envelope is FROZEN at ADD/REMOVE/REORDER), while the float-up reorder
+     * is emitted as a regular OP_REORDER so late joiners still converge on
+     * the democratic order through the Merkle fold.
+     *
+     * Body: [targetAddOpId 8B u64][voterNonce 8B ASCII][up 1B][reserved 7B]
+     */
+    fun encodeVote(senderNonce: String, epoch: Long, targetAddOpId: Long, up: Boolean): ByteArray {
+        val b = ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN)
+        b.putLong(targetAddOpId)
+        val nonce = ByteArray(8) { ' '.code.toByte() }
+        val nb = senderNonce.toByteArray(Charsets.US_ASCII)
+        System.arraycopy(nb, 0, nonce, 0, minOf(nb.size, 8))
+        b.put(nonce)
+        b.put(if (up) 1 else 0.toByte())
+        b.put(ByteArray(7)) // reserved — future tally extensions
+        return assemble(Msg.VOTE, senderNonce, epoch, b.array(), null)
+    }
+
     // ═════════ Decoding ═════════
 
     /**
@@ -561,6 +585,7 @@ object JamWire {
         Msg.GOVERNANCE -> 12
         Msg.KICK -> 8
         Msg.REPORT -> 17
+        Msg.VOTE -> 24
         else -> -1
     }
 
@@ -800,6 +825,26 @@ object JamWire {
             reportedAtMs = atMs
         )
     }
+
+    fun parseVote(frame: Frame): VoteBody? {
+        if (frame.msgType != Msg.VOTE || frame.body.size != 24) return null
+        val b = bodyBuf(frame)
+        val targetAddOpId = b.long
+        val nonce = ByteArray(8); b.get(nonce)
+        val up = b.get().toInt() != 0
+        return VoteBody(
+            targetAddOpId = targetAddOpId,
+            voterNonce = nonce.toString(Charsets.US_ASCII).trimEnd(' '),
+            up = up
+        )
+    }
+
+    /** VOTE frame body — one member's queue-element vote toggle. */
+    data class VoteBody(
+        val targetAddOpId: Long,
+        val voterNonce: String,
+        val up: Boolean
+    )
 
     /** GOVERNANCE frame body — one member-ACL row or kick/ban action. */
     data class GovernanceBody(

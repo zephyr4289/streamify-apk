@@ -237,6 +237,11 @@ fun JamSessionScreen(
             is JamUiState.Active -> {
                 val session = state.session
                 val jamQueue by jamViewModel.jamQueue.collectAsState()
+                // Gap #37: live democratic tally — collected at the same
+                // granularity as jamQueue itself: a tally emission restarts
+                // the Active branch exactly like a queue mutation does
+                // (tap-rate, never a periodic tick).
+                val jamQueueVotes by jamViewModel.queueVotes.collectAsState()
                 val roomMembers by jamViewModel.members.collectAsState()
                 val connStatus by jamViewModel.connStatus.collectAsState()
                 val controlPolicy by jamViewModel.policy.collectAsState()
@@ -601,12 +606,16 @@ fun JamSessionScreen(
                             val visibleJamQueue = if (jamQueueExpanded) jamQueue else jamQueue.take(maxCollapsedJamRows)
                             JamQueueReorderList(
                                 tracks = visibleJamQueue,
+                                votes = jamQueueVotes,
                                 onMove = { track, to -> jamViewModel.moveInJamQueue(track, to) },
                                 onPlayNow = { track ->
                                     jamViewModel.removeFromJamQueue(track)
                                     playerViewModel.playTrack(track)
                                 },
-                                onRemove = { track -> jamViewModel.removeFromJamQueue(track) }
+                                onRemove = { track -> jamViewModel.removeFromJamQueue(track) },
+                                voteCountFor = { track -> jamViewModel.voteCountFor(track) },
+                                hasVotedFor = { track -> jamViewModel.hasVotedFor(track) },
+                                onUpvote = { track -> jamViewModel.castUpvote(track) }
                             )
                             if (jamQueue.size > maxCollapsedJamRows) {
                                 Text(
@@ -1184,9 +1193,14 @@ private fun PartyRemoteSeekBar(playerViewModel: PlayerViewModel) {
 @Composable
 private fun JamQueueReorderList(
     tracks: List<com.streamify.app.data.models.Track>,
+    /** Gap #37 tally snapshot — the recomposition key that refreshes counts live. */
+    votes: Map<Long, Set<String>>,
     onMove: (com.streamify.app.data.models.Track, Int) -> Unit,
     onPlayNow: (com.streamify.app.data.models.Track) -> Unit,
-    onRemove: (com.streamify.app.data.models.Track) -> Unit
+    onRemove: (com.streamify.app.data.models.Track) -> Unit,
+    voteCountFor: (com.streamify.app.data.models.Track) -> Int,
+    hasVotedFor: (com.streamify.app.data.models.Track) -> Boolean,
+    onUpvote: (com.streamify.app.data.models.Track) -> Unit
 ) {
     var draggingIndex by remember { mutableStateOf(-1) }
     var dragOffset by remember { mutableStateOf(0f) }
@@ -1303,6 +1317,43 @@ private fun JamQueueReorderList(
                         text = track.artist,
                         style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
                         color = TextSecondary,
+                        maxLines = 1
+                    )
+                }
+
+                // ── Gap #37: democratic upvote — one tap, live count. The
+                // float-up reorder rides the existing fractional-index spring
+                // shifts, so a boosted track visibly rises through the queue.
+                val voteCount = voteCountFor(track)
+                val voted = hasVotedFor(track)
+                val votePop by animateFloatAsState(
+                    targetValue = if (voted) 1f else 0.8f,
+                    animationSpec = spring(dampingRatio = 0.55f, stiffness = 600f),
+                    label = "votePop"
+                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .width(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onUpvote(track) }
+                        .padding(vertical = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ThumbUp,
+                        contentDescription = if (voted) "Retract vote" else "Upvote",
+                        tint = if (voted) ActiveControl else TextTertiary,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .graphicsLayer {
+                                scaleX = votePop
+                                scaleY = votePop
+                            }
+                    )
+                    Text(
+                        text = "$voteCount",
+                        style = LocalAppTypography.current.songArtist.copy(fontSize = 10.sp),
+                        color = if (voted) ActiveControl else TextTertiary,
                         maxLines = 1
                     )
                 }

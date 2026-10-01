@@ -195,6 +195,11 @@ object JamEngine {
     private val _queue = MutableStateFlow<List<Track>>(emptyList())
     val queue: StateFlow<List<Track>> = _queue.asStateFlow()
 
+    // ── Gap #37: democratic queue votes ─────────────────────────────────
+    /** Queue-element ADD op id → live voter nonces (converges via VOTE gossip). */
+    private val _queueVotes = MutableStateFlow<Map<Long, Set<String>>>(emptyMap())
+    val queueVotes: StateFlow<Map<Long, Set<String>>> = _queueVotes.asStateFlow()
+
     private val _commands = MutableSharedFlow<Command>(extraBufferCapacity = 64)
     val commands: SharedFlow<Command> = _commands
 
@@ -893,7 +898,10 @@ object JamEngine {
         val cad = cadFor(track)
         val target = elementIndex[cad] ?: 0L
         val ok = target != 0L && mutate(JamOpWire.OP_REMOVE, track, { 0.0 }, target)
-        if (!ok) {
+        if (ok) {
+            // The element is gone — its democratic tally dies with it (Gap #37).
+            _queueVotes.update { it - target }
+        } else {
             _queue.update { current ->
                 current.filterNot { it.id == track.id || (it.title == track.title && it.artist == track.artist) }
             }
@@ -940,6 +948,75 @@ object JamEngine {
         }
         return true
     }
+
+    /**
+     * Democratic float (Gap #37): the track rises to just below every item
+     * with a strictly higher tally; equal-tally items keep their current
+     * relative order (stable). Only moves up — a retract never demotes. The
+     * resulting OP_REORDER is a normal broadcast CRDT mutation, so peers and
+     * late joiners converge on the same order through the Merkle fold.
+     */
+    private fun floatTrackToVoteRank(track: Track) {
+        val current = _queue.value
+        if (current.size < 2) return
+        val idx = current.indexOfFirst { it.id == track.id }
+        if (idx <= 0) return
+        val myVotes = voteCountFor(track)
+        if (myVotes <= 0) return
+        val counts = current.map { voteCountFor(it) }
+        val strictlyHigher = counts.count { it > myVotes }
+        val equalBefore = (0 until idx).count { counts[it] == myVotes }
+        val target = strictlyHigher + equalBefore
+        if (target < idx) moveInQueue(track, target)
+    }
+
+    /** Live vote count for a queued track (0 when unknown / unvoted). */
+    fun voteCountFor(track: Track): Int {
+        val target = elementIndex[cadFor(track)] ?: 0L
+        if (target == 0L) return 0
+        return _queueVotes.value[target]?.size ?: 0
+    }
+
+    /** Whether the local member has an active upvote on [track]. */
+    fun hasVotedFor(track: Track): Boolean {
+        val target = elementIndex[cadFor(track)] ?: 0L
+        return target != 0L && deviceId in (_queueVotes.value[target] ?: emptySet())
+    }
+
+    /**
+     * One member, one toggleable vote per queue element (Gap #37). The
+     * tally flip is optimistic-local and gossiped via a VOTE frame; the
+     * float-up rides a fractional-index OP_REORDER so every replica —
+     * including peers that never saw the VOTE frame — converges on the same
+     * democratic order through the CRDT fold.
+     */
+    fun castUpvote(track: Track): Boolean {
+        if (!isActive()) return false
+        val target = elementIndex[cadFor(track)] ?: 0L
+        if (target == 0L) return false
+
+        val up = deviceId !in (_queueVotes.value[target] ?: emptySet())
+        applyVoteTally(target, deviceId, up)
+        broadcastFrame(
+            JamWire.Msg.VOTE,
+            JamWire.encodeVote(deviceId, currentEpoch(), target, up)
+        )
+        if (up) floatTrackToVoteRank(track)
+        return true
+    }
+
+    /** Folds one vote toggle into the tally (idempotent set semantics). */
+    private fun applyVoteTally(targetAddOpId: Long, voterNonce: String, up: Boolean) {
+        _queueVotes.update { tally ->
+            val voters = (tally[targetAddOpId] ?: emptySet()).toMutableSet()
+            if (up) voters.add(voterNonce) else voters.remove(voterNonce)
+            if (voters.isEmpty()) tally - targetAddOpId else tally + (targetAddOpId to voters.toSet())
+        }
+    }
+
+    /** Reverse lookup: cadId of the queue element created by [addOpId]. */
+    private fun cadOfElement(addOpId: Long): Long? =
+        elementIndex.entries.firstOrNull { it.value == addOpId }?.key
 
     /**
      * Rebuilds the UI queue from the authoritative CRDT fold, resolving cad
@@ -1147,6 +1224,22 @@ object JamEngine {
                 SLog.i("JamGovernance", "report against ${body.targetNonce} (${reason.label})")
             }
 
+            JamWire.Msg.VOTE -> {
+                // Democratic queue vote (Gap #37): any member may vote. Only
+                // the tally folds here — the float-up reorder arrives as a
+                // regular broadcast OP_REORDER, so order + count converge on
+                // every replica without an extra op storm.
+                val body = JamWire.parseVote(frame) ?: return
+                if (body.voterNonce.isBlank()) return
+                applyVoteTally(body.targetAddOpId, body.voterNonce, body.up)
+                val cad = cadOfElement(body.targetAddOpId) ?: 0L
+                SLog.d(
+                    "JamVotes",
+                    "tally ${body.targetAddOpId}${if (cad != 0L) " (cad $cad)" else ""} " +
+                        "${if (body.up) "+" else "-"}${body.voterNonce}"
+                )
+            }
+
             JamWire.Msg.OP -> {
                 val op = JamWire.parseOp(frame) ?: return
                 // Per-member ACL at intent ingress (Gap #14): blocked or
@@ -1284,6 +1377,8 @@ object JamEngine {
             }
         } else if (op.target != 0L) {
             elementIndex.entries.removeIf { it.value == op.target }
+            // Remote REMOVE fold — the tally for that element dies too (Gap #37).
+            _queueVotes.update { it - op.target }
         }
         reconciler?.noteOpApplied(op, entry.trackJson)
         refreshQueueFromCrdt()
