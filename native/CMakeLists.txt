@@ -64,6 +64,10 @@ if (STREAMIFY_BUILD_TESTS)
     add_executable(dsp_test_suite
         tests/test_dsp.cc
         tests/test_dsp_phase1.cc
+        tests/test_harmonic_math.cc
+        math/CandidateHasher.cc
+        math/HarmonicTransitionEngine.cc
+        math/CircadianCurves.cc
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
         dsp/ChannelOps.cc
@@ -74,7 +78,7 @@ if (STREAMIFY_BUILD_TESTS)
         dsp/kissfft/kiss_fft.c
         dsp/kissfft/kiss_fftr.c
     )
-    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine .)
+    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine math util .)
     target_link_libraries(dsp_test_suite PRIVATE m pthread)
 
     add_executable(simd_physics_test_suite

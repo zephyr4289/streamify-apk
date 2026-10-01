@@ -40,15 +40,20 @@ using streamify::dsp::MasterChain;
 namespace mix = streamify::mix;
 
 // ---------------------------------------------------------------------------
-// Allocation guard (zero-alloc proof for the hot paths)
+// Allocation guard (zero-alloc proof for the hot paths). Since Phase 2 the
+// counters + guard struct live in AllocGuard.h (shared with
+// test_harmonic_math.cc); THIS TU still owns the single definition of the
+// thread_locals and of the global operator new/delete replacements.
 // ---------------------------------------------------------------------------
-namespace {
+#include "AllocGuard.h"
+
+namespace streamify_test {
 thread_local int g_guardDepth = 0;
 thread_local unsigned long long g_allocCount = 0;
-}  // namespace
+}  // namespace streamify_test
 
 void* operator new(std::size_t sz) {
-    if (g_guardDepth > 0) ++g_allocCount;
+    if (streamify_test::g_guardDepth > 0) ++streamify_test::g_allocCount;
     void* p = std::malloc(sz ? sz : 1);
     if (p == nullptr) throw std::bad_alloc();
     return p;
@@ -59,16 +64,12 @@ void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 void operator delete[](void* p) noexcept { std::free(p); }
 void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 
-namespace {
-struct AllocGuard {
-    AllocGuard() { ++g_guardDepth; g_allocCount = 0; }
-    ~AllocGuard() { --g_guardDepth; }
-    unsigned long long count() const { return g_allocCount; }
-};
+using streamify_test::AllocGuard;
 
 // ---------------------------------------------------------------------------
 // Deterministic RNG (SplitMix64) + signal helpers
 // ---------------------------------------------------------------------------
+namespace {
 struct Rng {
     uint64_t s;
     explicit Rng(uint64_t seed) : s(seed) {}

@@ -15,6 +15,11 @@ int main() {
     extern int run_dsp_phase1_tests();
     run_dsp_phase1_tests();
 
+    // Phase-2 harmonic math suite (BEHIND.md #15/#20/#25/#26/#39): Camelot
+    // transition matrix, candidate hashing + dedup, circadian curves.
+    extern int run_harmonic_math_tests();
+    run_harmonic_math_tests();
+
     // 1. Test SoftKneeLimiter float processing.
     // A 5ms-attack limiter (tau ~= 240 samples @ 48kHz) legitimately passes
     // short transients through unattenuated — the envelope ballistics have
