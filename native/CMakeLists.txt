@@ -21,6 +21,7 @@ include_directories(
     ingest
     jni
     math
+    palette
     util
     video
     third_party/sqlite3
@@ -37,6 +38,7 @@ add_library(streamify_native_core SHARED
     audio/OpusPacketParser.cc
     audio/AdtsFrameParser.cc
     audio/AudioFrameRemuxer.cc
+    palette/BitmapPalette.cc
     dsp/LufsNormalizer.cc
     dsp/SoftKneeLimiter.cc
     dsp/AcousticPhaseResampler.cc
