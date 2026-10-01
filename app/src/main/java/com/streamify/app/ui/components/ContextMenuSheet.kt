@@ -370,18 +370,31 @@ fun ContextMenuSheet(
                 )
             }
 
-            // 8. Download Offline
+            // 8. Download Offline (Phase 3: resumable byte-range worker with
+            //    quality ladder + battery/unmetered constraints + retry)
             ContextActionItem(
                 icon = Icons.Filled.Download,
                 text = "Download",
                 onClick = {
-                    com.streamify.app.viewmodel.IngestionViewModel.enqueueDownloadDirect(
-                        context = context,
-                        url = if (track.filepath.startsWith("http")) track.filepath else "https://www.youtube.com/watch?v=${track.id}",
-                        title = track.title,
-                        artist = track.artist,
-                        album = track.album.ifBlank { "Streamify" }
-                    )
+                    runCatching {
+                        com.streamify.app.data.download.StreamifyDownloadManager.enqueue(
+                            context = context,
+                            url = if (track.filepath.startsWith("http")) track.filepath else "https://www.youtube.com/watch?v=${track.ytmVideoId ?: track.id}",
+                            title = track.title,
+                            artist = track.artist,
+                            album = track.album.ifBlank { "Streamify" },
+                            durationSec = track.durationSec
+                        )
+                    }.onFailure {
+                        // Constraint-less fallback: the legacy quick worker.
+                        com.streamify.app.viewmodel.IngestionViewModel.enqueueDownloadDirect(
+                            context = context,
+                            url = if (track.filepath.startsWith("http")) track.filepath else "https://www.youtube.com/watch?v=${track.id}",
+                            title = track.title,
+                            artist = track.artist,
+                            album = track.album.ifBlank { "Streamify" }
+                        )
+                    }
                     android.widget.Toast.makeText(context, "Download queued: ${track.title}", android.widget.Toast.LENGTH_SHORT).show()
                     onDismissRequest()
                 }
