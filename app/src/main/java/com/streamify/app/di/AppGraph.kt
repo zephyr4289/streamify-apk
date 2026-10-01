@@ -68,6 +68,8 @@ object AppGraph {
         //     opens. Disk-backed, size-capped, corruption-tolerant.
         com.streamify.app.data.network.YouTubeMusicRadioApi.cacheDir =
             java.io.File(appContext.cacheDir, "scraper_swr")
+        com.streamify.app.data.discovery.DaylistScheduler.cacheDir =
+            java.io.File(appContext.cacheDir, "scraper_swr")
 
         // HTTP wire tracing follows the user's diagnostic-logging toggle.
         com.streamify.app.data.network.NetworkEngine.setHttpTracing(
