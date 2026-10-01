@@ -62,6 +62,13 @@
 //!   0x0E ACL_UPDATE             gossip-routed  (host-signed permission bits)
 //!   0x0F GOSSIP_PRUNE           control        (directional PlumTree prune:
 //!                                              receiver asks source to stop)
+//! Phase 2 voting / social family (feat/phase2-rust-crdt-blend-voting):
+//!   0x10 VOTE_OP                gossip-routed  (Ed25519-signed, epoch-fenced
+//!                                              democratic queue vote; merges
+//!                                              into the mesh CRDT replica)
+//!   0x11 FRIEND_ACTIVITY        direct         (compact live listening state;
+//!                                              sender-throttled, receiver
+//!                                              gap-guarded, TTL registry)
 //!
 //! ── TRANSPORT MODEL ──────────────────────────────────────────────────────
 //! Local domain: one bound UDP socket (SO_REUSEADDR + SO_REUSEPORT, optional
@@ -92,6 +99,10 @@ use tokio::sync::{mpsc, watch};
 
 use crate::chunk_swarmer::{SwarmAction, SwarmEvent, SwarmManager, SwarmParams, TrackSwarmStats};
 use crate::gossip::{Action, GossipEngine, GossipParams, GossipStats, Outcomes};
+use crate::jam_crdt::{
+    FullSnapshot, JamCrdtState, JamOp, OpType, PromotionPolicy, QueueViewEntry, VOTE_FLAG_UP,
+    VoterId,
+};
 use crate::jam_governor::{
     GovernanceEvent, IntentKind, KickKind, RejectReason, RoomGovernor, Topology,
 };
@@ -134,27 +145,39 @@ pub const MSG_ACL_UPDATE: u8 = 0x0E;
 /// Phase 1 directional prune (classic PlumTree): receiver asks a push
 /// source to demote it — the tree-forming control frame at N=32.
 pub const MSG_GOSSIP_PRUNE: u8 = 0x0F;
+// Phase 2 (feat/phase2-rust-crdt-blend-voting) — democratic voting &
+// friend-activity wire family. WIRE-COMPAT NOTE: the directive tagged
+// FRIEND_ACTIVITY as 0x0A, but 0x0A was already frozen as
+// MSG_TRACK_MANIFEST by the merged Phase 1 registry — renumbering a
+// shipped type would break every Phase 1 peer. The next free codes
+// (0x10 / 0x11) keep the registry append-only.
+pub const MSG_VOTE_OP: u8 = 0x10;
+pub const MSG_FRIEND_ACTIVITY: u8 = 0x11;
 
 /// Message types that flow through the PlumTree engine (dense `sequence`
 /// stream, deviation D3). Everything else is unicast/control and bypasses
 /// the gossip dedupe layer. Phase 1 additions: host-committed intents and
 /// the governance directives ride the tree so every replica verifies them
-/// independently at its own wire boundary.
-pub const GOSSIP_ROUTED_TYPES: [u8; 6] = [
+/// independently at its own wire boundary. Phase 2 addition: signed vote
+/// frames — every replica verifies + merges them independently.
+pub const GOSSIP_ROUTED_TYPES: [u8; 7] = [
     MSG_PTP_SYNC,
     MSG_CRDT_OP,
     MSG_TRACK_MANIFEST,
     MSG_TRANSPORT_INTENT,
     MSG_KICK_DIRECTIVE,
     MSG_ACL_UPDATE,
+    MSG_VOTE_OP,
 ];
 
 /// Internal control types the JNI surface refuses to inject from the app
 /// layer — protocol traffic must never be spoofable from Kotlin. Phase 1
 /// governance frames are mesh-internal by construction: intents are only
 /// born signed inside the engine, and unsigned directives die at the
-/// first boundary they cross.
-pub const RESERVED_CONTROL_TYPES: [u8; 12] = [
+/// first boundary they cross. Phase 2 additions: votes are born signed
+/// inside the engine, and friend-activity frames are rate-limited by the
+/// engine (typed build API, not raw app bytes).
+pub const RESERVED_CONTROL_TYPES: [u8; 14] = [
     MSG_HEARTBEAT,
     MSG_GOSSIP_IHAVE,
     MSG_GOSSIP_GRAFT,
@@ -167,6 +190,8 @@ pub const RESERVED_CONTROL_TYPES: [u8; 12] = [
     MSG_KICK_DIRECTIVE,
     MSG_ACL_UPDATE,
     MSG_GOSSIP_PRUNE,
+    MSG_VOTE_OP,
+    MSG_FRIEND_ACTIVITY,
 ];
 
 // ─────────────────────────────────── Phase 1 LAN room descriptor (0x09)
@@ -316,6 +341,153 @@ pub fn build_beacon_v2_payload(
 /// Capability bits advertised in beacons.
 pub const CAP_LAN: u16 = 0x0001;
 pub const CAP_WEBRTC: u16 = 0x0002;
+
+// ───────────────────────────────────────── Phase 2 friend activity (0x11)
+// Directive D / gaps #31 & #32 — compact live listening-state frames with
+// rate limiting on BOTH ends so presence traffic can never become mesh
+// broadcast chatter. Layout (all LE, strictly bounds-checked):
+//
+//   [0]      version u8 = 0x01
+//   [1..9)   track_cad_id u64
+//   [9..17)  progress_ms u64
+//   [17..33) room_id [u8;16]     (zeroed when not in a jam room)
+//   [33]     flags u8            (bit0 in_jam, bit1 paused)
+//   [34..36) text_len u16        (0..=80)
+//   [36..36+text_len) "artist\0album\0" UTF-8 (NUL-separated; the pair may
+//                      be truncated mid-string at a char boundary)
+//
+// 36..116 bytes per frame. Ephemeral presence data: NOT gossip-routed
+// (heartbeat-class — no dedupe, no tree maintenance cost); the sender
+// throttle (`friend_activity_min_interval`) bounds origin rate, the
+// receiver gap guard (`friend_activity_rx_min_gap`) bounds peer rate.
+
+/// FRIEND_ACTIVITY frame format version.
+pub const FRIEND_ACTIVITY_VERSION: u8 = 0x01;
+/// Fixed header size of the activity frame.
+pub const FRIEND_ACTIVITY_HEADER_LEN: usize = 36;
+/// Longest artist+album text section.
+pub const FRIEND_ACTIVITY_MAX_TEXT_LEN: usize = 80;
+/// Frame length bounds: [header, header + text budget].
+pub const FRIEND_ACTIVITY_MIN_FRAME_LEN: usize = FRIEND_ACTIVITY_HEADER_LEN;
+pub const FRIEND_ACTIVITY_MAX_FRAME_LEN: usize =
+    FRIEND_ACTIVITY_HEADER_LEN + FRIEND_ACTIVITY_MAX_TEXT_LEN;
+
+/// `flags` bit: the sender is inside a jam room.
+pub const FRIEND_FLAG_IN_JAM: u8 = 0x01;
+/// `flags` bit: playback is paused.
+pub const FRIEND_FLAG_PAUSED: u8 = 0x02;
+
+/// One friend's live listening state (registry entry / poll API row).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FriendActivityEntry {
+    /// Peer the state belongs to.
+    pub peer: PeerId,
+    /// Track's canonical id (0 = idle / nothing playing).
+    pub cad_id: u64,
+    /// Playback position in ms.
+    pub progress_ms: u64,
+    /// Jam room id when `in_jam`.
+    pub room_id: Option<[u8; 16]>,
+    pub in_jam: bool,
+    pub paused: bool,
+    pub artist: String,
+    pub album: String,
+    /// Reception time (mono ns) — drives registry expiry.
+    pub last_seen_ns: i64,
+}
+
+/// Truncates a &str to at most `max_bytes` without splitting a UTF-8
+/// char (a panic-free boundary walk — hostile multibyte input just loses
+/// trailing bytes).
+fn truncate_utf8(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
+
+/// Builds a FRIEND_ACTIVITY payload. `room` is embedded only when the
+/// sender is in a jam room; artist/album are safely truncated to the
+/// 80-byte text budget.
+pub fn build_friend_activity_frame(
+    cad_id: u64,
+    progress_ms: u64,
+    room: Option<&[u8; 16]>,
+    in_jam: bool,
+    paused: bool,
+    artist: &str,
+    album: &str,
+) -> Option<Vec<u8>> {
+    // Budget: two NUL separators, then the pair split evenly-ish.
+    let artist = truncate_utf8(artist.trim(), 38);
+    let album = truncate_utf8(album.trim(), FRIEND_ACTIVITY_MAX_TEXT_LEN - artist.len() - 2);
+    let mut text = String::with_capacity(FRIEND_ACTIVITY_MAX_TEXT_LEN);
+    text.push_str(&artist);
+    text.push('\0');
+    text.push_str(&album);
+    text.push('\0');
+
+    let mut f = Vec::with_capacity(FRIEND_ACTIVITY_HEADER_LEN + text.len());
+    f.push(FRIEND_ACTIVITY_VERSION);
+    f.extend_from_slice(&cad_id.to_le_bytes());
+    f.extend_from_slice(&progress_ms.to_le_bytes());
+    let mut room_id = [0u8; 16];
+    if let Some(r) = room {
+        room_id.copy_from_slice(r);
+    }
+    f.extend_from_slice(&room_id);
+    let mut flags = 0u8;
+    if in_jam {
+        flags |= FRIEND_FLAG_IN_JAM;
+    }
+    if paused {
+        flags |= FRIEND_FLAG_PAUSED;
+    }
+    f.push(flags);
+    f.extend_from_slice(&(text.len() as u16).to_le_bytes());
+    f.extend_from_slice(text.as_bytes());
+    Some(f)
+}
+
+/// Bounds-checked parse of a FRIEND_ACTIVITY payload. Returns the field
+/// tuple; `None` on any malformed frame (never panics).
+pub fn parse_friend_activity(
+    payload: &[u8],
+) -> Option<(u64, u64, Option<[u8; 16]>, bool, bool, String, String)> {
+    if payload.len() < FRIEND_ACTIVITY_MIN_FRAME_LEN
+        || payload.len() > FRIEND_ACTIVITY_MAX_FRAME_LEN
+    {
+        return None;
+    }
+    if payload[0] != FRIEND_ACTIVITY_VERSION {
+        return None;
+    }
+    let text_len = u16::from_le_bytes([payload[34], payload[35]]) as usize;
+    if payload.len() != FRIEND_ACTIVITY_HEADER_LEN + text_len {
+        return None; // exact-length contract
+    }
+    let cad_id = u64::from_le_bytes(payload[1..9].try_into().ok()?);
+    let progress_ms = u64::from_le_bytes(payload[9..17].try_into().ok()?);
+    let mut room_id = [0u8; 16];
+    room_id.copy_from_slice(&payload[17..33]);
+    let flags = payload[33];
+    let in_jam = flags & FRIEND_FLAG_IN_JAM != 0;
+    let paused = flags & FRIEND_FLAG_PAUSED != 0;
+    let room = if in_jam && room_id.iter().any(|&b| b != 0) {
+        Some(room_id)
+    } else {
+        None
+    };
+    let text = std::str::from_utf8(&payload[36..]).ok()?;
+    let mut parts = text.split('\0');
+    let artist = parts.next().unwrap_or("").to_string();
+    let album = parts.next().unwrap_or("").to_string();
+    Some((cad_id, progress_ms, room, in_jam, paused, artist, album))
+}
 
 // ─────────────────────────────────────────────────────────────── identity
 
@@ -527,6 +699,9 @@ pub enum MeshError {
     /// commit, blacklisted target, …). The wire-boundary statistics
     /// distinguish the precise reason.
     GovernanceReject,
+    /// Phase 2: a rate-limited / throttled emission was refused before it
+    /// reached the wire (friend-activity sender throttle).
+    Throttled,
 }
 
 impl std::fmt::Display for MeshError {
@@ -553,6 +728,9 @@ impl std::fmt::Display for MeshError {
             MeshError::PayloadTooLarge(n) => write!(f, "payload {n} exceeds u16 frame budget"),
             MeshError::GovernanceReject => {
                 write!(f, "governance rejected the operation (see mesh stats)")
+            }
+            MeshError::Throttled => {
+                write!(f, "throttled: emission refused inside the min interval")
             }
         }
     }
@@ -714,6 +892,16 @@ pub struct MeshConfig {
     /// How long a discovered LAN room stays in the registry after its
     /// last beacon before expiring.
     pub lan_room_ttl: Duration,
+    // ── Phase 2 (directive D / gaps #31, #32) ───────────────────────
+    /// Sender-side FRIEND_ACTIVITY throttle: minimum spacing between
+    /// broadcasts of this node's own listening state.
+    pub friend_activity_min_interval: Duration,
+    /// Receiver-side gap guard: activity frames from one peer closer
+    /// together than this are dropped (chatty-peer defense).
+    pub friend_activity_rx_min_gap: Duration,
+    /// How long a friend's activity stays in the registry after its last
+    /// frame before expiring from the poll API.
+    pub friend_activity_ttl: Duration,
 }
 
 impl MeshConfig {
@@ -739,6 +927,9 @@ impl MeshConfig {
             room_capacity: 32,
             ptp_presence_interval: Duration::from_millis(1_000),
             lan_room_ttl: Duration::from_secs(60),
+            friend_activity_min_interval: Duration::from_millis(1_000),
+            friend_activity_rx_min_gap: Duration::from_millis(250),
+            friend_activity_ttl: Duration::from_secs(60),
         }
     }
 
@@ -751,6 +942,9 @@ impl MeshConfig {
         c.beacon_interval = Duration::from_millis(25);
         c.heartbeat_interval = Duration::from_millis(100);
         c.peer_timeout = Duration::from_millis(2_000);
+        c.friend_activity_min_interval = Duration::from_millis(20);
+        c.friend_activity_rx_min_gap = Duration::from_millis(5);
+        c.friend_activity_ttl = Duration::from_secs(5);
         c
     }
 }
@@ -790,6 +984,13 @@ struct StatsCounters {
     gov_intents_committed: AtomicU64,
     gov_intents_forwarded: AtomicU64,
     gov_elections: AtomicU64,
+    // Phase 2 voting / friend activity telemetry.
+    votes_applied: AtomicU64,
+    vote_rejects: AtomicU64,
+    friend_activity_tx: AtomicU64,
+    friend_activity_throttled: AtomicU64,
+    friend_activity_rx: AtomicU64,
+    friend_activity_rate_limited: AtomicU64,
 }
 
 /// Point-in-time snapshot for tests / JNI / PR evidence.
@@ -825,6 +1026,13 @@ pub struct MeshStats {
     pub gov_intents_committed: u64,
     pub gov_intents_forwarded: u64,
     pub gov_elections: u64,
+    // Phase 2.
+    pub votes_applied: u64,
+    pub vote_rejects: u64,
+    pub friend_activity_tx: u64,
+    pub friend_activity_throttled: u64,
+    pub friend_activity_rx: u64,
+    pub friend_activity_rate_limited: u64,
 }
 
 /// One inbound application frame (delivered after gossip dedupe).
@@ -880,6 +1088,20 @@ pub struct MeshNode {
     last_ptp_presence_ns: AtomicI64,
     /// Latch: host lease expiry already handled (one election per death).
     election_armed: AtomicBool,
+    // ── Phase 2 democratic voting / friend activity state ────────────
+    /// Mesh-owned collaborative CRDT replica (queue + vote ledger +
+    /// promotion engine). Inbound CRDT_OP queue ops and verified VOTE_OP
+    /// frames merge here; JNI queries (castVote / getTrackVotes) read it.
+    crdt: Mutex<JamCrdtState>,
+    /// Deferred-mirror feed: inbound queue ops leave the recv loop via
+    /// this channel and merge in a background task — datagram ingress
+    /// must stay non-blocking (the 32-peer chaos path measured the
+    /// synchronous mirror as real per-op CPU under load).
+    crdt_mirror_tx: mpsc::UnboundedSender<JamOp>,
+    /// Live listening state per peer (FRIEND_ACTIVITY registry).
+    friend_activity: Mutex<HashMap<PeerId, FriendActivityEntry>>,
+    /// Sender-side activity throttle watermark (mono ns).
+    last_friend_tx_ns: AtomicI64,
 }
 
 /// Recovers from mutex poisoning instead of panicking (house rule —
@@ -926,6 +1148,9 @@ impl MeshNode {
 
         let gossip_engine = GossipEngine::new(id.0, cfg.gossip.clone());
         let swarm_manager = SwarmManager::new(id.0, cfg.swarm.clone());
+        // Phase 2: the deferred CRDT mirror channel (spawned below once
+        // the node Arc exists — the task upgrades a Weak handle).
+        let (crdt_mirror_tx, mut crdt_mirror_rx) = mpsc::unbounded_channel::<JamOp>();
 
         // Phase 1: ephemeral governance identity. Production derives the
         // Ed25519 seed from OS entropy mixed with the session+device
@@ -977,6 +1202,10 @@ impl MeshNode {
             room_beacon_on: AtomicBool::new(false),
             last_ptp_presence_ns: AtomicI64::new(i64::MIN / 2),
             election_armed: AtomicBool::new(false),
+            crdt: Mutex::new(JamCrdtState::new()),
+            crdt_mirror_tx: crdt_mirror_tx.clone(),
+            friend_activity: Mutex::new(HashMap::new()),
+            last_friend_tx_ns: AtomicI64::new(i64::MIN / 2),
         });
 
         // Event sink fans swarm events out to subscribers via a weak
@@ -1005,6 +1234,37 @@ impl MeshNode {
         }
         for rx in outbound_rxs {
             tokio::spawn(sender_loop(Arc::clone(&sock), rx, stop_rx.clone()));
+        }
+        // Phase 2: deferred CRDT mirror worker — inbound queue ops merge
+        // into the replica OFF the recv hot path.
+        {
+            let weak = Arc::downgrade(&node);
+            let mut mirror_stop = stop_rx.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = mirror_stop.changed() => {
+                            if *mirror_stop.borrow() {
+                                // Drain the backlog before dying so a
+                                // shutdown-time op is not lost mid-merge.
+                                while let Ok(op) = crdt_mirror_rx.try_recv() {
+                                    if let Some(n) = weak.upgrade() {
+                                        let mut c = heal(n.crdt.lock());
+                                        c.apply_op(&op);
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                        op = crdt_mirror_rx.recv() => {
+                            let Some(op) = op else { break };
+                            let Some(n) = weak.upgrade() else { break };
+                            let mut c = heal(n.crdt.lock());
+                            c.apply_op(&op);
+                        }
+                    }
+                }
+            });
         }
         tokio::spawn(housekeeping_loop(Arc::downgrade(&node), stop_rx));
 
@@ -1063,6 +1323,12 @@ impl MeshNode {
             gov_intents_committed: s.gov_intents_committed.load(Ordering::Relaxed),
             gov_intents_forwarded: s.gov_intents_forwarded.load(Ordering::Relaxed),
             gov_elections: s.gov_elections.load(Ordering::Relaxed),
+            votes_applied: s.votes_applied.load(Ordering::Relaxed),
+            vote_rejects: s.vote_rejects.load(Ordering::Relaxed),
+            friend_activity_tx: s.friend_activity_tx.load(Ordering::Relaxed),
+            friend_activity_throttled: s.friend_activity_throttled.load(Ordering::Relaxed),
+            friend_activity_rx: s.friend_activity_rx.load(Ordering::Relaxed),
+            friend_activity_rate_limited: s.friend_activity_rate_limited.load(Ordering::Relaxed),
         }
     }
 
@@ -1566,6 +1832,301 @@ impl MeshNode {
         heal(self.pubkeys.read()).get(&peer).copied()
     }
 
+    // ═════════════════════════════════════════════════════════════════
+    // PHASE 2 — democratic voting, mesh CRDT replica, friend activity
+    // (directives A & D; frozen JNI `NativeMeshEngine` bindings below)
+    // ═════════════════════════════════════════════════════════════════
+
+    /// Keeps the promotion policy's member count in step with the live
+    /// room size (N = connected peers + self), so the ⌊N/2⌋+1 threshold
+    /// tracks joins and leaves automatically.
+    pub fn sync_promotion_member_count(&self) {
+        let n = self.peer_count() as u32 + 1;
+        let mut c = heal(self.crdt.lock());
+        let mut p = *c.promotion_policy();
+        if p.member_count != n {
+            p.member_count = n;
+            c.set_promotion_policy(p);
+        }
+    }
+
+    /// Installs a host-configured promotion ratio override (directive A).
+    pub fn set_promotion_ratio(&self, ratio: Option<f32>) {
+        let mut c = heal(self.crdt.lock());
+        let mut p = *c.promotion_policy();
+        p.ratio = ratio;
+        c.set_promotion_policy(p);
+    }
+
+    /// Casts a democratic vote (directive A): mints the sealed Vote op,
+    /// signs it into an epoch-fenced VOTE frame with this node's ephemeral
+    /// governance key, merges it into the local CRDT replica, and gossips
+    /// it mesh-wide (votes are idempotent LWW CRDT events — no host commit
+    /// round-trip needed in either topology). Returns the target's new net
+    /// upvote count as seen by this replica.
+    pub fn cast_vote(&self, target_add_op_id: u64, is_upvote: bool) -> Result<u32, MeshError> {
+        if target_add_op_id == 0 {
+            return Err(MeshError::GovernanceReject);
+        }
+        // Local admission consumes the caster's vote bucket FIRST — a
+        // throttled flood never enters any ledger, including ours (the
+        // receivers consume the same bucket at their boundaries).
+        let now = mono_ns();
+        let admitted = {
+            let mut g = heal(self.governor.lock());
+            g.try_local_vote(now)
+        };
+        if !admitted {
+            return Err(MeshError::Throttled);
+        }
+        self.sync_promotion_member_count();
+        // Best-effort cad echo (the ledger keys on the target op id; the
+        // cad is informational for UI folds).
+        let cad = heal(self.crdt.lock()).cad_of(target_add_op_id).unwrap_or(0);
+        let mut nonce = [0u8; 4];
+        nonce.copy_from_slice(&(self.id.0 as u32).to_le_bytes());
+        let op = JamOp::new(
+            JamOp::generate_op_id(),
+            nonce,
+            OpType::Vote,
+            if is_upvote { VOTE_FLAG_UP } else { 0 },
+            cad,
+            0.0,
+            target_add_op_id,
+        );
+        let frame = {
+            let mut g = heal(self.governor.lock());
+            g.build_vote(&op)
+        };
+        // Local merge under OUR verified pubkey.
+        let me = self.my_pubkey();
+        {
+            let mut c = heal(self.crdt.lock());
+            c.apply_op_as(&op, &VoterId::from_pubkey(&me));
+        }
+        self.stats.votes_applied.fetch_add(1, Ordering::Relaxed);
+        self.broadcast(MSG_VOTE_OP, &frame)?;
+        Ok(heal(self.crdt.lock()).vote_count(target_add_op_id))
+    }
+
+    /// Net upvote count for one queue element (the frozen `getTrackVotes`
+    /// JNI surface). Retracted voters are excluded.
+    pub fn vote_count(&self, target_add_op_id: u64) -> u32 {
+        heal(self.crdt.lock()).vote_count(target_add_op_id)
+    }
+
+    /// Submits a queue mutation op into the mesh CRDT replica (the local
+    /// origin path for Add/Remove/Reorder — mirrored on the wire as a
+    /// regular MSG_CRDT_OP broadcast so every replica's queue tracks the
+    /// room). Vote ops are refused here: votes must ride the signed
+    /// [`Self::cast_vote`] path.
+    pub fn submit_queue_op(&self, op: &JamOp) -> Result<(), MeshError> {
+        if op.op_type == 4 {
+            return Err(MeshError::GovernanceReject); // use cast_vote()
+        }
+        if !op.is_valid() || !op.frac_index.is_finite() {
+            return Err(MeshError::GovernanceReject);
+        }
+        self.sync_promotion_member_count();
+        {
+            let mut c = heal(self.crdt.lock());
+            c.apply_op(op);
+        }
+        self.broadcast(MSG_CRDT_OP, &op.to_bytes())
+            .map(|_| ())
+    }
+
+    /// Full-state fold of the mesh CRDT replica (join hydration source).
+    pub fn crdt_fold(&self) -> FullSnapshot {
+        self.sync_promotion_member_count();
+        heal(self.crdt.lock()).fold_full()
+    }
+
+    /// Hydrates the mesh CRDT replica from a full fold (new joiner
+    /// bootstrap from any member's snapshot).
+    pub fn crdt_hydrate(&self, snap: FullSnapshot) {
+        let mut c = heal(self.crdt.lock());
+        c.load_full(snap);
+    }
+
+    /// PROPOSED queue view: un-promoted live elements in manual order.
+    pub fn crdt_proposed_queue(&self) -> Vec<QueueViewEntry> {
+        heal(self.crdt.lock()).proposed_queue()
+    }
+
+    /// COMMITTED queue view: auto-promoted elements in democratic order
+    /// (the active playback queue).
+    pub fn crdt_committed_queue(&self) -> Vec<QueueViewEntry> {
+        heal(self.crdt.lock()).committed_queue()
+    }
+
+    /// Full playback order: committed block first, then the proposed rail.
+    pub fn crdt_playback_order(&self) -> Vec<QueueViewEntry> {
+        heal(self.crdt.lock()).playback_order()
+    }
+
+    /// Promotion state of one queue element (pending vs committed).
+    pub fn crdt_promotion_status(
+        &self,
+        target_add_op_id: u64,
+    ) -> crate::jam_crdt::PromotionStatus {
+        heal(self.crdt.lock()).promotion_status(target_add_op_id)
+    }
+
+    /// Vote ingest at the wire boundary (gossip-delivered, relayed frames
+    /// included: every replica verifies independently). Gate failures die
+    /// here — only verified votes ever reach the ledger.
+    fn ingest_vote(&self, dp: &DecodedPacket, sender: PeerId, from: SocketAddr, now: i64) {
+        let verified = {
+            let mut g = heal(self.governor.lock());
+            g.verify_vote(&dp.payload, now)
+        };
+        let vote = match verified {
+            Ok(v) => v,
+            Err(reason) => {
+                self.stats.vote_rejects.fetch_add(1, Ordering::Relaxed);
+                // Reuse the Phase 1 reason-specific counters for the
+                // overlapping gates (telemetry parity across the family).
+                match reason {
+                    RejectReason::BadSignature | RejectReason::Malformed => {
+                        self.stats.gov_sig_rejects.fetch_add(1, Ordering::Relaxed);
+                    }
+                    RejectReason::EpochFence => {
+                        self.stats.gov_epoch_rejects.fetch_add(1, Ordering::Relaxed);
+                    }
+                    RejectReason::RateLimited => {
+                        self.stats.gov_rate_limited.fetch_add(1, Ordering::Relaxed);
+                    }
+                    RejectReason::Blacklisted => {
+                        self.stats.gov_blacklist_rejects.fetch_add(1, Ordering::Relaxed);
+                    }
+                    _ => {}
+                }
+                return;
+            }
+        };
+
+        // Defense-in-depth: when the origin peer's pubkey binding is known,
+        // the frame's voter MUST be that peer (a relay cannot re-attribute
+        // votes; a mismatched frame is a forgery attempt).
+        if let Some(known_pk) = self.pubkey_of_peer(sender) {
+            if known_pk != vote.voter_pubkey {
+                self.stats
+                    .vote_rejects
+                    .fetch_add(1, Ordering::Relaxed);
+                self.stats
+                    .gov_sig_rejects
+                    .fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+        }
+
+        {
+            let mut c = heal(self.crdt.lock());
+            c.apply_op_as(&vote.op, &VoterId::from_pubkey(&vote.voter_pubkey));
+        }
+        self.stats.votes_applied.fetch_add(1, Ordering::Relaxed);
+        // Apps still see the verified frame (vote badges, live counts).
+        self.dispatch_to_apps(dp, sender, from);
+    }
+
+    /// FRIEND_ACTIVITY ingest: parse → receiver gap guard → registry →
+    /// app dispatch. Malformed frames die at the boundary.
+    fn ingest_friend_activity(&self, dp: &DecodedPacket, sender: PeerId, from: SocketAddr, now: i64) {
+        let Some((cad_id, progress_ms, room_id, in_jam, paused, artist, album)) =
+            parse_friend_activity(&dp.payload)
+        else {
+            self.stats.rx_length_reject.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        let min_gap_ns = self.cfg.friend_activity_rx_min_gap.as_nanos() as i64;
+        {
+            let mut reg = heal(self.friend_activity.lock());
+            if let Some(prev) = reg.get(&sender) {
+                if now.saturating_sub(prev.last_seen_ns) < min_gap_ns {
+                    // Chatty peer: drop the burst, keep the freshest state.
+                    self.stats
+                        .friend_activity_rate_limited
+                        .fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+            }
+            reg.insert(
+                sender,
+                FriendActivityEntry {
+                    peer: sender,
+                    cad_id,
+                    progress_ms,
+                    room_id,
+                    in_jam,
+                    paused,
+                    artist,
+                    album,
+                    last_seen_ns: now,
+                },
+            );
+        }
+        self.stats.friend_activity_rx.fetch_add(1, Ordering::Relaxed);
+        self.dispatch_to_apps(dp, sender, from);
+    }
+
+    /// Broadcasts this node's live listening state (directive D / gaps
+    /// #31, #32). Sender-side throttled: bursts inside
+    /// `friend_activity_min_interval` return `Err(Throttled)` without
+    /// touching the wire.
+    pub fn broadcast_friend_activity(
+        &self,
+        cad_id: u64,
+        artist: &str,
+        album: &str,
+        progress_ms: u64,
+        room_id: Option<&[u8; 16]>,
+        in_jam: bool,
+        paused: bool,
+    ) -> Result<(), MeshError> {
+        let now = mono_ns();
+        let min_interval_ns = self.cfg.friend_activity_min_interval.as_nanos() as i64;
+        let last = self.last_friend_tx_ns.load(Ordering::Relaxed);
+        if now.saturating_sub(last) < min_interval_ns {
+            self.stats
+                .friend_activity_throttled
+                .fetch_add(1, Ordering::Relaxed);
+            return Err(MeshError::Throttled);
+        }
+        self.last_friend_tx_ns.store(now, Ordering::Relaxed);
+        let Some(frame) = build_friend_activity_frame(
+            cad_id,
+            progress_ms,
+            room_id,
+            in_jam,
+            paused,
+            artist,
+            album,
+        ) else {
+            return Err(MeshError::GovernanceReject);
+        };
+        self.stats.friend_activity_tx.fetch_add(1, Ordering::Relaxed);
+        // Direct link-level broadcast (heartbeat-class: ephemeral presence
+        // data never rides the gossip tree).
+        let seq = self.broadcast_seq.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut h = self.build_header(MSG_FRIEND_ACTIVITY, seq);
+        let raw = encode_packet(&mut h, &frame);
+        self.send_to_all_links(&raw);
+        Ok(())
+    }
+
+    /// Live friend-activity feed (poll API): freshest entry per peer,
+    /// expired rows pruned, most recent first.
+    pub fn friend_activities(&self) -> Vec<FriendActivityEntry> {
+        let now = mono_ns();
+        let ttl_ns = self.cfg.friend_activity_ttl.as_nanos() as i64;
+        let mut reg = heal(self.friend_activity.lock());
+        reg.retain(|_, e| now.saturating_sub(e.last_seen_ns) < ttl_ns);
+        let mut rows: Vec<FriendActivityEntry> = reg.values().cloned().collect();
+        rows.sort_by_key(|e| std::cmp::Reverse(e.last_seen_ns));
+        rows
+    }
+
     /// Delivers a locally generated intent frame to app subscribers.
     fn dispatch_intent_to_apps(&self, frame: &[u8]) {
         let h = self.build_header(MSG_TRANSPORT_INTENT, 0);
@@ -1659,6 +2220,16 @@ impl MeshNode {
     fn send_beacon_to(&self, peer: PeerId) {
         let raw = self.build_beacon_packet();
         self.send_raw(peer, &raw);
+    }
+
+    /// Direct link-level fan-out to every connected peer (no gossip tree,
+    /// no relay): the egress path for ephemeral presence traffic such as
+    /// FRIEND_ACTIVITY. Each link keeps its own impairment condition.
+    fn send_to_all_links(&self, bytes: &[u8]) {
+        let peers: Vec<PeerId> = heal(self.peers.read()).keys().copied().collect();
+        for p in peers {
+            self.send_raw(p, bytes);
+        }
     }
 
     /// The outbound stage: resolves the route, applies the link condition,
@@ -1866,6 +2437,12 @@ impl MeshNode {
                 self.register_or_refresh(sender, from, None, now);
                 self.handle_heartbeat(&dp.payload, sender);
             }
+            // ── Phase 2: compact live presence (directive D) — direct,
+            // heartbeat-class traffic with a receiver-side gap guard. ──
+            MSG_FRIEND_ACTIVITY => {
+                self.register_or_refresh(sender, from, None, now);
+                self.ingest_friend_activity(&dp, sender, from, now);
+            }
             MSG_GOSSIP_IHAVE | MSG_GOSSIP_GRAFT | MSG_GOSSIP_PRUNE => {
                 // Control frames are always sent directly by the peer whose
                 // id is in the header.
@@ -1894,7 +2471,7 @@ impl MeshNode {
                     self.execute_swarm_action(a);
                 }
             }
-            // ── Phase 1 governance family: wire-boundary enforcement ──
+            // ── Phase 2 governance family: wire-boundary enforcement ──
             MSG_TRANSPORT_INTENT => {
                 let Some(link) = self.link_peer_of_addr(from) else {
                     self.stats.rx_unknown_link.fetch_add(1, Ordering::Relaxed);
@@ -1961,6 +2538,33 @@ impl MeshNode {
                     self.execute_gossip_action(a);
                 }
             }
+            // ── Phase 2 (directive A): signed democratic votes — verified
+            // at every replica's own boundary, then merged into the mesh
+            // CRDT replica. Relayed frames are fine: the epidemic tree
+            // dedupes by (origin, sequence) in front of this gate. ──
+            MSG_VOTE_OP => {
+                let Some(link) = self.link_peer_of_addr(from) else {
+                    self.stats.rx_unknown_link.fetch_add(1, Ordering::Relaxed);
+                    return;
+                };
+                {
+                    let map = heal(self.peers.read());
+                    if let Some(e) = map.get(&link) {
+                        e.last_seen_ns.store(now, Ordering::Relaxed);
+                    }
+                }
+                let outcomes: Outcomes = {
+                    let mut g = heal(self.gossip.lock());
+                    g.on_data(link.0, &dp.header, &dp.raw, now)
+                };
+                if outcomes.delivered_new {
+                    self.sync_promotion_member_count();
+                    self.ingest_vote(&dp, sender, from, now);
+                }
+                for a in outcomes.actions {
+                    self.execute_gossip_action(a);
+                }
+            }
             // Gossip-routed data (PTP_SYNC, CRDT_OP, TRACK_MANIFEST, and
             // any future type — unknown types still ride the tree). These
             // frames may be RELAYED: the header carries the origin's id,
@@ -1993,6 +2597,20 @@ impl MeshNode {
                             self.execute_swarm_action(a);
                         }
                     } else {
+                        // Phase 2: valid queue ops (Add/Remove/Reorder) are
+                        // deferred into the background CRDT mirror (ingress
+                        // stays non-blocking). Unsigned Vote ops on this
+                        // app-visible channel are NOT mirrored — votes ride
+                        // the signed MSG_VOTE_OP path only.
+                        if dp.header.msg_type == MSG_CRDT_OP
+                            && dp.payload.len() == crate::jam_crdt::JAM_OP_SIZE
+                        {
+                            if let Some(op) = JamOp::from_bytes(&dp.payload) {
+                                if op.op_type != 4 {
+                                    let _ = self.crdt_mirror_tx.send(op);
+                                }
+                            }
+                        }
                         self.dispatch_to_apps(&dp, sender, from);
                     }
                 }

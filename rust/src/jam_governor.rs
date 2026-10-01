@@ -41,6 +41,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
+use crate::jam_crdt::{JamOp, VOTE_FLAG_UP};
+
 /// Permission bits embedded in peer presence tokens (directive D).
 pub const ALLOW_PLAYBACK_CONTROL: u8 = 0x01;
 pub const ALLOW_VOLUME_CONTROL: u8 = 0x02;
@@ -54,6 +56,14 @@ pub const ACL_DEFAULT_BITS: u8 = ALLOW_PLAYBACK_CONTROL | ALLOW_VOLUME_CONTROL;
 pub const INTENT_RATE_LIMIT_PER_SEC: f64 = 5.0;
 /// Token-bucket burst depth for the per-peer intent limiter.
 pub const INTENT_RATE_BURST: f64 = 5.0;
+
+/// Phase 2: maximum accepted vote frames per peer per second. Deliberately
+/// separate from the intent bucket — votes are lighter-weight CRDT events
+/// (idempotent, LWW), so a member up-voting a handful of tracks in a burst
+/// must not starve their transport intents.
+pub const VOTE_RATE_LIMIT_PER_SEC: f64 = 10.0;
+/// Token-bucket burst depth for the per-peer vote limiter.
+pub const VOTE_RATE_BURST: f64 = 10.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PivotResult {
@@ -376,6 +386,23 @@ pub const KICK_FRAME_LEN: usize = 141;
 /// ```
 pub const ACL_FRAME_LEN: usize = 142;
 
+/// VOTE frame (MSG_VOTE_OP = 0x10, Phase 2 directive A), 152 bytes:
+///
+/// ```text
+/// [0..48)   JamOp (op_type = 4; policy_flags bit0 = upvote / retraction;
+///            target_add_op_id = the voted queue element)
+/// [48..80)  voter_pubkey [u8;32]  (Ed25519 verifying key)
+/// [80..88)  epoch u64             (room epoch fence)
+/// [88..152) voter_sig [u8;64]     (Ed25519 over [0..88))
+/// ```
+///
+/// Verified at the WIRE BOUNDARY (bounds → signature → blacklist → epoch
+/// fence → vote rate bucket) before the op is merged into the vote ledger
+/// keyed by the 32-byte pubkey — exactly the discipline TRANSPORT_INTENT
+/// established in Phase 1. Replay protection comes from the gossip
+/// engine's (origin, sequence) dedupe in front of the boundary.
+pub const VOTE_FRAME_LEN: usize = 152;
+
 /// Why a governance frame was rejected at the wire boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RejectReason {
@@ -427,6 +454,15 @@ pub struct VerifiedAclUpdate {
     pub epoch: u64,
     pub target_pubkey: [u8; 32],
     pub permission_bits: u8,
+}
+
+/// Verified democratic vote (Phase 2 directive A): the sealed JamOp plus
+/// the voter's Ed25519 pubkey the ledger keys on.
+#[derive(Debug, Clone)]
+pub struct VerifiedVote {
+    pub op: JamOp,
+    pub voter_pubkey: [u8; 32],
+    pub epoch: u64,
 }
 
 /// Host-authority event surfaced to the app layer via the mesh.
@@ -522,6 +558,8 @@ pub struct RoomGovernor {
     peer_blacklist: HashSet<u64>,
     /// Per-origin intent rate limiter (directive: 5 ops/sec per peer).
     rate: HashMap<[u8; 32], TokenBucket>,
+    /// Phase 2: per-origin VOTE rate limiter (10 votes/sec per peer).
+    vote_rate: HashMap<[u8; 32], TokenBucket>,
     /// Anti-replay watermark: last accepted nonce per origin pubkey.
     last_nonce: HashMap<[u8; 32], u32>,
     /// Events queued for the app layer (drained by the mesh).
@@ -551,6 +589,7 @@ impl RoomGovernor {
             blacklist: HashSet::new(),
             peer_blacklist: HashSet::new(),
             rate: HashMap::new(),
+            vote_rate: HashMap::new(),
             last_nonce: HashMap::new(),
             events: VecDeque::new(),
             local_nonce: 0,
@@ -667,6 +706,7 @@ impl RoomGovernor {
         }
         self.acl.remove(&pubkey);
         self.rate.remove(&pubkey);
+        self.vote_rate.remove(&pubkey);
     }
 
     /// Host-side ACL mutation (local; the wire frame is built separately).
@@ -783,6 +823,92 @@ impl RoomGovernor {
         let sig = self.signing.sign(&f[..78]);
         f[78..142].copy_from_slice(&sig.to_bytes());
         f
+    }
+
+    /// Phase 2 (directive A): builds the signed, epoch-fenced vote frame
+    /// for a locally cast vote. `op` must be an already-sealed Vote op
+    /// (op_type = 4, direction in policy_flags bit0).
+    pub fn build_vote(&mut self, op: &JamOp) -> Vec<u8> {
+        let mut f = vec![0u8; VOTE_FRAME_LEN];
+        f[..48].copy_from_slice(&op.to_bytes());
+        f[48..80].copy_from_slice(&self.pubkey());
+        f[80..88].copy_from_slice(&self.epoch.to_le_bytes());
+        let sig = self.signing.sign(&f[..88]);
+        f[88..152].copy_from_slice(&sig.to_bytes());
+        f
+    }
+
+    /// Phase 2: local-origin vote admission. The caster consumes the SAME
+    /// per-pubkey bucket the receivers will, so a throttled flood never
+    /// enters ANY ledger — the caster's own included — and replicas stay
+    /// consistent on vote counts.
+    pub fn try_local_vote(&mut self, now_ns: i64) -> bool {
+        let me = self.pubkey();
+        let bucket = self
+            .vote_rate
+            .entry(me)
+            .or_insert_with(|| TokenBucket::new(VOTE_RATE_BURST, VOTE_RATE_LIMIT_PER_SEC, now_ns));
+        bucket.try_consume(now_ns)
+    }
+
+    /// Phase 2 (directive A): wire-boundary verification of a vote frame.
+    /// Gate order mirrors [`Self::verify_intent`]: bounds + sealed op →
+    /// Ed25519 signature → blacklist → epoch fence → vote rate bucket.
+    pub fn verify_vote(
+        &mut self,
+        frame: &[u8],
+        now_ns: i64,
+    ) -> Result<VerifiedVote, RejectReason> {
+        if frame.len() != VOTE_FRAME_LEN {
+            return Err(RejectReason::Malformed);
+        }
+        let Some(op) = JamOp::from_bytes(&frame[..48]) else {
+            return Err(RejectReason::Malformed);
+        };
+        if op.op_type != 4 {
+            return Err(RejectReason::UnknownKind);
+        }
+        // Bit0 is the direction bit; the rest must stay clean.
+        if op.policy_flags & !VOTE_FLAG_UP != 0 {
+            return Err(RejectReason::Malformed);
+        }
+        // Defense in depth: the sealed op's own FNV checksum must also
+        // hold (it protects the 48-byte op whenever it travels outside
+        // this frame; a mismatch is a malformed frame regardless of the
+        // Ed25519 layer that follows).
+        if !op.is_valid() {
+            return Err(RejectReason::Malformed);
+        }
+        let mut voter = [0u8; 32];
+        voter.copy_from_slice(&frame[48..80]);
+        let epoch = u64::from_le_bytes(frame[80..88].try_into().unwrap());
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&frame[88..152]);
+
+        let verifying = VerifyingKey::from_bytes(&voter).map_err(|_| RejectReason::Malformed)?;
+        verifying
+            .verify(&frame[..88], &Signature::from_bytes(&sig_bytes))
+            .map_err(|_| RejectReason::BadSignature)?;
+
+        if self.blacklist.contains(&voter) {
+            return Err(RejectReason::Blacklisted);
+        }
+        if epoch != self.epoch {
+            return Err(RejectReason::EpochFence);
+        }
+        let bucket = self
+            .vote_rate
+            .entry(voter)
+            .or_insert_with(|| TokenBucket::new(VOTE_RATE_BURST, VOTE_RATE_LIMIT_PER_SEC, now_ns));
+        if !bucket.try_consume(now_ns) {
+            return Err(RejectReason::RateLimited);
+        }
+
+        Ok(VerifiedVote {
+            op,
+            voter_pubkey: voter,
+            epoch,
+        })
     }
 
     // ── frame verification (wire boundary) ─────────────────────────────

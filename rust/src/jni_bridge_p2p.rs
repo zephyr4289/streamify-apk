@@ -31,6 +31,30 @@
 //!   nativeMeshGovernanceStats(): String (JSON, never null)
 //!   nativeMeshDeclareHost(): Boolean
 //! ═══════════════════════════════════════════════════════════════════════
+//! PHASE 2 FROZEN CONTRACT (feat/phase2-rust-crdt-blend-voting,
+//! directive §5) — democratic voting + collaborative playlist bindings:
+//!
+//!   NativeMeshEngine (com.streamify.app.mesh):
+//!     castVote(targetOpId: ByteArray, isUpvote: Boolean): Boolean
+//!     getTrackVotes(targetOpId: ByteArray): Int
+//!     applyPlaylistOp(opBytes: ByteArray): Boolean
+//!     exportPlaylistDelta(sinceVectorClock: Long): ByteArray
+//!
+//!   NativeRadioEngine (com.streamify.app.audio):
+//!     scoreGroupBlendCandidates(candidateJson: String,
+//!                               memberSeedsJson: String): String
+//!
+//! PHASE 2 EXTENSIONS (additive, clearly marked, NOT frozen):
+//!   nativeMeshQueueAdd(cadId: Long, fracBits: Long): Long
+//!   nativeMeshQueueRemove(targetAddOpId: Long): Boolean
+//!   nativeMeshQueueViews(): String (JSON, never null)
+//!   nativeMeshBroadcastActivity(cadId: Long, artist: String, album: String,
+//!                               progressMs: Long, inJam: Boolean,
+//!                               paused: Boolean): Boolean
+//!   nativeMeshFriendActivity(): String (JSON, never null)
+//!   nativeMeshPlaylistSnapshot(): String (JSON, never null)
+//!   nativeMeshSetPlaylistRole(authorId: Int, role: Int): Boolean
+//! ═══════════════════════════════════════════════════════════════════════
 //!
 //! HOUSE RULES observed (same discipline as jni_bridge.rs):
 //!   • Every entry point is wrapped in `catch_unwind` — a panic must never
@@ -55,10 +79,12 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use jni::objects::{JByteArray, JClass, JString, ReleaseMode};
-use jni::sys::{jboolean, jint, jlong, jstring};
+use jni::sys::{jboolean, jbyteArray, jint, jlong, jstring};
 use jni::JNIEnv;
 use tokio::runtime::Runtime;
 
+use crate::consensus::{CollabPlaylistState, PlaylistRole};
+use crate::jam_crdt::{JamOp, OpType};
 use crate::p2p_mesh::{MeshConfig, MeshNode, PeerId, RESERVED_CONTROL_TYPES};
 
 const JNI_TRUE: jboolean = 1;
@@ -86,6 +112,19 @@ fn stop_runtime() {
 fn with_node<T>(f: impl FnOnce(&Arc<MeshNode>) -> T) -> Option<T> {
     let guard = heal(P2P.lock());
     guard.as_ref().map(|r| f(&r.node))
+}
+
+/// Phase 2: singleton collaborative playlist replica (the frozen
+/// applyPlaylistOp / exportPlaylistDelta surface binds here). Author id 1
+/// = this device; role grants flow through SetRole ops and the host-side
+/// set-role extension.
+static PLAYLIST: Mutex<Option<CollabPlaylistState>> = Mutex::new(None);
+
+#[inline]
+fn playlist_with<T>(f: impl FnOnce(&mut CollabPlaylistState) -> T) -> Option<T> {
+    let mut guard = heal(PLAYLIST.lock());
+    let pl = guard.get_or_insert_with(|| CollabPlaylistState::new(1));
+    Some(f(pl))
 }
 
 /// Reads a Java byte array into an owned Vec (NoCopyBack borrow, copy out).
@@ -546,6 +585,440 @@ pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_nativeMeshDe
             Some(true) => JNI_TRUE,
             _ => JNI_FALSE,
         }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 2 — FROZEN CONTRACT (directive §5):
+// com.streamify.app.mesh.NativeMeshEngine, democratic voting +
+// collaborative playlist CRDT. Signatures are byte-exact with the
+// directive.
+// ═══════════════════════════════════════════════════════════════════
+
+/// Reads an 8-byte little-endian u64 op-id argument (the directive's
+/// `target_op_id: jbyteArray`). Wrong-length arrays are rejected without
+/// panicking.
+fn read_jbytes_u64(env: &mut JNIEnv, arr: &JByteArray) -> Option<u64> {
+    let bytes = read_jbytes(env, arr)?;
+    if bytes.len() != 8 {
+        return None;
+    }
+    Some(u64::from_le_bytes(bytes.try_into().ok()?))
+}
+
+/// `castVote(targetOpId: ByteArray, isUpvote: Boolean): Boolean` — signs
+/// an epoch-fenced vote with this node's ephemeral governance key, merges
+/// it into the local CRDT replica, and gossips it mesh-wide (upvote when
+/// true, retraction when false). Returns false when the mesh is down or
+/// the target id is malformed.
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_castVote(
+    mut env: JNIEnv,
+    _class: JClass,
+    target_op_id: JByteArray,
+    is_upvote: jboolean,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(target) = read_jbytes_u64(&mut env, &target_op_id) else {
+            return JNI_FALSE;
+        };
+        match with_node(|node| node.cast_vote(target, is_upvote != 0)) {
+            Some(Ok(_)) => JNI_TRUE,
+            _ => JNI_FALSE,
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+/// `getTrackVotes(targetOpId: ByteArray): Int` — net upvote count for one
+/// queue element as seen by this replica (retractions subtract; 0 when
+/// the mesh is down or the id is malformed).
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_getTrackVotes(
+    mut env: JNIEnv,
+    _class: JClass,
+    target_op_id: JByteArray,
+) -> jint {
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(target) = read_jbytes_u64(&mut env, &target_op_id) else {
+            return 0;
+        };
+        with_node(|node| node.vote_count(target) as jint).unwrap_or(0)
+    }))
+    .unwrap_or(0)
+}
+
+/// `applyPlaylistOp(opBytes: ByteArray): Boolean` — parses + merges one
+/// collaborative playlist op frame (64-byte LE header + text tail) into
+/// the singleton playlist engine. Permission-rejected and corrupt ops
+/// return false and never touch the state.
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_applyPlaylistOp(
+    mut env: JNIEnv,
+    _class: JClass,
+    op_bytes: JByteArray,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(bytes) = read_jbytes(&mut env, &op_bytes) else {
+            return JNI_FALSE;
+        };
+        playlist_with(|pl| {
+            matches!(
+                pl.apply_bytes(&bytes),
+                crate::consensus::PlaylistApplyResult::Applied
+            )
+        })
+        .unwrap_or(false) as jboolean
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+/// `exportPlaylistDelta(sinceVectorClock: Long): ByteArray` — the op-log
+/// delta since the caller's Lamport watermark, wire-encoded as a
+/// length-prefixed op batch (empty array when nothing is newer). The
+/// jlong is the compact form of the caller's vector clock (max applied
+/// Lamport timestamp); the exact per-author clock path is the JSON-clock
+/// extension below.
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_exportPlaylistDelta(
+    env: JNIEnv,
+    _class: JClass,
+    since_vector_clock: jlong,
+) -> jbyteArray {
+    catch_unwind(AssertUnwindSafe(|| {
+        let watermark = if since_vector_clock < 0 {
+            0
+        } else {
+            since_vector_clock as u64
+        };
+        let delta = playlist_with(|pl| {
+            let ops = pl.export_delta_since_watermark(watermark);
+            CollabPlaylistState::encode_delta(&ops)
+        })
+        .unwrap_or_default();
+        match env.byte_array_from_slice(&delta) {
+            Ok(a) => a.into_raw(),
+            // Kotlin contract: never null — degrade to an empty array.
+            Err(_) => env
+                .byte_array_from_slice(&[])
+                .map(|a| a.into_raw())
+                .unwrap_or(std::ptr::null_mut()),
+        }
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PHASE 2 FROZEN CONTRACT (directive §5) — com.streamify.app.audio.
+// NativeRadioEngine: group taste blend scorer. JSON in, ranked JSON out.
+// ═══════════════════════════════════════════════════════════════════
+
+/// `scoreGroupBlendCandidates(candidateJson: String,
+/// memberSeedsJson: String): String` — multi-peer candidate ranking over
+/// the Phase 2 blend formula (w1·OverlapAffinity + w2·FreshnessDecay +
+/// w3·CoOccurrenceRank − w4·AntiDriftPenalty). Never null: malformed
+/// input yields a JSON error envelope `{"error":"…"}`.
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_audio_NativeRadioEngine_scoreGroupBlendCandidates(
+    mut env: JNIEnv,
+    _class: JClass,
+    candidate_json: JString,
+    member_seeds_json: JString,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        let cj: String = match env.get_string(&candidate_json) {
+            Ok(s) => s.into(),
+            Err(_) => return error_string(&env, "candidateJson unreadable"),
+        };
+        let sj: String = match env.get_string(&member_seeds_json) {
+            Ok(s) => s.into(),
+            Err(_) => return error_string(&env, "memberSeedsJson unreadable"),
+        };
+        let out = match crate::radio_scorer::GroupBlendScorer::score_json(&cj, &sj) {
+            Ok(json) => json,
+            Err(e) => error_envelope(e),
+        };
+        match env.new_string(&out) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+fn error_envelope(msg: String) -> String {
+    format!(
+        "{{\"error\":{}}}",
+        serde_json::to_string(&msg).unwrap_or_else(|_| "\"scoring failed\"".into())
+    )
+}
+
+fn error_string(env: &JNIEnv, msg: &str) -> jstring {
+    let envelope = error_envelope(msg.to_string());
+    match env.new_string(&envelope) {
+        Ok(s) => s.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+// ═════════════════════════════════════════════════ PHASE 2 extensions
+// (NOT frozen §5) — additive surface for Engineer 3's Kotlin mesh
+// orchestrator. Clearly marked so they can be ignored without breaking
+// the frozen contract above.
+
+/// Adds a track to the mesh CRDT queue (the local origin path for the
+/// democratic queue — mirrored to every replica as a CRDT_OP broadcast).
+/// Returns the new element's add op id (the vote target), or -1 on
+/// failure. `frac_bits` is the f64 fraction's bit pattern
+/// (f64.toRawBits() on the Kotlin side).
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_nativeMeshQueueAdd(
+    _env: JNIEnv,
+    _class: JClass,
+    cad_id: jlong,
+    frac_bits: jlong,
+) -> jlong {
+    catch_unwind(AssertUnwindSafe(|| {
+        if cad_id <= 0 {
+            return -1;
+        }
+        let frac = f64::from_bits(frac_bits as u64);
+        if !frac.is_finite() || frac < 0.0 {
+            return -1;
+        }
+        let nonce = session_nonce();
+        let op = JamOp::new(
+            JamOp::generate_op_id(),
+            nonce,
+            OpType::Add,
+            0,
+            cad_id as u64,
+            frac,
+            0,
+        );
+        match with_node(|node| node.submit_queue_op(&op)) {
+            Some(Ok(())) => op.op_id as jlong,
+            _ => -1,
+        }
+    }))
+    .unwrap_or(-1)
+}
+
+/// Removes a queue element by its add op id (tombstones it mesh-wide).
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_nativeMeshQueueRemove(
+    _env: JNIEnv,
+    _class: JClass,
+    target_add_op_id: jlong,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        if target_add_op_id <= 0 {
+            return JNI_FALSE;
+        }
+        let nonce = session_nonce();
+        let op = JamOp::new(
+            JamOp::generate_op_id(),
+            nonce,
+            OpType::Remove,
+            0,
+            0,
+            0.0,
+            target_add_op_id as u64,
+        );
+        match with_node(|node| node.submit_queue_op(&op)) {
+            Some(Ok(())) => JNI_TRUE,
+            _ => JNI_FALSE,
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+/// Device nonce (4 bytes) for locally minted queue ops: a stable
+/// per-session derivation from the mesh session id.
+fn session_nonce() -> [u8; 4] {
+    let mut nonce = [0u8; 4];
+    let session = with_node(|n| n.session().0).unwrap_or_default();
+    let h = blake3::hash(&session);
+    nonce.copy_from_slice(&h.as_bytes()[..4]);
+    nonce
+}
+
+/// Democratic queue views (never null): proposed rail, committed block
+/// (active playback order), and full playback order with vote counts.
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_nativeMeshQueueViews(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        let json = with_node(|node| {
+            let proposed: Vec<serde_json::Value> =
+                node.crdt_proposed_queue().into_iter().map(view_json).collect();
+            let committed: Vec<serde_json::Value> =
+                node.crdt_committed_queue().into_iter().map(view_json).collect();
+            let playback: Vec<serde_json::Value> =
+                node.crdt_playback_order().into_iter().map(view_json).collect();
+            let stats = node.stats();
+            serde_json::json!({
+                "proposed": proposed,
+                "committed": committed,
+                "playback": playback,
+                "votesApplied": stats.votes_applied,
+                "voteRejects": stats.vote_rejects,
+            })
+            .to_string()
+        })
+        .unwrap_or_else(|| "{}".to_string());
+        match env.new_string(&json) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+fn view_json(e: crate::jam_crdt::QueueViewEntry) -> serde_json::Value {
+    serde_json::json!({
+        "addOpId": format!("{:016x}", e.add_op_id),
+        "cadId": e.cad_id as i64,
+        "frac": e.frac,
+        "votes": e.votes,
+    })
+}
+
+/// Broadcasts this device's live listening state (directive D) with the
+/// engine-side format validation + sender throttle. Returns false when
+/// throttled (the UI backs off and retries) or when the mesh is down.
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_nativeMeshBroadcastActivity(
+    mut env: JNIEnv,
+    _class: JClass,
+    cad_id: jlong,
+    artist: JString,
+    album: JString,
+    progress_ms: jlong,
+    in_jam: jboolean,
+    paused: jboolean,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        let artist: String = env.get_string(&artist).map(|s| s.into()).unwrap_or_default();
+        let album: String = env.get_string(&album).map(|s| s.into()).unwrap_or_default();
+        let room: Option<[u8; 16]> = with_node(|n| n.session().0);
+        match with_node(|node| {
+            node.broadcast_friend_activity(
+                cad_id.max(0) as u64,
+                &artist,
+                &album,
+                progress_ms.max(0) as u64,
+                room.as_ref(),
+                in_jam != 0,
+                paused != 0,
+            )
+        }) {
+            Some(Ok(())) => JNI_TRUE,
+            _ => JNI_FALSE,
+        }
+    }))
+    .unwrap_or(JNI_FALSE)
+}
+
+/// Friend activity feed (never null): JSON array of live entries,
+/// freshest first, TTL-pruned.
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_nativeMeshFriendActivity(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        let json = with_node(|node| {
+            let rows: Vec<serde_json::Value> = node
+                .friend_activities()
+                .into_iter()
+                .map(|e| {
+                    serde_json::json!({
+                        "peerId": format!("{:016x}", e.peer.0),
+                        "cadId": e.cad_id as i64,
+                        "progressMs": e.progress_ms,
+                        "roomId": e.room_id.map(hex::encode),
+                        "inJam": e.in_jam,
+                        "paused": e.paused,
+                        "artist": e.artist,
+                        "album": e.album,
+                    })
+                })
+                .collect();
+            serde_json::to_string(&rows).unwrap_or_else(|_| "[]".to_string())
+        })
+        .unwrap_or_else(|| "[]".to_string());
+        match env.new_string(&json) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Collaborative playlist snapshot (never null): title + live rows in
+/// fractional order + the caller's exact vector clock and Lamport
+/// watermark (the inputs for exact delta pulls).
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_nativeMeshPlaylistSnapshot(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    catch_unwind(AssertUnwindSafe(|| {
+        let json = playlist_with(|pl| {
+            let rows: Vec<serde_json::Value> = pl
+                .snapshot_items()
+                .into_iter()
+                .map(|i| {
+                    serde_json::json!({
+                        "itemId": format!("{:016x}", i.item_id),
+                        "cadId": i.cad_id as i64,
+                        "frac": i.frac,
+                    })
+                })
+                .collect();
+            let clock: Vec<serde_json::Value> = pl
+                .clock()
+                .iter()
+                .map(|(author, seq)| serde_json::json!({"author": author, "seq": seq}))
+                .collect();
+            serde_json::json!({
+                "title": pl.title(),
+                "items": rows,
+                "vectorClock": clock,
+                "lamportWatermark": pl.my_watermark(),
+            })
+            .to_string()
+        })
+        .unwrap_or_else(|| "{}".to_string());
+        match env.new_string(&json) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Host-side role grant for the collaborative playlist roster (local
+/// trust mutation; Admin path). Roles: 1=Viewer, 2=Editor, 3=Admin.
+#[no_mangle]
+pub extern "system" fn Java_com_streamify_app_mesh_NativeMeshEngine_nativeMeshSetPlaylistRole(
+    _env: JNIEnv,
+    _class: JClass,
+    author_id: jint,
+    role: jint,
+) -> jboolean {
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(role) = PlaylistRole::from_u8(role.clamp(0, 255) as u8) else {
+            return JNI_FALSE;
+        };
+        if author_id <= 0 {
+            return JNI_FALSE;
+        }
+        playlist_with(|pl| pl.set_role_local(author_id as u32, role)).is_some() as jboolean
     }))
     .unwrap_or(JNI_FALSE)
 }
