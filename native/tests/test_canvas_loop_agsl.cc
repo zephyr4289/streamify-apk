@@ -313,6 +313,74 @@ int run_canvas_loop_agsl_tests() {
                   "lag phase trails by one loop");
     }
 
+    std::printf("  [agsl] fuzz-regression: hostile time/period quotients\n");
+    {
+        // Regression 1 (soak trap, section 14): t/period overflowing to
+        // +Inf made frac01(Inf) = Inf - floor(Inf) = NaN, poisoning phase
+        // and every derived field. Engine must map the unknowable phase to
+        // a deterministic in-range value instead.
+        CanvasLoopConfig degenerate;
+        degenerate.strategy = LoopStrategy::kWraparoundCrossfade;
+        degenerate.periodSec = 1.0e-30f;   // denormal-ish period
+        CanvasLoopFrame f{};
+        CanvasLoopMath::computeFrame(1.0e27f, degenerate, 0.012f, 0.035f,
+                                     0.015f, 1.0f, &f);
+        check(std::isfinite(f.phase) && f.phase >= 0.0f && f.phase < 1.0f,
+              "wraparound: Inf quotient stays finite in [0,1)");
+        check(std::isfinite(f.scale) && std::isfinite(f.rotationRad) &&
+                  std::isfinite(f.translateX) && std::isfinite(f.translateY) &&
+                  std::isfinite(f.glowPulse) && std::isfinite(f.hueDriftRad),
+              "wraparound: Inf quotient leaves all fields finite");
+        const float pp = CanvasLoopMath::pingPongPhase(1.0e27f, 1.0e-30f);
+        check(std::isfinite(pp) && pp >= 0.0f && pp <= 1.0f,
+              "ping-pong: Inf quotient stays finite in [0,1]");
+        // Negative-side overflow too (negative huge t).
+        CanvasLoopMath::computeFrame(-1.0e27f, degenerate, 0.012f, 0.035f,
+                                     0.015f, 1.0f, &f);
+        check(std::isfinite(f.phase) && f.phase >= 0.0f && f.phase < 1.0f,
+              "wraparound: -Inf quotient stays finite in [0,1)");
+
+        // Regression 2 (harness-bounds audit): the ping-pong triangle
+        // legitimately peaks at EXACTLY 1.0f at the turnaround
+        // (t/period == 0.5) — the documented contract, not a defect.
+        check(CanvasLoopMath::pingPongPhase(4.0f, 8.0f) == 1.0f,
+              "ping-pong: triangle peak is exactly 1.0 at the turnaround");
+        check(CanvasLoopMath::pingPongPhase(0.0f, 8.0f) == 0.0f &&
+                  CanvasLoopMath::pingPongPhase(8.0f, 8.0f) == 0.0f,
+              "ping-pong: seam rests at exactly 0.0");
+
+        // Regression 3: AGSL config path with a NaN strategy float —
+        // lround(NaN) must never be reached (FE_INVALID); the strategy
+        // falls back to wraparound and everything stays sanitized.
+        float hostile16[streamify::agsl::kConfigFloatCount];
+        for (float& v : hostile16) {
+            v = NAN;
+        }
+        hostile16[0] = INFINITY;
+        AmbientGlowConfig fromFloats;
+        AmbientGlowRuntime::floatsToConfig(hostile16, &fromFloats);
+        check(fromFloats.strategy == LoopStrategy::kWraparoundCrossfade,
+              "floatsToConfig: NaN/Inf strategy falls back to wraparound");
+        check(std::isfinite(fromFloats.periodSec) &&
+                  fromFloats.periodSec > 0.0f,
+              "floatsToConfig: hostile period sanitized");
+
+        // Regression 4 (renderer hardening): seek() with a huge period
+        // must not overflow the int64 anchor cast (float-cast-overflow UB).
+        CanvasLoopRenderer renderer;
+        CanvasLoopConfig huge;
+        huge.strategy = LoopStrategy::kPingPong;
+        huge.periodSec = 1.0e30f;  // Inf passes a naive > 0 test
+        CanvasLoopMotion motion{};
+        renderer.reset(1000, huge, motion);
+        renderer.seek(2000, 0.5f);  // would cast 0.5*1e30*1000 to int64
+        CanvasLoopFrame afterSeek{};
+        renderer.advanceTo(3000, &afterSeek);
+        check(std::isfinite(afterSeek.phase) && afterSeek.phase >= 0.0f &&
+                  afterSeek.phase <= 1.0f,
+              "renderer: seek with huge period stays finite (no UB)");
+    }
+
     std::printf("[phase3] canvas/AGSL: %d passed, %d failed\n", g_passed,
                 g_failed);
     return g_failed == 0 ? 0 : 1;

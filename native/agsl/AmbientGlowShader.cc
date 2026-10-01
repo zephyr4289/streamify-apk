@@ -307,7 +307,12 @@ void AmbientGlowRuntime::floatsToConfig(const float in[kConfigFloatCount],
         return;
     }
     AmbientGlowConfig c;
-    const int32_t strat = static_cast<int32_t>(std::lround(in[0]));
+    // Guard lround BEFORE the call: lround(NaN/Inf) raises FE_INVALID
+    // (hostile config floats hit this directly via the fuzz surface).
+    const int32_t strat =
+        (std::isfinite(in[0]) && std::fabs(in[0]) < 16.0f)
+            ? static_cast<int32_t>(std::lround(in[0]))
+            : -1;
     c.strategy = (strat == static_cast<int32_t>(video::LoopStrategy::kPingPong))
                      ? video::LoopStrategy::kPingPong
                      : video::LoopStrategy::kWraparoundCrossfade;

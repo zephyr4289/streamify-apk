@@ -13,7 +13,14 @@ constexpr float kTau = 6.28318530717958647692f;
 
 // Fractional part of x, always in [0,1) — including for negative x and for
 // exact integers (frac(1.0f) == 0.0f, the bit-exact-seam cornerstone).
+// Non-finite x (|t/period| overflowed to Inf) maps to 0.0f: the phase of an
+// astronomically-dominated quotient is unknowable at float precision, and
+// NaN would poison every derived frame field. Found by the hostile-float
+// fuzz section (t ~ 1e27 s against a denormal period).
 inline float frac01(float x) {
+    if (!std::isfinite(x)) {
+        return 0.0f;
+    }
     float f = x - std::floor(x);
     // Guard the x == negative-tiny case where floor gives -1 and f lands at
     // 1.0f (still representable) — map it to 0.

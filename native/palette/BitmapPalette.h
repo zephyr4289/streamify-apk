@@ -108,6 +108,10 @@ private:
     int32_t boxBegin_[kMaxSwatches + 1] = {};
     int32_t boxEnd_[kMaxSwatches + 1] = {};
     uint64_t boxPop_[kMaxSwatches + 1] = {};
+    // Unsplittable-box retirement flag: guarantees median-cut termination
+    // even on inputs the split guards classify as degenerate (each loop
+    // pass either splits a box or retires one — never retries state).
+    bool boxDead_[kMaxSwatches + 1] = {};
 
     float swatchR_[kMaxSwatches] = {};
     float swatchG_[kMaxSwatches] = {};

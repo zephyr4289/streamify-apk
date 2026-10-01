@@ -47,7 +47,16 @@ void CanvasLoopRenderer::seek(int64_t monotonicMs, float phase01) {
     if (p >= 1.0f) {
         p = 0.0f;
     }
-    const float period = (cfg_.periodSec > 0.0f) ? cfg_.periodSec : 8.0f;
+    float period = (std::isfinite(cfg_.periodSec) && cfg_.periodSec > 0.0f)
+                       ? cfg_.periodSec
+                       : 8.0f;
+    // Bound the anchor offset so p * period * 1000 stays inside int64 for
+    // the cast below: a hostile/huge period (Inf passes the > 0 test) would
+    // be float-cast-overflow UB. Real configs are [0.1, 120] s after AGSL
+    // sanitization; one hour is far beyond any canvas loop.
+    if (period > 3.6e6f) {
+        period = 3.6e6f;
+    }
     // Anchor so that the loop-relative time AT monotonicMs maps to `p`.
     // Ping-pong maps phase through the triangle: time fraction 0.5*p is
     // enough because triangle(p/2) == p for p in [0,1] (rise half only) —

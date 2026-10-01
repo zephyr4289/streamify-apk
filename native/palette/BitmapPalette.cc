@@ -295,6 +295,9 @@ int32_t BitmapPaletteExtractor::medianCut(int32_t populated) {
     int32_t boxCount = 1;
     boxBegin_[0] = 0;
     boxEnd_[0] = populated;
+    for (int32_t i = 0; i <= kMaxSwatches; ++i) {
+        boxDead_[static_cast<size_t>(i)] = false;
+    }
 
     uint64_t totalPop = 0;
     for (int32_t i = 0; i < populated; ++i) {
@@ -307,6 +310,7 @@ int32_t BitmapPaletteExtractor::medianCut(int32_t populated) {
         double bestScore = 0.0;
         int32_t bestAxis = -1;
         for (int32_t b = 0; b < boxCount; ++b) {
+            if (boxDead_[static_cast<size_t>(b)]) continue;
             const int32_t begin = boxBegin_[b];
             const int32_t end = boxEnd_[b];
             if (end - begin < 2) continue;
@@ -370,8 +374,15 @@ int32_t BitmapPaletteExtractor::medianCut(int32_t populated) {
                 break;
             }
         }
-        // Guarantee a non-empty right side (variance > 0 ensures one exists).
-        while (splitAfter < 15) {
+        // Guarantee a non-empty right side (variance > 0 on the split axis
+        // ensures one exists BELOW the median value). The walk must be
+        // allowed to start FROM splitAfter == 15: when the weighted median
+        // lands on the topmost populated coordinate (majority mass at the
+        // maximum value — vanishingly rare in natural images, trivial for
+        // fuzz noise), splitting at 15 leaves the right side empty and the
+        // split degenerates. Found by the exact-size local fuzz soak
+        // (RGB565 noise image, majority mass at G=15).
+        while (splitAfter > 0) {
             uint64_t right = 0;
             for (int32_t v = splitAfter + 1; v < 16; ++v) right += count[v];
             if (right != 0) break;
@@ -393,7 +404,14 @@ int32_t BitmapPaletteExtractor::medianCut(int32_t populated) {
         }
         const int32_t splitPoint = l;  // [begin,l) left, [l,end) right
         if (splitPoint <= begin || splitPoint >= end) {
-            continue;  // cannot happen with the guards above; stay safe
+            // Unreachable with the guards above (left is non-empty because
+            // the median scan stops on a populated value; right is
+            // non-empty because of the splitAfter walk). Still: NEVER
+            // retry the same box with identical state — that would be an
+            // infinite loop. Retire the box instead; termination is then
+            // unconditional (each pass either splits or retires).
+            boxDead_[static_cast<size_t>(bestBox)] = true;
+            continue;
         }
         // Register the new box.
         boxBegin_[boxCount] = splitPoint;

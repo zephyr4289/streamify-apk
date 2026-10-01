@@ -329,6 +329,45 @@ int run_media_palette_tests() {
         std::printf("    perf: 1024x1024 RGBA in %.2f ms\n", ms);
     }
 
+    std::printf("  [palette] fuzz-regression: median-cut termination\n");
+    {
+        // Regression (soak trap, section 13): an RGB565 noise image whose
+        // majority mass sits at the TOP coordinate (G nibble = 15) of the
+        // max-variance axis made the weighted median land on splitAfter=15;
+        // the right-side guard `while (splitAfter < 15)` could not walk
+        // DOWN from 15, so the split degenerated and the retry loop spun
+        // forever. The unit-level essence of the failing input: 46 pixels
+        // at one high-G bin + a dust of lower-G singletons.
+        std::vector<uint16_t> px(10 * 16);
+        for (size_t i = 0; i < px.size(); ++i) {
+            px[i] = 0x7FF0;  // R=15, G=31->nibble 15, B=0..15-ish
+        }
+        // Dust: five distinct lower-G colors.
+        px[3] = 0xFC08;
+        px[7] = 0xCB10;
+        px[11] = 0xC708;
+        px[15] = 0x8D08;
+        px[19] = 0xB708;
+        std::vector<uint8_t> bytes(px.size() * 2);
+        std::memcpy(bytes.data(), px.data(), bytes.size());
+        BitmapPaletteExtractor ex;
+        PaletteResult pr;
+        const auto st = ex.extract(bytes.data(), bytes.size(), 10, 16,
+                                   PixelFormat::kRgb565, &pr);
+        check(st == PaletteStatus::kOk,
+              "median-cut: majority-at-top-G image extracts");
+        check((pr.primaryArgb >> 24) == 0xFF &&
+                  pr.swatchCount >= 1 && pr.swatchCount <= 24,
+              "median-cut: degenerate-median image yields valid swatches");
+        // Determinism twin on the same input.
+        BitmapPaletteExtractor ex2;
+        PaletteResult pr2;
+        check(ex2.extract(bytes.data(), bytes.size(), 10, 16,
+                          PixelFormat::kRgb565, &pr2) == PaletteStatus::kOk &&
+                  std::memcmp(&pr, &pr2, sizeof(pr)) == 0,
+              "median-cut: degenerate-median extraction deterministic");
+    }
+
     std::printf("[phase3] palette: %d passed, %d failed\n", g_passed,
                 g_failed);
     return g_failed == 0 ? 0 : 1;
