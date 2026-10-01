@@ -633,6 +633,15 @@ impl JamCrdtState {
         self.votes.count(target_add_op_id)
     }
 
+    /// Track (CAD id) of one live queue element, if present — vote-frame
+    /// cad echo and UI lookups.
+    pub fn cad_of(&self, target_add_op_id: u64) -> Option<u64> {
+        self.queue
+            .iter()
+            .find(|(k, _)| k.1 == target_add_op_id)
+            .map(|(_, e)| e.cad_id)
+    }
+
     /// Voter roster for one queue element, byte-order sorted — the exact
     /// voter set behind a track's vote count (UI "who voted" sheet, tests).
     pub fn voter_roster(&self, target_add_op_id: u64) -> Vec<VoterId> {
