@@ -103,8 +103,10 @@ object SmartShuffleEngine {
                 sinceLastInject = 0
             }
         }
-        // Queue too short to hit a boundary → top up after the last user track
-        while (recCursor < fresh.size && injected.size < maxInjections && tail.isEmpty()) {
+        // Queue too short to hit a cadence boundary (or fewer boundaries
+        // than picks): top the remainder up after the last user track —
+        // Smart Shuffle must always enrich, never no-op on short queues.
+        while (recCursor < fresh.size && injected.size < maxInjections) {
             val rec = fresh[recCursor++]
             out.add(rec)
             injected.add(rec)

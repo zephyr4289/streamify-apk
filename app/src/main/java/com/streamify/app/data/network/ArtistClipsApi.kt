@@ -608,11 +608,16 @@ object ClipsResponseParser {
      */
     internal fun parseDurationBadge(text: String): Int? {
         if (text.isBlank()) return null
-        val mmss = Regex("^(\\d{1,2}):(\\d{1,2})$").find(text.trim())
+        val t = text.trim()
+        // Unanchored mm:ss so badges embedded in richer overlay text
+        // ("0:32 • 1.2M views") still decode.
+        val mmss = Regex("\\b(\\d{1,2}):(\\d{2})\\b").find(t)
         if (mmss != null) {
             return (mmss.groupValues[1].toInt() * 60) + mmss.groupValues[2].toInt()
         }
-        val secs = Regex("^(\\d{1,3})\\s*[sS]e?c?o?n?d?s?$").find(text.trim())
+        // Seconds form REQUIRES the 's' suffix so bare numbers inside view
+        // counts ("1.2M views") can never match.
+        val secs = Regex("\\b(\\d{1,3})\\s*(?:s|sec|secs|second|seconds)\\b", RegexOption.IGNORE_CASE).find(t)
         if (secs != null) return secs.groupValues[1].toInt()
         return null
     }

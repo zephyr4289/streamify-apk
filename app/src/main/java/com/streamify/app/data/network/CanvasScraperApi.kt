@@ -436,8 +436,8 @@ object CanvasResponseParser {
     /** Pulls the first video-looking URL out of a node (one level deep). */
     private fun extractVideoUrl(node: JSONObject): String? {
         node.optString("url", "").takeIf { it.isNotBlank() && looksLikeCanvasUrl(it) }?.let { return it }
-        node.optString("loopUrl", "").takeIf { it.isNotBlank() }?.let { return it }
-        node.optString("mediaUrl", "").takeIf { it.isNotBlank() }?.let { return it }
+        node.optString("loopUrl", "").takeIf { it.isNotBlank() && looksLikeCanvasUrl(it) }?.let { return it }
+        node.optString("mediaUrl", "").takeIf { it.isNotBlank() && looksLikeCanvasUrl(it) }?.let { return it }
         // Nested one level (e.g. canvasMediaRenderer.player…
         for (key in listOf("player", "video", "media", "attachment")) {
             val child = node.optJSONObject(key) ?: continue

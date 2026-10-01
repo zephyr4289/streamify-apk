@@ -32,6 +32,8 @@ import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.viewmodel.PlayerViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 fun ArtistScreen(
@@ -65,8 +67,8 @@ fun ArtistScreen(
         preSaveIds = com.streamify.app.data.network.PreSaveStore.loadAll().map { it.releaseId }.toSet()
     }
     LaunchedEffect(Unit) {
-        while (kotlinx.coroutines.isActive) {
-            kotlinx.coroutines.delay(1000)
+        while (isActive) {
+            delay(1000)
             nowTickMs = System.currentTimeMillis()
         }
     }

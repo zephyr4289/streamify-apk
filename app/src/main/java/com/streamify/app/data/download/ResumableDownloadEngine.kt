@@ -56,7 +56,7 @@ class ResumableDownloadEngine(
     )
 
     /** Injectable HTTP transport — see OkHttpRangeTransport for production. */
-    interface RangeTransport {
+    fun interface RangeTransport {
         /** Opens [url] at [offsetBytes]; null signals a transport failure. */
         fun open(url: String, offsetBytes: Long): RangeResponse?
     }
