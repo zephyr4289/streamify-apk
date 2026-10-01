@@ -39,6 +39,7 @@ add_library(streamify_native_core SHARED
     jni/jni_bridge.cc
     jni/jni_bridge_dsp.cc
     jni/jni_bridge_native_dsp_engine.cc
+    jni/jni_bridge_harmonic_engine.cc
     engine/StreamifyDB.cc
     engine/RecommendEngine.cc
     engine/EventTracker.cc
