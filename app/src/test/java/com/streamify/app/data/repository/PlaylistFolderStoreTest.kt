@@ -106,9 +106,13 @@ class PlaylistFolderStoreTest {
         PlaylistFolderStore.togglePin("pl-1")
         PlaylistFolderStore.togglePin("pl-2")
         assertEquals(listOf("pl-2", "pl-1"), PlaylistFolderStore.pinnedSnapshot()) // most recent first
-        assertTrue(PlaylistFolderStore.togglePin("pl-1")) // returns now-pinned=true
-        PlaylistFolderStore.togglePin("pl-1") // off again
+        // Toggling a pinned id UNPINS it → returns false (new state).
+        assertTrue(!PlaylistFolderStore.togglePin("pl-1"))
         assertTrue(!PlaylistFolderStore.isPinned("pl-1"))
+        assertEquals(listOf("pl-2"), PlaylistFolderStore.pinnedSnapshot())
+        // Re-pin → true, and pl-1 floats back to the front.
+        assertTrue(PlaylistFolderStore.togglePin("pl-1"))
+        assertEquals(listOf("pl-1", "pl-2"), PlaylistFolderStore.pinnedSnapshot())
     }
 
     // ─────────────────────────────────────────────── LibraryOrganizer sort

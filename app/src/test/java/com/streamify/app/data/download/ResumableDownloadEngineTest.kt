@@ -78,13 +78,14 @@ class ResumableDownloadEngineTest {
 
     @Test
     fun `complete download verifies byte count`() {
+        val dest = dest() // ONE file per test: TemporaryFolder.newFile throws on re-creation
         val engine = ResumableDownloadEngine(FakeTransport(totalBytes = 10_000), maxAttempts = 3)
-        val result = engine.download("https://cdn.example.com/a.webm", dest())
+        val result = engine.download("https://cdn.example.com/a.webm", dest)
         assertEquals(ResumableDownloadEngine.Outcome.COMPLETED, result.outcome)
         assertEquals(10_000L, result.bytesOnDisk)
         assertEquals(10_000L, result.totalBytes)
         assertEquals(1, result.attempts)
-        assertEquals(10_000L, dest().length())
+        assertEquals(10_000L, dest.length())
     }
 
     // ─────────────────────────────────────────────────────── pause/resume
@@ -93,24 +94,24 @@ class ResumableDownloadEngineTest {
     fun `cooperative pause parks as PAUSED with bytes retained`() {
         // Pause after ~4KB have been written.
         var pauseGate = false
+        val dest = dest()
         val engine = ResumableDownloadEngine(FakeTransport(totalBytes = 10_000), maxAttempts = 3)
-        var seen = 0L
         val result = engine.download(
             "https://cdn.example.com/a.webm",
-            dest(),
-            progress = { bytes, _ -> seen = bytes; if (bytes >= 4_000) pauseGate = true },
+            dest,
+            progress = { bytes, _ -> if (bytes >= 4_000) pauseGate = true },
             shouldContinue = { !pauseGate }
         )
         assertEquals(ResumableDownloadEngine.Outcome.PAUSED, result.outcome)
         assertTrue(result.bytesOnDisk >= 4_000L)
-        assertTrue(dest().length() >= 4_000L)
+        assertTrue(dest.length() >= 4_000L)
 
         // ── RESUME: a second engine continues from the on-disk offset ──
         val resumeTransport = FakeTransport(totalBytes = 10_000)
         val resumeEngine = ResumableDownloadEngine(resumeTransport, maxAttempts = 3)
-        val resumed = resumeEngine.download("https://cdn.example.com/a.webm", dest())
+        val resumed = resumeEngine.download("https://cdn.example.com/a.webm", dest)
         assertEquals(ResumableDownloadEngine.Outcome.COMPLETED, resumed.outcome)
-        assertEquals(10_000L, dest().length())
+        assertEquals(10_000L, dest.length())
         // The resumed open() MUST have requested the survived byte offset.
         assertTrue(resumeTransport.lastRequestedOffset >= 4_000L)
     }
@@ -120,6 +121,7 @@ class ResumableDownloadEngineTest {
     @Test
     fun `mid-stream dropout retries and resumes to completion`() {
         // Dropout after 6KB on the first attempt; second attempt succeeds.
+        val dest = dest()
         var useDropout = true
         val good = FakeTransport(totalBytes = 10_000)
         val dropout = FakeTransport(totalBytes = 10_000, dropoutAfterBytes = 6_000)
@@ -132,10 +134,10 @@ class ResumableDownloadEngineTest {
             }
         }
         val engine = ResumableDownloadEngine(transport, maxAttempts = 3)
-        val result = engine.download("https://cdn.example.com/a.webm", dest())
+        val result = engine.download("https://cdn.example.com/a.webm", dest)
         assertEquals(ResumableDownloadEngine.Outcome.COMPLETED, result.outcome)
         assertEquals(2, result.attempts)
-        assertEquals(10_000L, dest().length())
+        assertEquals(10_000L, dest.length())
     }
 
     @Test
@@ -172,11 +174,12 @@ class ResumableDownloadEngineTest {
                 )
             }
         }
+        val dest = dest()
         val engine = ResumableDownloadEngine(transport, maxAttempts = 3)
-        val result = engine.download("https://cdn.example.com/a.webm", dest())
+        val result = engine.download("https://cdn.example.com/a.webm", dest)
         assertEquals(ResumableDownloadEngine.Outcome.COMPLETED, result.outcome)
         assertEquals(2, result.attempts)
-        assertEquals(10_000L, dest().length())
+        assertEquals(10_000L, dest.length())
     }
 
     // ───────────────────────────────────────── range-ignoring servers
@@ -230,9 +233,9 @@ class ResumableDownloadEngineTest {
         assertEquals(3_500L, report.playableBytes)
         assertEquals(3, report.fileCount)
 
-        // Quota gate: 3.5MB used, quota 3.6MB → 200KB fits, 2MB does not.
-        assertTrue(QualityLadderManager.canFit(report, 200_000L, quotaBytes = 3_600_000))
-        assertTrue(!QualityLadderManager.canFit(report, 2_000_000L, quotaBytes = 3_600_000))
+        // Quota gate (byte units): 3,500B used, quota 4,200B → 200B fits, 2KB does not.
+        assertTrue(QualityLadderManager.canFit(report, 200L, quotaBytes = 4_200L))
+        assertTrue(!QualityLadderManager.canFit(report, 2_000L, quotaBytes = 4_200L))
         // Unbounded quota → fits when free space allows.
         assertTrue(QualityLadderManager.canFit(report, 100L, quotaBytes = 0L))
         // Missing dir → zeroed report, never throws.

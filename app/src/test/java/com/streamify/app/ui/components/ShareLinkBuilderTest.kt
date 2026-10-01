@@ -52,7 +52,8 @@ class ShareLinkBuilderTest {
     @Test
     fun `slug normalizes punctuation and collapse`() {
         assertEquals("a-b-c", ShareLinkBuilder.slug("a  b\tc"))
-        assertEquals("cafe-del-mar", ShareLinkBuilder.slug("Café Del Mar"))
+        // 'é' IS a letter — it survives slug normalization.
+        assertEquals("café-del-mar", ShareLinkBuilder.slug("Café Del Mar"))
         assertEquals("x", ShareLinkBuilder.slug("!!!"))
         assertEquals("x", ShareLinkBuilder.slug("   "))
     }

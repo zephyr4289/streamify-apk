@@ -118,16 +118,21 @@ class ReleaseWatcherApiTest {
 
     @Test
     fun `upcoming release with iso countdown is parsed with eta`() {
+        val before = System.currentTimeMillis()
         val tree = browseTree(twoRowItem("Midnight Frequencies", "P1DT12H"))
         val releases = ReleaseResponseParser.parseBrowse(tree, "Nova Ray")
+        val after = System.currentTimeMillis()
         assertEquals(1, releases.size)
         val release = releases.first()
         assertEquals("Midnight Frequencies", release.title)
         assertEquals("Nova Ray", release.artistName)
         assertEquals("Album", release.releaseType)
-        assertNotNull(release.expectedAtMs)
-        assertEquals(129_600_000L, release.expectedAtMs!!) // P1DT12H = 36h
+        // Countdowns anchor to the epoch at parse time: now + 36h.
+        val eta = release.expectedAtMs
+        org.junit.Assert.assertNotNull(eta)
+        assertTrue(eta!! in (before + 129_600_000L)..(after + 129_600_000L))
         assertTrue(!release.isLive)
+        assertEquals(129_600_000L, release.millisRemaining(eta - 129_600_000L))
     }
 
     @Test

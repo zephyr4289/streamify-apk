@@ -430,7 +430,9 @@ object ReleaseResponseParser {
             ?: title.lowercase().replace(" ", "_")
 
         val countdownText = subtitleRuns.last()
+        // Countdowns decode to RELATIVE durations — anchor them to the epoch.
         val expectedAt = ReleaseWatcherApi.parseCountdownMillis(countdownText)
+            ?.plus(System.currentTimeMillis())
         val trackCount = subtitleRuns.firstOrNull { Regex("^\\d+\\s+tracks?$").containsMatchIn(it) }
             ?.let { Regex("^(\\d+)").find(it)?.groupValues?.get(1)?.toIntOrNull() } ?: 0
         val cover = node.optJSONObject("thumbnailRenderer")
@@ -475,7 +477,8 @@ object ReleaseResponseParser {
             artistName = artistName,
             title = title,
             releaseType = subline.substringBefore("•").trim().ifBlank { "Single" },
-            expectedAtMs = ReleaseWatcherApi.parseCountdownMillis(subline.substringAfterLast("•").trim()),
+            expectedAtMs = ReleaseWatcherApi.parseCountdownMillis(subline.substringAfterLast("•").trim())
+                ?.plus(System.currentTimeMillis()),
             rawCountdownText = subline.substringAfterLast("•").trim(),
             coverUrl = node.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
                 ?.let { bestThumb(it) } ?: ""

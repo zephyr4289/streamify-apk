@@ -435,19 +435,29 @@ object ClipsResponseParser {
     // ─────────────────────────────────────────── clip renderer signatures
 
     private fun collectClips(root: JSONObject, maxClips: Int): List<ArtistClipsApi.ArtistClip> {
-        val out = LinkedHashMap<String, ArtistClipsApi.ArtistClip>()
+        // ── Pass 1: harvest Clips/Short-flavored shelf headers ANYWHERE in
+        // the tree. STRICT title-type check — org.json's optString() coerces
+        // JSONObject values through toString(), so a track title object like
+        // {"simpleText":"A short"} would string-match "short" and false-boost
+        // the gate; only a REAL string title counts. Two passes make the
+        // boost order-independent (headers may trail their renderers).
         var shelfBoost = false
-
-        CanvasResponseParser.walk(root) { node, parentKey ->
-            if (out.size >= maxClips) return@walk
-
-            // Track whether we are inside a Clip/Short-flavored shelf header.
+        CanvasResponseParser.walk(root) { node, _ ->
+            if (shelfBoost) return@walk
             if (node is JSONObject) {
-                val title = node.optString("title", "")
-                if (title.isNotBlank() && SHELF_HINTS.any { title.contains(it, ignoreCase = true) }) {
+                val titleValue = node.opt("title")
+                if (titleValue is String &&
+                    SHELF_HINTS.any { titleValue.contains(it, ignoreCase = true) }
+                ) {
                     shelfBoost = true
                 }
             }
+        }
+
+        // ── Pass 2: collect renderers with the boost already settled.
+        val out = LinkedHashMap<String, ArtistClipsApi.ArtistClip>()
+        CanvasResponseParser.walk(root) { node, parentKey ->
+            if (out.size >= maxClips) return@walk
 
             val clip = when {
                 parentKey == "shortsLockupViewModel" -> parseShortsLockup(node)
@@ -458,7 +468,7 @@ object ClipsResponseParser {
             } ?: return@walk
 
             // Shelf-adjacent renderers always pass; stray short videos
-            // only count when a Clips shelf header was seen nearby.
+            // only count when a Clips shelf header was seen somewhere.
             if (parentKey == "shortVideoRenderer" && !shelfBoost) return@walk
             if (clip.videoId.isBlank() && clip.clipId.isBlank()) return@walk
             out.putIfAbsent(clip.clipId.ifBlank { clip.videoId }, clip)
@@ -624,5 +634,7 @@ object ClipsResponseParser {
     }
 
     private fun stripDurationFromBadge(badge: String): String =
-        badge.replace(Regex("\\d{1,2}:\\d{2}|\\d+\\s*[sS]e?c?o?n?d?s?"), "").trim()
+        badge.replace(Regex("\\d{1,2}:\\d{2}|\\d+\\s*(?:s|sec|secs|second|seconds)\\b", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("^[^A-Za-z0-9]+"), "")
+            .trim()
 }

@@ -69,8 +69,14 @@ object QualityLadderManager {
     }
 
     /** Key → rung; unknown/blank falls back to AUTO (never a broken enum). */
-    fun qualityFromKey(key: String?): DownloadQuality =
-        DownloadQuality.entries.firstOrNull { it.key.equals(key?.trim(), ignoreCase = true) } ?: DownloadQuality.AUTO
+    fun qualityFromKey(key: String?): DownloadQuality {
+        // Normalize separators + case so stored prefs ("AAC_140", "aac-140")
+        // and canonical keys ("aac140") all resolve to the same rung.
+        val normalized = key?.trim()?.replace("_", "")?.replace("-", "")?.lowercase()
+            ?: return DownloadQuality.AUTO
+        return DownloadQuality.entries.firstOrNull { it.key == normalized }
+            ?: DownloadQuality.AUTO
+    }
 
     // ───────────────────────────────────────────── stream selection policy
 
