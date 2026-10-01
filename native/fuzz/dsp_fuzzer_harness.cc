@@ -337,12 +337,18 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                    w.acousticness <= 1.0f);
         fuzz_check(__builtin_isfinite(w.valence) && w.valence >= 0.0f &&
                    w.valence <= 1.0f);
-        // Periodicity identity t == t + 24 holds wherever float arithmetic
-        // can represent the shift exactly: at |hour| >= ~5e8 the ULP spacing
-        // exceeds 24, hour+24 rounds to hour+32, and fmod legitimately
-        // differs (a float-precision reality, not an engine defect). Guard
-        // to +-1e8 (ULP <= 8, 24 = 3 ULP — exact).
-        if (__builtin_isfinite(hour) && hour > -1e8f && hour < 1e8f) {
+        // Periodicity identity t == t + 24, guarded by an ERROR-BUDGET
+        // proof rather than a naive magnitude bound. fl(hour+24) can differ
+        // from hour+24 by up to 1/2 ULP; a shift error of eps hours moves
+        // each weight by <= slope_max*eps (slope_max ~ 0.167/h) so the
+        // squared distance stays < 3*(0.167*eps)^2 and must stay under the
+        // 1e-6 tolerance. |hour| < 4096 bounds eps by 1/2 ULP(4120) =
+        // 2^-12 h -> squared distance <= ~5e-9 (200x margin). Larger hours
+        // legitimately break the identity: CI crash-b1b1bcde hit
+        // hour = 33554430 (0x4BFFFFFF < the old 1e8 guard) whose +24 shift
+        // crosses the 2^25 ULP boundary (2 -> 4) and rounds to hour+22,
+        // a float-precision reality, not an engine defect.
+        if (__builtin_isfinite(hour) && hour > -4096.0f && hour < 4096.0f) {
             const auto w2 = streamify::math::circadianWeights(hour + 24.0f);
             const float de = w2.energy - w.energy;
             const float da = w2.acousticness - w.acousticness;
