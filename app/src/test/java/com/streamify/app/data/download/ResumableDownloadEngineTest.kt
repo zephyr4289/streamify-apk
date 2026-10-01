@@ -192,7 +192,7 @@ class ResumableDownloadEngineTest {
         assertEquals(ResumableDownloadEngine.Outcome.COMPLETED, result.outcome)
         assertEquals(8_000L, dest.length())
         // Truncated restart: first byte must be the server's, not the stale tail.
-        assertEquals(0, dest.readBytes(8_000)[0].toInt() and 0xFF)
+        assertEquals(0, dest.inputStream().use { stream -> stream.read() })
     }
 
     // ───────────────────────────────────────────── QualityLadderManager
