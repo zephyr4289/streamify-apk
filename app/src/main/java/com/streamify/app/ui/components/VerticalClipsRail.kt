@@ -263,6 +263,7 @@ private fun VerticalClipCard(
  * page's clip; the main music session pauses/resumes via
  * [onFeedVisibilityChanged].
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun VerticalClipsFeedSheet(
     clips: List<ArtistClipsApi.ArtistClip>,
@@ -280,8 +281,11 @@ fun VerticalClipsFeedSheet(
         runCatching {
             val httpFactory = OkHttpDataSource.Factory(NetworkEngine.exoPlayerClient)
             val dataSourceFactory = DefaultDataSource.Factory(context.applicationContext, httpFactory)
+            val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(
+                context.applicationContext
+            ).setDataSourceFactory(dataSourceFactory)
             ExoPlayer.Builder(context.applicationContext)
-                .setDataSourceFactory(dataSourceFactory)
+                .setMediaSourceFactory(mediaSourceFactory)
                 .build()
         }.getOrNull()
     }

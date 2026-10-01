@@ -570,7 +570,8 @@ object ClipsResponseParser {
         )
     }
 
-    private fun isShort(node: JSONObject): Boolean {
+    private fun isShort(node: Any?): Boolean {
+        if (node !is JSONObject) return false
         val badge = node.optJSONObject("lengthText")?.optString("simpleText", "")
             ?: node.optString("lengthText", "")
         val secs = parseDurationBadge(badge) ?: return false

@@ -98,8 +98,10 @@ class CanvasLoopPlayer(context: Context) {
         player?.let { return it }
         val httpFactory = OkHttpDataSource.Factory(NetworkEngine.exoPlayerClient)
         val dataSourceFactory = DefaultDataSource.Factory(appContext, httpFactory)
-        val built = ExoPlayer.Builder(appContext)
+        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(appContext)
             .setDataSourceFactory(dataSourceFactory)
+        val built = ExoPlayer.Builder(appContext)
+            .setMediaSourceFactory(mediaSourceFactory)
             .build()
         built.volume = 0f
         built.repeatMode = Player.REPEAT_MODE_ONE

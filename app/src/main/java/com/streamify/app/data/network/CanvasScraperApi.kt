@@ -484,9 +484,10 @@ object CanvasResponseParser {
 
     /**
      * Visits every node of the JSON tree with its parent key, using opt*
-     * accessors exclusively so hostile shapes never throw.
+     * accessors exclusively so hostile shapes never throw. NOT inline —
+     * the walk is recursive and Kotlin forbids recursive inline functions.
      */
-    internal inline fun walk(root: Any?, visitor: (node: Any?, parentKey: String?) -> Unit) {
+    internal fun walk(root: Any?, visitor: (node: Any?, parentKey: String?) -> Unit) {
         when (root) {
             is JSONObject -> {
                 for (key in root.keys()) {

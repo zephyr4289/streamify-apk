@@ -70,7 +70,7 @@ object QualityLadderManager {
 
     /** Key → rung; unknown/blank falls back to AUTO (never a broken enum). */
     fun qualityFromKey(key: String?): DownloadQuality =
-        entries.firstOrNull { it.key.equals(key?.trim(), ignoreCase = true) } ?: AUTO
+        DownloadQuality.entries.firstOrNull { it.key.equals(key?.trim(), ignoreCase = true) } ?: DownloadQuality.AUTO
 
     // ───────────────────────────────────────────── stream selection policy
 
@@ -83,8 +83,8 @@ object QualityLadderManager {
         if (!quality.isPinned) return true
         val mime = stream.mimeType.lowercase()
         return when (quality) {
-            OPUS_251 -> mime.contains("webm") || mime.contains("opus")
-            AAC_140 -> mime.contains("mp4") || mime.contains("aac") || mime.contains("m4a")
+            DownloadQuality.OPUS_251 -> mime.contains("webm") || mime.contains("opus")
+            DownloadQuality.AAC_140 -> mime.contains("mp4") || mime.contains("aac") || mime.contains("m4a")
             else -> true
         }
     }
@@ -127,7 +127,7 @@ object QualityLadderManager {
      * *.part resumes. Never throws — an unreadable tree reports zero.
      */
     fun accountStorage(dir: File?): StorageReport {
-        if (dir == null || !dir.exists()) return StorageReport(0L, 0L, 0L, dir?.usableSpace ?: 0L)
+        if (dir == null || !dir.exists()) return StorageReport(0L, 0L, 0, dir?.usableSpace ?: 0L)
         var total = 0L
         var partial = 0L
         var count = 0

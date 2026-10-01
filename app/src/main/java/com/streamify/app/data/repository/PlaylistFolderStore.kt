@@ -182,7 +182,7 @@ object PlaylistFolderStore {
                         playlistIds = ids.filter { it.isNotBlank() },
                         createdAtMs = o.optLong("createdAt", System.currentTimeMillis())
                     )
-                }
+                )
             }
             _folders.value = loaded.filter { it.id.isNotBlank() && it.name.isNotBlank() }
             val pinnedArr = root.optJSONArray("pinned") ?: JSONArray()

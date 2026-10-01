@@ -71,7 +71,8 @@ import java.io.File
  * Image picker + square cropper + palette extraction for the ambient header
  * glow, in three steps:
  *
- *  1. PICK — ActivityResultContracts.GetContent("image/*") gallery picker.
+ *  1. PICK — ActivityResultContracts.GetContent("image" + slash-star)
+ *     gallery picker.
  *  2. CROP — the bitmap is displayed inside a fixed square viewport with
  *     pinch-to-zoom + pan gestures (shared transform state, gesture-
  *     transformed via graphicsLayer, exactly one recomposition path).

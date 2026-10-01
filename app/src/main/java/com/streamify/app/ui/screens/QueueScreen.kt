@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.foundation.layout.*
@@ -131,7 +132,7 @@ fun QueueScreen(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Filled.Shuffle,
+                    imageVector = Icons.Filled.Shuffle,
                     contentDescription = null,
                     tint = if (smartShuffleActive) StreamifyColors.Primary else StreamifyColors.TextSecondary,
                     modifier = Modifier.size(16.dp)

@@ -58,6 +58,7 @@ class DownloadWorker(
         const val CHANNEL_ID = "download_channel"
         const val NOTIFICATION_ID = 41200
         private const val TAG = "DownloadWorker"
+        private const val MAX_WORKER_RETRIES = 4
     }
 
     override suspend fun getForegroundInfo(): androidx.work.ForegroundInfo =
@@ -249,9 +250,5 @@ class DownloadWorker(
         TrackRepository.refresh()
         UiEventBus.emitEvent(UiEvent.ShowSnackbar("Saved $title (resumable download ✓)"))
         trackId
-    }
-
-    private companion object {
-        const val MAX_WORKER_RETRIES = 4
     }
 }
