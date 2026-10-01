@@ -4,10 +4,15 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -22,22 +27,32 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.streamify.app.jam.JamEngine
 import com.streamify.app.jam.JamPairing
+import com.streamify.app.jam.JamTopology
 import com.streamify.app.ui.components.yt.YtActiveEqualizer
 import com.streamify.app.ui.components.yt.YtThumbnail
 import com.streamify.app.ui.theme.*
 import com.streamify.app.viewmodel.JamUiState
 import com.streamify.app.viewmodel.JamViewModel
 import com.streamify.app.viewmodel.PlayerViewModel
+import kotlin.math.roundToInt
 
 @Composable
 fun JamSessionScreen(
@@ -52,6 +67,7 @@ fun JamSessionScreen(
     val syncTelemetry by jamViewModel.syncTelemetry.collectAsState()
     var inputRoomCode by remember { mutableStateOf("") }
     var showAddSongSheet by remember { mutableStateOf(false) }
+    var showRosterSheet by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
 
     // Invite deep link: streamify://jam/CODE — auto-populate and auto-join.
@@ -224,6 +240,9 @@ fun JamSessionScreen(
                 val roomMembers by jamViewModel.members.collectAsState()
                 val connStatus by jamViewModel.connStatus.collectAsState()
                 val controlPolicy by jamViewModel.policy.collectAsState()
+                // Regime-level read: topology flips are rare host intents, so a
+                // branch-scoped collect is the zero-jank-correct granularity.
+                val topology by jamViewModel.topology.collectAsState()
 
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     // Active Room Banner Card
@@ -302,6 +321,24 @@ fun JamSessionScreen(
                                 Text("Copy PIN to Share", color = TextSecondary, style = LocalAppTypography.current.chipText)
                             }
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // ── RENDER TOPOLOGY (Gap #13): Party Mode ⇄ Multi-Room ──
+                    TopologyBar(
+                        topology = topology,
+                        isHost = state.isHost,
+                        onToggle = { jamViewModel.togglePartyMode() }
+                    )
+
+                    if (topology.isPartyMode) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        PartyModeBanner(
+                            isHost = state.isHost,
+                            hostName = roomMembers.firstOrNull { it.isHost }?.name?.ifBlank { null }
+                                ?: "the host"
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -406,6 +443,31 @@ fun JamSessionScreen(
                             }
 
                             Spacer(modifier = Modifier.height(14.dp))
+
+                            // Party Mode (Gap #13): for guests this card is an
+                            // interactive REMOTE for the host's speaker — local
+                            // audio is muted, intents route over the mesh.
+                            if (topology.isPartyMode && !state.isHost) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Speaker,
+                                        contentDescription = null,
+                                        tint = ActiveControl,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "REMOTE CONTROL · routed to the host's speaker",
+                                        style = LocalAppTypography.current.songArtist.copy(
+                                            fontSize = 10.sp, letterSpacing = 0.5.sp
+                                        ),
+                                        color = ActiveControl
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                PartyRemoteSeekBar(playerViewModel = playerViewModel)
+                                Spacer(modifier = Modifier.height(10.dp))
+                            }
 
                             // Universal Control Buttons (Universal for all connected friends)
                             Row(
@@ -530,184 +592,96 @@ fun JamSessionScreen(
                             // The jam queue lives inside the screen's scrollable Column,
                             // so it cannot be a LazyColumn (nested scrolling would break).
                             // Bound the collapsed rendering instead of measuring/composing
-                            // every row a distributed queue can grow to.
+                            // every row a distributed queue can grow to — and give every
+                            // row a drag handle whose commit travels as a fractional-index
+                            // OP_REORDER, so 32 members can reorder concurrently and the
+                            // CRDT fold still converges on one order (Gap #11).
                             var jamQueueExpanded by remember { mutableStateOf(false) }
                             val maxCollapsedJamRows = 8
                             val visibleJamQueue = if (jamQueueExpanded) jamQueue else jamQueue.take(maxCollapsedJamRows)
-                            Column(modifier = Modifier.padding(vertical = 6.dp)) {
-                                visibleJamQueue.forEachIndexed { index, queueTrack ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "${index + 1}",
-                                            style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
-                                            color = TextTertiary,
-                                            modifier = Modifier.width(20.dp)
-                                        )
-
-                                        YtThumbnail(
-                                            url = queueTrack.coverArtPath,
-                                            size = 38.dp,
-                                            cornerRadius = 4.dp
-                                        )
-
-                                        Spacer(modifier = Modifier.width(10.dp))
-
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = queueTrack.title,
-                                                style = LocalAppTypography.current.songTitle.copy(fontSize = 13.sp),
-                                                color = TextMain,
-                                                maxLines = 1
-                                            )
-                                            Text(
-                                                text = queueTrack.artist,
-                                                style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
-                                                color = TextSecondary,
-                                                maxLines = 1
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                jamViewModel.removeFromJamQueue(queueTrack)
-                                                playerViewModel.playTrack(queueTrack)
-                                            },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.PlayArrow,
-                                                contentDescription = "Play Next",
-                                                tint = ActiveControl,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = { jamViewModel.removeFromJamQueue(queueTrack) },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Close,
-                                                contentDescription = "Remove",
-                                                tint = TextTertiary,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                }
-
-                                if (jamQueue.size > maxCollapsedJamRows) {
-                                    Text(
-                                        text = if (jamQueueExpanded) "Collapse queue" else "Show all ${jamQueue.size} tracks",
-                                        style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
-                                        color = ActiveControl,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { jamQueueExpanded = !jamQueueExpanded }
-                                            .padding(vertical = 8.dp),
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
+                            JamQueueReorderList(
+                                tracks = visibleJamQueue,
+                                onMove = { track, to -> jamViewModel.moveInJamQueue(track, to) },
+                                onPlayNow = { track ->
+                                    jamViewModel.removeFromJamQueue(track)
+                                    playerViewModel.playTrack(track)
+                                },
+                                onRemove = { track -> jamViewModel.removeFromJamQueue(track) }
+                            )
+                            if (jamQueue.size > maxCollapsedJamRows) {
+                                Text(
+                                    text = if (jamQueueExpanded) "Collapse queue" else "Show all ${jamQueue.size} tracks",
+                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                    color = ActiveControl,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { jamQueueExpanded = !jamQueueExpanded }
+                                        .padding(vertical = 8.dp),
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // Active Listeners
-                    Text(
-                        text = "LISTENERS IN ROOM",
-                        style = LocalAppTypography.current.songArtist.copy(
-                            fontSize = 11.sp,
-                            letterSpacing = 0.5.sp,
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = TextSecondary
-                    )
+                    // ── 32-MEMBER VIRTUALIZED ROSTER STRIP (Gap #11) ──────────
+                    // Header carries the hard-cap census + the governance entry.
+                    val roster = if (roomMembers.isEmpty())
+                        listOf(JamEngine.Member(session.hostNonce, "Host", null, true, 0L))
+                    else roomMembers.sortedByDescending { m -> m.isHost || m.isCoHost }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "LISTENERS IN ROOM · ${roster.size}/32",
+                            style = LocalAppTypography.current.songArtist.copy(
+                                fontSize = 11.sp,
+                                letterSpacing = 0.5.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = TextSecondary
+                        )
+                        Surface(
+                            onClick = { showRosterSheet = true },
+                            color = Primary.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(18.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.ManageAccounts,
+                                    contentDescription = null,
+                                    tint = Primary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "MANAGE",
+                                    style = LocalAppTypography.current.songArtist.copy(
+                                        fontSize = 10.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold
+                                    ),
+                                    color = Primary
+                                )
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Live presence roster (Lockstep Engine): avatars, host crown, self tag
-                    val roster = if (roomMembers.isEmpty())
-                        listOf(JamEngine.Member(session.hostNonce, "Host", null, true, 0L))
-                    else roomMembers.sortedByDescending { it.isHost }
-
+                    // Virtualized avatar strip (Lockstep Engine): every
+                    // fast-changing read (RTT radar @ ~1 Hz) is scoped to the
+                    // avatar leaf below, so a ping recomposes exactly one cell —
+                    // never this screen, never the root scaffold. Tap any avatar
+                    // for the governance / report surface (Gaps #14 & #18).
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        items(roster, key = { it.userId }) { m ->
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Box {
-                                    if (!m.avatarUrl.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = m.avatarUrl,
-                                            contentDescription = m.name,
-                                            modifier = Modifier
-                                                .size(52.dp)
-                                                .clip(CircleShape)
-                                                .border(
-                                                    if (m.isHost) 2.dp else 1.dp,
-                                                    if (m.isHost) Primary else TextTertiary,
-                                                    CircleShape
-                                                )
-                                        )
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(52.dp)
-                                                .clip(CircleShape)
-                                                .background(BgSurfaceElevated)
-                                                .border(
-                                                    if (m.isHost) 2.dp else 1.dp,
-                                                    if (m.isHost) Primary else TextTertiary,
-                                                    CircleShape
-                                                ),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = m.name.take(1).uppercase(),
-                                                color = TextMain,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 18.sp
-                                            )
-                                        }
-                                    }
-                                    if (m.isHost) {
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .size(20.dp)
-                                                .clip(CircleShape)
-                                                .background(Primary),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(text = "★", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black)
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = m.name.ifBlank { "Listener" },
-                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
-                                    fontWeight = if (m.isHost) FontWeight.Bold else FontWeight.Normal,
-                                    color = TextMain,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 4.dp)
-                                )
-                                Text(
-                                    text = when {
-                                        m.isHost -> "HOST"
-                                        m.userId == JamEngine.myUserId() -> "YOU"
-                                        else -> "LISTENER"
-                                    },
-                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 9.sp, letterSpacing = 0.8.sp),
-                                    color = if (m.isHost) Primary else TextSecondary
-                                )
-                            }
+                        items(roster, key = { it.userId + it.nonce }) { m ->
+                            RosterStripAvatar(member = m, onOpen = { showRosterSheet = true })
                         }
                     }
 
@@ -824,6 +798,14 @@ fun JamSessionScreen(
             JamAddSongModalBottomSheet(
                 onDismiss = { showAddSongSheet = false },
                 onAddTrack = { track -> jamViewModel.addToJamQueue(track) }
+            )
+        }
+
+        // ── Governance + virtualized 32-roster sheet (Gaps #14 & #18) ──
+        if (showRosterSheet) {
+            JamRosterSheet(
+                jamViewModel = jamViewModel,
+                onDismiss = { showRosterSheet = false }
             )
         }
     }
@@ -991,5 +973,488 @@ private fun JamAddSongModalBottomSheet(
                 }
             }
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 1 LEAF SURFACES — Render topology (Gap #13), party remote seek,
+// drag-reorder fractional-index queue (Gap #11), 32-member roster strip.
+//
+// ZERO-JANK DISCIPLINE: every fast-changing read (playhead @ poll rate,
+// radar RTT @ ~1 Hz) lives INSIDE these leaf composables, so those updates
+// recompose exactly one leaf — never the Jam screen, never the scaffold.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Render-topology control (Gap #13). Host sees the two-segment switch
+ * (Party Mode ⇄ Multi-Room Sync); guests see a passive readout of the
+ * regime the host has broadcast.
+ */
+@Composable
+private fun TopologyBar(
+    topology: JamTopology,
+    isHost: Boolean,
+    onToggle: () -> Unit
+) {
+    Surface(
+        color = BgSurfaceElevated,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "RENDER TOPOLOGY",
+                    style = LocalAppTypography.current.songArtist.copy(
+                        fontSize = 11.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold
+                    ),
+                    color = TextSecondary
+                )
+                if (!isHost) {
+                    Text(
+                        text = "set by host",
+                        style = LocalAppTypography.current.songArtist.copy(fontSize = 9.sp),
+                        color = TextTertiary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (isHost) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TopologySegment(
+                        label = "Party Mode",
+                        subtitle = "one speaker · zero echo",
+                        selected = topology.isPartyMode,
+                        onClick = { if (!topology.isPartyMode) onToggle() }
+                    )
+                    TopologySegment(
+                        label = "Multi-Room Sync",
+                        subtitle = "every device · phase-locked",
+                        selected = !topology.isPartyMode,
+                        onClick = { if (topology.isPartyMode) onToggle() }
+                    )
+                }
+            } else {
+                Text(
+                    text = if (topology.isPartyMode)
+                        "PARTY MODE · audio renders on the host's speaker"
+                    else
+                        "MULTI-ROOM SYNC · phase-locked audio on this phone",
+                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                    color = TextMain
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.TopologySegment(
+    label: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = if (selected) ActiveControl.copy(alpha = 0.16f) else BgCard,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.weight(1f)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(vertical = 10.dp)
+        ) {
+            Text(
+                text = label,
+                style = LocalAppTypography.current.songTitle.copy(
+                    fontSize = 12.sp, fontWeight = FontWeight.Bold
+                ),
+                color = if (selected) ActiveControl else TextMain
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = LocalAppTypography.current.songArtist.copy(fontSize = 9.sp),
+                color = TextTertiary,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+/**
+ * Party Mode banner (Gap #13). Host: celebration that this phone is the
+ * room's single renderer. Guest: the "Playing on …'s Speaker" contract —
+ * local audio suppressed, remote powers unlocked.
+ */
+@Composable
+private fun PartyModeBanner(isHost: Boolean, hostName: String) {
+    val glow = Color(0xFFF59E0B)
+    Surface(
+        color = glow.copy(alpha = 0.10f),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(glow.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Speaker,
+                    contentDescription = null,
+                    tint = glow,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = if (isHost) "PARTY MODE LIVE" else "Playing on $hostName's Speaker",
+                    style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
+                    color = TextMain
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (isHost)
+                        "This phone is the room's single speaker — 32 friends, zero echo"
+                    else
+                        "Your audio is muted — you hold the remote. Add songs, reorder, seek.",
+                    style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                    color = TextSecondary
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Guest scrubber in Party Mode: leaf-scoped playhead reads (the 1 Hz poll
+ * recomposes only this slider) and the finished scrub routes a SEEK intent
+ * over the mesh to the host's renderer.
+ */
+@Composable
+private fun PartyRemoteSeekBar(playerViewModel: PlayerViewModel) {
+    val positionMs by playerViewModel.positionMs.collectAsState()
+    val durationMs by playerViewModel.durationMs.collectAsState()
+    var scrubbing by remember { mutableStateOf(false) }
+    var scrubFraction by remember { mutableStateOf(0f) }
+    val duration = durationMs.coerceAtLeast(1L)
+
+    Slider(
+        value = if (scrubbing) scrubFraction
+        else positionMs.coerceIn(0L, duration).toFloat() / duration,
+        onValueChange = {
+            scrubbing = true
+            scrubFraction = it
+        },
+        onValueChangeFinished = {
+            playerViewModel.seekTo((scrubFraction * duration).toLong())
+            scrubbing = false
+        },
+        colors = SliderDefaults.colors(
+            thumbColor = ActiveControl,
+            activeTrackColor = ActiveControl,
+            inactiveTrackColor = Divider
+        )
+    )
+}
+
+/**
+ * Drag-to-reorder shared queue (Gap #11). The handle follows the finger
+ * 1:1 (raw translation); neighbours shift on a spring; the commit emits a
+ * fractional-index OP_REORDER that converges across all 32 replicas.
+ */
+@Composable
+private fun JamQueueReorderList(
+    tracks: List<com.streamify.app.data.models.Track>,
+    onMove: (com.streamify.app.data.models.Track, Int) -> Unit,
+    onPlayNow: (com.streamify.app.data.models.Track) -> Unit,
+    onRemove: (com.streamify.app.data.models.Track) -> Unit
+) {
+    var draggingIndex by remember { mutableStateOf(-1) }
+    var dragOffset by remember { mutableStateOf(0f) }
+    var liveTarget by remember { mutableStateOf(-1) }
+    var rowHeightPx by remember { mutableStateOf(1) }
+
+    fun targetFor(offset: Float, from: Int): Int =
+        (from + (offset / rowHeightPx).roundToInt()).coerceIn(0, tracks.size - 1)
+
+    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+        tracks.forEachIndexed { index, track ->
+            val isDragging = index == draggingIndex
+            val shiftPx = when {
+                draggingIndex < 0 -> 0f
+                isDragging -> 0f
+                draggingIndex < liveTarget && index in (draggingIndex + 1)..liveTarget -> -rowHeightPx.toFloat()
+                liveTarget < draggingIndex && index in liveTarget until draggingIndex -> rowHeightPx.toFloat()
+                else -> 0f
+            }
+            val animatedShift by animateFloatAsState(
+                targetValue = shiftPx,
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f),
+                label = "queueNeighborShift"
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .onSizeChanged { if (it.height > 0) rowHeightPx = it.height }
+                    .zIndex(if (isDragging) 1f else 0f)
+                    .graphicsLayer {
+                        translationY = if (isDragging) dragOffset else animatedShift
+                        val lift = if (isDragging) 1.03f else 1f
+                        scaleX = lift
+                        scaleY = lift
+                        alpha = if (isDragging) 0.92f else 1f
+                    }
+                    .background(
+                        if (isDragging) BgSurfaceElevated else Color.Transparent,
+                        RoundedCornerShape(10.dp)
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Drag handle — the reorder affordance.
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .pointerInput(tracks, index) {
+                            detectVerticalDragGestures(
+                                onDragStart = {
+                                    draggingIndex = index
+                                    dragOffset = 0f
+                                    liveTarget = index
+                                },
+                                onVerticalDrag = { change, amount ->
+                                    change.consume()
+                                    dragOffset += amount
+                                    if (draggingIndex >= 0) {
+                                        liveTarget = targetFor(dragOffset, draggingIndex)
+                                    }
+                                },
+                                onDragEnd = {
+                                    if (draggingIndex in tracks.indices) {
+                                        val target = targetFor(dragOffset, draggingIndex)
+                                        if (target != draggingIndex) {
+                                            onMove(tracks[draggingIndex], target)
+                                        }
+                                    }
+                                    draggingIndex = -1
+                                    dragOffset = 0f
+                                    liveTarget = -1
+                                },
+                                onDragCancel = {
+                                    draggingIndex = -1
+                                    dragOffset = 0f
+                                    liveTarget = -1
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.DragHandle,
+                        contentDescription = "Reorder",
+                        tint = TextTertiary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                Text(
+                    text = "${index + 1}",
+                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                    color = TextTertiary,
+                    modifier = Modifier.width(20.dp)
+                )
+
+                YtThumbnail(
+                    url = track.coverArtPath,
+                    size = 38.dp,
+                    cornerRadius = 4.dp
+                )
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = track.title,
+                        style = LocalAppTypography.current.songTitle.copy(fontSize = 13.sp),
+                        color = TextMain,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = track.artist,
+                        style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                        color = TextSecondary,
+                        maxLines = 1
+                    )
+                }
+
+                IconButton(
+                    onClick = { onPlayNow(track) },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = "Play Next",
+                        tint = ActiveControl,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = { onRemove(track) },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Remove",
+                        tint = TextTertiary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One roster avatar cell (Gap #11). The ~1 Hz mesh-radar feed is collected
+ * HERE — a ping recomposes this single cell, never the roster strip, never
+ * the Jam screen. Ring colour = live RTT health; crown = host; note badge
+ * = co-host (controller class); tap opens governance.
+ */
+@Composable
+private fun RosterStripAvatar(
+    member: JamEngine.Member,
+    onOpen: () -> Unit
+) {
+    val peers by JamEngine.meshPeers.collectAsState()
+    val rttMs = peers.firstOrNull { it.nonce == member.nonce }?.rttMs ?: -1f
+    val isSelf = member.userId == JamEngine.myUserId()
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(onClick = onOpen)
+    ) {
+        Box {
+            Box(modifier = Modifier.size(58.dp), contentAlignment = Alignment.Center) {
+                RosterHealthRing(rttMs = rttMs)
+                if (!member.avatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = member.avatarUrl,
+                        contentDescription = member.name,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .border(
+                                if (member.isHost) 2.dp else 1.dp,
+                                if (member.isHost) Primary else Color.Transparent,
+                                CircleShape
+                            )
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(BgSurfaceElevated),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = member.name.take(1).uppercase().ifBlank { "?" },
+                            color = TextMain,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+            }
+            // Role badge: crown for the host, controller-note for co-hosts.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(if (member.isHost) Primary else ActiveControl),
+                contentAlignment = Alignment.Center
+            ) {
+                if (member.isHost) {
+                    Text(text = "★", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                } else if (member.isCoHost) {
+                    Icon(
+                        imageVector = Icons.Filled.MusicNote,
+                        contentDescription = "Co-host",
+                        tint = Color.White,
+                        modifier = Modifier.size(10.dp)
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = member.name.ifBlank { "Listener" },
+            style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+            fontWeight = if (member.isHost) FontWeight.Bold else FontWeight.Normal,
+            color = TextMain,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        Text(
+            text = when {
+                member.isHost -> "HOST"
+                member.isCoHost -> "CO-HOST"
+                isSelf -> "YOU"
+                else -> "LISTENER"
+            },
+            style = LocalAppTypography.current.songArtist.copy(fontSize = 9.sp, letterSpacing = 0.8.sp),
+            color = when {
+                member.isHost -> Primary
+                member.isCoHost -> ActiveControl
+                else -> TextSecondary
+            }
+        )
+    }
+}
+
+/** RTT health ring: green < 80 ms, amber < 200 ms, red beyond, grey unknown. */
+@Composable
+private fun RosterHealthRing(rttMs: Float) {
+    val color = when {
+        rttMs < 0f -> TextTertiary.copy(alpha = 0.35f)
+        rttMs < 80f -> Color(0xFF10B981)
+        rttMs < 200f -> Color(0xFFF59E0B)
+        else -> Color(0xFFEF4444)
+    }
+    Canvas(modifier = Modifier.size(58.dp)) {
+        val stroke = 3.dp.toPx()
+        val inset = stroke / 2 + 1.dp.toPx()
+        drawArc(
+            color = color,
+            startAngle = -90f,
+            sweepAngle = 300f,
+            useCenter = false,
+            style = Stroke(width = stroke, cap = StrokeCap.Round),
+            topLeft = Offset(inset, inset),
+            size = Size(this.size.width - inset * 2, this.size.height - inset * 2)
+        )
     }
 }

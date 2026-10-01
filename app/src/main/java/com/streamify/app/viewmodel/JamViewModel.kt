@@ -7,6 +7,8 @@ import com.streamify.app.data.supabase.SupabaseClient
 import com.streamify.app.jam.jamTrackFromJson
 import com.streamify.app.jam.JamEngine
 import com.streamify.app.jam.JamPairing
+import com.streamify.app.jam.JamTopology
+import com.streamify.app.jam.JoinFabric
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -126,6 +128,21 @@ class JamViewModel(
     val meshPeers: StateFlow<List<JamEngine.MeshPeer>> = JamEngine.meshPeers
     val syncTelemetry: StateFlow<JamEngine.SyncTelemetry> = JamEngine.syncTelemetry
 
+    // ═══ Phase 1: Topology (Gap #13) + Governance (Gaps #14/#18) ═══
+    val topology: StateFlow<JamTopology> = JamEngine.topology
+    val governanceRows: StateFlow<List<com.streamify.app.jam.JamGovernance.MemberAcl>> = JamEngine.governanceRows
+    val memberReports: StateFlow<List<com.streamify.app.jam.JamGovernance.MemberReport>> = JamEngine.memberReports
+
+    private val _isHost = MutableStateFlow(false)
+    val isHost: StateFlow<Boolean> = _isHost.asStateFlow()
+
+    private val _rosterCount = MutableStateFlow(0)
+    val rosterCount: StateFlow<Int> = _rosterCount.asStateFlow()
+
+    /** RTT lookup for roster health chips (radar by nonce). */
+    fun rttForNonce(nonce: String): Float =
+        JamEngine.meshPeers.value.firstOrNull { it.nonce == nonce }?.rttMs ?: -1f
+
     private var pll: JamPhaseLockedLoop? = null
     private var attachedPlayer: PlayerViewModel? = null
     private var executorsStarted = false
@@ -141,6 +158,30 @@ class JamViewModel(
                     com.streamify.app.media.audio.SyncAudioProcessor.setJamSyncActive(false)
                     _uiState.value = JamUiState.Idle
                 }
+            }
+        }
+        // Phase 1: host role + roster size mirrors for the governance UI.
+        viewModelScope.launch {
+            JamEngine.members.collect { list ->
+                _rosterCount.value = list.size
+            }
+        }
+        viewModelScope.launch {
+            JamEngine.topology.collect { _topology ->
+                // Hosting rails mirror live room state (party/full/queue)
+                // into BLE adverts + LAN announcements.
+                if (JamEngine.isActive()) {
+                    JoinFabric.updateHostingState(
+                        partyMode = _topology.isPartyMode,
+                        hasSpace = _rosterCount.value < 32,
+                        queueNonEmpty = JamEngine.queue.value.isNotEmpty()
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            JamEngine.meshPeers.collect { _peers ->
+                _isHost.value = JamEngine.isHost()
             }
         }
         // Identity enrichment (local cache read only — never a server call):
@@ -161,6 +202,10 @@ class JamViewModel(
             val session = JamEngine.createServerlessRoom()
             _uiState.value = JamUiState.Active(session, isHost = true)
             JamEngine.noteSelf()
+            // Gap #12: the fresh host immediately lights the join-fabric rails
+            // (BLE advertiser + LAN announcements) so nearby friends see the
+            // one-tap prompt within a second.
+            JoinFabric.startHosting(session.sessionCode, JamEngine.myDisplayName)
         }
     }
 
@@ -186,9 +231,49 @@ class JamViewModel(
     /** Explicit detach used by the Leave button (never by lifecycle death). */
     fun leaveJam(endForEveryone: Boolean = false) {
         JamEngine.leaveSession(endForEveryone)
+        JoinFabric.stopHosting()
         pll?.reset()
         pll = null
         _uiState.value = JamUiState.Idle
+    }
+
+    // ═══ Phase 1: Party Mode (Gap #13) + Governance (Gaps #14/#18) ═══
+
+    /** Host toggle: Party Mode (single renderer) ⇄ Multi-render synced. */
+    fun togglePartyMode() {
+        val target = if (JamEngine.topology.value == JamTopology.MULTI_RENDER)
+            JamTopology.SINGLE_RENDER else JamTopology.MULTI_RENDER
+        JamEngine.setTopology(target)
+    }
+
+    /** Host: per-member playback control permission. */
+    fun setMemberAcl(nonce: String, allowControl: Boolean? = null, allowVolume: Boolean? = null) {
+        JamEngine.setMemberAcl(nonce, allowControl, allowVolume)
+    }
+
+    /** Host: co-host promotion / demotion. */
+    fun setMemberRole(nonce: String, role: com.streamify.app.jam.JamGovernance.Role) {
+        JamEngine.setMemberRole(nonce, role)
+    }
+
+    /** Host: kick + block for the room lifetime. */
+    fun kickMember(nonce: String) {
+        JamEngine.kickMember(nonce)
+    }
+
+    /** Host: ban without removal. */
+    fun banMember(nonce: String) {
+        JamEngine.banMember(nonce)
+    }
+
+    /** Guest: report a disruptive member to the host. */
+    fun reportMember(nonce: String, reason: com.streamify.app.jam.JamGovernance.ReportReason) {
+        JamEngine.reportMember(nonce, reason)
+    }
+
+    /** Host: clear the report inbox. */
+    fun clearReports() {
+        JamEngine.clearMemberReports()
     }
 
     // ═══════════════ Shared queue (routed through the engine protocol) ═══════════════
@@ -200,6 +285,11 @@ class JamViewModel(
 
     fun removeFromJamQueue(track: Track) {
         JamEngine.removeFromQueue(track)
+    }
+
+    /** Fractional-index reorder of the shared queue (Gap #11). */
+    fun moveInJamQueue(track: Track, toPosition: Int) {
+        JamEngine.moveInQueue(track, toPosition)
     }
 
     fun cycleControlPolicy() {
@@ -281,6 +371,14 @@ class JamViewModel(
                             if (cmd.play) pvm.play() else pvm.pause()
                             pvm.isApplyingJamSync = false
                         }
+                    }
+                    is JamEngine.Command.ApplyRenderSuppression -> {
+                        // Party Mode audio discipline (Gap #13): guests mute
+                        // LOCAL output — the host speaker is the renderer.
+                        // Volume-level muting keeps the PLL + decoder warm,
+                        // so flipping back to MULTI_RENDER re-locks audio
+                        // with zero handshake latency.
+                        pvm.setJamRenderSuppressed(cmd.suppressed)
                     }
                     JamEngine.Command.SessionEnded -> {
                         UiEventBus.emitEvent(UiEvent.ShowSnackbar("Jam ended by host"))
