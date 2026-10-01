@@ -37,6 +37,7 @@ pub mod p2p_mesh;
 // (feat/phase3-rust-chunk-swarmer-sync): byte-range integrity verifier,
 // resumable transfer state, two-way library catalog sync.
 pub mod chunk_verifier;
+pub mod local_sync;
 pub mod queue_optimizer;
 pub mod radio_scorer;
 pub mod repository;
