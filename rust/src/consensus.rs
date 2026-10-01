@@ -345,8 +345,11 @@ impl PlaylistOp {
 
     fn compute_checksum(&self) -> u32 {
         let header = self.header_bytes();
+        // FNV-1a over [0..48): every header field except the checksum
+        // itself (the reserved span [52..64) is zero-checked at parse —
+        // the jam_crdt house discipline).
         let mut hash = FNV1A_32_OFFSET;
-        for b in header.iter() {
+        for b in header[..48].iter() {
             hash ^= *b as u32;
             hash = hash.wrapping_mul(FNV1A_32_PRIME);
         }
@@ -747,14 +750,25 @@ impl CollabPlaylistState {
                 }
             }
             PlaylistOpKind::Reorder => {
-                if let Some(entry) = self.items.get_mut(&op.item_id) {
-                    if ts > entry.frac_ts {
-                        entry.frac = op.frac;
-                        entry.frac_ts = ts;
-                    }
+                // A reorder whose Add has not arrived yet (out-of-order
+                // delivery) creates a dead entry carrying the fractional
+                // position — the same causality-tolerant discipline as the
+                // Remove branch. Without this, a reorder arriving before
+                // its element's add would be silently LOST and replicas
+                // applying the same op set in different orders would
+                // diverge on the item's position (found by the randomized
+                // split-brain chaos test).
+                let entry = self.items.entry(op.item_id).or_insert(ItemCore {
+                    cad_id: 0,
+                    alive: false,
+                    alive_ts: (0, 0),
+                    frac: op.frac,
+                    frac_ts: (0, 0),
+                });
+                if ts > entry.frac_ts {
+                    entry.frac = op.frac;
+                    entry.frac_ts = ts;
                 }
-                // Reordering a never-added id is a no-op (fresh replicas
-                // simply have nothing to move yet).
             }
             PlaylistOpKind::Rename => {
                 if (op.lamport, op.author_id) >= (self.title.1, self.title.2) {
