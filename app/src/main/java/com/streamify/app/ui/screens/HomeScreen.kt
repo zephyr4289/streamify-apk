@@ -49,6 +49,11 @@ fun HomeScreen(
     val communityState by communityViewModel.uiState.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val user by SupabaseClient.currentUser.collectAsState()
+
+    // Gap #20 / #26: dedicated flows so the Daylist hero and Daily Mixes
+    // update without recomposing the whole shelf tree.
+    val daylistUi by viewModel.daylist.collectAsState()
+    val dailyMixes by viewModel.dailyMixes.collectAsState()
     
     // Decoupled Player State Observation: Isolates 200ms position ticks from root HomeScreen recomposition
     val currentTrack by remember {
@@ -164,6 +169,57 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 120.dp)
                     ) {
+                        // DAYLIST HERO (Gap #20): morphing circadian banner.
+                        val daylistHero = daylistUi.hero
+                        if (daylistHero != null) {
+                            item(key = "daylist_hero", contentType = "daylistHero") {
+                                YtDaylistHeroBanner(
+                                    model = daylistHero,
+                                    onPlayDaylist = {
+                                        val tracks = daylistUi.tracks
+                                        tracks.firstOrNull()?.let { onTrackClick(it, tracks) }
+                                    }
+                                )
+                            }
+                        }
+
+                        // DAILY MIXES 1–6 (Gap #26): artist-cluster carousels.
+                        if (dailyMixes.isNotEmpty()) {
+                            item(key = "header_daily_mixes") {
+                                YtSectionHeader(
+                                    title = "Daily Mixes",
+                                    kicker = "Your artist clusters • 1–6"
+                                )
+                            }
+                            item(key = "rail_daily_mixes") {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(
+                                        items = dailyMixes,
+                                        key = { "daily_mix_${it.number}_${it.seedArtist}" }
+                                    ) { mix ->
+                                        YtDailyMixCard(
+                                            mix = mix,
+                                            onPlayMix = {
+                                                mix.tracks.firstOrNull()?.let {
+                                                    onTrackClick(it, mix.tracks)
+                                                }
+                                            },
+                                            onLongPress = {
+                                                com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                                                mix.tracks.firstOrNull()?.let { track ->
+                                                    contextMenuController.show(track, origin = MenuOrigin.HOME)
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // In-App OTA Update Banner
                         if (updateState is UpdateState.UpdateAvailable) {
                             val available = updateState as UpdateState.UpdateAvailable
