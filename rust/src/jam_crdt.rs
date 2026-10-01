@@ -483,14 +483,17 @@ impl JamCrdtState {
             return false; // corrupt wire payload or NaN poisoning attempt
         }
 
+        let mut touched: Option<(u64, u64)> = None;
         match op.op_type {
             1 => {
                 // Add (element identity == op_id)
                 if self.tombstones.contains_key(&op.op_id) {
                     return false; // B2: late replay after Remove — suppressed
                 }
+                let key = frac_key(op.frac_index, op.op_id);
                 self.queue
-                    .insert(frac_key(op.frac_index, op.op_id), QueueEntry { cad_id: op.track_cad_id });
+                    .insert(key, QueueEntry { cad_id: op.track_cad_id });
+                touched = Some(key);
             }
             2 => {
                 // Remove: tombstone the ELEMENT, then purge any live entry.
@@ -504,6 +507,8 @@ impl JamCrdtState {
                 for k in doomed {
                     self.queue.remove(&k);
                 }
+                // Removals only WIDEN neighbour gaps — no new density
+                // violation can form, so no rebalance check is needed.
             }
             3 => {
                 // Reorder: capture before removal (R2), preserve identity.
@@ -514,10 +519,9 @@ impl JamCrdtState {
                     .map(|(k, v)| (*k, v.cad_id));
                 if let Some((old_key, cad_id)) = found {
                     self.queue.remove(&old_key);
-                    self.queue.insert(
-                        frac_key(op.frac_index, op.target_add_op_id),
-                        QueueEntry { cad_id },
-                    );
+                    let key = frac_key(op.frac_index, op.target_add_op_id);
+                    self.queue.insert(key, QueueEntry { cad_id });
+                    touched = Some(key);
                 }
                 // Reordering an absent/tombstoned element is a no-op.
             }
@@ -527,6 +531,7 @@ impl JamCrdtState {
                 // `target_add_op_id` the voted element. Voter identity on
                 // this legacy path derives from the device nonce; the strong
                 // pubkey-verified path is [`JamCrdtState::apply_op_as`].
+                // The queue is untouched — no rebalance anchor.
                 let voter = VoterId::from_nonce(&op.sender_nonce);
                 self.votes.apply(
                     op.target_add_op_id,
@@ -539,13 +544,55 @@ impl JamCrdtState {
         }
 
         self.reconcile_promotions();
-        self.check_rebalance();
+        if let Some(key) = touched {
+            self.check_rebalance_at(&key);
+        }
         true
     }
 
     /// M2: RELATIVE ULP check — scale-aware density detection. Shared-fraction
     /// neighbours (composite-key ties) have gap 0 and trip instantly.
-    fn check_rebalance(&mut self) {
+    ///
+    /// INCREMENTAL: the mutated key is checked against its immediate
+    /// BTreeMap neighbours only. A density violation can only FORM at an
+    /// insertion site (removals widen gaps), so neighbour checks at every
+    /// mutation are equivalent to a full sweep — at O(log n) instead of
+    /// the O(n) per-op cost the mesh ingress path cannot afford (measured:
+    /// the full sweep is what pushed the Phase 1 32-peer 1000-op chaos
+    /// trial over its median budget once the CRDT mirror landed).
+    /// Bulk hydration keeps the full sweep via [`Self::check_rebalance_full`].
+    fn check_rebalance_at(&mut self, key: &(u64, u64)) {
+        use std::ops::Bound;
+        if self.queue.len() < 2 {
+            return;
+        }
+        let me = f64::from_bits(key.0);
+        // Predecessor gap.
+        if let Some((pb, _)) = self.queue.range(..key).next_back() {
+            let p = f64::from_bits(pb.0);
+            let ulp = me.abs().max(p.abs()) * f64::EPSILON;
+            if (me - p) <= ulp * 2.0 {
+                self.needs_rebalance = true;
+                return;
+            }
+        }
+        // Successor gap.
+        if let Some((nb, _)) = self
+            .queue
+            .range((Bound::Excluded(*key), Bound::Unbounded))
+            .next()
+        {
+            let n = f64::from_bits(nb.0);
+            let ulp = n.abs().max(me.abs()) * f64::EPSILON;
+            if (n - me) <= ulp * 2.0 {
+                self.needs_rebalance = true;
+            }
+        }
+    }
+
+    /// Full-sweep variant for bulk hydration (load_snapshot / load_full):
+    /// latches on ANY adjacent pair inside relative ULP range.
+    fn check_rebalance_full(&mut self) {
         if self.queue.len() < 2 {
             return;
         }
@@ -589,7 +636,7 @@ impl JamCrdtState {
             self.tombstones.insert(t, ());
         }
         self.needs_rebalance = false;
-        self.check_rebalance();
+        self.check_rebalance_full();
     }
 
     /// Live view for UI binding: [(frac, add_op_id, cad_id)] in play order.
@@ -620,7 +667,6 @@ impl JamCrdtState {
                 return Some(VoteOutcome::Rejected);
             }
             self.reconcile_promotions();
-            self.check_rebalance();
             Some(outcome)
         } else {
             let _ = self.apply_op(op);
@@ -851,7 +897,7 @@ impl JamCrdtState {
         }
         self.committed.clear();
         self.reconcile_promotions();
-        self.check_rebalance();
+        self.check_rebalance_full();
     }
 }
 

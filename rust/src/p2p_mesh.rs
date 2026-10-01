@@ -1093,6 +1093,11 @@ pub struct MeshNode {
     /// promotion engine). Inbound CRDT_OP queue ops and verified VOTE_OP
     /// frames merge here; JNI queries (castVote / getTrackVotes) read it.
     crdt: Mutex<JamCrdtState>,
+    /// Deferred-mirror feed: inbound queue ops leave the recv loop via
+    /// this channel and merge in a background task — datagram ingress
+    /// must stay non-blocking (the 32-peer chaos path measured the
+    /// synchronous mirror as real per-op CPU under load).
+    crdt_mirror_tx: mpsc::UnboundedSender<JamOp>,
     /// Live listening state per peer (FRIEND_ACTIVITY registry).
     friend_activity: Mutex<HashMap<PeerId, FriendActivityEntry>>,
     /// Sender-side activity throttle watermark (mono ns).
@@ -1143,6 +1148,9 @@ impl MeshNode {
 
         let gossip_engine = GossipEngine::new(id.0, cfg.gossip.clone());
         let swarm_manager = SwarmManager::new(id.0, cfg.swarm.clone());
+        // Phase 2: the deferred CRDT mirror channel (spawned below once
+        // the node Arc exists — the task upgrades a Weak handle).
+        let (crdt_mirror_tx, mut crdt_mirror_rx) = mpsc::unbounded_channel::<JamOp>();
 
         // Phase 1: ephemeral governance identity. Production derives the
         // Ed25519 seed from OS entropy mixed with the session+device
@@ -1195,6 +1203,7 @@ impl MeshNode {
             last_ptp_presence_ns: AtomicI64::new(i64::MIN / 2),
             election_armed: AtomicBool::new(false),
             crdt: Mutex::new(JamCrdtState::new()),
+            crdt_mirror_tx: crdt_mirror_tx.clone(),
             friend_activity: Mutex::new(HashMap::new()),
             last_friend_tx_ns: AtomicI64::new(i64::MIN / 2),
         });
@@ -1225,6 +1234,37 @@ impl MeshNode {
         }
         for rx in outbound_rxs {
             tokio::spawn(sender_loop(Arc::clone(&sock), rx, stop_rx.clone()));
+        }
+        // Phase 2: deferred CRDT mirror worker — inbound queue ops merge
+        // into the replica OFF the recv hot path.
+        {
+            let weak = Arc::downgrade(&node);
+            let mut mirror_stop = stop_rx.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = mirror_stop.changed() => {
+                            if *mirror_stop.borrow() {
+                                // Drain the backlog before dying so a
+                                // shutdown-time op is not lost mid-merge.
+                                while let Ok(op) = crdt_mirror_rx.try_recv() {
+                                    if let Some(n) = weak.upgrade() {
+                                        let mut c = heal(n.crdt.lock());
+                                        c.apply_op(&op);
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                        op = crdt_mirror_rx.recv() => {
+                            let Some(op) = op else { break };
+                            let Some(n) = weak.upgrade() else { break };
+                            let mut c = heal(n.crdt.lock());
+                            c.apply_op(&op);
+                        }
+                    }
+                }
+            });
         }
         tokio::spawn(housekeeping_loop(Arc::downgrade(&node), stop_rx));
 
@@ -2557,17 +2597,17 @@ impl MeshNode {
                             self.execute_swarm_action(a);
                         }
                     } else {
-                        // Phase 2: valid queue ops (Add/Remove/Reorder)
-                        // mirrored into the mesh CRDT replica so the vote
-                        // ledger and promotion engine track the live room
-                        // queue. Unsigned Vote ops on this app-visible
-                        // channel are NOT merged — votes ride the signed
-                        // MSG_VOTE_OP path only.
-                        if dp.header.msg_type == MSG_CRDT_OP && dp.payload.len() == crate::jam_crdt::JAM_OP_SIZE {
+                        // Phase 2: valid queue ops (Add/Remove/Reorder) are
+                        // deferred into the background CRDT mirror (ingress
+                        // stays non-blocking). Unsigned Vote ops on this
+                        // app-visible channel are NOT mirrored — votes ride
+                        // the signed MSG_VOTE_OP path only.
+                        if dp.header.msg_type == MSG_CRDT_OP
+                            && dp.payload.len() == crate::jam_crdt::JAM_OP_SIZE
+                        {
                             if let Some(op) = JamOp::from_bytes(&dp.payload) {
                                 if op.op_type != 4 {
-                                    let mut c = heal(self.crdt.lock());
-                                    c.apply_op(&op);
+                                    let _ = self.crdt_mirror_tx.send(op);
                                 }
                             }
                         }
