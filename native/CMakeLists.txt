@@ -137,8 +137,11 @@ if (STREAMIFY_BUILD_FUZZERS)
         dsp/ChannelOps.cc
         dsp/MasterChain.cc
         dsp/AcousticPhaseResampler.cc
+        math/CandidateHasher.cc
+        math/HarmonicTransitionEngine.cc
+        math/CircadianCurves.cc
     )
-    target_include_directories(dsp_fuzzer_harness PRIVATE dsp mix .)
+    target_include_directories(dsp_fuzzer_harness PRIVATE dsp mix math util .)
     # Sanitizers replace global -O3/-flto/-ffast-math for this target: fast-math
     # elides the NaN guards the harness exists to exercise.
     target_compile_options(dsp_fuzzer_harness PRIVATE
