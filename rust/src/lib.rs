@@ -60,7 +60,10 @@ pub use neuro_queue::{BrainState, NeuroCandidate, NeuroQueueEngine};
 pub use playlist_parser::{ParsedPlaylistResult, ParsedPlaylistTrack, PlaylistParser};
 pub use ptp::PtpFilter;
 pub use queue_optimizer::{CandidateTrack, QueueOptimizer};
-pub use radio_scorer::{RadioAntiDriftEngine, ScoredCandidate};
+pub use radio_scorer::{
+    BlendCandidate, BlendMemberSeed, BlendScoreResult, BlendScoredCandidate, BlendWeights,
+    GroupBlendScorer, RadioAntiDriftEngine, ScoredCandidate,
+};
 pub use resolver::StreamResolver;
 pub use search::{FuzzySearchEngine, SearchCandidate};
 pub use tagger::{AudioMetadataEngine, TrackMetadata};
