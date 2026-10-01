@@ -164,8 +164,15 @@ if (STREAMIFY_BUILD_FUZZERS)
         math/CandidateHasher.cc
         math/HarmonicTransitionEngine.cc
         math/CircadianCurves.cc
+        video/CanvasLoopMath.cc
+        video/CanvasLoopRenderer.cc
+        agsl/AmbientGlowShader.cc
+        audio/OpusPacketParser.cc
+        audio/AdtsFrameParser.cc
+        audio/AudioFrameRemuxer.cc
+        palette/BitmapPalette.cc
     )
-    target_include_directories(dsp_fuzzer_harness PRIVATE dsp mix math util .)
+    target_include_directories(dsp_fuzzer_harness PRIVATE dsp mix math util video agsl audio palette .)
     # Sanitizers replace global -O3/-flto/-ffast-math for this target: fast-math
     # elides the NaN guards the harness exists to exercise.
     target_compile_options(dsp_fuzzer_harness PRIVATE
