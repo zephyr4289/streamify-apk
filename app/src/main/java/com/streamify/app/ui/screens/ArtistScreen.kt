@@ -51,6 +51,11 @@ fun ArtistScreen(
 
     val firstTrackWithCover = artistTracks.find { !it.coverArtPath.isNullOrBlank() }
 
+    // ── Phase 3: vertical 30s Clips rail + immersive feed (audio sync) ────
+    val clipsState = com.streamify.app.ui.components.rememberArtistClips(artistName)
+    var showClipsFeed by remember { mutableStateOf(false) }
+    var resumeAudioOnClipsClose by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -194,6 +199,15 @@ fun ArtistScreen(
                 )
             }
 
+            // ── Phase 3: vertical 30s Clips discovery rail ────────────────────
+            item(key = "artist_clips_rail") {
+                com.streamify.app.ui.components.VerticalClipsRail(
+                    clipsState = clipsState,
+                    onOpenFeed = { showClipsFeed = true }
+                )
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+            }
+
             items(artistTracks, key = { it.id }) { track ->
                 SwipeableTrackListItem(
                     track = track,
@@ -205,6 +219,29 @@ fun ArtistScreen(
                     onSwipeLike = { playerViewModel.toggleLike(track) }
                 )
             }
+        }
+    }
+
+    // ── Phase 3: immersive vertical clips feed (audio-synced) ─────────────
+    if (showClipsFeed) {
+        val feedClips = (clipsState as? com.streamify.app.ui.components.ClipsState.Ready)
+            ?.page?.clips ?: emptyList()
+        if (feedClips.isNotEmpty()) {
+            com.streamify.app.ui.components.VerticalClipsFeedSheet(
+                clips = feedClips,
+                onDismiss = { showClipsFeed = false },
+                onFeedVisibilityChanged = { visible ->
+                    if (visible) {
+                        // Audio sync: the clip feed owns the audio stage while
+                        // open — pause the music session, remember to resume.
+                        resumeAudioOnClipsClose = playerState.isPlaying
+                        if (playerState.isPlaying) playerViewModel.pause()
+                    } else if (resumeAudioOnClipsClose) {
+                        resumeAudioOnClipsClose = false
+                        playerViewModel.play()
+                    }
+                }
+            )
         }
     }
 }

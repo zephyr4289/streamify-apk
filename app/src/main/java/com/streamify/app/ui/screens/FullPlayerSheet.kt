@@ -203,6 +203,21 @@ fun FullPlayerSheet(
     var showRelatedSheet by remember { mutableStateOf(false) }
     var landscapeTab by remember { mutableStateOf(LandscapePlayerTab.UP_NEXT) }
 
+    // ── Phase 3: Canvas 8s loop backdrop (audio-only ↔ Canvas toggle) ─────
+    // Resolution is SWR-cached + off-main; a track without canvas renders
+    // no toggle at all (never a dead control).
+    var canvasEnabled by remember { mutableStateOf(false) }
+    val canvasState = com.streamify.app.ui.components.rememberCanvasLoop(
+        videoId = track.ytmVideoId,
+        trackTitle = track.title,
+        trackArtist = track.artist
+    )
+    val canvasReady = canvasState is com.streamify.app.ui.components.CanvasLoopState.Ready
+    // Track changed → drop a stale enabled toggle onto a canvas-less track.
+    LaunchedEffect(track.id, canvasReady) {
+        if (!canvasReady) canvasEnabled = false
+    }
+
     // --- PILLAR 2: LIFO Sub-Sheet Back Trapping ---
     BackHandler(enabled = showUpNextSheet) {
         showUpNextSheet = false
@@ -276,6 +291,19 @@ fun FullPlayerSheet(
             )
         }
 
+        // 1b. Phase 3 — Canvas 8s looping video backdrop with ambient glow
+        // blending. Layered BEHIND all player furniture; audio stays on the
+        // main session (the loop player is muted by construction).
+        val readyLoop = (canvasState as? com.streamify.app.ui.components.CanvasLoopState.Ready)?.loop
+        if (readyLoop != null && canvasEnabled) {
+            com.streamify.app.ui.components.CanvasBackdrop(
+                loop = readyLoop,
+                enabled = canvasEnabled,
+                dominantColor = dominantColor,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         if (isLandscape) {
             // =========================================================================
             // ADAPTIVE DUAL-PANE LANDSCAPE / TABLET LAYOUT
@@ -320,6 +348,13 @@ fun FullPlayerSheet(
                         YtSongVideoSwitcher(
                             isVideo = isVideoMode,
                             onToggle = { playerViewModel.toggleVideoMode(it) }
+                        )
+
+                        // Phase 3 — Canvas toggle (landscape top bar)
+                        com.streamify.app.ui.components.CanvasToggleChip(
+                            enabled = canvasEnabled,
+                            visible = canvasReady,
+                            onToggle = { canvasEnabled = it }
                         )
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -676,6 +711,13 @@ fun FullPlayerSheet(
                     YtSongVideoSwitcher(
                         isVideo = isVideoMode,
                         onToggle = { playerViewModel.toggleVideoMode(it) }
+                    )
+
+                    // Phase 3 — Canvas toggle (portrait top bar)
+                    com.streamify.app.ui.components.CanvasToggleChip(
+                        enabled = canvasEnabled,
+                        visible = canvasReady,
+                        onToggle = { canvasEnabled = it }
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {

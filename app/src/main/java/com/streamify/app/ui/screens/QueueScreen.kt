@@ -41,6 +41,8 @@ fun QueueScreen(
     val playerState by playerViewModel.playerState.collectAsState()
     val radioBuilding by UniversalCandidateBroker.isFetching.collectAsState()
     val radioSummary by OnlineRadioEngine.lastBuildSummary.collectAsState()
+    val smartShuffleInjected by playerViewModel.smartShuffleInjectedIds.collectAsState()
+    val smartShuffleActive = smartShuffleInjected.isNotEmpty()
     val contextMenuController = LocalContextMenuController.current
     val nowPlaying = playerState.currentTrack
     val queue = playerState.queue
@@ -106,6 +108,80 @@ fun QueueScreen(
                     ),
                     color = if (radioBuilding) StreamifyColors.Primary else StreamifyColors.TextSecondary,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                )
+            }
+        }
+
+        // ── Phase 3: Smart Shuffle — interleave recommendations w/ badges ──
+        androidx.compose.material3.Surface(
+            color = if (smartShuffleActive) StreamifyColors.Primary.copy(alpha = 0.12f)
+                    else StreamifyColors.BgSurfaceElevated,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                width = 1.dp,
+                color = if (smartShuffleActive) StreamifyColors.Primary.copy(alpha = 0.5f)
+                        else StreamifyColors.BorderChip
+            ),
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Filled.Shuffle,
+                    contentDescription = null,
+                    tint = if (smartShuffleActive) StreamifyColors.Primary else StreamifyColors.TextSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Smart Shuffle",
+                        style = LocalAppTypography.current.songTitle.copy(
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = if (smartShuffleActive) StreamifyColors.Primary else StreamifyColors.TextMain
+                    )
+                    if (smartShuffleActive) {
+                        Text(
+                            text = "${smartShuffleInjected.size} recommended picks woven in",
+                            style = LocalAppTypography.current.songArtist.copy(fontSize = 10.sp),
+                            color = StreamifyColors.TextSecondary
+                        )
+                    } else {
+                        Text(
+                            text = "Weave recommendations into this queue",
+                            style = LocalAppTypography.current.songArtist.copy(fontSize = 10.sp),
+                            color = StreamifyColors.TextSecondary
+                        )
+                    }
+                }
+                if (smartShuffleActive) {
+                    // Reshuffle trigger — fresh batch, old picks stripped.
+                    androidx.compose.material3.TextButton(
+                        onClick = { playerViewModel.reshuffleSmartShuffle() },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)
+                    ) {
+                        Text(
+                            text = "Reshuffle",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = StreamifyColors.Primary
+                        )
+                    }
+                }
+                androidx.compose.material3.Switch(
+                    checked = smartShuffleActive,
+                    onCheckedChange = { playerViewModel.toggleSmartShuffle() },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                        checkedTrackColor = StreamifyColors.Primary,
+                        checkedThumbColor = androidx.compose.ui.graphics.Color.White
+                    ),
+                    modifier = Modifier.size(width = 44.dp, height = 26.dp)
                 )
             }
         }
@@ -259,12 +335,15 @@ fun QueueScreen(
                 ) { index, track ->
                     val isBeingDragged = draggedItemIndex == index
                     val dragOffset = if (isBeingDragged) draggedItemOffset else 0f
+                    // Phase 3 — distinct badge for Smart Shuffle injections.
+                    val isSmartPick = track.id in smartShuffleInjected
 
                     YtQueueTrackItem(
                         track = track,
                         isPlaying = false,
                         dragOffset = dragOffset,
                         showDragHandle = true,
+                        leadingBadge = if (isSmartPick) "✦ REC" else null,
                         onDragStart = {
                             draggedItemIndex = index
                             draggedItemOffset = 0f
