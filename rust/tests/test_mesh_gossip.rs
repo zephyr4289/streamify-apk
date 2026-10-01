@@ -61,6 +61,19 @@ fn chaos_gossip_params() -> GossipParams {
         // unlucky coin flips.
         graft_fanout: 4,
         serve_redundancy: 4,
+        // Phase 1 scale knobs — 5 nodes stay far below `scale_threshold`,
+        // so the mesh keeps the exact pre-Phase-1 behavior profile.
+        scale_threshold: 16,
+        scale_fanout_cap: 8,
+        scale_prune_threshold: 2,
+        abandon_rearm: Duration::from_millis(750),
+        scale_announce_cap: 4,
+        scale_origin_fanout_cap: 31,
+        own_recent_depth: 64,
+        reconcile_interval: Duration::from_millis(250),
+        graft_burst_cap: 32,
+        adaptive_backoff_max: 8,
+        delta_announce: true,
     }
 }
 

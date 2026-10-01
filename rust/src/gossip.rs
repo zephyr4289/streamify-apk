@@ -48,7 +48,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
-use crate::p2p_mesh::{P2pPacketHeader, MSG_GOSSIP_GRAFT, MSG_GOSSIP_IHAVE};
+use crate::p2p_mesh::{P2pPacketHeader, MSG_GOSSIP_GRAFT, MSG_GOSSIP_IHAVE, MSG_GOSSIP_PRUNE};
 
 /// Identity of one gossip message: (origin sender, broadcast sequence).
 /// Dense per origin — that density is what makes gap healing (R1) work.
@@ -137,6 +137,75 @@ pub struct GossipParams {
     /// are rare, so duplicating the serve collapses the retry-chain tail
     /// probability quadratically (P(both lost) = p²) at negligible cost.
     pub serve_redundancy: u8,
+    // ── Phase 1 scale mode (directive A / gap #11: N = 32 peers) ──────
+    /// Peer count beyond which scale mode engages (directive: > 16 peers
+    /// triggers the anti-saturation machinery). Below it, behavior is the
+    /// proven 5-node profile, byte for byte.
+    pub scale_threshold: usize,
+    /// Maximum eager links a scale-mode node maintains. A 31-neighbor full
+    /// mesh eagerly forwarding every frame is 31×31 ≈ 961 datagrams per op
+    /// — a mobile UDP socket chokes long before that. Capping the eager
+    /// set at `log2(N)+3`-ish keeps per-op emissions ≈ N × cap while the
+    /// lazy IHAVE backstop (batched, 12 bytes/id) plus R1 gap-heal grafts
+    /// keep loss resilience at full-mesh levels.
+    pub scale_fanout_cap: usize,
+    /// Redundant eager deliveries tolerated in scale mode before a link is
+    /// demoted to lazy — and UNLIKE small-mesh mode this fires during
+    /// bursts too. THE TREE-FORMATION KNOB: at 32 peers the eager overlap
+    /// is an 8-way mesh on bootstrap; two consecutive duplicate deliveries
+    /// demote the redundant link and the graph collapses to a spanning
+    /// tree within the first few frames of any burst. Steady state drops
+    /// from ~N×cap to ~N datagrams per op — the socket-saturation curve
+    /// the directive demands we avoid — while the lazy IHAVE backstop
+    /// (12 bytes per id, ~96 ids per frame) plus R1 gap grafts keep loss
+    /// resilience at full-mesh levels. (Quiet-mode small-mesh behavior
+    /// is untouched.)
+    pub scale_prune_threshold: u32,
+    /// Upper bound on graft frames emitted per `on_tick` (anti-storm
+    /// pacing): a join-storm catch-up arms hundreds of grafts at once;
+    /// releasing them in one tick is exactly the amplification burst the
+    /// brief forbids. Due-but-unsent grafts roll to the next tick (5 ms
+    /// housekeeping cadence), draining at ≤ `graft_burst_cap` per tick.
+    pub graft_burst_cap: usize,
+    /// Retry backoff escalation cap: a graft's retry interval grows with
+    /// the number of attempts (`graft_retry × (1 + tries/4)`), capped at
+    /// this multiplier, so a dead link's heal chain backs off instead of
+    /// hammering a saturated socket.
+    pub adaptive_backoff_max: u32,
+    /// Abandon quarantine window: an id whose heal exhausted its retries
+    /// stays quarantined this long before a new IHAVE/tail-announce may
+    /// re-arm it. Short enough that a saturated socket's transient losses
+    /// heal on the second sweep; long enough that a truly dead id does
+    /// not spin the retry loop forever.
+    pub abandon_rearm: Duration,
+    /// Scale-mode relay-announce fan-out: how many lazy peers each relay
+    /// announces an id to (fair rotation over the stream). The origin
+    /// still announces its own ids to every lazy peer.
+    pub scale_announce_cap: usize,
+    /// Adaptive origin fan-out: a node that is actively broadcasting keeps
+    /// this many eager links (vs `scale_fanout_cap` for idle relays). The
+    /// broadcaster's pushes come from ONE source — bounded — and a wide
+    /// first hop is what holds stream latency at 1-2 hops over 10-80 ms
+    /// links: a thin origin builds deep random chains whose per-hop delay
+    /// dominates the convergence budget at N=32 (measured: 4+ hop tails).
+    /// Relays below it provide the second loss-resilient path.
+    pub scale_origin_fanout_cap: usize,
+    /// Depth of the origin's own-recent id ring — the tail announce and
+    /// the quarantine re-arm sweep draw from it. 64 covers the Phase-0
+    /// 5-node bursts; 1024 covers 1000-op streams at N=32.
+    pub own_recent_depth: usize,
+    /// Scale-mode anti-entropy cadence: how often the origin re-runs the
+    /// own-recent announcement sweep (watermark reset per round). This is
+    /// the retransmission backstop that makes delta-only announces safe.
+    pub reconcile_interval: Duration,
+    /// Scale-mode delta-only announcements: track the highest sequence
+    /// announced per (peer, origin) and never re-announce below it. Dense
+    /// per-origin sequences (wire D3) make this safe — a receiver that
+    /// missed the only IHAVE still detects the hole via R1 watermark gap
+    /// healing the moment any successor arrives, and the R4 tail flush
+    /// covers the burst tail. Small-mesh mode keeps the redundant
+    /// re-announce (its loss shield) — only scale mode dedupes.
+    pub delta_announce: bool,
 }
 
 impl Default for GossipParams {
@@ -159,6 +228,17 @@ impl Default for GossipParams {
             snap_grace_delay: Duration::from_millis(300),
             graft_fanout: 2,
             serve_redundancy: 1,
+            scale_threshold: 16,
+            scale_fanout_cap: 4,
+            scale_prune_threshold: 2,
+            graft_burst_cap: 32,
+            adaptive_backoff_max: 8,
+            abandon_rearm: Duration::from_millis(750),
+            scale_announce_cap: 4,
+            scale_origin_fanout_cap: 16,
+            own_recent_depth: 64,
+            reconcile_interval: Duration::from_millis(250),
+            delta_announce: true,
         }
     }
 }
@@ -182,6 +262,26 @@ pub struct GossipStats {
     pub eager_peers: usize,
     pub lazy_peers: usize,
     pub pending_grafts: usize,
+    // Phase 1 scale-mode telemetry.
+    /// True while the engine runs above `scale_threshold` peers.
+    pub scale_mode: bool,
+    /// Eager links demoted to lazy by the scale-mode fanout cap.
+    pub scale_demotions: u64,
+    /// Lazy links promoted back to eager when the adaptive origin cap rose.
+    pub scale_promotions: u64,
+    /// Announce ids suppressed by the delta-only watermark.
+    pub delta_skips: u64,
+    /// Grafts held back by the per-tick anti-storm pacing.
+    pub grafts_deferred: u64,
+    /// Retry delays inflated by the adaptive backoff.
+    pub backoff_events: u64,
+    /// Ids requested inside batched graft frames (amortization evidence).
+    pub graft_ids_tx: u64,
+    /// Directional prune REQUESTS sent (receiver asked a source to stop).
+    pub prune_requests: u64,
+    /// Heal attempts that exhausted their retries (transient — see the
+    /// abandon quarantine below).
+    pub abandonments: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -201,8 +301,14 @@ pub struct GossipEngine {
     /// Delivered ids (dedupe + convergence bookkeeping).
     delivered: HashSet<MsgId>,
     order: VecDeque<MsgId>,
-    /// Abandoned ids: healing gave up; never re-armed (bounded memory).
-    abandoned: HashSet<MsgId>,
+    /// ABANDON QUARANTINE (Phase 1): ids whose heal exhausted its retries,
+    /// mapped to the abandonment instant. Unlike the Phase-0 forever-set,
+    /// quarantine EXPIRES after `abandon_rearm` — under real-world socket
+    /// saturation a heal chain can legitimately fail 16 times in a row,
+    /// and a permanently-dead id would leave a hole no backstop can ever
+    /// fill (the delta-announce watermark already marked it announced).
+    /// Re-armable after the window; entries pruned to bound memory.
+    abandoned: HashMap<MsgId, i64>,
     /// Raw bytes of recently delivered frames, served on GRAFT (R3).
     payload_cache: HashMap<MsgId, Vec<u8>>,
     payload_order: VecDeque<MsgId>,
@@ -232,6 +338,9 @@ pub struct GossipEngine {
     /// Last engine activity (broadcast or delivery) — the quiet gate for
     /// pruning and the tail flush.
     last_activity_ns: i64,
+    /// Delta-announce watermark: highest own-origin sequence already
+    /// announced to each peer (scale mode only).
+    announced: HashMap<u64, u32>,
     stats: GossipStats,
 }
 
@@ -245,7 +354,7 @@ impl GossipEngine {
             lazy: HashSet::new(),
             delivered: HashSet::new(),
             order: VecDeque::new(),
-            abandoned: HashSet::new(),
+            abandoned: HashMap::new(),
             payload_cache: HashMap::new(),
             payload_order: VecDeque::new(),
             payload_bytes: 0,
@@ -261,6 +370,7 @@ impl GossipEngine {
             last_tail_flush_ns: i64::MIN / 2,
             last_tail_announce_ns: i64::MIN / 2,
             last_activity_ns: i64::MIN / 2,
+            announced: HashMap::new(),
             stats: GossipStats::default(),
         }
     }
@@ -269,11 +379,14 @@ impl GossipEngine {
 
     /// Idempotent. New links start eager (optimistic PlumTree bootstrap):
     /// the flood prunes them down to a tree as redundancy is observed.
+    /// In scale mode the eager set is capped immediately (see
+    /// [`GossipEngine::enforce_eager_cap`]).
     pub fn neighbor_up(&mut self, peer: u64) {
         self.neighbors.insert(peer);
         if !self.eager.contains(&peer) && !self.lazy.contains(&peer) {
             self.eager.insert(peer);
         }
+        self.enforce_eager_cap(false);
     }
 
     pub fn neighbor_down(&mut self, peer: u64) {
@@ -282,6 +395,7 @@ impl GossipEngine {
         self.lazy.remove(&peer);
         self.outbox.remove(&peer);
         self.redundancy.remove(&peer);
+        self.announced.remove(&peer);
         // Grafts aimed at the departed peer rotate onto another neighbor.
         let ids: Vec<MsgId> = self
             .pending
@@ -312,6 +426,97 @@ impl GossipEngine {
         }
     }
 
+    // ── Phase 1 scale mode (directive A / gap #11) ─────────────────────
+
+    /// True while the mesh exceeds `scale_threshold` peers — the
+    /// anti-saturation machinery (capped eager fanout, burst pruning,
+    /// delta-only announces, graft pacing) is active only then.
+    fn is_scaled(&self) -> bool {
+        self.neighbors.len() > self.params.scale_threshold
+    }
+
+    /// Caps the eager set in scale mode. WHICH links survive is decided by
+    /// a decorrelated deterministic ranking — `fnv1a(me ⊕ peer)` — so
+    /// different nodes keep different eager neighborhoods even though every
+    /// ranking is individually stable (no hash-order nondeterminism, no
+    /// adversarial concentration of the tree on the lowest ids).
+    ///
+    /// Demoted links move to the lazy set: they still receive batched
+    /// IHAVEs (12 bytes per id, ~96 ids per frame) and any genuinely lost
+    /// frame is healed by R1 gap grafts or R4 tail flushes — PlumTree's
+    /// own resilience, now exercised at 32 nodes.
+    fn enforce_eager_cap(&mut self, as_origin: bool) {
+        if !self.is_scaled() {
+            return;
+        }
+        // ADAPTIVE ORIGIN FANOUT: a node that is actively BROADCASTING keeps
+        // a wide eager set (`scale_origin_fanout_cap`) — its pushes come
+        // from exactly one source (bounded), and the wide first hop is
+        // what holds stream latency at 1-2 hops over 10-80 ms links. Idle
+        // relays keep the tight cap (their forwarding multiplies
+        // mesh-wide) and provide the second loss-resilient path.
+        let cap = if as_origin {
+            self.params.scale_origin_fanout_cap
+        } else {
+            self.params.scale_fanout_cap
+        }
+        .max(1);
+        // Decorrelation: rank depends on BOTH endpoints, so node A's #1
+        // pick is node B's #17 — the capped eager graph stays rich.
+        let me = self.me;
+        let rank = |p: u64| {
+            let mut x = [0u8; 16];
+            x[..8].copy_from_slice(&me.to_le_bytes());
+            x[8..].copy_from_slice(&p.to_le_bytes());
+            let mut h = 0x811c_9dc5u32;
+            for b in x {
+                h ^= b as u32;
+                h = h.wrapping_mul(0x0100_0193);
+            }
+            h
+        };
+        if self.eager.len() > cap {
+            let mut ranked: Vec<u64> = self.eager.iter().copied().collect();
+            ranked.sort_by_key(|&p| rank(p));
+            for &p in ranked.iter().skip(cap) {
+                self.eager.remove(&p);
+                self.lazy.insert(p);
+                self.stats.scale_demotions += 1;
+                self.stats.prunes += 1;
+            }
+        } else if self.eager.len() < cap {
+            // RESTORE: the cap can RISE (idle relay → active origin). Links
+            // demoted while idle are promoted back — same decorrelated
+            // ranking, so the origin's wide first hop re-forms the moment
+            // it starts broadcasting.
+            let mut candidates: Vec<u64> = self.lazy.iter().copied().collect();
+            candidates.sort_by_key(|&p| rank(p));
+            for p in candidates.into_iter().take(cap - self.eager.len()) {
+                self.lazy.remove(&p);
+                self.eager.insert(p);
+                self.stats.scale_promotions += 1;
+            }
+        }
+    }
+
+    /// Delta-announce gate (scale mode): returns true when `id` should be
+    /// announced to `peer`, recording the watermark advance when it is.
+    fn should_announce(&mut self, peer: u64, id: MsgId) -> bool {
+        if !self.is_scaled() || !self.params.delta_announce || id.sender != self.me {
+            return true; // small mesh / foreign origin: original behavior
+        }
+        match self.announced.get(&peer) {
+            Some(&mark) if id.seq <= mark => {
+                self.stats.delta_skips += 1;
+                false
+            }
+            _ => {
+                self.announced.insert(peer, id.seq);
+                true
+            }
+        }
+    }
+
     // ── broadcast / ingest ─────────────────────────────────────────────
 
     /// Origin-side broadcast: records the frame and fans it out.
@@ -330,8 +535,14 @@ impl GossipEngine {
             sender: u64::from_le_bytes(header.sender_id),
             seq: header.sequence,
         };
+        // The idle→active origin transition widens the eager cap — apply
+        // it at the transition point itself (restore promotes the demoted
+        // links back, forming the wide first hop for this stream).
+        if self.stats.broadcasts == 0 {
+            self.enforce_eager_cap(true);
+        }
         self.own_recent.push_back(id);
-        while self.own_recent.len() > 64 {
+        while self.own_recent.len() > self.params.own_recent_depth.max(1) {
             self.own_recent.pop_front();
         }
         self.last_broadcast_ns = now;
@@ -353,10 +564,17 @@ impl GossipEngine {
                     bytes: raw.to_vec(),
                 });
                 self.stats.eager_forwards += 1;
-                // Origin-sync: eager peers get the announcement too.
-                self.outbox.entry(p).or_default().push(id);
+                // Origin-sync: eager peers get the announcement too —
+                // EXCEPT in scale mode, where the capped eager overlap
+                // plus R1 gap healing already covers them and the
+                // delta-only announcement policy takes over.
+                if !self.is_scaled() {
+                    self.outbox.entry(p).or_default().push(id);
+                }
             } else if self.lazy.contains(&p) {
-                self.outbox.entry(p).or_default().push(id);
+                if self.should_announce(p, id) {
+                    self.outbox.entry(p).or_default().push(id);
+                }
             }
         }
         if was_empty && !self.outbox.is_empty() {
@@ -378,27 +596,51 @@ impl GossipEngine {
             seq: header.sequence,
         };
 
-        if self.delivered.contains(&id) || self.abandoned.contains(&id) {
+        // NOTE: an id in the abandon QUARANTINE is still missing — a late
+        // serve arriving for it MUST be delivered (record_new clears the
+        // quarantine). Phase-0's `|| abandoned.contains(&id)` here turned
+        // the quarantine into a black hole: the heal itself was discarded
+        // as a "dup", so a quarantined id could never converge — the
+        // Phase-1 permanent-hole bug, root cause of the stalled trials.
+        if self.delivered.contains(&id) {
             self.stats.dups += 1;
-            let actions = Vec::new();
+            let mut actions = Vec::new();
             if self.eager.contains(&from) {
-                // Quiet-gated pruning: during an active burst the full-mesh
-                // eager redundancy IS the loss shield (a receiver missing a
-                // frame on one link still has three more). Pruning fires
-                // only once the stream has gone quiet, collapsing the mesh
-                // to a tree for steady-state bandwidth. A graft reinstates
-                // any link the next burst actually needs.
-                let quiet = now.saturating_sub(self.last_activity_ns)
-                    >= self.params.lazy_tick.as_nanos() as i64;
+                // Redundancy accounting → DIRECTIONAL PRUNE (classic
+                // PlumTree): the RECEIVER of redundant pushes asks the
+                // SOURCE to stop pushing — the demotion happens at the
+                // sender when it processes the prune frame. Demoting the
+                // receiver's own outbound link (the Phase-0 shortcut)
+                // never reduced the inbound dup pressure, so the push
+                // graph oscillated instead of converging to a tree at
+                // N=32 (Phase-1 churn root cause).
+                //
+                // Quiet gate (small mesh): during an active burst the
+                // full-mesh eager redundancy IS the loss shield (a
+                // receiver missing a frame on one link still has three
+                // more); prunes fire only once the stream has gone quiet.
+                // SCALE MODE: prune mid-burst as well — at 32 peers a
+                // 4-way capped overlap is already a stronger shield than
+                // the 5-node mesh ever had, and the tree must form DURING
+                // the flood or the lazy path bottlenecks the stream.
+                let (threshold, quiet) = if self.is_scaled() {
+                    (self.params.scale_prune_threshold, true)
+                } else {
+                    let quiet = now.saturating_sub(self.last_activity_ns)
+                        >= self.params.lazy_tick.as_nanos() as i64;
+                    (self.params.prune_redundancy_threshold, quiet)
+                };
                 if quiet {
-                    let threshold = self.params.prune_redundancy_threshold;
                     let r = self.redundancy.entry(from).or_insert(0);
                     *r += 1;
                     if *r >= threshold.max(1) {
-                        self.eager.remove(&from);
-                        self.lazy.insert(from);
                         self.redundancy.insert(from, 0);
-                        self.stats.prunes += 1;
+                        self.stats.prune_requests += 1;
+                        actions.push(Action::Control {
+                            to: from,
+                            msg_type: MSG_GOSSIP_PRUNE,
+                            payload: Vec::new(),
+                        });
                     }
                 } else {
                     // Redundancy during a burst is welcome, not punished.
@@ -428,32 +670,54 @@ impl GossipEngine {
                     // IHAVEs are already lagged by the lazy cadence — a
                     // short graft_delay lets eager stragglers still win.
                     let deadline = now + self.params.graft_delay.as_nanos() as i64;
-                    self.schedule_graft(id, from, deadline);
+                    self.schedule_graft(id, from, deadline, now);
                 }
                 Vec::new()
             }
             MSG_GOSSIP_GRAFT => {
-                // The requester grafts us back into its eager tree.
+                // The requester grafts us back into its eager tree. Scale
+                // mode bounds the reinstated set: graft churn must never
+                // grow the eager links past the fanout cap again.
                 self.lazy.remove(&from);
                 self.eager.insert(from);
+                self.enforce_eager_cap(false);
                 self.redundancy.insert(from, 0);
                 self.stats.grafts_rx += 1;
                 let mut actions = Vec::new();
-                if let Some(id) = parse_graft_payload(payload) {
-                    if let Some(bytes) = self.payload_cache.get(&id) {
-                        // Redundant serve: heals are rare, and one lost
-                        // serve frame would cost the requester a full
-                        // retry round (retry + two one-way trips).
-                        for _ in 0..self.params.serve_redundancy.max(1) {
-                            actions.push(Action::ForwardRaw {
-                                to: from,
-                                bytes: bytes.clone(),
-                            });
+                let ids = parse_graft_payload_multi(payload);
+                if !ids.is_empty() {
+                    let mut served = 0usize;
+                    for id in &ids {
+                        if let Some(bytes) = self.payload_cache.get(id) {
+                            // Redundant serve: heals are rare, and one lost
+                            // serve frame would cost the requester a full
+                            // retry round (retry + two one-way trips).
+                            for _ in 0..self.params.serve_redundancy.max(1) {
+                                actions.push(Action::ForwardRaw {
+                                    to: from,
+                                    bytes: bytes.clone(),
+                                });
+                            }
+                            served += 1;
                         }
+                    }
+                    if served > 0 {
                         self.stats.graft_heals += 1;
                     }
                 }
                 actions
+            }
+            MSG_GOSSIP_PRUNE => {
+                // Directional prune (classic PlumTree): the receiver of
+                // redundant pushes asked us to stop. The demotion happens
+                // HERE, at the push source — the only place that can
+                // actually reduce the receiver's inbound pressure.
+                if self.eager.remove(&from) {
+                    self.lazy.insert(from);
+                    self.stats.prunes += 1;
+                }
+                self.redundancy.insert(from, 0);
+                Vec::new()
             }
             _ => Vec::new(),
         }
@@ -485,29 +749,88 @@ impl GossipEngine {
             }
         }
 
-        // 2. Graft timers.
+        // 2. Graft timers — Phase-1 anti-storm machinery, three layers:
+        //    BATCHING: due grafts are grouped by target peer and packed
+        //    GRAFT_BATCH ids per frame (a catch-up arming 300 ids emits
+        //    ~19 frames, not 300 — the frame count is what saturates a
+        //    mobile socket, not the byte count).
+        //    PACING: at most `graft_burst_cap` graft frames leave the node
+        //    per tick; the rest keep their deadline satisfied but roll to
+        //    the next tick.
+        //    ADAPTIVE BACKOFF: each retry's interval grows with the attempt
+        //    count (`retry × (1 + tries/4)`, capped), so a persistently
+        //    lossy path backs off instead of hammering.
         let due: Vec<MsgId> = self
             .pending
             .iter()
             .filter(|(_, pg)| pg.deadline_ns <= now)
             .map(|(id, _)| *id)
             .collect();
+        // Pass 1: retire exhausted ids into the quarantine, resetting the
+        // delta-announce watermark so the tail announce re-advertises them
+        // (a quarantined id whose watermark says "announced" would never
+        // be requested again — the exact permanent-hole bug Phase 1 fixes).
+        let mut any_abandoned = false;
+        let mut runnable: Vec<MsgId> = Vec::with_capacity(due.len());
         for id in due {
-            let (peer, tries) = {
-                let pg = self.pending.get(&id).expect("due id present");
-                (pg.peer, pg.tries)
-            };
+            let tries = self.pending.get(&id).map(|pg| pg.tries).unwrap_or(0);
             if tries >= self.params.graft_max_tries {
                 self.pending.remove(&id);
-                self.abandoned.insert(id);
+                self.abandoned.insert(id, now);
                 self.stats.abandoned += 1;
+                self.stats.abandonments += 1;
+                any_abandoned = true;
+            } else {
+                runnable.push(id);
+            }
+        }
+        if any_abandoned {
+            // Watermark reset: the next tail-announce round re-advertises
+            // own-recent ids (≤64) to every peer — one bounded re-announce
+            // sweep, then delta-only behavior resumes.
+            self.announced.clear();
+            // Bound the quarantine: expired entries are useless.
+            if self.abandoned.len() > 4_096 {
+                let rearm_ns = self.params.abandon_rearm.as_nanos() as i64;
+                self.abandoned.retain(|_, at| now.saturating_sub(*at) < rearm_ns * 8);
+            }
+        }
+        // Pass 2: group by target peer, emit batched grafts under pacing.
+        let burst_cap = self.params.graft_burst_cap.max(1);
+        let mut emitted = 0usize;
+        let mut i = 0usize;
+        while i < runnable.len() {
+            if emitted >= burst_cap {
+                // Pacing: defer every remaining due graft by one cadence
+                // (tries kept — a deferral is not an attempt).
+                self.stats.grafts_deferred += (runnable.len() - i) as u64;
+                for id in &runnable[i..] {
+                    if let Some(pg) = self.pending.get_mut(id) {
+                        pg.deadline_ns = now + Duration::from_millis(5).as_nanos() as i64;
+                    }
+                }
+                break;
+            }
+            // Batch: up to GRAFT_BATCH ids sharing the same primary target.
+            let head_peer = self.pending.get(&runnable[i]).map(|pg| pg.peer).unwrap_or(0);
+            let mut batch: Vec<MsgId> = Vec::with_capacity(GRAFT_BATCH);
+            let mut j = i;
+            while j < runnable.len() && batch.len() < GRAFT_BATCH {
+                let p = self.pending.get(&runnable[j]).map(|pg| pg.peer).unwrap_or(0);
+                if p == head_peer {
+                    batch.push(runnable[j]);
+                }
+                j += 1;
+            }
+            if batch.is_empty() {
+                i += 1;
                 continue;
             }
-            // Parallel heal: fan the graft out to `graft_fanout` distinct
-            // peers so one lost control frame does not cost a retry round.
-            let mut targets: Vec<u64> = vec![peer];
+            // Parallel heal: fan the batch to `graft_fanout` distinct peers
+            // so one lost control frame does not cost a retry round.
+            let mut targets: Vec<u64> = vec![head_peer];
             for _ in 1..self.params.graft_fanout.max(1) {
-                let t = self.rotate_peer(*targets.last().unwrap_or(&peer));
+                let t = self.rotate_peer(*targets.last().unwrap_or(&head_peer));
                 if !targets.contains(&t) {
                     targets.push(t);
                 }
@@ -516,17 +839,34 @@ impl GossipEngine {
                 actions.push(Action::Control {
                     to: *t,
                     msg_type: MSG_GOSSIP_GRAFT,
-                    payload: build_graft_payload(&id),
+                    payload: build_graft_batch_payload(&batch),
                 });
                 self.stats.grafts_tx += 1;
+                self.stats.graft_ids_tx += batch.len() as u64;
             }
+            emitted += targets.len();
             // Rotation target computed before the pending-map borrow.
-            let rotated = self.rotate_peer(*targets.last().unwrap_or(&peer));
-            if let Some(pg) = self.pending.get_mut(&id) {
-                pg.tries = tries + 1;
-                pg.peer = rotated;
-                pg.deadline_ns = now + self.params.graft_retry.as_nanos() as i64;
+            let rotated = self.rotate_peer(*targets.last().unwrap_or(&head_peer));
+            for id in &batch {
+                if let Some(pg) = self.pending.get_mut(id) {
+                    let tries = pg.tries;
+                    pg.tries = tries + 1;
+                    pg.peer = rotated;
+                    // Adaptive backoff: escalate the retry interval with
+                    // the attempt count (1×, 1.25×, … capped at
+                    // `adaptive_backoff_max`×) so dead links drain quietly.
+                    let escalation = 1u32
+                        + (tries as u32 / 4)
+                            .min(self.params.adaptive_backoff_max.saturating_sub(1));
+                    if escalation > 1 {
+                        self.stats.backoff_events += 1;
+                    }
+                    let retry_ns = (self.params.graft_retry.as_nanos() as i64)
+                        .saturating_mul(escalation as i64);
+                    pg.deadline_ns = now + retry_ns;
+                }
             }
+            i = j.max(i + 1);
         }
 
         // 3. Origin tail machinery (R4). The final messages of a burst have
@@ -535,13 +875,28 @@ impl GossipEngine {
         //    both bounded:
         //      a) FLUSH — for `tail_flush_rounds` rounds, spaced
         //         `tail_flush_delay`, re-push the last `tail_flush_k`
-        //         payloads to every peer. One-way trips; holders dedupe,
-        //         stragglers recover. Each extra round covers another
-        //         factor of the link loss probability.
+        //         payloads. One-way trips; holders dedupe, stragglers
+        //         recover. Each extra round covers another factor of the
+        //         link loss probability. SCALE MODE: flush targets shrink
+        //         to the eager set — 31 raw re-pushes × k payloads is the
+        //         exact socket-saturation curve the scale cap exists to
+        //         prevent, and lazy peers hold the IHAVE/graft backstop.
         //      b) ANNOUNCE — after the rounds are spent, keep batching
-        //         own-recent ids into IHAVEs on every `lazy_tick` for
-        //         `tail_announce_window`, letting receivers GRAFT for
-        //         anything the flush rounds missed. Then: full silence.
+        //         own-recent ids into IHAVEs, letting receivers GRAFT for
+        //         anything the flush rounds missed.
+        //         SMALL MESH: every `lazy_tick` for `tail_announce_window`
+        //         (2 s), then full silence — the redundant re-announce IS
+        //         the loss shield.
+        //         SCALE MODE: a PERIODIC ANTI-ENTROPY RECONCILIATION round
+        //         every `reconcile_interval` for as long as the node lives.
+        //         Each round RESETS the per-peer announced watermark, so an
+        //         IHAVE lost to a kernel-buffer drop is retransmitted on
+        //         the next round — the delta-only watermark is safe ONLY
+        //         under exactly this re-announcement backstop (a single
+        //         lost "only-copy" IHAVE would otherwise leave a mid-stream
+        //         hole with no successor to reveal it: the Phase-1
+        //         permanent-hole bug). Bounded cost: ≤ own_recent_depth
+        //         ids → ≤ 11 IHAVE frames per peer per round.
         let broadcast_quiet = self.last_broadcast_ns > i64::MIN / 4
             && now.saturating_sub(self.last_broadcast_ns)
                 >= self.params.tail_flush_delay.as_nanos() as i64;
@@ -554,6 +909,11 @@ impl GossipEngine {
                 self.stats.tail_flushes += 1;
                 let k = self.params.tail_flush_k.max(1);
                 let ids: Vec<MsgId> = self.own_recent.iter().rev().take(k).copied().collect();
+                // Flush targets: ALL neighbors — the tail ids are exactly
+                // the ones with no successor to reveal their gap, so the
+                // one-way re-push must reach everyone at ONE hop. Bounded:
+                // ≤ k payloads × N peers × tail_flush_rounds, once per
+                // quiet epoch (32×31×6 ≈ 6 K datagrams at N=32).
                 let peers: Vec<u64> = self.neighbors.iter().copied().collect();
                 for id in ids {
                     if let Some(bytes) = self.payload_cache.get(&id) {
@@ -568,19 +928,46 @@ impl GossipEngine {
                     }
                 }
             } else if self.tail_flush_rounds_fired >= self.params.tail_flush_rounds
-                && now.saturating_sub(self.last_broadcast_ns)
-                    < self.params.tail_announce_window.as_nanos() as i64
+                && (self.is_scaled()
+                    || now.saturating_sub(self.last_broadcast_ns)
+                        < self.params.tail_announce_window.as_nanos() as i64)
                 && now.saturating_sub(self.last_tail_announce_ns)
-                    >= self.params.lazy_tick.as_nanos() as i64
+                    >= (if self.is_scaled() {
+                        self.params.reconcile_interval
+                    } else {
+                        self.params.lazy_tick
+                    })
+                    .as_nanos() as i64
             {
                 self.last_tail_announce_ns = now;
+                // Reconciliation round boundary: reset the delta watermarks
+                // so every own-recent id is re-advertised once this round.
+                if self.is_scaled() {
+                    self.announced.clear();
+                }
                 let ids: Vec<MsgId> = self.own_recent.iter().copied().collect();
                 let peers: Vec<u64> = self.neighbors.iter().copied().collect();
                 for p in peers {
                     if p == self.me {
                         continue;
                     }
-                    for chunk in ids.chunks(self.params.ihave_batch.max(1)) {
+                    // Delta-only gate: scale mode skips ids this peer has
+                    // already been told about WITHIN this round.
+                    let fresh: Vec<MsgId> = if self.is_scaled() && self.params.delta_announce {
+                        ids.iter()
+                            .copied()
+                            .filter(|id| {
+                                let announce = self.should_announce(p, *id);
+                                announce
+                            })
+                            .collect()
+                    } else {
+                        ids.clone()
+                    };
+                    for chunk in fresh.chunks(self.params.ihave_batch.max(1)) {
+                        if chunk.is_empty() {
+                            continue;
+                        }
                         actions.push(Action::Control {
                             to: p,
                             msg_type: MSG_GOSSIP_IHAVE,
@@ -614,7 +1001,7 @@ impl GossipEngine {
         (
             self.delivered.contains(&id),
             self.pending.contains_key(&id),
-            self.abandoned.contains(&id),
+            self.abandoned.contains_key(&id),
             self.watermark.get(&id.sender).copied().unwrap_or(0),
         )
     }
@@ -624,6 +1011,7 @@ impl GossipEngine {
         s.eager_peers = self.eager.len();
         s.lazy_peers = self.lazy.len();
         s.pending_grafts = self.pending.len();
+        s.scale_mode = self.is_scaled();
         s
     }
 
@@ -633,6 +1021,9 @@ impl GossipEngine {
         self.delivered.insert(id);
         self.order.push_back(id);
         self.last_activity_ns = now;
+        // A late copy of a quarantined id is the heal landing — clear the
+        // quarantine so future loss of the SAME id can heal again.
+        self.abandoned.remove(&id);
         while self.delivered.len() > self.params.cache_capacity {
             match self.order.pop_front() {
                 Some(old) => {
@@ -684,7 +1075,7 @@ impl GossipEngine {
                     };
                     if !self.delivered.contains(&hole) {
                         // Grace grafts also target the origin first.
-                        self.schedule_graft(hole, id.sender, deadline);
+                        self.schedule_graft(hole, id.sender, deadline, now);
                     }
                 }
             }
@@ -733,17 +1124,24 @@ impl GossipEngine {
                     },
                     id.sender,
                     deadline,
+                    now,
                 );
             }
         }
     }
 
-    fn schedule_graft(&mut self, id: MsgId, peer: u64, deadline_ns: i64) {
-        if self.delivered.contains(&id)
-            || self.abandoned.contains(&id)
-            || self.pending.contains_key(&id)
-        {
+    fn schedule_graft(&mut self, id: MsgId, peer: u64, deadline_ns: i64, now: i64) {
+        if self.delivered.contains(&id) || self.pending.contains_key(&id) {
             return;
+        }
+        // Abandon quarantine: an id that exhausted its retries becomes
+        // re-armable after `abandon_rearm` — permanent death would leave
+        // an unfillable hole once the delta-announce watermark has marked
+        // it announced (Phase 1 hardening).
+        if let Some(&at) = self.abandoned.get(&id) {
+            if now.saturating_sub(at) < self.params.abandon_rearm.as_nanos() as i64 {
+                return;
+            }
         }
         self.pending.insert(
             id,
@@ -759,6 +1157,23 @@ impl GossipEngine {
         let mut actions = Vec::new();
         let was_empty = self.outbox.is_empty();
         let mut outbox_touched = false;
+        // SCALE MODE relay-announce bounding: with the eager set capped, a
+        // 31-neighbor mesh leaves ~27 lazy peers per relay, and announcing
+        // EVERY id to EVERY lazy peer is 32×27 ≈ 860 announce-entries per
+        // op — the dominant saturation term at N=32. Each id is instead
+        // announced to `scale_announce_cap` lazy peers chosen by fair
+        // rotation, so over a stream every lazy peer keeps receiving
+        // announcements while per-op announce volume stays bounded. (The
+        // ORIGIN still announces its own ids to ALL lazy peers — the
+        // origin-sync backstop — and any announced id a peer misses is
+        // still healed by R1 watermark gaps once a successor arrives.)
+        let lazy_cap = if self.is_scaled() {
+            self.params.scale_announce_cap.max(1)
+        } else {
+            usize::MAX
+        };
+        let mut lazy_sorted: Vec<u64> = Vec::with_capacity(self.lazy.len());
+        let mut lazy_emitted = 0usize;
         for &p in &self.neighbors {
             if Some(p) == exclude || p == self.me {
                 continue;
@@ -770,8 +1185,25 @@ impl GossipEngine {
                 });
                 self.stats.eager_forwards += 1;
             } else if self.lazy.contains(&p) {
-                self.outbox.entry(p).or_default().push(id);
-                outbox_touched = true;
+                lazy_sorted.push(p);
+            }
+        }
+        if !lazy_sorted.is_empty() {
+            lazy_sorted.sort_unstable();
+            // Fair rotation start — decorrelated per node, stable per call.
+            let start = (self.rotation_cursor % lazy_sorted.len() as u64) as usize;
+            self.rotation_cursor = self.rotation_cursor.wrapping_add(1);
+            for k in 0..lazy_sorted.len() {
+                let p = lazy_sorted[(start + k) % lazy_sorted.len()];
+                if lazy_emitted >= lazy_cap {
+                    self.stats.delta_skips += 1; // announce-space rotation skip
+                    continue;
+                }
+                lazy_emitted += 1;
+                if self.should_announce(p, id) {
+                    self.outbox.entry(p).or_default().push(id);
+                    outbox_touched = true;
+                }
             }
         }
         if outbox_touched && was_empty {
@@ -861,6 +1293,56 @@ pub fn parse_graft_payload(payload: &[u8]) -> Option<MsgId> {
     })
 }
 
+// ───────────────────────────────────────────── Phase 1 batched grafts
+// The classic GRAFT requests ONE id per frame — a 500-id catch-up (join
+// storm, kernel-drop burst) costs 500 control frames, and frame COUNT is
+// what saturates a mobile UDP socket. The batched form amortizes 16 ids
+// into one 194-byte frame while remaining wire-compatible with the
+// single-id form (a 12-byte payload is simply a batch of one).
+
+/// Ids packed into one batched GRAFT frame.
+pub const GRAFT_BATCH: usize = 16;
+
+/// Batched GRAFT payload: `[u16 count][{u64 sender LE, u32 seq LE} × count]`.
+/// The single-id 12-byte form (no count header) is still accepted.
+pub fn build_graft_batch_payload(ids: &[MsgId]) -> Vec<u8> {
+    let n = ids.len().min(u16::MAX as usize);
+    let mut p = Vec::with_capacity(2 + n * 12);
+    p.extend_from_slice(&(n as u16).to_le_bytes());
+    for id in ids.iter().take(n) {
+        p.extend_from_slice(&id.sender.to_le_bytes());
+        p.extend_from_slice(&id.seq.to_le_bytes());
+    }
+    p
+}
+
+/// Parses either GRAFT form; strict bounds, never panics.
+pub fn parse_graft_payload_multi(payload: &[u8]) -> Vec<MsgId> {
+    // Legacy single-id form.
+    if payload.len() == 12 {
+        return vec![MsgId {
+            sender: u64::from_le_bytes(payload[0..8].try_into().unwrap()),
+            seq: u32::from_le_bytes(payload[8..12].try_into().unwrap()),
+        }];
+    }
+    if payload.len() < 2 {
+        return Vec::new();
+    }
+    let count = u16::from_le_bytes(payload[0..2].try_into().unwrap()) as usize;
+    if payload.len() != 2 + count * 12 || count == 0 {
+        return Vec::new(); // malformed: drop the frame entirely
+    }
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        let base = 2 + i * 12;
+        out.push(MsgId {
+            sender: u64::from_le_bytes(payload[base..base + 8].try_into().unwrap()),
+            seq: u32::from_le_bytes(payload[base + 8..base + 12].try_into().unwrap()),
+        });
+    }
+    out
+}
+
 // ───────────────────────────────────────────────────────────── unit tests
 
 #[cfg(test)]
@@ -892,6 +1374,17 @@ mod tests {
             snap_grace_delay: Duration::from_millis(10),
             graft_fanout: 1, // exact-action tests pin single-target grafts
             serve_redundancy: 1,
+            scale_threshold: 16,
+            scale_fanout_cap: 4,
+            scale_prune_threshold: 2,
+            graft_burst_cap: 32,
+            adaptive_backoff_max: 8,
+            abandon_rearm: Duration::from_millis(750),
+            scale_announce_cap: 4,
+            scale_origin_fanout_cap: 16,
+            own_recent_depth: 64,
+            reconcile_interval: Duration::from_millis(250),
+            delta_announce: true,
         }
     }
 
@@ -976,20 +1469,36 @@ mod tests {
         // prune is suppressed (quiet gate).
         let out = b.on_data(A, &h, &raw, 5 * NS_MS);
         assert!(!out.delivered_new);
-        assert_eq!(b.stats().prunes, 0);
+        assert!(out.actions.is_empty());
         let out = b.on_data(A, &h, &raw, 8 * NS_MS);
         assert!(!out.delivered_new);
         assert_eq!(b.stats().prunes, 0, "no pruning while the stream is hot");
 
         // Once quiet (≥ lazy_tick since the last delivery), the next
-        // redundant copies prune A → lazy (hysteresis 2).
+        // redundant copies emit DIRECTIONAL prune requests: B asks A (the
+        // push source) to stop pushing (hysteresis 2).
         let out = b.on_data(A, &h, &raw, 20 * NS_MS);
         assert!(!out.delivered_new);
+        assert!(out.actions.is_empty(), "first dup: counter at 1");
         let out = b.on_data(A, &h, &raw, 21 * NS_MS);
         assert!(!out.delivered_new);
-        assert_eq!(b.stats().prunes, 1);
-        let s = b.stats();
-        assert_eq!(s.eager_peers, 2, "A demoted to lazy; C,D remain eager");
+        assert_eq!(out.actions.len(), 1, "second dup: prune request emitted");
+        match &out.actions[0] {
+            Action::Control { to, msg_type, .. } => {
+                assert_eq!(*to, A);
+                assert_eq!(*msg_type, MSG_GOSSIP_PRUNE);
+            }
+            _ => panic!("expected prune control"),
+        }
+        // B's own eager set is untouched (the demotion happens at A).
+        assert_eq!(b.stats().eager_peers, 3);
+        assert_eq!(b.stats().prune_requests, 1);
+
+        // A processes the prune: B is demoted in A's push set.
+        let _ = a.on_control(B, MSG_GOSSIP_PRUNE, &[], 22 * NS_MS);
+        let s = a.stats();
+        assert_eq!(s.prunes, 1);
+        assert_eq!(s.eager_peers, 2, "B demoted to lazy; C,D remain eager");
     }
 
     #[test]
@@ -1024,9 +1533,11 @@ mod tests {
             } => {
                 assert_eq!(*to, A);
                 assert_eq!(*msg_type, MSG_GOSSIP_GRAFT);
+                // Phase 1: grafts are emitted in the batched form
+                // (wire-compatible with the single-id 12-byte form).
                 assert_eq!(
-                    parse_graft_payload(payload),
-                    Some(MsgId { sender: A, seq: 7 })
+                    parse_graft_payload_multi(payload),
+                    vec![MsgId { sender: A, seq: 7 }]
                 );
             }
             _ => panic!("expected graft control"),
@@ -1066,7 +1577,7 @@ mod tests {
         assert!(actions.iter().any(|a| matches!(
             a,
             Action::Control { msg_type: MSG_GOSSIP_GRAFT, payload, .. }
-                if parse_graft_payload(payload) == Some(MsgId { sender: A, seq: 2 })
+                if parse_graft_payload_multi(payload) == vec![MsgId { sender: A, seq: 2 }]
         )));
 
         // Delivering the hole clears the pending graft.
@@ -1131,7 +1642,7 @@ mod tests {
     #[test]
     fn grafts_retry_rotate_and_abandon() {
         let mut b = engine(B, &[A, C]);
-        b.schedule_graft(MsgId { sender: A, seq: 9 }, A, 0);
+        b.schedule_graft(MsgId { sender: A, seq: 9 }, A, 0, 0);
         let retry = 40 * NS_MS;
         let mut t = 5 * NS_MS;
 
@@ -1147,24 +1658,31 @@ mod tests {
             _ => panic!(),
         }
 
-        // Exhaust max_tries (3) → abandoned, engine goes quiet.
+        // Exhaust max_tries (3) → quarantined, engine goes quiet.
         t += retry;
         let _ = b.on_tick(t);
         t += retry;
         let a4 = b.on_tick(t);
-        assert!(a4.is_empty(), "id must be abandoned after max tries");
+        assert!(a4.is_empty(), "id must be quarantined after max tries");
         assert_eq!(b.stats().abandoned, 1);
 
-        // The abandoned id is never re-armed by a late IHAVE.
+        // Quarantine holds: a late IHAVE inside the window cannot re-arm.
         let ihave = build_ihave_payload(&[MsgId { sender: A, seq: 9 }]);
         let _ = b.on_control(A, MSG_GOSSIP_IHAVE, &ihave, t + 1);
         assert_eq!(b.pending_graft_count(), 0);
+
+        // Phase 1 quarantine semantics: after `abandon_rearm` the SAME id
+        // becomes healable again — a saturated socket must never turn a
+        // transient loss into a permanent hole.
+        let rearm = b.params.abandon_rearm.as_nanos() as i64;
+        let _ = b.on_control(A, MSG_GOSSIP_IHAVE, &ihave, t + rearm + 1);
+        assert_eq!(b.pending_graft_count(), 1, "quarantine expired → re-armed");
     }
 
     #[test]
     fn neighbor_down_reassigns_pending_grafts() {
         let mut b = engine(B, &[A, C]);
-        b.schedule_graft(MsgId { sender: A, seq: 4 }, A, 0);
+        b.schedule_graft(MsgId { sender: A, seq: 4 }, A, 0, 0);
         b.neighbor_down(A);
         let actions = b.on_tick(5 * NS_MS);
         match &actions[0] {

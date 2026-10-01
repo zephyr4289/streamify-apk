@@ -69,6 +69,17 @@ async fn build_mesh(session: &str, n: usize) -> Vec<Arc<MeshNode>> {
             snap_grace_delay: Duration::from_millis(30),
             graft_fanout: 3,
             serve_redundancy: 3,
+            scale_threshold: 16,
+            scale_fanout_cap: 8,
+            scale_prune_threshold: 2,
+            abandon_rearm: Duration::from_millis(750),
+            scale_announce_cap: 4,
+            scale_origin_fanout_cap: 31,
+            own_recent_depth: 64,
+            reconcile_interval: Duration::from_millis(250),
+            graft_burst_cap: 32,
+            adaptive_backoff_max: 8,
+            delta_announce: true,
         };
         cfg.swarm.chunk_size = 32 * 1024; // small chunks keep the suite fast
         cfg.swarm.request_timeout = Duration::from_millis(120);
