@@ -47,7 +47,7 @@
 //!     repositioning that never disturbs un-voted items.
 //! ═══════════════════════════════════════════════════════════════════════
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 
 use crate::repository::generate_cad_id_u64;
@@ -66,6 +66,72 @@ pub const VOTE_FLAG_UP: u8 = 0x01;
 /// oldest target (smallest latest op-id, tie by target id) is evicted — a
 /// pure function of ledger content, so eviction is replica-convergent.
 pub const MAX_VOTE_TARGETS: usize = 4096;
+
+// ═════════════════════════════════════════════════════════════════
+// PHASE 2 — threshold auto-promotion policy (directive A / gap #37)
+// ═════════════════════════════════════════════════════════════════
+
+/// When a track's net upvotes cross the effective threshold it is
+/// auto-promoted into the active playback queue. Two knobs compose:
+///   • default quorum: ⌊N/2⌋ + 1 (N = `member_count`) — a strict majority;
+///   • host-configured `ratio` (0.25..=1.0) — `ceil(ratio · N)`, e.g.
+///     0.75 with N=8 → 6 votes.
+/// `min_votes` floors the result (solo rooms stay usable), and the final
+/// value is clamped to at least 1.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PromotionPolicy {
+    /// Room size N used by the quorum/ratio math (Spotify Jam parity: 32).
+    pub member_count: u32,
+    /// Host override ratio; `None` → plain ⌊N/2⌋+1 majority.
+    pub ratio: Option<f32>,
+    /// Absolute floor on the effective threshold.
+    pub min_votes: u32,
+}
+
+impl Default for PromotionPolicy {
+    fn default() -> Self {
+        PromotionPolicy {
+            member_count: 2,
+            ratio: None,
+            min_votes: 1,
+        }
+    }
+}
+
+impl PromotionPolicy {
+    /// Effective promotion threshold in net upvotes.
+    pub fn effective_threshold(&self) -> u32 {
+        let quorum = (self.member_count / 2) + 1;
+        let ratio_based = self
+            .ratio
+            .filter(|r| *r > 0.0)
+            .map(|r| ((r as f64) * self.member_count as f64).ceil() as u32)
+            .unwrap_or(quorum);
+        ratio_based.max(self.min_votes).max(1)
+    }
+}
+
+/// Promotion state of one queue element (query result).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromotionStatus {
+    /// Net votes below threshold.
+    Pending { votes: u32, threshold: u32 },
+    /// Threshold met — sitting in the active playback queue.
+    Committed { votes: u32 },
+}
+
+/// One row of the proposed / committed queue views (UI binding).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct QueueViewEntry {
+    /// Effective playback position (fractional index).
+    pub frac: f64,
+    /// Element identity — its ADD op's id (also the vote target).
+    pub add_op_id: u64,
+    /// Canonical track id.
+    pub cad_id: u64,
+    /// Net upvotes currently standing.
+    pub votes: u32,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -390,8 +456,20 @@ pub struct JamCrdtState {
     /// Latched when adjacent fractions fall within relative ULP range.
     /// Reset externally after a successful rebalance pass.
     pub needs_rebalance: bool,
-    /// Phase 2: democratic vote ledger (directive A / gap #37).
+    /// Phase 2: democratic vote ledger (directive A).
     votes: VoteLedger,
+    /// Phase 2: elements whose net upvotes meet the promotion threshold —
+    /// they sit in the active playback queue. Recomputed from merged state
+    /// on every pass: a history-dependent "promote-and-ratchet" rule would
+    /// let two replicas that merged the same op set in different orders
+    /// disagree on whether a threshold was ever crossed (the exact
+    /// split-brain bug this engine exists to prevent), so promotion is a
+    /// pure function of the final ledger — retractions that pull a track
+    /// back below the threshold demote it to the proposed rail, keeping the
+    /// active queue an honest live picture of the room's democratic will.
+    committed: HashSet<u64>,
+    /// Phase 2: promotion threshold configuration (host-configurable).
+    promotion: PromotionPolicy,
 }
 
 impl JamCrdtState {
@@ -460,6 +538,7 @@ impl JamCrdtState {
             _ => return false, // unknown op types stay rejected at the boundary
         }
 
+        self.reconcile_promotions();
         self.check_rebalance();
         true
     }
@@ -540,6 +619,7 @@ impl JamCrdtState {
             if outcome == VoteOutcome::Rejected {
                 return Some(VoteOutcome::Rejected);
             }
+            self.reconcile_promotions();
             self.check_rebalance();
             Some(outcome)
         } else {
@@ -574,6 +654,207 @@ impl JamCrdtState {
     pub fn vote_event_count(&self) -> usize {
         self.votes.total_events()
     }
+
+    // ── Phase 2: threshold auto-promotion engine (directive A) ────────
+
+    /// Installs a promotion policy (member count / host ratio) and
+    /// immediately reconciles — a smaller threshold can promote tracks
+    /// that already have enough standing votes.
+    pub fn set_promotion_policy(&mut self, policy: PromotionPolicy) {
+        self.promotion = policy;
+        self.reconcile_promotions();
+    }
+
+    /// Current promotion policy (threshold math is caller-visible).
+    pub fn promotion_policy(&self) -> &PromotionPolicy {
+        &self.promotion
+    }
+
+    /// Promotion state of one element: pending (votes, threshold) or
+    /// committed (already bubbled into the active playback queue).
+    pub fn promotion_status(&self, target_add_op_id: u64) -> PromotionStatus {
+        let votes = self.votes.count(target_add_op_id);
+        if self.committed.contains(&target_add_op_id) {
+            PromotionStatus::Committed { votes }
+        } else {
+            PromotionStatus::Pending {
+                votes,
+                threshold: self.promotion.effective_threshold(),
+            }
+        }
+    }
+
+    /// PROPOSED queue view (directive A): live elements that have NOT been
+    /// promoted, in manual fractional order — the "candidate" rail the
+    /// optimistic UI renders with vote badges.
+    pub fn proposed_queue(&self) -> Vec<QueueViewEntry> {
+        self.queue
+            .iter()
+            .filter(|(k, _)| !self.committed.contains(&k.1))
+            .map(|(k, e)| QueueViewEntry {
+                frac: f64::from_bits(k.0),
+                add_op_id: k.1,
+                cad_id: e.cad_id,
+                votes: self.votes.count(k.1),
+            })
+            .collect()
+    }
+
+    /// COMMITTED queue view (directive A): auto-promoted elements in
+    /// democratic playback order — most net upvotes first, ties broken by
+    /// the lower add op id (earlier proposal wins). This is the active
+    /// playback queue.
+    ///
+    /// The order is DERIVED, never written back into the queue: each
+    /// committed element's effective fractional index is computed from
+    /// live merged state (rank inside the committed block → position in
+    /// the open interval (0, hi), `hi` = smallest manual fraction still
+    /// held by an un-promoted element, 1.0 when none). Two replicas that
+    /// merged the same op set in different orders therefore derive the
+    /// byte-identical placement — there is no history-dependent physical
+    /// repositioning to diverge — while un-promoted elements keep their
+    /// manual fractions EXACTLY (the directive's "without disturbing
+    /// un-voted items" invariant).
+    pub fn committed_queue(&self) -> Vec<QueueViewEntry> {
+        let committed: Vec<(u64, u64)> = self
+            .queue
+            .iter()
+            .filter(|(k, _)| self.committed.contains(&k.1))
+            .map(|(k, e)| (k.1, e.cad_id))
+            .collect();
+        if committed.is_empty() {
+            return Vec::new();
+        }
+        // Democratic order: (-net votes, add op id).
+        let mut order: Vec<(u64, u64, u32)> = committed
+            .into_iter()
+            .map(|(id, cad)| (id, cad, self.votes.count(id)))
+            .collect();
+        order.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+
+        // hi: the manual frontier of the un-promoted rail.
+        let hi = self
+            .queue
+            .keys()
+            .filter(|k| !self.committed.contains(&k.1))
+            .map(|k| f64::from_bits(k.0))
+            .filter(|f| f.is_finite() && *f > 0.0)
+            .fold(f64::INFINITY, f64::min)
+            .min(1.0);
+        let hi = if hi.is_finite() && hi > 0.0 { hi } else { 1.0 };
+
+        let n = order.len() as f64;
+        order
+            .into_iter()
+            .enumerate()
+            .map(|(rank, (id, cad, votes))| QueueViewEntry {
+                frac: hi * ((rank + 1) as f64) / (n + 1.0),
+                add_op_id: id,
+                cad_id: cad,
+                votes,
+            })
+            .collect()
+    }
+
+    /// Full playback order the player consumes: the derived committed
+    /// block (democratic order, fractionally ahead of everything else)
+    /// followed by the proposed rail in manual fractional order.
+    pub fn playback_order(&self) -> Vec<QueueViewEntry> {
+        let mut v = self.committed_queue();
+        v.extend(self.proposed_queue());
+        v
+    }
+
+    /// Threshold auto-promotion pass: rebuilds the committed set from live
+    /// merged state. A PURE FUNCTION OF MERGED STATE — every replica
+    /// running it over the same queue + ledger derives the same committed
+    /// set, regardless of the order votes and adds arrived in:
+    ///
+    ///   • a live element whose net upvotes meet
+    ///     `promotion.effective_threshold()` is promoted (its derived
+    ///     playback position comes from [`Self::committed_queue`]);
+    ///   • retractions that pull an element back below the threshold
+    ///     demote it to the proposed rail — convergence REQUIRES promotion
+    ///     to be a function of merged state, not of the merge order in
+    ///     which a threshold happened to be crossed;
+    ///   • votes for elements that have not been added yet (out-of-order
+    ///     delivery) are tolerated and promote the moment the Add lands;
+    ///   • the physical queue's manual fractions are NEVER rewritten, so
+    ///     there is no history-dependent repositioning state to diverge.
+    fn reconcile_promotions(&mut self) {
+        if self.votes.per_target.is_empty() && self.committed.is_empty() {
+            return; // fast path: no voting activity yet (pure Add/Remove rooms)
+        }
+        let threshold = self.promotion.effective_threshold() as u32;
+        let mut next: HashSet<u64> = HashSet::new();
+        for target in self.votes.targets() {
+            // Vote-before-Add tolerance: only live elements promote.
+            if self.votes.count(target) >= threshold && self.queue.keys().any(|k| k.1 == target) {
+                next.insert(target);
+            }
+        }
+        self.committed = next;
+    }
+
+    /// FULL state fold (Phase 2): queue + tombstones + vote ledger, all in
+    /// deterministic order — the join-hydration and split-brain-merge
+    /// artifact that carries the complete democratic state (the committed
+    /// set is intentionally NOT serialized: it is a pure function of the
+    /// queue + ledger + local promotion policy, rebuilt on load). The
+    /// legacy `fold_to_snapshot` keeps its frozen 2-tuple shape.
+    pub fn fold_full(&self) -> FullSnapshot {
+        let (queue, tombstones) = self.fold_to_snapshot();
+        FullSnapshot {
+            queue,
+            tombstones,
+            votes: self
+                .votes
+                .targets()
+                .into_iter()
+                .map(|t| {
+                    let mut voters: Vec<(VoterId, bool, u64)> = self
+                        .votes
+                        .per_target
+                        .get(&t)
+                        .map(|m| {
+                            m.iter()
+                                .map(|(v, s)| (*v, s.up, s.op_id))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    voters.sort_by(|a, b| a.0.cmp(&b.0));
+                    (t, voters)
+                })
+                .collect(),
+        }
+    }
+
+    /// Restores a full fold (join hydration / compaction adoption) and
+    /// reconciles promotions against the restored ledger.
+    pub fn load_full(&mut self, snap: FullSnapshot) {
+        self.load_snapshot(snap.queue, snap.tombstones);
+        self.votes.per_target.clear();
+        for (target, voters) in snap.votes {
+            let per = self.votes.per_target.entry(target).or_default();
+            for (voter, up, op_id) in voters {
+                per.insert(voter, VoteState { up, op_id });
+            }
+        }
+        self.committed.clear();
+        self.reconcile_promotions();
+        self.check_rebalance();
+    }
+}
+
+/// Deterministic full-state fold artifact (Phase 2 join hydration).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FullSnapshot {
+    /// Queue triples (frac, add_op_id, cad_id) in manual play order.
+    pub queue: Vec<(f64, u64, u64)>,
+    /// Suppressed add op ids.
+    pub tombstones: Vec<u64>,
+    /// Vote ledger: (target, [(voter, upvote?, op_id)] sorted by voter).
+    pub votes: Vec<(u64, Vec<(VoterId, bool, u64)>)>,
 }
 
 #[cfg(test)]
@@ -824,5 +1105,224 @@ mod tests {
             legacy.apply_op_as(&hostile, &voter_pk(9)),
             Some(VoteOutcome::Rejected)
         );
+    }
+
+    // ── threshold auto-promotion engine (directive A) ─────────────────
+
+    fn seeded_room(member_count: u32) -> JamCrdtState {
+        let mut st = JamCrdtState::new();
+        st.set_promotion_policy(PromotionPolicy {
+            member_count,
+            ratio: None,
+            min_votes: 1,
+        });
+        st
+    }
+
+    fn add_op_for(op_id: u64, cad: u64, frac: f64) -> JamOp {
+        JamOp::new(op_id, [1; 4], OpType::Add, 0, cad, frac, 0)
+    }
+
+    #[test]
+    fn promotion_threshold_math() {
+        // ⌊N/2⌋+1 majority ladder.
+        let p = |n: u32| PromotionPolicy { member_count: n, ratio: None, min_votes: 1 };
+        assert_eq!(p(1).effective_threshold(), 1);
+        assert_eq!(p(2).effective_threshold(), 2);
+        assert_eq!(p(7).effective_threshold(), 4);
+        assert_eq!(p(8).effective_threshold(), 5);
+        assert_eq!(p(32).effective_threshold(), 17);
+
+        // Host-configured ratio: ceil(ratio·N).
+        let r = PromotionPolicy { member_count: 8, ratio: Some(0.75), min_votes: 1 };
+        assert_eq!(r.effective_threshold(), 6);
+        // Ratio floors below the majority quorum are still allowed.
+        let r2 = PromotionPolicy { member_count: 8, ratio: Some(0.25), min_votes: 1 };
+        assert_eq!(r2.effective_threshold(), 2);
+        // min_votes floor beats everything.
+        let m = PromotionPolicy { member_count: 4, ratio: None, min_votes: 9 };
+        assert_eq!(m.effective_threshold(), 9);
+    }
+
+    #[test]
+    fn promotion_bubbles_up_without_disturbing_unvoted() {
+        // Room of 5 → threshold 3. Four candidates at stable fracs.
+        let mut st = seeded_room(5);
+        let a = add_op_for(10_001, 101, 0.40);
+        let b = add_op_for(10_002, 102, 0.50);
+        let c = add_op_for(10_003, 103, 0.60);
+        let d = add_op_for(10_004, 104, 0.70);
+        for op in [&a, &b, &c, &d] {
+            assert!(st.apply_op(op));
+        }
+        let before = st.proposed_queue();
+        assert_eq!(before.len(), 4);
+
+        // Three voters upvote B → threshold met → B bubbles up.
+        for voter in 1..=3 {
+            let v = vote_op(11_000 + voter as u64, [voter; 4], true, b.op_id);
+            let _ = st.apply_op_as(&v, &voter_pk(voter));
+        }
+        assert_eq!(
+            st.promotion_status(b.op_id),
+            PromotionStatus::Committed { votes: 3 }
+        );
+
+        // The committed view is exactly [B], and B now sits fractionally
+        // AHEAD of every un-voted item…
+        let committed = st.committed_queue();
+        assert_eq!(committed.len(), 1);
+        assert_eq!(committed[0].add_op_id, b.op_id);
+        let head_unvoted = st.proposed_queue()[0].frac;
+        assert!(committed[0].frac < head_unvoted);
+
+        // …while every un-promoted element keeps its EXACT manual fraction
+        // (the derived committed block never rewrites the physical queue).
+        let after = st.proposed_queue();
+        assert_eq!(after.len(), 3);
+        for (prev, cur) in before.iter().filter(|e| e.add_op_id != b.op_id).zip(after.iter()) {
+            assert_eq!(prev.add_op_id, cur.add_op_id);
+        }
+        assert_eq!(after[0].add_op_id, a.op_id);
+        assert!((after[0].frac - 0.40).abs() < f64::EPSILON, "un-voted fractions are sacred");
+        assert!((after[2].frac - 0.70).abs() < f64::EPSILON);
+
+        // A and C each collect 3 votes too — democratic ordering emerges:
+        // all three committed, ranked by (-votes, add_op_id) → B(10_002),
+        // A(10_001), C(10_003) at equal votes… B/A/C order by add id when
+        // votes tie; give C 4 votes to make it the head.
+        for voter in 1..=3 {
+            let va = vote_op(12_000 + voter as u64, [voter; 4], true, a.op_id);
+            let vc = vote_op(13_000 + voter as u64, [voter; 4], true, c.op_id);
+            let _ = st.apply_op_as(&va, &voter_pk(voter));
+            let _ = st.apply_op_as(&vc, &voter_pk(voter));
+        }
+        let vc4 = vote_op(13_004, [4; 4], true, c.op_id);
+        let _ = st.apply_op_as(&vc4, &voter_pk(4));
+
+        let committed = st.committed_queue();
+        assert_eq!(committed.len(), 3);
+        assert_eq!(committed[0].add_op_id, c.op_id, "4 votes head the queue");
+        assert_eq!(committed[1].add_op_id, a.op_id, "tie 3-3 → lower add id first");
+        assert_eq!(committed[2].add_op_id, b.op_id);
+        // Strictly ascending fractional order inside the committed block,
+        // and the whole block sits fractionally ahead of the un-voted rail.
+        assert!(committed[0].frac < committed[1].frac && committed[1].frac < committed[2].frac);
+        let proposed = st.proposed_queue();
+        assert_eq!(proposed.len(), 1);
+        assert_eq!(proposed[0].add_op_id, d.op_id);
+        assert!(committed[2].frac < proposed[0].frac);
+        assert!((proposed[0].frac - 0.70).abs() < f64::EPSILON, "D untouched at its manual frac");
+
+        // The full playback order = committed block, then proposed rail.
+        let playback = st.playback_order();
+        assert_eq!(
+            playback.iter().map(|e| e.add_op_id).collect::<Vec<_>>(),
+            vec![c.op_id, a.op_id, b.op_id, d.op_id]
+        );
+        // Manual queue order (legacy view) is completely untouched.
+        assert_eq!(
+            st.snapshot_vec().iter().map(|t| t.1).collect::<Vec<_>>(),
+            vec![a.op_id, b.op_id, c.op_id, d.op_id]
+        );
+    }
+
+    #[test]
+    fn promotion_split_brain_convergence() {
+        // Two replicas see the SAME op stream in opposite orders (classic
+        // split-brain heal). Final full state — including committed fracs —
+        // must be byte-identical.
+        let ops: Vec<JamOp> = vec![
+            add_op_for(20_001, 201, 0.5),
+            add_op_for(20_002, 202, 0.7),
+            add_op_for(20_003, 203, 0.9),
+            vote_op(21_001, [1; 4], true, 20_001),
+            vote_op(21_002, [2; 4], true, 20_001),
+            vote_op(21_003, [3; 4], true, 20_002),
+            vote_op(21_004, [4; 4], true, 20_002),
+            vote_op(21_005, [5; 4], true, 20_002),
+            vote_op(21_006, [1; 4], false, 20_001), // voter 1 retracts
+            vote_op(21_007, [3; 4], true, 20_003),
+        ];
+
+        let mut r1 = seeded_room(5); // threshold 3
+        let mut r2 = seeded_room(5);
+        for op in &ops {
+            let voter = voter_pk(op.sender_nonce[0]);
+            let _ = r1.apply_op_as(op, &voter);
+        }
+        for op in ops.iter().rev() {
+            let voter = voter_pk(op.sender_nonce[0]);
+            let _ = r2.apply_op_as(op, &voter);
+        }
+        assert_eq!(r1.fold_full(), r2.fold_full(), "split-brain merges must converge");
+        assert_eq!(r1.snapshot_vec(), r2.snapshot_vec());
+
+        // Post-merge invariants: 20_002 kept 3 votes (promoted),
+        // 20_001 dropped to 1 (never promoted), 20_003 has 1.
+        assert_eq!(r1.vote_count(20_002), 3);
+        assert_eq!(r1.vote_count(20_001), 1);
+        assert!(matches!(r1.promotion_status(20_002), PromotionStatus::Committed { .. }));
+        assert!(matches!(
+            r1.promotion_status(20_001),
+            PromotionStatus::Pending { votes: 1, threshold: 3 }
+        ));
+
+        // Fold → hydrate a third replica from either side: identical state.
+        let mut r3 = seeded_room(5);
+        r3.load_full(r1.fold_full());
+        assert_eq!(r3.fold_full(), r1.fold_full());
+        assert_eq!(r3.committed_queue(), r1.committed_queue());
+    }
+
+    #[test]
+    fn promotion_retraction_demotes_and_removal_purges() {
+        let mut st = seeded_room(3); // threshold 2
+        let t = add_op_for(30_001, 301, 0.5);
+        assert!(st.apply_op(&t));
+        for voter in 1..=2 {
+            let v = vote_op(31_000 + voter as u64, [voter; 4], true, t.op_id);
+            let _ = st.apply_op_as(&v, &voter_pk(voter));
+        }
+        assert!(matches!(st.promotion_status(t.op_id), PromotionStatus::Committed { votes: 2 }));
+
+        // Both voters retract — the merged count falls below threshold and
+        // the element demotes back to the proposed rail. Convergence demands
+        // promotion be a pure function of merged state (see
+        // reconcile_promotions): a history-dependent ratchet would let two
+        // replicas disagree on whether the threshold was ever crossed.
+        for voter in 1..=2 {
+            let v = vote_op(32_000 + voter as u64, [voter; 4], false, t.op_id);
+            let _ = st.apply_op_as(&v, &voter_pk(voter));
+        }
+        assert!(matches!(
+            st.promotion_status(t.op_id),
+            PromotionStatus::Pending { votes: 0, threshold: 2 }
+        ));
+        assert!(st.committed_queue().is_empty());
+        assert_eq!(st.proposed_queue().len(), 1);
+        // The demoted element returns to its ORIGINAL manual fraction.
+        assert!((st.proposed_queue()[0].frac - 0.5).abs() < f64::EPSILON);
+
+        // Remove purges the element entirely.
+        let rem = JamOp::new(33_001, [9; 4], OpType::Remove, 0, 301, 0.0, t.op_id);
+        assert!(st.apply_op(&rem));
+        assert!(st.committed_queue().is_empty());
+        assert!(st.proposed_queue().is_empty());
+
+        // Vote-before-Add tolerance: votes for an element that has not
+        // arrived yet are recorded but do not promote; the moment the Add
+        // lands, the reconciliation promotes it in the same pass.
+        let future = add_op_for(34_001, 401, 0.5);
+        for voter in 1..=2 {
+            let v = vote_op(35_000 + voter as u64, [voter; 4], true, future.op_id);
+            let _ = st.apply_op_as(&v, &voter_pk(voter));
+        }
+        assert!(matches!(
+            st.promotion_status(future.op_id),
+            PromotionStatus::Pending { votes: 2, threshold: 2 }
+        ));
+        assert!(st.apply_op(&future), "late Add after its votes");
+        assert!(matches!(st.promotion_status(future.op_id), PromotionStatus::Committed { votes: 2 }));
     }
 }
