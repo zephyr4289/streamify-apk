@@ -292,6 +292,17 @@ class JamViewModel(
         JamEngine.moveInQueue(track, toPosition)
     }
 
+    // ── Gap #37: democratic queue votes ─────────────────────────────────
+
+    /** addOpId → voter nonces; recomposes queue rows the moment a vote lands. */
+    val queueVotes: StateFlow<Map<Long, Set<String>>> = JamEngine.queueVotes
+
+    fun voteCountFor(track: Track): Int = JamEngine.voteCountFor(track)
+
+    fun hasVotedFor(track: Track): Boolean = JamEngine.hasVotedFor(track)
+
+    fun castUpvote(track: Track): Boolean = JamEngine.castUpvote(track)
+
     fun cycleControlPolicy() {
         val next = if (JamEngine.policy.value == JamEngine.ControlPolicy.EVERYONE)
             JamEngine.ControlPolicy.HOST_ONLY else JamEngine.ControlPolicy.EVERYONE

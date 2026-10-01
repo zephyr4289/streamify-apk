@@ -2,6 +2,7 @@ package com.streamify.app.jam
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -266,6 +267,44 @@ class JamWireTest {
         assertNotNull(f) // header is structurally valid — dispatcher will no-op
         assertNull(f!!.asTick)
         assertNull(JamWire.parseSeek(f))
+    }
+
+    // ── Gap #37: democratic queue votes ────────────────────────────────────
+
+    @Test
+    fun `vote round-trips target, voter and up flag`() {
+        val f = roundTrip(JamWire.encodeVote(sender, 9L, 4242L, true))
+        assertNotNull(f)
+        assertEquals(JamWire.Msg.VOTE, f!!.msgType)
+        assertEquals(9L, f.epoch)
+        val body = JamWire.parseVote(f)
+        assertNotNull(body)
+        body!!
+        assertEquals(4242L, body.targetAddOpId)
+        assertEquals(sender, body.voterNonce)
+        assertTrue(body.up)
+    }
+
+    @Test
+    fun `vote retract round-trips with up false`() {
+        val f = roundTrip(JamWire.encodeVote(sender, 0L, 1L, false))
+        val body = JamWire.parseVote(f!!)
+        assertNotNull(body)
+        assertFalse(body!!.up)
+        assertEquals(1L, body.targetAddOpId)
+    }
+
+    @Test
+    fun `vote voter nonce is space-padded and trimmed back`() {
+        val f = roundTrip(JamWire.encodeVote("ab", 1L, 5L, true))
+        assertEquals("ab", JamWire.parseVote(f!!)!!.voterNonce)
+    }
+
+    @Test
+    fun `vote parser rejects non-vote frames`() {
+        // A structurally valid SEEK frame must never parse as a vote.
+        val f = roundTrip(JamWire.encodeSeek(sender, 1L, 2L))
+        assertNull(JamWire.parseVote(f!!))
     }
 
     companion object {

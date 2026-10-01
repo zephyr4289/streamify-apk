@@ -52,6 +52,8 @@ internal object SupabaseCommunityClient {
                             timestampMs = o.optLong("timestamp_ms", 0L),
                             commentText = o.optString("comment_text", ""),
                             likesCount = o.optInt("likes_count", 0),
+                            parentId = o.optString("parent_id")
+                                .takeIf { it.isNotBlank() && it != "null" },
                             createdAt = o.optString("created_at", "")
                         )
                     )
@@ -64,7 +66,7 @@ internal object SupabaseCommunityClient {
         }
     }
 
-    suspend fun postTrackComment(trackId: String, timestampMs: Long, commentText: String): Result<TrackComment> = withContext(Dispatchers.IO) {
+    suspend fun postTrackComment(trackId: String, timestampMs: Long, commentText: String, parentId: String? = null): Result<TrackComment> = withContext(Dispatchers.IO) {
         val user = SupabaseClient._currentUser.value ?: return@withContext Result.failure(Exception("Sign in to post comments"))
         try {
             val body = JSONObject().apply {
@@ -74,6 +76,9 @@ internal object SupabaseCommunityClient {
                 put("user_avatar", user.avatarUrl)
                 put("timestamp_ms", timestampMs)
                 put("comment_text", commentText)
+                // Gap #34 threading: only serialize a real parent — a JSON
+                // null (or missing key) keeps the row a root comment.
+                if (parentId != null) put("parent_id", parentId)
             }
 
             val (code, resp) = SupabaseClient.executeRpc("track_comments", "POST", body.toString(), prefer = "return=representation")
@@ -90,7 +95,7 @@ internal object SupabaseCommunityClient {
                         userAvatar = user.avatarUrl,
                         timestampMs = timestampMs,
                         commentText = commentText,
-                        likesCount = 0
+                        parentId = parentId
                     )
                 )
             } else {
@@ -98,6 +103,28 @@ internal object SupabaseCommunityClient {
             }
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Gap #34 comment upvotes: pushes the desired like count for a comment.
+     * Best-effort — callers apply the optimistic state first and never
+     * surface a failure toast for a like that did not sync.
+     */
+    suspend fun updateCommentLikes(commentId: String, newLikesCount: Int): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val safeId = URLEncoder.encode(commentId, "UTF-8")
+            val body = JSONObject().put("likes_count", newLikesCount.coerceAtLeast(0))
+            val (code, _) = SupabaseClient.executeRpc(
+                "track_comments?id=eq.$safeId",
+                "PATCH",
+                body.toString(),
+                prefer = "return=minimal"
+            )
+            code in 200..299
+        } catch (e: Exception) {
+            SLog.st("SupabaseClient", "SupabaseClient.updateCommentLikes failed", e)
+            false
         }
     }
 
@@ -155,7 +182,10 @@ internal object SupabaseCommunityClient {
                                 trackTitle = "Listening on Streamify",
                                 trackArtist = o.optString("favorite_genre", "Top Hits"),
                                 coverUrl = "",
-                                lastActiveAt = "Active now"
+                                lastActiveAt = "Active now",
+                                // Gap #32: live jam presence when the profile row carries it.
+                                sessionCode = o.optString("active_jam_code")
+                                    .takeIf { it.isNotBlank() && it != "null" }
                             )
                         )
                     }

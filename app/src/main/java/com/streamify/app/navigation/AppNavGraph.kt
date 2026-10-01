@@ -94,13 +94,63 @@ fun AppNavGraph(
                 },
                 onNavigateToProfile = {
                     navController.navigate("profile")
+                },
+                // Gap #32: Home friends rail one-tap actions.
+                onListenAlong = { title, artist ->
+                    navController.navigate(
+                        "search?query=" + android.net.Uri.encode("$title $artist")
+                    )
+                },
+                onJoinJam = { navController.navigate("jam") },
+                onBlend = { name, seeds ->
+                    navController.navigate(
+                        "blend?friendName=" + android.net.Uri.encode(name) +
+                            "&seeds=" + android.net.Uri.encode(seeds)
+                    )
+                },
+                onViewProfile = { userId, name, avatar ->
+                    navController.navigate(
+                        "user_profile/" + android.net.Uri.encode(userId) +
+                            "/" + android.net.Uri.encode(name) +
+                            "/" + android.net.Uri.encode(avatar)
+                    )
                 }
             )
         }
 
-        composable("search") {
+        composable(
+            route = "search?query={query}",
+            arguments = listOf(
+                androidx.navigation.navArgument("query") { defaultValue = "" }
+            )
+        ) { entry ->
             SearchScreen(
                 playerViewModel = playerViewModel,
+                initialQuery = entry.arguments?.getString("query") ?: "",
+                onTrackClick = { track, _ ->
+                    playerViewModel.playSingleTrack(track)
+                }
+            )
+        }
+
+        // ── Gap #25: Blend playlist screen (shared taste merge) ────────────
+        composable(
+            route = "blend?friendName={friendName}&seeds={seeds}",
+            arguments = listOf(
+                androidx.navigation.navArgument("friendName") { defaultValue = "Friend" },
+                androidx.navigation.navArgument("seeds") { defaultValue = "" }
+            )
+        ) { entry ->
+            val friendName = entry.arguments?.getString("friendName") ?: "Friend"
+            val friendSeeds = (entry.arguments?.getString("seeds") ?: "")
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            BlendScreen(
+                playerViewModel = playerViewModel,
+                friendName = friendName,
+                friendSeeds = friendSeeds,
+                onBack = { navController.popBackStack() },
                 onTrackClick = { track, _ ->
                     playerViewModel.playSingleTrack(track)
                 }
@@ -252,7 +302,46 @@ fun AppNavGraph(
                 onBack = { navController.popBackStack() },
                 onPlaylistClick = { playlist ->
                     // Open community playlist
+                },
+                // Gap #31/#32: friend-feed one-tap actions.
+                onListenAlong = { title, artist ->
+                    navController.navigate(
+                        "search?query=" + android.net.Uri.encode("$title $artist")
+                    )
+                },
+                onJoinJam = { navController.navigate("jam") },
+                onViewProfile = { userId, name, avatar ->
+                    navController.navigate(
+                        "user_profile/" + android.net.Uri.encode(userId) +
+                            "/" + android.net.Uri.encode(name) +
+                            "/" + android.net.Uri.encode(avatar)
+                    )
+                },
+                onBlend = { name, seeds ->
+                    navController.navigate(
+                        "blend?friendName=" + android.net.Uri.encode(name) +
+                            "&seeds=" + android.net.Uri.encode(seeds)
+                    )
                 }
+            )
+        }
+
+        // Gap #31: another listener's public profile (Follow + live count).
+        composable("user_profile/{userId}/{displayName}/{avatarUrl}") { backStackEntry ->
+            UserProfileScreen(
+                onBack = { navController.popBackStack() },
+                onNavigateToWrapped = { navController.navigate("wrapped") },
+                onNavigateToAdmin = { navController.navigate("admin") },
+                onNavigateToSettings = { navController.navigate("settings") },
+                profileUserId = java.net.URLDecoder.decode(
+                    backStackEntry.arguments?.getString("userId") ?: "", "UTF-8"
+                ),
+                profileDisplayName = java.net.URLDecoder.decode(
+                    backStackEntry.arguments?.getString("displayName") ?: "", "UTF-8"
+                ),
+                profileAvatarUrl = java.net.URLDecoder.decode(
+                    backStackEntry.arguments?.getString("avatarUrl") ?: "", "UTF-8"
+                )
             )
         }
         composable("profile") {

@@ -120,6 +120,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         handleSpotifyCallback(intent)
         com.streamify.app.data.models.AppMode.initialize(this)
+        // Gap #31 — follow graph: load persisted follow edges + count seeds
+        // before any FollowButton reads the flows (null-safe on failure).
+        com.streamify.app.data.social.FollowGraphStore.initialize(this)
         // Gap #12 — Join Fabric: process-level attach (app context for BLE /
         // LAN rails + audio-route watch for the speaker prompt). Torn down in
         // onDestroy — every scanner, listener and coroutine dies with the UI.

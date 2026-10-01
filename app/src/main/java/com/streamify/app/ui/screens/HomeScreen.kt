@@ -43,12 +43,22 @@ fun HomeScreen(
     onSearchClick: () -> Unit = {},
     onNavigateToJam: () -> Unit = {},
     onNavigateToCommunity: () -> Unit = {},
-    onNavigateToProfile: () -> Unit = {}
+    onNavigateToProfile: () -> Unit = {},
+    /** Gap #32 friends-rail one-tap actions. */
+    onListenAlong: (String, String) -> Unit = { _, _ -> },
+    onJoinJam: () -> Unit = {},
+    onBlend: (String, String) -> Unit = { _, _ -> },
+    onViewProfile: (String, String, String) -> Unit = { _, _, _ -> }
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val communityState by communityViewModel.uiState.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val user by SupabaseClient.currentUser.collectAsState()
+
+    // Gap #20 / #26: dedicated flows so the Daylist hero and Daily Mixes
+    // update without recomposing the whole shelf tree.
+    val daylistUi by viewModel.daylist.collectAsState()
+    val dailyMixes by viewModel.dailyMixes.collectAsState()
     
     // Decoupled Player State Observation: Isolates 200ms position ticks from root HomeScreen recomposition
     val currentTrack by remember {
@@ -164,6 +174,57 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 120.dp)
                     ) {
+                        // DAYLIST HERO (Gap #20): morphing circadian banner.
+                        val daylistHero = daylistUi.hero
+                        if (daylistHero != null) {
+                            item(key = "daylist_hero", contentType = "daylistHero") {
+                                YtDaylistHeroBanner(
+                                    model = daylistHero,
+                                    onPlayDaylist = {
+                                        val tracks = daylistUi.tracks
+                                        tracks.firstOrNull()?.let { onTrackClick(it, tracks) }
+                                    }
+                                )
+                            }
+                        }
+
+                        // DAILY MIXES 1–6 (Gap #26): artist-cluster carousels.
+                        if (dailyMixes.isNotEmpty()) {
+                            item(key = "header_daily_mixes") {
+                                YtSectionHeader(
+                                    title = "Daily Mixes",
+                                    kicker = "Your artist clusters • 1–6"
+                                )
+                            }
+                            item(key = "rail_daily_mixes") {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(
+                                        items = dailyMixes,
+                                        key = { "daily_mix_${it.number}_${it.seedArtist}" }
+                                    ) { mix ->
+                                        YtDailyMixCard(
+                                            mix = mix,
+                                            onPlayMix = {
+                                                mix.tracks.firstOrNull()?.let {
+                                                    onTrackClick(it, mix.tracks)
+                                                }
+                                            },
+                                            onLongPress = {
+                                                com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                                                mix.tracks.firstOrNull()?.let { track ->
+                                                    contextMenuController.show(track, origin = MenuOrigin.HOME)
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // In-App OTA Update Banner
                         if (updateState is UpdateState.UpdateAvailable) {
                             val available = updateState as UpdateState.UpdateAvailable
@@ -185,6 +246,54 @@ fun HomeScreen(
                             item(key = "broadcast_banner") {
                                 Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                                     BroadcastBanner(broadcasts = communityState.activeBroadcasts)
+                                }
+                            }
+                        }
+
+                        // SHELF 0: FRIENDS ARE LISTENING (Gap #32) — live presence
+                        // rail with one-tap Listen Along / Join Jam / Blend and a
+                        // tap-through to the friend's public profile.
+                        if (communityState.friendsActivity.isNotEmpty()) {
+                            item(key = "header_friends") {
+                                YtSectionHeader(
+                                    title = "Friends",
+                                    kicker = "Listening Now"
+                                )
+                            }
+                            item(key = "row_friends") {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(
+                                        communityState.friendsActivity,
+                                        key = { "home_friend_${it.userId}" }
+                                    ) { friend ->
+                                        FriendActivityCard(
+                                            friend = friend,
+                                            onListenAlong = {
+                                                onListenAlong(friend.trackTitle, friend.trackArtist)
+                                            },
+                                            onJoinJam = if (friend.sessionCode != null) {
+                                                onJoinJam
+                                            } else null,
+                                            onBlend = {
+                                                val seeds = friend.trackArtist
+                                                    .split(",", "•")
+                                                    .map { it.trim() }
+                                                    .filter { it.isNotBlank() }
+                                                onBlend(friend.displayName, seeds.joinToString(","))
+                                            },
+                                            onViewProfile = {
+                                                onViewProfile(
+                                                    friend.userId,
+                                                    friend.displayName,
+                                                    friend.avatarUrl
+                                                )
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }

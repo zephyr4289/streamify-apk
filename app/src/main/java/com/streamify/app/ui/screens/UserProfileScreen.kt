@@ -35,7 +35,11 @@ fun UserProfileScreen(
     onBack: () -> Unit,
     onNavigateToWrapped: () -> Unit,
     onNavigateToAdmin: () -> Unit = {},
-    onNavigateToSettings: () -> Unit = {}
+    onNavigateToSettings: () -> Unit = {},
+    /** Non-null when viewing ANOTHER listener's public profile (Gap #31). */
+    profileUserId: String? = null,
+    profileDisplayName: String? = null,
+    profileAvatarUrl: String? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -135,9 +139,12 @@ fun UserProfileScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val currentUser = user
-            if (currentUser != null && currentUser.avatarUrl.isNotBlank()) {
+            val displayAvatarUrl = if (profileUserId != null) profileAvatarUrl else currentUser?.avatarUrl
+            val displayInitial = (if (profileUserId != null) profileDisplayName else currentUser?.displayName)
+                ?.take(1)?.uppercase() ?: "U"
+            if (!displayAvatarUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = currentUser.avatarUrl,
+                    model = displayAvatarUrl,
                     contentDescription = null,
                     modifier = Modifier
                         .size(88.dp)
@@ -152,7 +159,7 @@ fun UserProfileScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = currentUser?.displayName?.take(1)?.uppercase() ?: "U",
+                        text = displayInitial,
                         style = LocalAppTypography.current.headlineLarge.copy(fontSize = 32.sp),
                         color = TextMain
                     )
@@ -162,16 +169,22 @@ fun UserProfileScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = currentUser?.displayName ?: "Streamify Listener",
+                text = if (profileUserId != null) {
+                    profileDisplayName ?: "Listener"
+                } else {
+                    currentUser?.displayName ?: "Streamify Listener"
+                },
                 style = LocalAppTypography.current.headlineLarge.copy(fontSize = 20.sp, fontWeight = FontWeight.Bold),
                 color = TextMain
             )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = currentUser?.email ?: "",
-                style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
-                color = TextSecondary
-            )
+            if (profileUserId == null) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = currentUser?.email ?: "",
+                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                    color = TextSecondary
+                )
+            }
 
             Spacer(modifier = Modifier.height(6.dp))
 
@@ -180,6 +193,45 @@ fun UserProfileScreen(
                 style = LocalAppTypography.current.songArtist.copy(fontSize = 13.sp),
                 color = TextSecondary
             )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // ── Gap #31: live follower graph on the profile header ──────────
+            // Viewing someone else → one-tap Follow + their live count;
+            // viewing self → your followers/following snapshot.
+            if (profileUserId != null) {
+                com.streamify.app.ui.components.FollowButton(
+                    type = com.streamify.app.data.social.FollowGraphStore.FollowType.USER,
+                    id = profileUserId
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "${profileDisplayName ?: "Listener"} • on Streamify",
+                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                    color = TextSecondary
+                )
+            } else {
+                val followingCount by com.streamify.app.data.social.FollowGraphStore.following
+                    .collectAsState()
+                val myFollowers = com.streamify.app.data.social.FollowGraphStore
+                    .followerCount(
+                        com.streamify.app.data.social.FollowGraphStore.FollowType.USER,
+                        currentUser?.id ?: "me"
+                    )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FollowerStat(
+                        value = com.streamify.app.ui.components.formatFollowerCount(myFollowers),
+                        label = "Followers"
+                    )
+                    FollowerStat(
+                        value = followingCount.size.toString(),
+                        label = "Following"
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(18.dp))
 
@@ -651,4 +703,23 @@ fun UserProfileScreen(
         isOpen = showConnectSheet,
         onDismiss = { showConnectSheet = false }
     )
+}
+
+@Composable
+private fun FollowerStat(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            style = LocalAppTypography.current.headlineMedium.copy(
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            ),
+            color = TextMain
+        )
+        Text(
+            text = label,
+            style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+            color = TextSecondary
+        )
+    }
 }

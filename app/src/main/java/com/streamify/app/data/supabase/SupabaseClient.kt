@@ -450,7 +450,8 @@ object SupabaseClient {
     suspend fun fetchTrackById(trackId: String): Track? = SupabaseTracksClient.fetchTrackById(trackId)
 
     suspend fun fetchTrackComments(trackId: String): List<TrackComment> = SupabaseCommunityClient.fetchTrackComments(trackId)
-    suspend fun postTrackComment(trackId: String, timestampMs: Long, commentText: String): Result<TrackComment> = SupabaseCommunityClient.postTrackComment(trackId, timestampMs, commentText)
+    suspend fun postTrackComment(trackId: String, timestampMs: Long, commentText: String, parentId: String? = null): Result<TrackComment> = SupabaseCommunityClient.postTrackComment(trackId, timestampMs, commentText, parentId)
+    suspend fun updateCommentLikes(commentId: String, newLikesCount: Int): Boolean = SupabaseCommunityClient.updateCommentLikes(commentId, newLikesCount)
     suspend fun fetchCommunityPlaylists(limit: Int = 15): List<CommunityPlaylist> = SupabaseCommunityClient.fetchCommunityPlaylists(limit)
     suspend fun fetchFriendsActivity(): List<FriendActivity> = SupabaseCommunityClient.fetchFriendsActivity()
     suspend fun submitSyncedLyrics(trackId: String, lyricsContent: String): Result<Boolean> = SupabaseCommunityClient.submitSyncedLyrics(trackId, lyricsContent)

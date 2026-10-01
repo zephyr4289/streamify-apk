@@ -65,6 +65,8 @@ data class TrackComment(
     val timestampMs: Long,
     val commentText: String,
     val likesCount: Int = 0,
+    /** Gap #34 threading: id of the comment this replies to (null = root). */
+    val parentId: String? = null,
     val createdAt: String = ""
 )
 
@@ -105,7 +107,9 @@ data class FriendActivity(
     val trackTitle: String,
     val trackArtist: String,
     val coverUrl: String,
-    val lastActiveAt: String
+    val lastActiveAt: String,
+    /** Live Jam session this friend is in (Gap #32 one-tap "Join Jam"). */
+    val sessionCode: String? = null
 )
 
 data class CommunityPlaylist(

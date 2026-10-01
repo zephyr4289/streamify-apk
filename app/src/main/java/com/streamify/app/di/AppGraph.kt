@@ -63,6 +63,14 @@ object AppGraph {
         // 1. Remote fleet adaptation: pull release-free client overrides (2KB JSON).
         com.streamify.app.util.FleetConfig.initialize(appContext)
 
+        // 1b. Scraper stale-while-revalidate persistence (Phase 2 — Gaps
+        //     #15/#20/#26): radio / daylist / blend payloads survive offline
+        //     opens. Disk-backed, size-capped, corruption-tolerant.
+        com.streamify.app.data.network.YouTubeMusicRadioApi.cacheDir =
+            java.io.File(appContext.cacheDir, "scraper_swr")
+        com.streamify.app.data.discovery.DaylistScheduler.cacheDir =
+            java.io.File(appContext.cacheDir, "scraper_swr")
+
         // HTTP wire tracing follows the user's diagnostic-logging toggle.
         com.streamify.app.data.network.NetworkEngine.setHttpTracing(
             com.streamify.app.util.SLog.captureEnabled
@@ -70,6 +78,10 @@ object AppGraph {
 
         // 2. Ensure TrackRepository application context and Telemetry Engine are bound.
         com.streamify.app.data.repository.TrackRepository.appContext = appContext
+
+        // 2b. Taste Profile exclusion store (Gap #27) — loads before any
+        //     telemetry / seed-pool path can fire.
+        com.streamify.app.data.discovery.TasteProfileGuard.initialize(appContext)
         com.streamify.app.data.telemetry.YtStatsTelemetryEngine.initFromContext(appContext)
 
         // 3. Ensure database directory exists and initialize asynchronously off the main thread.

@@ -261,6 +261,69 @@ fun ContextMenuSheet(
                 }
             )
 
+            // 4b. Exclude from Taste Profile (Gap #27): steers the algorithm —
+            // play events stop feeding the radio seed pool + telemetry.
+            run {
+                var excludedFromTaste by remember(track) {
+                    mutableStateOf(
+                        com.streamify.app.data.repository.TrackRepository.isTrackExcludedFromTaste(track)
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = StreamifyDimens.SpaceLG,
+                            vertical = StreamifyDimens.SpaceSM
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.Tune,
+                        contentDescription = null,
+                        tint = if (excludedFromTaste) StreamifyColors.Primary else StreamifyColors.TextSub,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(StreamifyDimens.SpaceLG))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Exclude from Taste Profile",
+                            style = StreamifyType.TitleMedium,
+                            color = StreamifyColors.TextMain
+                        )
+                        Text(
+                            text = if (excludedFromTaste) {
+                                "Not influencing recommendations"
+                            } else {
+                                "Plays influence recommendations"
+                            },
+                            style = StreamifyType.BodySmall,
+                            color = StreamifyColors.TextSub
+                        )
+                    }
+                    Switch(
+                        checked = excludedFromTaste,
+                        onCheckedChange = { checked ->
+                            excludedFromTaste = checked
+                            com.streamify.app.data.repository.TrackRepository
+                                .setTrackExcludedFromTaste(track, checked)
+                            android.widget.Toast.makeText(
+                                context,
+                                if (checked) {
+                                    "\"${track.title}\" won't influence your taste profile"
+                                } else {
+                                    "\"${track.title}\" will influence your taste profile"
+                                },
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedTrackColor = StreamifyColors.Primary
+                        )
+                    )
+                }
+            }
+
             // 5. Add to Playlist (with New Playlist creation)
             ContextActionItem(
                 icon = Icons.Filled.PlaylistAdd,

@@ -44,6 +44,19 @@ interface TrackRepositoryApi {
 
     suspend fun getTopPlayedTracks(limit: Int = 20): List<Track>
 
+    // ── Gap #27: Taste Profile controls ────────────────────────────────
+    // Tracks/playlists flagged excludedFromTaste stop feeding the radio
+    // seed pool and telemetry logging (play/skip events, session vectors,
+    // engagement + hook telemetry, top-played & recommendation surfaces).
+
+    fun setTrackExcludedFromTaste(track: com.streamify.app.data.models.Track, excluded: Boolean)
+
+    fun isTrackExcludedFromTaste(track: com.streamify.app.data.models.Track): Boolean
+
+    fun setPlaylistExcludedFromTaste(playlistName: String, excluded: Boolean)
+
+    fun isPlaylistExcludedFromTaste(playlistName: String): Boolean
+
     suspend fun updateSessionVector(trackId: Int, alpha: Float = 0.45f)
 
     suspend fun getSessionRecommendations(limit: Int = 50): List<Track>

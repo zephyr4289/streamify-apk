@@ -899,6 +899,52 @@ fun LibraryScreen(
 
                 HorizontalDivider(color = BorderChip, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 8.dp))
 
+                // Exclude from Taste Profile (Gap #27) — playlist-level steer.
+                run {
+                    var playlistExcluded by remember(pl.id) {
+                        mutableStateOf(
+                            com.streamify.app.data.repository.TrackRepository
+                                .isPlaylistExcludedFromTaste(pl.name)
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.Tune,
+                            contentDescription = null,
+                            tint = if (playlistExcluded) Primary else TextMain,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Exclude from Taste Profile",
+                                style = LocalAppTypography.current.songTitle,
+                                color = TextMain
+                            )
+                            Text(
+                                if (playlistExcluded) "Not influencing recommendations"
+                                else "Plays influence recommendations",
+                                style = LocalAppTypography.current.songArtist.copy(fontSize = 11.sp),
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = playlistExcluded,
+                            onCheckedChange = { checked ->
+                                playlistExcluded = checked
+                                com.streamify.app.data.repository.TrackRepository
+                                    .setPlaylistExcludedFromTaste(pl.name, checked)
+                            },
+                            colors = SwitchDefaults.colors(checkedTrackColor = Primary)
+                        )
+                    }
+                }
+
                 // Rename Playlist
                 if (!isSystem) {
                     Row(

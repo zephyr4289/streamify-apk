@@ -41,6 +41,7 @@ fun SearchScreen(
     playerViewModel: PlayerViewModel,
     viewModel: SearchViewModel = viewModel(),
     ingestionViewModel: IngestionViewModel = viewModel(),
+    initialQuery: String = "",
     onTrackClick: (Track, List<Track>) -> Unit
 ) {
     val context = LocalContext.current
@@ -52,7 +53,9 @@ fun SearchScreen(
     val searchHistory by viewModel.searchHistory.collectAsState()
     val searchSuggestions by viewModel.searchSuggestions.collectAsState()
 
-    var query by remember { mutableStateOf("") }
+    // Gap #32 Listen Along deep-links here with the friend's track as a
+    // prefilled query so one tap lands on the exact song.
+    var query by remember { mutableStateOf(initialQuery) }
     var selectedFilter by remember { mutableStateOf("All") }
 
     val contextMenuController = LocalContextMenuController.current

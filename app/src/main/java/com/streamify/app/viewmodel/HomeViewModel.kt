@@ -41,6 +41,12 @@ sealed class HomeUiState {
     data class Error(val message: String) : HomeUiState()
 }
 
+/** Immutable snapshot for the Gap #20 morphing Daylist hero. */
+data class DaylistUi(
+    val hero: com.streamify.app.ui.components.yt.DaylistHeroModel? = null,
+    val tracks: List<Track> = emptyList()
+)
+
 class HomeViewModel(
     private val repository: com.streamify.app.data.repository.TrackRepositoryApi = com.streamify.app.data.repository.TrackRepository,
     private val hybridFetcher: com.streamify.app.data.network.HybridGraphFetcher = com.streamify.app.data.network.HybridGraphFetcher()
@@ -52,6 +58,16 @@ class HomeViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    // ── Gap #20 / #26: Daylist hero + Daily Mixes 1–6 ─────────────────────
+    // Kept on dedicated flows so hero/mix updates never recompose the whole
+    // Home shelf tree (zero-jank isolation; scrapers run on Dispatchers.IO
+    // and only immutable snapshots cross back to Compose).
+    private val _daylist = MutableStateFlow(DaylistUi())
+    val daylist: StateFlow<DaylistUi> = _daylist.asStateFlow()
+
+    private val _dailyMixes = MutableStateFlow<List<com.streamify.app.ui.components.yt.DailyMixModel>>(emptyList())
+    val dailyMixes: StateFlow<List<com.streamify.app.ui.components.yt.DailyMixModel>> = _dailyMixes.asStateFlow()
+
     init {
         viewModelScope.launch {
             repository.allTracks
@@ -62,7 +78,91 @@ class HomeViewModel(
                     computeHomeRecommendations(repository.allTracks.value)
                 }
         }
+        observeDaylistCycle()
         loadData()
+    }
+
+    /**
+     * Circadian loop (Gap #20): rebuilds the Daylist whenever the bucket or
+     * the 4-hour refresh slot advances; SWR-cached so ticks are cheap.
+     */
+    private fun observeDaylistCycle() {
+        viewModelScope.launch(Dispatchers.IO) {
+            var lastKey = ""
+            while (true) {
+                runCatching {
+                    val now = java.time.LocalDateTime.now()
+                    val bucket = com.streamify.app.data.discovery.DaylistTimeBuckets.bucketFor(now.hour)
+                    val slot = com.streamify.app.data.discovery.DaylistTimeBuckets.refreshSlotFor(now.hour)
+                    val key = "${bucket.name}_$slot"
+                    if (key != lastKey || _daylist.value.hero == null) {
+                        lastKey = key
+                        val topArtists = runCatching { repository.getTopPlayedTracks(20) }
+                            .getOrDefault(emptyList())
+                            .map { it.artist }
+                            .filter { it.isNotBlank() && it != "Unknown Artist" }
+                            .map { it.trim().lowercase() }
+                            .distinct()
+                            .take(3)
+                        val daylist = runCatching {
+                            com.streamify.app.data.discovery.DaylistScheduler.currentDaylist(
+                                hour = now.hour,
+                                dayOfWeek = now.dayOfWeek,
+                                topArtists = topArtists
+                            )
+                        }.getOrNull()
+                        _daylist.value = DaylistUi(
+                            hero = daylist?.let { d ->
+                                com.streamify.app.ui.components.yt.DaylistHeroModel(
+                                    title = d.title,
+                                    subtitle = d.subtitle,
+                                    bucketLabel = d.bucket.label,
+                                    trackTitles = d.tracks.take(3).map { it.title },
+                                    trackCount = d.tracks.size,
+                                    gradientStart = d.bucket.gradientColors.first,
+                                    gradientEnd = d.bucket.gradientColors.second
+                                )
+                            },
+                            tracks = daylist?.tracks?.map { it.toPlayableTrack() } ?: emptyList()
+                        )
+                    }
+                }
+                kotlinx.coroutines.delay(10 * 60 * 1000L) // 10-min tick; 4h morph cadence detected
+            }
+        }
+    }
+
+    /** DaylistTrack → playable online-stream Track. */
+    private fun com.streamify.app.data.discovery.DaylistTrack.toPlayableTrack(): Track = Track(
+        id = -(videoId.hashCode()),
+        title = title,
+        artist = artist,
+        album = "Daylist",
+        durationSec = durationSec,
+        filepath = "https://www.youtube.com/watch?v=$videoId",
+        coverArtPath = thumbnailUrl.ifBlank { "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" },
+        source = "online_stream",
+        ytmVideoId = videoId
+    )
+
+    /**
+     * Daily Mixes 1–6 (Gap #26): deterministic artist-cluster carousels over
+     * top-played + catalog, ranked by cluster size.
+     */
+    private fun publishDailyMixes(allTracks: List<Track>, topPlayed: List<Track>) {
+        val pool = (topPlayed + allTracks).distinctBy { it.id }
+        val byArtist = pool
+            .filter { it.artist.isNotBlank() && it.artist != "Unknown Artist" }
+            .groupBy { it.artist.trim().lowercase() }
+        val ranked = byArtist.entries.sortedByDescending { it.value.size }.take(6)
+        _dailyMixes.value = ranked.mapIndexed { index, entry ->
+            val tracks = entry.value.take(20)
+            com.streamify.app.ui.components.yt.DailyMixModel(
+                number = index + 1,
+                seedArtist = tracks.firstOrNull()?.artist ?: entry.key,
+                tracks = tracks
+            )
+        }
     }
 
     private fun computeHomeRecommendations(allTracks: List<Track>) {
@@ -85,6 +185,9 @@ class HomeViewModel(
                     "EVENING" -> "Evening Horizon • Golden Hour Unwind"
                     else -> "Late Night Drift • Deep Chill"
                 }
+
+                // Daily Mixes 1–6 (Gap #26) — local, fast, deterministic.
+                publishDailyMixes(allTracks, topPlayed)
 
                 val hydrateList: (List<Track>) -> List<Track> = { list -> list.map { repository.hydrateTrack(it) } }
 

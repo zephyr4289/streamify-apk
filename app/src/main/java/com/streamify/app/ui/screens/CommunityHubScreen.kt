@@ -30,14 +30,24 @@ import kotlinx.coroutines.launch
 fun CommunityHubScreen(
     communityViewModel: CommunityViewModel,
     onBack: () -> Unit,
-    onPlaylistClick: (CommunityPlaylist) -> Unit
+    onPlaylistClick: (CommunityPlaylist) -> Unit,
+    /** Gap #32 friend-feed actions. */
+    onListenAlong: (String, String) -> Unit = { _, _ -> },
+    onJoinJam: () -> Unit = {},
+    onViewProfile: (String, String, String) -> Unit = { _, _, _ -> },
+    onBlend: (String, String) -> Unit = { _, _ -> }
 ) {
     val state by communityViewModel.uiState.collectAsState()
     var selectedGenre by remember { mutableStateOf("All") }
     val genres = listOf("All", "Top Hits", "Hip-Hop", "Chill Lo-Fi", "Electronic", "Focus", "Rock", "Workout")
 
+    // Live feed (Gap #32): refresh presence while the hub is composed.
     LaunchedEffect(Unit) {
         communityViewModel.loadCommunityFeed()
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            communityViewModel.loadCommunityFeed()
+        }
     }
 
     Column(
@@ -123,34 +133,106 @@ fun CommunityHubScreen(
                 ) {
                     CircularProgressIndicator(color = Primary, strokeWidth = 3.dp)
                 }
-            } else if (state.communityPlaylists.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 120.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("🎶", fontSize = 42.sp)
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "No community playlists yet",
-                            style = LocalAppTypography.current.headlineMedium.copy(fontSize = 16.sp),
-                            color = TextMain
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Publish your custom playlist from Library to see it here!",
-                            style = LocalAppTypography.current.songArtist,
-                            color = TextSecondary
-                        )
-                    }
-                }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 120.dp)
                 ) {
+                    // ── FRIEND ACTIVITY LIVE FEED (Gap #32) ─────────────────
+                    if (state.friendsActivity.isNotEmpty()) {
+                        item(key = "header_friend_activity") {
+                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text(
+                                    text = "Friend Activity",
+                                    style = LocalAppTypography.current.headlineMedium.copy(fontSize = 16.sp),
+                                    color = TextMain
+                                )
+                                Text(
+                                    text = "Live • what friends are playing right now",
+                                    style = LocalAppTypography.current.songArtist.copy(fontSize = 12.sp),
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        items(
+                            state.friendsActivity,
+                            key = { "friend_${it.userId}" }
+                        ) { friend ->
+                            com.streamify.app.ui.components.FriendActivityCard(
+                                friend = friend,
+                                compact = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 5.dp),
+                                onListenAlong = { onListenAlong(friend.trackTitle, friend.trackArtist) },
+                                onJoinJam = if (friend.sessionCode != null) {
+                                    { onJoinJam() }
+                                } else null,
+                                onBlend = {
+                                    val seeds = friend.trackArtist
+                                        .split(",", "•")
+                                        .map { it.trim() }
+                                        .filter { it.isNotBlank() }
+                                    onBlend(friend.displayName, seeds.joinToString(","))
+                                },
+                                onViewProfile = {
+                                    onViewProfile(
+                                        friend.userId,
+                                        friend.displayName,
+                                        friend.avatarUrl
+                                    )
+                                }
+                            )
+                        }
+                        item(key = "friend_activity_spacer") {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            androidx.compose.material3.HorizontalDivider(
+                                color = Divider,
+                                thickness = 0.5.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                    }
+
+                    // ── COMMUNITY PLAYLISTS ──────────────────────────────────
+                    if (state.communityPlaylists.isEmpty() && state.friendsActivity.isEmpty()) {
+                        item(key = "empty_state") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 80.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("🎶", fontSize = 42.sp)
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text(
+                                        text = "No community playlists yet",
+                                        style = LocalAppTypography.current.headlineMedium.copy(fontSize = 16.sp),
+                                        color = TextMain
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Publish your custom playlist from Library to see it here!",
+                                        style = LocalAppTypography.current.songArtist,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        item(key = "header_community") {
+                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text(
+                                    text = "Trending Playlists",
+                                    style = LocalAppTypography.current.headlineMedium.copy(fontSize = 16.sp),
+                                    color = TextMain
+                                )
+                            }
+                        }
+                    }
+
                     items(state.communityPlaylists, key = { it.id }) { playlist ->
                         Row(
                             modifier = Modifier

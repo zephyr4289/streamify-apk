@@ -62,6 +62,32 @@ object TrackRepository : TrackRepositoryApi {
     @Volatile private var _likedIds = emptySet<Int>()
     @Volatile private var _likedFnvSet = emptySet<Long>()
 
+    // ── Gap #27: Taste Profile exclusions ────────────────────────────────
+    // Lock-free immutable snapshot read; empty set short-circuits the hot
+    // telemetry paths to a single volatile read.
+    private val taste: com.streamify.app.data.discovery.TasteExclusionIndex
+        get() = com.streamify.app.data.discovery.TasteProfileGuard.index()
+
+    private fun com.streamify.app.data.discovery.TasteExclusionIndex.anyTrackIdExcluded(
+        trackIds: List<Int>
+    ): Boolean {
+        if (excludedTrackKeys.isEmpty()) return false
+        return trackIds.any { id -> _idIndex[id]?.let { isTrackExcluded(it) } ?: false }
+    }
+
+    override fun setTrackExcludedFromTaste(track: Track, excluded: Boolean) {
+        com.streamify.app.data.discovery.TasteProfileGuard.setTrackExcluded(track, excluded)
+    }
+
+    override fun isTrackExcludedFromTaste(track: Track): Boolean = taste.isTrackExcluded(track)
+
+    override fun setPlaylistExcludedFromTaste(playlistName: String, excluded: Boolean) {
+        com.streamify.app.data.discovery.TasteProfileGuard.setPlaylistExcluded(playlistName, excluded)
+    }
+
+    override fun isPlaylistExcludedFromTaste(playlistName: String): Boolean =
+        taste.isPlaylistExcluded(playlistName)
+
     private fun rebuildIndex(tracks: List<Track>, liked: List<Track>) {
         _idIndex.clear()
         _videoIdIndex.clear()
@@ -399,11 +425,16 @@ object TrackRepository : TrackRepositoryApi {
     suspend fun updateTrack(track: Track): Boolean = updateTrackMetadata(track.id, track.title, track.artist, track.album)
 
     override suspend fun logPlayEvent(fromTrackId: Int, toTrackId: Int, userId: Int) = withContext(Dispatchers.IO) {
-        NativeBridge.logPlayEvent(fromTrackId, toTrackId, userId)
+        // Gap #27: excluded tracks never feed the transition telemetry.
+        if (!taste.anyTrackIdExcluded(listOf(fromTrackId, toTrackId))) {
+            NativeBridge.logPlayEvent(fromTrackId, toTrackId, userId)
+        }
     }
 
     override suspend fun logSkipEvent(fromTrackId: Int, toTrackId: Int, userId: Int) = withContext(Dispatchers.IO) {
-        NativeBridge.logSkipEvent(fromTrackId, toTrackId, userId)
+        if (!taste.anyTrackIdExcluded(listOf(fromTrackId, toTrackId))) {
+            NativeBridge.logSkipEvent(fromTrackId, toTrackId, userId)
+        }
     }
 
     suspend fun upsertStreamedTrack(track: Track): Int = withContext(Dispatchers.IO) {
@@ -450,16 +481,20 @@ object TrackRepository : TrackRepositoryApi {
     }
 
     override suspend fun recordTrackPlay(trackId: Int): Boolean = withContext(Dispatchers.IO) {
-        NativeBridge.recordTrackPlay(trackId)
+        if (taste.anyTrackIdExcluded(listOf(trackId))) {
+            false // excluded from taste — play count does not feed the seed pool
+        } else {
+            NativeBridge.recordTrackPlay(trackId)
+        }
     }
 
     override suspend fun getTopPlayedTracks(limit: Int): List<Track> = withContext(Dispatchers.IO) {
         val nativeTracks = NativeBridge.getTopPlayedTracks(limit)
-        nativeTracks.map { it.toTrack() }
+        nativeTracks.map { it.toTrack() }.filterNot { taste.isTrackExcluded(it) }
     }
 
     override suspend fun updateSessionVector(trackId: Int, alpha: Float) = withContext(Dispatchers.IO) {
-        if (trackId > 0) {
+        if (trackId > 0 && !taste.anyTrackIdExcluded(listOf(trackId))) {
             NativeBridge.updateSessionVector(trackId, alpha)
         }
     }
@@ -468,18 +503,18 @@ object TrackRepository : TrackRepositoryApi {
         val recs = NativeBridge.getSessionRecommendations(limit)
         if (recs.isEmpty()) return@withContext emptyList()
         val all = getAllTracks().associateBy { it.id }
-        recs.mapNotNull { rec -> all[rec.trackId] }
+        recs.mapNotNull { rec -> all[rec.trackId] }.filterNot { taste.isTrackExcluded(it) }
     }
 
     override suspend fun getLongTermRecommendations(userId: Int, limit: Int): List<Track> = withContext(Dispatchers.IO) {
         val recs = NativeBridge.getLongTermRecommendations(userId, limit)
         if (recs.isEmpty()) return@withContext emptyList()
         val all = getAllTracks().associateBy { it.id }
-        recs.mapNotNull { rec -> all[rec.trackId] }
+        recs.mapNotNull { rec -> all[rec.trackId] }.filterNot { taste.isTrackExcluded(it) }
     }
 
     suspend fun logEngagementEvent(trackId: Int, durationSec: Int, completionRatio: Float, hourOfDay: Int): Boolean = withContext(Dispatchers.IO) {
-        if (trackId > 0) {
+        if (trackId > 0 && !taste.anyTrackIdExcluded(listOf(trackId))) {
             NativeBridge.logEngagementEvent(trackId, durationSec, completionRatio, hourOfDay)
         } else false
     }
@@ -488,7 +523,7 @@ object TrackRepository : TrackRepositoryApi {
         val recs = NativeBridge.getCircadianRecommendations(hourOfDay, limit)
         if (recs.isEmpty()) return@withContext emptyList()
         val all = getAllTracks().associateBy { it.id }
-        recs.mapNotNull { rec -> all[rec.trackId] }
+        recs.mapNotNull { rec -> all[rec.trackId] }.filterNot { taste.isTrackExcluded(it) }
     }
 
     override fun getCircadianSlot(hourOfDay: Int): String {
@@ -496,7 +531,7 @@ object TrackRepository : TrackRepositoryApi {
     }
 
     suspend fun logHookTelemetry(trackId: Int, favoriteSeekMs: Long, lyricsDwellSec: Int, volumeFlare: Int): Boolean = withContext(Dispatchers.IO) {
-        if (trackId > 0) {
+        if (trackId > 0 && !taste.anyTrackIdExcluded(listOf(trackId))) {
             NativeBridge.logHookTelemetry(trackId, favoriteSeekMs, lyricsDwellSec, volumeFlare)
         } else false
     }
