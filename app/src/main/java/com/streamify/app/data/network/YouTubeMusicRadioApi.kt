@@ -766,7 +766,7 @@ object RadioResponseParser {
                 }
             }
         // videoRenderer.thumbnail.thumbnails.
-        r.optJSONObject("thumbnail")?.optJSONObject("thumbnails")?.let { arr ->
+        r.optJSONObject("thumbnail")?.optJSONArray("thumbnails")?.let { arr ->
             arr.optJSONObject(0)?.optString("url", "")?.takeIf { it.isNotBlank() }?.let { return it }
         }
         return "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
