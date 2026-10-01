@@ -18,11 +18,14 @@ include_directories(
     engine
     ingest
     jni
+    math
+    util
     third_party/sqlite3
 )
 
 add_library(streamify_native_core SHARED
     engine/TaskOrchestrator.cc
+    math/CandidateHasher.cc
     dsp/LufsNormalizer.cc
     dsp/SoftKneeLimiter.cc
     dsp/AcousticPhaseResampler.cc
