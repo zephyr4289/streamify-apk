@@ -18,11 +18,16 @@ include_directories(
     engine
     ingest
     jni
+    math
+    util
     third_party/sqlite3
 )
 
 add_library(streamify_native_core SHARED
     engine/TaskOrchestrator.cc
+    math/CandidateHasher.cc
+    math/HarmonicTransitionEngine.cc
+    math/CircadianCurves.cc
     dsp/LufsNormalizer.cc
     dsp/SoftKneeLimiter.cc
     dsp/AcousticPhaseResampler.cc
@@ -34,6 +39,7 @@ add_library(streamify_native_core SHARED
     jni/jni_bridge.cc
     jni/jni_bridge_dsp.cc
     jni/jni_bridge_native_dsp_engine.cc
+    jni/jni_bridge_harmonic_engine.cc
     engine/StreamifyDB.cc
     engine/RecommendEngine.cc
     engine/EventTracker.cc
@@ -58,6 +64,10 @@ if (STREAMIFY_BUILD_TESTS)
     add_executable(dsp_test_suite
         tests/test_dsp.cc
         tests/test_dsp_phase1.cc
+        tests/test_harmonic_math.cc
+        math/CandidateHasher.cc
+        math/HarmonicTransitionEngine.cc
+        math/CircadianCurves.cc
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
         dsp/ChannelOps.cc
@@ -68,7 +78,7 @@ if (STREAMIFY_BUILD_TESTS)
         dsp/kissfft/kiss_fft.c
         dsp/kissfft/kiss_fftr.c
     )
-    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine .)
+    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine math util .)
     target_link_libraries(dsp_test_suite PRIVATE m pthread)
 
     add_executable(simd_physics_test_suite
@@ -127,8 +137,11 @@ if (STREAMIFY_BUILD_FUZZERS)
         dsp/ChannelOps.cc
         dsp/MasterChain.cc
         dsp/AcousticPhaseResampler.cc
+        math/CandidateHasher.cc
+        math/HarmonicTransitionEngine.cc
+        math/CircadianCurves.cc
     )
-    target_include_directories(dsp_fuzzer_harness PRIVATE dsp mix .)
+    target_include_directories(dsp_fuzzer_harness PRIVATE dsp mix math util .)
     # Sanitizers replace global -O3/-flto/-ffast-math for this target: fast-math
     # elides the NaN guards the harness exists to exercise.
     target_compile_options(dsp_fuzzer_harness PRIVATE
