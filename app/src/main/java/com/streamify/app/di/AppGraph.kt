@@ -63,6 +63,12 @@ object AppGraph {
         // 1. Remote fleet adaptation: pull release-free client overrides (2KB JSON).
         com.streamify.app.util.FleetConfig.initialize(appContext)
 
+        // 1b. Scraper stale-while-revalidate persistence (Phase 2 — Gaps
+        //     #15/#20/#26): radio / daylist / blend payloads survive offline
+        //     opens. Disk-backed, size-capped, corruption-tolerant.
+        com.streamify.app.data.network.YouTubeMusicRadioApi.cacheDir =
+            java.io.File(appContext.cacheDir, "scraper_swr")
+
         // HTTP wire tracing follows the user's diagnostic-logging toggle.
         com.streamify.app.data.network.NetworkEngine.setHttpTracing(
             com.streamify.app.util.SLog.captureEnabled
