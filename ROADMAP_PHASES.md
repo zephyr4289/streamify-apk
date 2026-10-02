@@ -138,11 +138,11 @@ flowchart LR
   - [x] Engineer 2 (Rust Blend Scorer, CRDT Voting & Mixes) — Merged in PR #18
   - [x] Engineer 3 (Kotlin YTM Radio Scrapers, Daylist, Blend UI & Social) — Merged in PR #19
   - [x] CI Verification & Release Test Build — All 12/12 Shards Green
-- [ ] **Phase 3: Media Scraping (Canvas/Clips), Background Downloads & Power Library**
-  - [ ] Engineer 1 (Native AGSL Canvas Loops & Audio Remuxer)
-  - [ ] Engineer 2 (Rust Chunk Swarmer & Local LAN Sync)
-  - [ ] Engineer 3 (Kotlin Canvas Scrapers, UI, Background Downloader & Folders)
-  - [ ] CI Verification & Release Test Build
+- [x] **Phase 3: Media Scraping (Canvas/Clips), Background Downloads & Power Library**
+  - [x] Engineer 1 (Native AGSL Canvas Loops & Audio Remuxer) — Merged in PR #26
+  - [x] Engineer 2 (Rust Chunk Swarmer & Local LAN Sync) — Merged in PR #20
+  - [x] Engineer 3 (Kotlin Canvas Scrapers, UI, Background Downloader & Folders) — Merged in PR #21
+  - [x] CI Verification & Release Test Build — All 12/12 Shards Green
 - [ ] **Phase 4: Everywhere Playback (Connect, Cast, Car & Wear)**
   - [ ] Engineer 1 (Native Low-Latency Audio Sinks)
   - [ ] Engineer 2 (Rust Connect Gateway & Wear Sync)
