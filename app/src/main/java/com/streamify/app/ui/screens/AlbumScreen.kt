@@ -1,6 +1,7 @@
 package com.streamify.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -101,6 +102,107 @@ fun AlbumScreen(
     var renameText by remember { mutableStateOf(displayTitle) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     val firstTrack = albumTracks.firstOrNull()
+
+    // ── Phase 3: in-playlist bulk edit + custom cover cropper ─────────────
+    var bulkEditMode by rememberSaveable { mutableStateOf(false) }
+    // Copy-on-write set: mutating a MutableSet inside mutableStateOf would
+    // never invalidate readers — always assign a NEW set instead.
+    var selectedTrackIds by remember { mutableStateOf(setOf<Int>()) }
+    var showCoverCropper by remember { mutableStateOf(false) }
+    var showAddToPlaylistDialog by remember { mutableStateOf(false) }
+    // Phase 3 — wave QR share card for playlist/album.
+    var showQrShareCard by remember { mutableStateOf(false) }
+    val allPlaylists by PlaylistRepository.playlists.collectAsState()
+
+    fun exitBulkEdit() {
+        bulkEditMode = false
+        selectedTrackIds = emptySet()
+    }
+
+    fun toggleSelected(trackId: Int) {
+        selectedTrackIds = if (trackId in selectedTrackIds) {
+            selectedTrackIds - trackId
+        } else {
+            selectedTrackIds + trackId
+        }
+    }
+
+    androidx.activity.compose.BackHandler(enabled = bulkEditMode) {
+        exitBulkEdit()
+    }
+
+    // Phase 3 — playlist/album wave QR share card.
+    if (showQrShareCard) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showQrShareCard = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            val isPlaylist = explicitTracks != null
+            com.streamify.app.ui.components.QrShareCard(
+                kindLabel = if (isPlaylist) "PLAYLIST" else "ALBUM",
+                title = displayTitle,
+                subtitle = if (isPlaylist) "${albumTracks.size} songs" else (firstTrack?.artist ?: "Unknown Artist"),
+                artworkUrl = firstTrack?.coverArtPath,
+                link = if (isPlaylist && playlistId != null) {
+                    com.streamify.app.ui.components.ShareLinkBuilder.playlistLink(playlistId)
+                } else {
+                    com.streamify.app.ui.components.ShareLinkBuilder.albumLink(displayTitle)
+                },
+                modifier = Modifier.padding(16.dp),
+                onDismiss = { showQrShareCard = false }
+            )
+        }
+    }
+
+    if (showCoverCropper && playlistId != null) {
+        com.streamify.app.ui.components.CoverCropperSheet(
+            playlistName = displayTitle,
+            onDismiss = { showCoverCropper = false },
+            onCoverReady = { coverFile, _ ->
+                PlaylistRepository.updatePlaylistCover(playlistId, coverFile.absolutePath)
+                showCoverCropper = false
+            }
+        )
+    }
+
+    if (showAddToPlaylistDialog && playlistId != null && selectedTrackIds.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showAddToPlaylistDialog = false },
+            title = { Text("Add ${selectedTrackIds.size} songs to…", color = TextMain, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            text = {
+                Column {
+                    allPlaylists.filter { !it.isDeleted && it.id != playlistId }.forEach { target ->
+                        Text(
+                            text = "• ${target.name} (${target.trackIds.size} songs)",
+                            color = TextMain,
+                            fontSize = 14.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedTrackIds.forEach { tid ->
+                                        PlaylistRepository.addTrackToPlaylist(target.id, tid)
+                                    }
+                                    showAddToPlaylistDialog = false
+                                    exitBulkEdit()
+                                    android.widget.Toast.makeText(context, "Added to ${target.name}", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(vertical = 8.dp)
+                        )
+                    }
+                    if (allPlaylists.all { it.isDeleted }) {
+                        Text("No other playlists yet.", color = TextSecondary, fontSize = 13.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAddToPlaylistDialog = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = BgSurfaceElevated,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -240,6 +342,33 @@ fun AlbumScreen(
                             },
                             leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null, tint = TextMain) }
                         )
+                        // Phase 3 — custom square cover cropper w/ palette glow
+                        DropdownMenuItem(
+                            text = { Text("Edit Cover", color = TextMain) },
+                            onClick = {
+                                showOptionsMenu = false
+                                showCoverCropper = true
+                            },
+                            leadingIcon = { Icon(Icons.Filled.Image, contentDescription = null, tint = TextMain) }
+                        )
+                        // Phase 3 — in-playlist bulk edit entry
+                        DropdownMenuItem(
+                            text = { Text("Select Songs", color = TextMain) },
+                            onClick = {
+                                showOptionsMenu = false
+                                bulkEditMode = true
+                            },
+                            leadingIcon = { Icon(Icons.Filled.Checklist, contentDescription = null, tint = TextMain) }
+                        )
+                        // Phase 3 — wave QR share card
+                        DropdownMenuItem(
+                            text = { Text("Share QR Card", color = TextMain) },
+                            onClick = {
+                                showOptionsMenu = false
+                                showQrShareCard = true
+                            },
+                            leadingIcon = { Icon(Icons.Filled.QrCode2, contentDescription = null, tint = TextMain) }
+                        )
                         DropdownMenuItem(
                             text = { Text("Export to M3U8", color = TextMain) },
                             onClick = {
@@ -313,25 +442,101 @@ fun AlbumScreen(
                 key = { "album_track_${it.id}" },
                 contentType = { "trackRow" }
             ) { track ->
-                YtQueueTrackItem(
-                    track = track,
-                    isPlaying = currentTrack?.id == track.id,
-                    showDragHandle = false,
-                    onClick = {
-                        if (isRadioDiscoveryMode) {
-                            playerViewModel.playSingleTrack(track)
-                        } else {
-                            onTrackClick(track, albumTracks)
-                        }
-                    },
-                    onMoreClick = {
-                        contextMenuController.show(
+                if (bulkEditMode && playlistId != null) {
+                    // ── Phase 3: bulk-selection row ──────────────────────
+                    val isSelected = track.id in selectedTrackIds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { toggleSelected(track.id) }
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = { _ -> toggleSelected(track.id) },
+                            colors = CheckboxDefaults.colors(checkedColor = Primary)
+                        )
+                        YtQueueTrackItem(
                             track = track,
-                            origin = if (playlistId != null) com.streamify.app.ui.components.MenuOrigin.PLAYLIST else com.streamify.app.ui.components.MenuOrigin.HOME,
-                            playlistId = playlistId
+                            isPlaying = false,
+                            showDragHandle = false,
+                            dimmed = true,
+                            onClick = { toggleSelected(track.id) },
+                            onMoreClick = { }
                         )
                     }
-                )
+                } else {
+                    YtQueueTrackItem(
+                        track = track,
+                        isPlaying = currentTrack?.id == track.id,
+                        showDragHandle = false,
+                        onClick = {
+                            if (isRadioDiscoveryMode) {
+                                playerViewModel.playSingleTrack(track)
+                            } else {
+                                onTrackClick(track, albumTracks)
+                            }
+                        },
+                        onMoreClick = {
+                            contextMenuController.show(
+                                track = track,
+                                origin = if (playlistId != null) com.streamify.app.ui.components.MenuOrigin.PLAYLIST else com.streamify.app.ui.components.MenuOrigin.HOME,
+                                playlistId = playlistId
+                            )
+                        }
+                    )
+                }
+            }
+        }
+
+        // ── Phase 3: bulk-edit bottom action bar ───────────────────────────
+        if (bulkEditMode && playlistId != null) {
+            Surface(
+                color = BgSurfaceElevated,
+                tonalElevation = 8.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${selectedTrackIds.size} selected",
+                        style = LocalAppTypography.current.songTitle.copy(fontSize = 14.sp),
+                        color = TextMain,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = {
+                            PlaylistRepository.removeTracksFromPlaylist(playlistId, selectedTrackIds.toList())
+                            exitBulkEdit()
+                            android.widget.Toast.makeText(context, "Removed ${selectedTrackIds.size} songs", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        enabled = selectedTrackIds.isNotEmpty()
+                    ) {
+                        Text(
+                            "Remove",
+                            color = if (selectedTrackIds.isNotEmpty()) androidx.compose.ui.graphics.Color(0xFFFF453A) else TextTertiary,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                    }
+                    TextButton(
+                        onClick = { showAddToPlaylistDialog = true },
+                        enabled = selectedTrackIds.isNotEmpty()
+                    ) {
+                        Text(
+                            "Add to Playlist",
+                            color = if (selectedTrackIds.isNotEmpty()) Primary else TextTertiary,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                    }
+                    TextButton(onClick = { exitBulkEdit() }) {
+                        Text("Done", color = TextSecondary)
+                    }
+                }
             }
         }
     }

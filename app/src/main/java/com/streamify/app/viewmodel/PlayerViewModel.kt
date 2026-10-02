@@ -1144,6 +1144,161 @@ class PlayerViewModel(internal val repository: com.streamify.app.data.repository
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Phase 3 — Smart Shuffle: interleave algorithmic recommendations into
+    // the ACTIVE queue with distinct badges + reshuffle trigger. The pure
+    // interleave math lives in player/SmartShuffleEngine (unit-tested);
+    // this section owns state + the glitch-free controller sync.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    private val _smartShuffleInjectedIds = MutableStateFlow<Set<Int>>(emptySet())
+    /** Queue items with these ids render the "Recommended" badge in QueueScreen. */
+    val smartShuffleInjectedIds: StateFlow<Set<Int>> = _smartShuffleInjectedIds.asStateFlow()
+
+    private var smartShuffleJob: Job? = null
+
+    val isSmartShuffleActive: Boolean
+        get() = _smartShuffleInjectedIds.value.isNotEmpty()
+
+    /** Toggle: enable when idle, strip + disable when active. */
+    fun toggleSmartShuffle() {
+        if (isSmartShuffleActive) disableSmartShuffle() else enableSmartShuffle()
+    }
+
+    fun enableSmartShuffle() {
+        val state = _playerState.value
+        val seed = state.currentTrack ?: state.queue.firstOrNull() ?: return
+        if (state.queue.isEmpty()) return
+
+        smartShuffleJob?.cancel()
+        smartShuffleJob = viewModelScope.launch {
+            val recommendations = com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(
+                seedTrack = seed,
+                activeQueue = state.queue,
+                targetCount = 24
+            )
+            if (recommendations.isEmpty()) {
+                UiEventBus.emitEvent(UiEvent.ShowSnackbar("No recommendations for Smart Shuffle"))
+                return@launch
+            }
+            val result = com.streamify.app.player.SmartShuffleEngine.interleave(
+                queue = state.queue,
+                currentIndex = state.currentIndex,
+                recommendations = recommendations
+            )
+            if (result.injectedCount == 0) {
+                UiEventBus.emitEvent(UiEvent.ShowSnackbar("Queue already covers your recommendations"))
+                return@launch
+            }
+            applySmartShuffleResult(result, previousQueue = state.queue)
+            UiEventBus.emitEvent(UiEvent.ShowSnackbar("Smart Shuffle added ${result.injectedCount} recommendations ✨"))
+        }
+    }
+
+    /** Reshuffle: strip the previous injection, interleave a fresh batch. */
+    fun reshuffleSmartShuffle() {
+        val state = _playerState.value
+        val seed = state.currentTrack ?: state.queue.firstOrNull() ?: return
+        if (state.queue.isEmpty()) return
+
+        smartShuffleJob?.cancel()
+        smartShuffleJob = viewModelScope.launch {
+            val recommendations = com.streamify.app.radio.UniversalCandidateBroker.fetchCandidates(
+                seedTrack = seed,
+                activeQueue = state.queue.filter { it.id !in _smartShuffleInjectedIds.value },
+                targetCount = 24
+            )
+            val result = com.streamify.app.player.SmartShuffleEngine.reshuffle(
+                queue = state.queue,
+                currentIndex = state.currentIndex,
+                previousInjectedIds = _smartShuffleInjectedIds.value,
+                freshRecommendations = recommendations
+            )
+            if (result.injectedCount == 0) {
+                UiEventBus.emitEvent(UiEvent.ShowSnackbar("No fresh recommendations right now"))
+                return@launch
+            }
+            applySmartShuffleResult(result, previousQueue = state.queue)
+            UiEventBus.emitEvent(UiEvent.ShowSnackbar("Reshuffled in ${result.injectedCount} new picks ✨"))
+        }
+    }
+
+    /** Strips all injected recommendations; playback of the current track never breaks. */
+    fun disableSmartShuffle() {
+        val injected = _smartShuffleInjectedIds.value
+        if (injected.isEmpty()) return
+        val state = _playerState.value
+        val playingId = state.currentTrack?.id
+        val userQueue = state.queue.filterIndexed { index, track ->
+            (index == state.currentIndex) || (track.id !in injected)
+        }
+        val newIndex = playingId?.let { id -> userQueue.indexOfFirst { it.id == id } } ?: -1
+        applyQueueToControllerTail(
+            newQueue = userQueue,
+            currentIndex = newIndex.coerceAtLeast(0),
+            oldQueueSize = state.queue.size
+        )
+        _playerState.value = _playerState.value.copy(queue = userQueue, currentIndex = newIndex.coerceAtLeast(0))
+        _smartShuffleInjectedIds.value = emptySet()
+        UiEventBus.emitEvent(UiEvent.ShowSnackbar("Smart Shuffle off"))
+    }
+
+    /**
+     * Applies an engine result: state update + glitch-free controller sync.
+     * Only the queue TAIL beyond the protected window (current + next) is
+     * rebuilt — the playing item is never re-prepared, so no audible seam.
+     */
+    private fun applySmartShuffleResult(
+        result: com.streamify.app.player.SmartShuffleEngine.Result,
+        previousQueue: List<Track>
+    ) {
+        val state = _playerState.value
+        applyQueueToControllerTail(
+            newQueue = result.queue,
+            currentIndex = state.currentIndex,
+            oldQueueSize = previousQueue.size
+        )
+        _playerState.value = _playerState.value.copy(queue = result.queue)
+        _smartShuffleInjectedIds.value = result.injectedIds
+    }
+
+    /**
+     * Rebuilds the controller's queue tail after [protectedUntil] = current
+     * + next. Falls back to a full setMediaItems only when the controller and
+     * the logical queue have drifted (defensive — should not happen).
+     */
+    private fun applyQueueToControllerTail(
+        newQueue: List<Track>,
+        currentIndex: Int,
+        oldQueueSize: Int
+    ) {
+        val ctrl = controller ?: return
+        val protectedUntil = (currentIndex + 1 + com.streamify.app.player.SmartShuffleEngine.MIN_PROTECTED_AHEAD)
+            .coerceAtMost(newQueue.size)
+        try {
+            val itemCount = ctrl.mediaItemCount
+            if (itemCount == oldQueueSize || itemCount >= protectedUntil) {
+                // Surgical tail rebuild: drop everything beyond the protected
+                // window, then insert the new tail in queue order.
+                if (itemCount > protectedUntil) {
+                    ctrl.removeMediaItems(protectedUntil, itemCount)
+                }
+                if (newQueue.size > protectedUntil) {
+                    val tailItems = newQueue.drop(protectedUntil).map { buildMediaItem(it) }
+                    ctrl.addMediaItems(protectedUntil, tailItems)
+                }
+            } else {
+                // Drifted controller: full rebuild anchored at the current track.
+                val positionMs = ctrl.currentPosition.coerceAtLeast(0L)
+                ctrl.setMediaItems(newQueue.map { buildMediaItem(it) }, currentIndex, positionMs)
+                ctrl.prepare()
+                if (_playerState.value.isPlaying) ctrl.play()
+            }
+        } catch (e: Exception) {
+            SLog.st("PlayerViewModel", "PlayerViewModel.applyQueueToControllerTail failed", e)
+        }
+    }
+
     fun setSleepTimer(minutes: Int?, endOfTrack: Boolean = false) {
         sleepTimerJob?.cancel()
         _playerState.value = _playerState.value.copy(

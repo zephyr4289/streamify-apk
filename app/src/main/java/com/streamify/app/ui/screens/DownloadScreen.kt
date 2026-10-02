@@ -80,6 +80,9 @@ fun DownloadScreen(
             modifier = Modifier.padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceMD)
         )
 
+        // ── Phase 3: Quality Ladder picker + storage accounting card ──────
+        DownloadQualityCard()
+
         // Zero-Overhead C++ Core Task Orchestrator Status Card
         Card(
             colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
@@ -359,6 +362,140 @@ fun DownloadScreen(
                         }
                     }
                     Divider(color = StreamifyColors.Divider, thickness = StreamifyDimens.DividerThickness)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Phase 3 — Download Quality Ladder card:
+ *  • Opus 251 (Studio ~160k) vs AAC 140 (Standard ~128k) vs Best available
+ *  • Live storage accounting over the Streamify download tree
+ *  • Unmetered-only toggle (battery constraint is always on by design)
+ */
+@Composable
+private fun DownloadQualityCard() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var selectedQuality by remember {
+        mutableStateOf(com.streamify.app.data.download.QualityLadderManager.loadChoice(context))
+    }
+    var unmeteredOnly by remember {
+        mutableStateOf(com.streamify.app.data.download.StreamifyDownloadManager.isUnmeteredOnly(context))
+    }
+    var storageReport by remember {
+        mutableStateOf(com.streamify.app.data.download.QualityLadderManager.StorageReport(0L, 0L, 0, 0L))
+    }
+
+    // Refresh the accounting when the screen is visible (downloads mutate it).
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            storageReport = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val musicDir = java.io.File(
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC),
+                    "Streamify"
+                )
+                com.streamify.app.data.download.QualityLadderManager.accountStorage(musicDir)
+            }
+            kotlinx.coroutines.delay(3000)
+        }
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = StreamifyColors.BgCard),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = StreamifyDimens.SpaceLG, vertical = StreamifyDimens.SpaceSM)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Download Quality",
+                style = StreamifyType.TitleSmall,
+                color = StreamifyColors.TextMain
+            )
+            Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
+
+            com.streamify.app.data.download.QualityLadderManager.DownloadQuality.entries.forEach { quality ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedQuality == quality,
+                        onClick = {
+                            selectedQuality = quality
+                            com.streamify.app.data.download.QualityLadderManager.persistChoice(context, quality)
+                        },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = StreamifyColors.Primary,
+                            unselectedColor = StreamifyColors.TextSub
+                        )
+                    )
+                    Column {
+                        Text(
+                            text = quality.label,
+                            style = StreamifyType.BodyMedium,
+                            color = if (selectedQuality == quality) StreamifyColors.TextMain else StreamifyColors.TextSub
+                        )
+                        Text(
+                            text = when (quality) {
+                                com.streamify.app.data.download.QualityLadderManager.DownloadQuality.OPUS_251 ->
+                                    "WebM · Opus 251 · maximum fidelity"
+                                com.streamify.app.data.download.QualityLadderManager.DownloadQuality.AAC_140 ->
+                                    "MP4 · AAC 140 · maximum compatibility"
+                                else -> "Resolver's own scoring (251 > 140)"
+                            },
+                            style = StreamifyType.Caption,
+                            color = StreamifyColors.TextDimmed
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
+            Divider(color = StreamifyColors.Divider, thickness = StreamifyDimens.DividerThickness)
+            Spacer(modifier = Modifier.height(StreamifyDimens.SpaceSM))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Storage used",
+                        style = StreamifyType.Caption,
+                        color = StreamifyColors.TextSub
+                    )
+                    Text(
+                        text = com.streamify.app.data.download.QualityLadderManager.formatBytes(storageReport.playableBytes) +
+                                " · ${storageReport.fileCount} files · free " +
+                                com.streamify.app.data.download.QualityLadderManager.formatBytes(storageReport.freeBytes),
+                        style = StreamifyType.BodyMedium,
+                        color = StreamifyColors.TextMain
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Wi-Fi only",
+                        style = StreamifyType.Caption,
+                        color = if (unmeteredOnly) StreamifyColors.Primary else StreamifyColors.TextSub
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Switch(
+                        checked = unmeteredOnly,
+                        onCheckedChange = {
+                            unmeteredOnly = it
+                            com.streamify.app.data.download.StreamifyDownloadManager.setUnmeteredOnly(context, it)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedTrackColor = StreamifyColors.Primary,
+                            checkedThumbColor = Color.White
+                        )
+                    )
                 }
             }
         }

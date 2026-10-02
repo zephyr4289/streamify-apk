@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -26,6 +27,8 @@ fun YtTopAppBar(
     onSearchClick: () -> Unit,
     onAvatarClick: () -> Unit,
     onCastClick: (() -> Unit)? = null,
+    /** Phase 3 — "Your Updates" hub entry (hidden when null). */
+    onNotificationsClick: (() -> Unit)? = null,
     avatarUrl: String? = null,
     avatarInitial: String = "S",
     modifier: Modifier = Modifier
@@ -80,7 +83,7 @@ fun YtTopAppBar(
                 SireenBrandingBadge()
             }
 
-            // Right: Cast, Search, and Profile Avatar Actions
+            // Right: Cast, Updates, Search, and Profile Avatar Actions
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -91,6 +94,17 @@ fun YtTopAppBar(
                         tint = TextMain,
                         modifier = Modifier.size(22.dp)
                     )
+                }
+
+                if (onNotificationsClick != null) {
+                    IconButton(onClick = onNotificationsClick) {
+                        Icon(
+                            imageVector = Icons.Filled.Notifications,
+                            contentDescription = "Your Updates",
+                            tint = TextMain,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
 
                 IconButton(onClick = onSearchClick) {

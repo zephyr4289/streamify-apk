@@ -32,6 +32,8 @@ import com.streamify.app.ui.theme.StreamifyColors
 import com.streamify.app.ui.theme.StreamifyDimens
 import com.streamify.app.ui.theme.StreamifyType
 import com.streamify.app.viewmodel.PlayerViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 fun ArtistScreen(
@@ -50,6 +52,26 @@ fun ArtistScreen(
     val contextMenuController = LocalContextMenuController.current
 
     val firstTrackWithCover = artistTracks.find { !it.coverArtPath.isNullOrBlank() }
+
+    // ── Phase 3: vertical 30s Clips rail + immersive feed (audio sync) ────
+    val clipsState = com.streamify.app.ui.components.rememberArtistClips(artistName)
+    var showClipsFeed by remember { mutableStateOf(false) }
+    var resumeAudioOnClipsClose by remember { mutableStateOf(false) }
+
+    // ── Phase 3: upcoming-release countdown banner + Pre-Save ─────────────
+    var releaseWatch by remember { mutableStateOf<com.streamify.app.data.network.ReleaseWatcherApi.ReleaseWatch?>(null) }
+    var preSaveIds by remember { mutableStateOf(setOf<String>()) }
+    var nowTickMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(artistName) {
+        releaseWatch = com.streamify.app.data.network.ReleaseWatcherApi.watchArtist(artistName)
+        preSaveIds = com.streamify.app.data.network.PreSaveStore.loadAll().map { it.releaseId }.toSet()
+    }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            delay(1000)
+            nowTickMs = System.currentTimeMillis()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -181,6 +203,36 @@ fun ArtistScreen(
                 }
             }
 
+            // ── Phase 3: upcoming-release countdown banner + Pre-Save ─────
+            val upcoming = releaseWatch?.nextUpcoming
+            if (upcoming != null) {
+                item(key = "artist_release_countdown") {
+                    com.streamify.app.ui.components.ArtistCountdownBanner(
+                        artistName = artistName,
+                        release = upcoming,
+                        nowMs = nowTickMs,
+                        isPreSaved = upcoming.releaseId in preSaveIds,
+                        onTogglePreSave = {
+                            if (upcoming.releaseId in preSaveIds) {
+                                com.streamify.app.data.network.PreSaveStore.removePreSave(upcoming.releaseId)
+                            } else {
+                                com.streamify.app.data.network.PreSaveStore.addPreSave(
+                                    com.streamify.app.data.network.PreSaveStore.PreSave(
+                                        releaseId = upcoming.releaseId,
+                                        artistName = artistName,
+                                        title = upcoming.title,
+                                        expectedAtMs = upcoming.expectedAtMs
+                                    )
+                                )
+                            }
+                            preSaveIds = com.streamify.app.data.network.PreSaveStore.loadAll()
+                                .map { it.releaseId }.toSet()
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+                }
+            }
+
             item {
                 Text(
                     text = "Popular Songs",
@@ -194,6 +246,15 @@ fun ArtistScreen(
                 )
             }
 
+            // ── Phase 3: vertical 30s Clips discovery rail ────────────────────
+            item(key = "artist_clips_rail") {
+                com.streamify.app.ui.components.VerticalClipsRail(
+                    clipsState = clipsState,
+                    onOpenFeed = { showClipsFeed = true }
+                )
+                Spacer(modifier = Modifier.height(StreamifyDimens.SpaceMD))
+            }
+
             items(artistTracks, key = { it.id }) { track ->
                 SwipeableTrackListItem(
                     track = track,
@@ -205,6 +266,29 @@ fun ArtistScreen(
                     onSwipeLike = { playerViewModel.toggleLike(track) }
                 )
             }
+        }
+    }
+
+    // ── Phase 3: immersive vertical clips feed (audio-synced) ─────────────
+    if (showClipsFeed) {
+        val feedClips = (clipsState as? com.streamify.app.ui.components.ClipsState.Ready)
+            ?.page?.clips ?: emptyList()
+        if (feedClips.isNotEmpty()) {
+            com.streamify.app.ui.components.VerticalClipsFeedSheet(
+                clips = feedClips,
+                onDismiss = { showClipsFeed = false },
+                onFeedVisibilityChanged = { visible ->
+                    if (visible) {
+                        // Audio sync: the clip feed owns the audio stage while
+                        // open — pause the music session, remember to resume.
+                        resumeAudioOnClipsClose = playerState.isPlaying
+                        if (playerState.isPlaying) playerViewModel.pause()
+                    } else if (resumeAudioOnClipsClose) {
+                        resumeAudioOnClipsClose = false
+                        playerViewModel.play()
+                    }
+                }
+            )
         }
     }
 }
