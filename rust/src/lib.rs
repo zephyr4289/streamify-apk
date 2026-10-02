@@ -33,6 +33,12 @@ pub mod gossip;
 pub mod jni_bridge_p2p;
 pub mod kalman_pll;
 pub mod p2p_mesh;
+// Phase 3 — P2P chunk swarmer & local LAN sync
+// (feat/phase3-rust-chunk-swarmer-sync): byte-range integrity verifier,
+// resumable transfer state, two-way library catalog sync.
+pub mod chunk_verifier;
+pub mod jni_bridge_chunk_sync;
+pub mod local_sync;
 pub mod queue_optimizer;
 pub mod radio_scorer;
 pub mod repository;

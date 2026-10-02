@@ -35,6 +35,20 @@
 //! [`SwarmParams::chunk_size`] is a knob, and the tests shrink it to keep
 //! the integration suite fast.
 //!
+//! PHASE 3 (feat/phase3-rust-chunk-swarmer-sync) — swarmer upgrades:
+//!   • Hybrid scheduler — the next `sequential_window` chunks ahead of
+//!     the playback head are fetched first (gapless streaming buffer),
+//!     then global rarest-first takes over for swarm health.
+//!   • Backpressure — `max_total_inflight` caps the swarm-wide request
+//!     budget on top of the per-peer pipeline, so 32 peers × 4-deep
+//!     pipelines cannot stampede 128 datagrams into one radio.
+//!   • Resumable transfers — `save_state` snapshots the manifest plus a
+//!     received-chunk bitmap for disk persistence; `restore_state`
+//!     rebuilds the swarm with those chunks PROVISIONALLY held, and each
+//!     chunk the app rehydrates from disk is Blake3-gated
+//!     (`rehydrate_chunk`): bit-rot clears the provisional bit and the
+//!     scheduler re-downloads that chunk from an alternative peer.
+//!
 //! Like `gossip.rs`, this engine is pure logic: the mesh node injects time
 //! and the current peer list, and executes the returned [`SwarmAction`]s.
 
@@ -71,6 +85,13 @@ pub struct SwarmParams {
     pub endgame_threshold: usize,
     /// Distinct peers an endgame chunk may be requested from at once.
     pub endgame_dup_peers: usize,
+    /// Phase 3 hybrid scheduler: chunks within this distance of the
+    /// playback head (first missing chunk) are fetched before global
+    /// rarest-first takes over. 0 = pure rarest-first (Phase 2 behavior).
+    pub sequential_window: u32,
+    /// Phase 3 backpressure: swarm-wide cap on concurrently in-flight
+    /// chunk requests, on top of the per-peer pipeline. 0 = unlimited.
+    pub max_total_inflight: usize,
 }
 
 impl Default for SwarmParams {
@@ -82,6 +103,8 @@ impl Default for SwarmParams {
             announce_interval: Duration::from_millis(400),
             endgame_threshold: 2,
             endgame_dup_peers: 2,
+            sequential_window: 4,
+            max_total_inflight: 64,
         }
     }
 }
@@ -319,6 +342,45 @@ pub enum SwarmAction {
     Broadcast { msg_type: u8, payload: Vec<u8> },
 }
 
+/// Outcome of a [`SwarmManager::restore_state`] call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SwarmResumeInfo {
+    pub track_id: u64,
+    pub num_chunks: u32,
+    /// Chunks provisionally held per the persisted bitmap.
+    pub have_chunks: u32,
+}
+
+/// Outcome of a Blake3-gated disk rehydration
+/// ([`SwarmManager::rehydrate_chunk`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RehydrateOutcome {
+    /// Disk chunk re-verified against the manifest: provisionally held
+    /// becomes really held.
+    Verified { idx: u32 },
+    /// Disk chunk failed Blake3 (bit-rot): the provisional bit is
+    /// cleared and the scheduler re-downloads this chunk from an
+    /// alternative peer.
+    BitRot { idx: u32 },
+    /// Unknown track (no swarm, or not restored).
+    UnknownTrack,
+    /// Index out of range, or the chunk is not provisionally held.
+    NotProvisional { idx: u32 },
+    /// Payload length disagrees with the manifest chunk length.
+    BadLength { idx: u32, got: usize },
+}
+
+/// Compact bit-packing (LSB-first) for persistence blobs.
+fn encode_bitmap(bits: &[bool]) -> Vec<u8> {
+    let mut b = vec![0u8; (bits.len() + 7) / 8];
+    for (i, &set) in bits.iter().enumerate() {
+        if set {
+            b[i / 8] |= 1 << (i % 8);
+        }
+    }
+    b
+}
+
 // ───────────────────────────────────────────────────────── per-track state
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -336,6 +398,11 @@ struct SwarmCounters {
     requests_rx: u64,
     served_chunks: u64,
     timeouts: u64,
+    /// Phase 3 resume: disk chunks re-verified against the manifest.
+    restored_chunks: u64,
+    /// Phase 3 resume: disk chunks that failed Blake3 (bit-rot) and went
+    /// back to the network for a clean copy.
+    bitrot_chunks: u64,
 }
 
 struct Swarm {
@@ -350,6 +417,11 @@ struct Swarm {
     blacklist: HashMap<u32, Vec<u64>>,
     /// Timeout-driven re-request pressure per chunk (starvation priority).
     tries: HashMap<u32, u32>,
+    /// Phase 3 resume: chunks PROVISIONALLY held (persisted bitmap) that
+    /// still await Blake3-gated disk rehydration. Never announced, never
+    /// served, never requested — but not "missing" for the scheduler
+    /// either, so a resumed transfer only fetches what the disk lost.
+    restored: Vec<bool>,
     seeder: bool,
     announce_at_ns: i64,
     assembled: Option<Vec<u8>>,
@@ -410,6 +482,12 @@ pub struct TrackSwarmStats {
     pub requests_rx: u64,
     pub served_chunks: u64,
     pub timeouts: u64,
+    /// Phase 3 resume: disk chunks re-verified so far (this session).
+    pub restored_chunks: u64,
+    /// Phase 3 resume: disk chunks that failed Blake3 (re-downloaded).
+    pub bitrot_chunks: u64,
+    /// Phase 3 resume: chunks still provisional (awaiting rehydration).
+    pub provisional_chunks: u32,
 }
 
 // ─────────────────────────────────────────────────────────── the manager
@@ -466,6 +544,7 @@ impl SwarmManager {
             inflight: HashMap::new(),
             blacklist: HashMap::new(),
             tries: HashMap::new(),
+            restored: vec![false; num as usize],
             seeder: true,
             announce_at_ns: now + self.params.announce_interval.as_nanos() as i64,
             assembled: Some(data.to_vec()),
@@ -524,6 +603,7 @@ impl SwarmManager {
                 inflight: HashMap::new(),
                 blacklist: HashMap::new(),
                 tries: HashMap::new(),
+                restored: vec![false; num as usize],
                 seeder: false,
                 announce_at_ns: now,
                 assembled: None,
@@ -667,6 +747,7 @@ impl SwarmManager {
             }
 
             swarm.chunks[idx as usize] = Some(data.to_vec());
+            swarm.restored[idx as usize] = false;
             swarm.counters.data_rx_bytes += len as u64;
             swarm.tries.remove(&idx);
             swarm.inflight.remove(&idx);
@@ -847,10 +928,193 @@ impl SwarmManager {
                 requests_rx: s.counters.requests_rx,
                 served_chunks: s.counters.served_chunks,
                 timeouts: s.counters.timeouts,
+                restored_chunks: s.counters.restored_chunks,
+                bitrot_chunks: s.counters.bitrot_chunks,
+                provisional_chunks: s.restored.iter().filter(|&&r| r).count() as u32,
             })
             .collect();
         out.sort_by_key(|s| s.track_id);
         out
+    }
+
+    // ── Phase 3: resumable transfer state ───────────────────────
+
+    /// Snapshots `[magic SWRS][ver 1][manifest wire][bitmap]` for disk
+    /// persistence. The manifest wire blob is self-delimiting (its chunk
+    /// count fixes its length), and the bitmap is exactly
+    /// `ceil(num_chunks / 8)` bytes with zero padding bits. A resumed
+    /// transfer only fetches what the disk lost.
+    pub fn save_state(&self, track_id: u64) -> Option<Vec<u8>> {
+        let swarm = self.swarms.get(&track_id)?;
+        let manifest_wire = swarm.manifest.to_wire();
+        let mut blob = Vec::with_capacity(5 + manifest_wire.len() + swarm.chunks.len() / 8 + 1);
+        blob.extend_from_slice(b"SWRS");
+        blob.push(1);
+        blob.extend_from_slice(&manifest_wire);
+        blob.extend_from_slice(&encode_bitmap(&swarm.have_bits()));
+        Some(blob)
+    }
+
+    /// Rebuilds a swarm from a persisted [`save_state`] blob: chunks in
+    /// the bitmap are PROVISIONALLY held — not announced, not served,
+    /// not requested — until the app rehydrates each one from disk via
+    /// [`SwarmManager::rehydrate_chunk`] (Blake3-gated). Returns `None`
+    /// on any malformed byte, on a live swarm for the same track (the
+    /// live replica wins), or on padding-bit corruption.
+    pub fn restore_state(&mut self, blob: &[u8], now: i64) -> Option<SwarmResumeInfo> {
+        if blob.len() < 5 + 56 || &blob[0..4] != b"SWRS" || blob[4] != 1 {
+            return None;
+        }
+        // The manifest wire blob is self-delimiting: peek its chunk
+        // count (manifest offset 20..24) to bound the exact slice —
+        // `from_wire` demands an exact-length buffer and the bitmap
+        // trails the manifest inside this blob.
+        let num_peek = u32::from_le_bytes(blob[25..29].try_into().ok()?);
+        if num_peek > MANIFEST_MAX_CHUNKS {
+            return None;
+        }
+        let num = num_peek as usize;
+        let manifest_wire_len = 56 + 32 * num;
+        let bitmap_len = (num + 7) / 8;
+        let base = 5 + manifest_wire_len;
+        if blob.len() != base + bitmap_len {
+            return None;
+        }
+        let manifest = TrackManifest::from_wire(&blob[5..base]).ok()?;
+        // Strict: padding bits in the final byte must be zero — stray
+        // ones mean corruption or a foreign blob.
+        let used = num % 8;
+        if used != 0 && (blob[base + bitmap_len - 1] & (0xFFu8 << used)) != 0 {
+            return None;
+        }
+        let restored: Vec<bool> = (0..num)
+            .map(|i| blob[base + i / 8] & (1 << (i % 8)) != 0)
+            .collect();
+        let track_id = manifest.track_id;
+        if self.swarms.contains_key(&track_id) {
+            return None; // live swarm wins; resume is a no-op
+        }
+        let have = restored.iter().filter(|&&b| b).count() as u32;
+        self.swarms.insert(
+            track_id,
+            Swarm {
+                chunks: vec![None; num],
+                manifest,
+                peer_bits: HashMap::new(),
+                inflight: HashMap::new(),
+                blacklist: HashMap::new(),
+                tries: HashMap::new(),
+                restored,
+                seeder: false,
+                announce_at_ns: now,
+                assembled: None,
+                counters: SwarmCounters::default(),
+            },
+        );
+        self.emit(SwarmEvent::Manifest {
+            track_id,
+            num_chunks: num as u32,
+        });
+        Some(SwarmResumeInfo {
+            track_id,
+            num_chunks: num as u32,
+            have_chunks: have,
+        })
+    }
+
+    /// Blake3-gated disk rehydration: the app feeds the persisted chunk
+    /// bytes back; a hash match converts provisional → real, a mismatch
+    /// (bit-rot) converts provisional → missing so the scheduler
+    /// re-downloads the chunk from an alternative peer. The final
+    /// rehydration that completes the track assembles, verifies the
+    /// whole-file hash, announces the fresh bitfield, and emits
+    /// `SwarmEvent::Complete` exactly like the network path.
+    pub fn rehydrate_chunk(
+        &mut self,
+        track_id: u64,
+        idx: u32,
+        payload: &[u8],
+        now: i64,
+        peers: &[u64],
+    ) -> RehydrateOutcome {
+        let mut events: Vec<SwarmEvent> = Vec::new();
+        let mut actions = Vec::new();
+        let outcome;
+        {
+            let Some(swarm) = self.swarms.get_mut(&track_id) else {
+                return RehydrateOutcome::UnknownTrack;
+            };
+            if idx >= swarm.manifest.num_chunks || !swarm.restored[idx as usize] {
+                return RehydrateOutcome::NotProvisional { idx };
+            }
+            let expected = swarm.manifest.chunk_len(idx);
+            if payload.len() != expected {
+                return RehydrateOutcome::BadLength {
+                    idx,
+                    got: payload.len(),
+                };
+            }
+            let mut h = [0u8; 32];
+            h.copy_from_slice(blake3::hash(payload).as_bytes());
+            if h != swarm.manifest.chunk_hashes[idx as usize] {
+                // Bit-rot on disk: back to missing, network heals it.
+                swarm.restored[idx as usize] = false;
+                swarm.counters.bitrot_chunks += 1;
+                swarm.tries.remove(&idx);
+                swarm.inflight.remove(&idx);
+                return RehydrateOutcome::BitRot { idx };
+            }
+            swarm.chunks[idx as usize] = Some(payload.to_vec());
+            swarm.restored[idx as usize] = false;
+            swarm.counters.restored_chunks += 1;
+            outcome = RehydrateOutcome::Verified { idx };
+
+            let have = swarm.have_count();
+            let total = swarm.manifest.num_chunks;
+            let bytes_rx = swarm.counters.data_rx_bytes; // network only
+            events.push(SwarmEvent::ChunkStored {
+                track_id,
+                idx,
+                bytes_rx,
+            });
+            events.push(SwarmEvent::Progress {
+                track_id,
+                have_chunks: have,
+                total_chunks: total,
+            });
+
+            if swarm.is_complete() {
+                let total_len = swarm.manifest.total_len;
+                let total_hash = swarm.manifest.total_hash;
+                if swarm.assemble() {
+                    swarm.announce_at_ns = now;
+                    let have_payload = build_have_payload(&swarm.manifest, &swarm.have_bits());
+                    actions = peers
+                        .iter()
+                        .copied()
+                        .filter(|&p| p != self.me)
+                        .map(|p| SwarmAction::Unicast {
+                            to: p,
+                            msg_type: MSG_CHUNK_HAVE,
+                            payload: have_payload.clone(),
+                        })
+                        .collect();
+                    events.push(SwarmEvent::Complete {
+                        track_id,
+                        total_len,
+                        total_hash,
+                    });
+                }
+            }
+        }
+        for ev in events {
+            self.emit(ev);
+        }
+        // The completion announce rides the next housekeeping tick:
+        // `announce_at_ns` was just reset to `now`, so the fresh
+        // bitfield goes out within one announce cadence.
+        drop(actions);
+        outcome
     }
 }
 
@@ -883,12 +1147,21 @@ fn fill_pipelines(
     actions: &mut Vec<SwarmAction>,
 ) {
     let n = swarm.manifest.num_chunks as usize;
+    // Missing for SCHEDULING: no stored bytes AND not provisionally held
+    // by a resumed transfer (restored chunks are the disk's business).
     let missing: Vec<u32> = (0..n as u32)
-        .filter(|&i| swarm.chunks[i as usize].is_none())
+        .filter(|&i| {
+            let k = i as usize;
+            swarm.chunks[k].is_none() && !swarm.restored[k]
+        })
         .collect();
     if missing.is_empty() {
         return;
     }
+    // Playback head: the first hole the playback buffer would hit. The
+    // hybrid scheduler keeps `sequential_window` chunks beyond it hot so
+    // audio never gaps while rarest-first fills the far future.
+    let head = missing[0];
     let endgame = missing.len() <= params.endgame_threshold;
     let max_parallel = if endgame {
         params.endgame_dup_peers.max(1)
@@ -908,6 +1181,16 @@ fn fill_pipelines(
 
     let timeout_ns = params.request_timeout.as_nanos() as i64;
 
+    // Phase 3 backpressure: the swarm-wide in-flight budget. Each issued
+    // request consumes one global slot AND one per-peer pipeline slot;
+    // either limit exhausted → stop filling (the next tick retries).
+    let mut global_slots = if params.max_total_inflight == 0 {
+        usize::MAX
+    } else {
+        let total_inflight: usize = swarm.inflight.values().map(|v| v.len()).sum();
+        params.max_total_inflight.saturating_sub(total_inflight)
+    };
+
     for &p in peers {
         if p == me {
             continue;
@@ -922,11 +1205,18 @@ fn fill_pipelines(
             .flat_map(|v| v.iter())
             .filter(|r| r.peer == p)
             .count();
-        let mut slots = params.pipeline_per_peer.saturating_sub(inflight_p);
+        let mut slots = params
+            .pipeline_per_peer
+            .saturating_sub(inflight_p)
+            .min(global_slots);
 
-        while slots > 0 {
-            // Rarest-first (global availability), then starvation
-            // (timeout pressure), then index — deterministic order.
+        while slots > 0 && global_slots > 0 {
+            // Hybrid priority (deterministic order):
+            //   1. sequential rank — chunks inside the playback window
+            //      come first (gapless streaming), rarest-first beyond it;
+            //   2. global rarity (fewest havers);
+            //   3. starvation (timeout pressure, descending);
+            //   4. chunk index.
             let best = missing
                 .iter()
                 .copied()
@@ -950,7 +1240,15 @@ fn fill_pipelines(
                 })
                 .min_by_key(|&idx| {
                     let tries = swarm.tries.get(&idx).copied().unwrap_or(0);
-                    (avail[idx as usize], std::cmp::Reverse(tries), idx)
+                    // Window semantics: [head, head + window) — the next
+                    // `sequential_window` chunks the playback buffer needs.
+                    let dist = if idx >= head { idx - head } else { head - idx };
+                    let seq_rank = if params.sequential_window > 0 && dist < params.sequential_window {
+                        0u32
+                    } else {
+                        1u32
+                    };
+                    (seq_rank, avail[idx as usize], std::cmp::Reverse(tries), idx)
                 });
             let Some(idx) = best else { break };
 
@@ -965,6 +1263,7 @@ fn fill_pipelines(
             });
             swarm.counters.requests_tx += 1;
             slots -= 1;
+            global_slots -= 1;
         }
     }
 }
@@ -1061,14 +1360,18 @@ mod tests {
 
     #[test]
     fn manifest_ingest_then_rarest_first_requests() {
-        let (mut m, log) = manager_with_sink(0x99, params(1024));
+        // Phase 3: sequential_window = 0 → pure rarest-first (Phase 2
+        // behavior, kept as the scheduler's degenerate mode).
+        let mut p = params(1024);
+        p.sequential_window = 0;
+        let (mut m, log) = manager_with_sink(0x99, p.clone());
         let data = sample_track(8 * 1024);
         let manifest = TrackManifest::build(0xC0DE, &data, 1024);
 
         // Seeder 0x11 has everything; 0x22 has only chunks 0-3.
         m.seed_track(0xC0DE, &data, NOW, &[]);
         let _ = log;
-        let (mut leech, _l2) = manager_with_sink(0x99, params(1024));
+        let (mut leech, _l2) = manager_with_sink(0x99, p);
         let _ = leech.on_manifest(&manifest.to_wire(), 0x11, NOW);
 
         // Two havers with different availability.
@@ -1094,10 +1397,81 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // Rarest-first: chunks 4-7 have one haver (0x11) → requested first.
-        assert!(reqs.iter().any(|&(p, i)| p == 0x11 && i >= 4));
+        // Rarest-first: chunks 4-7 have one haver (0x11) → requested
+        // first; EVERY request to the full haver targets the rare tail.
+        assert!(
+            reqs.iter()
+                .filter(|&&(p, _)| p == 0x11)
+                .all(|&(_, i)| i >= 4),
+            "pure rarest-first must drain the rare tail first: {reqs:?}"
+        );
         // Pipeline cap per peer: 4 requests max to 0x11 on the first fill.
         assert_eq!(reqs.iter().filter(|&&(p, _)| p == 0x11).count(), 4);
+    }
+
+    #[test]
+    fn hybrid_scheduler_prefers_playback_head_over_rarity() {
+        // Chunks 0-3 have TWO havers; 4-7 have ONE (rarer). The Phase 3
+        // hybrid scheduler still drains the playback window [0..4)
+        // FIRST — gapless streaming beats swarm-health prefetch — then
+        // the window slides forward as chunks land.
+        let (mut m, _log) = manager_with_sink(0x99, params(1024)); // window 4
+        let data = sample_track(8 * 1024);
+        let manifest = TrackManifest::build(0x4C0D, &data, 1024);
+        let _ = m.on_manifest(&manifest.to_wire(), 0x11, NOW);
+
+        let full = build_have_payload(&manifest, &[true; 8]);
+        let partial = build_have_payload(
+            &manifest,
+            &[true, true, true, true, false, false, false, false],
+        );
+        let _ = m.on_have(&full, 0x11, NOW);
+        let _ = m.on_have(&partial, 0x22, NOW);
+
+        let actions = m.on_tick(NOW, &[0x11, 0x22]);
+        let reqs: Vec<(u64, u32)> = actions
+            .iter()
+            .filter_map(|a| match a {
+                SwarmAction::Unicast {
+                    to,
+                    msg_type,
+                    payload,
+                } if *msg_type == MSG_CHUNK_REQUEST => {
+                    parse_chunk_request_payload(payload).map(|(_, i)| (*to, i))
+                }
+                _ => None,
+            })
+            .collect();
+        // Every request stays inside the playback window, even though
+        // those chunks are the MOST replicated (rarity is secondary
+        // inside the window).
+        assert!(
+            reqs.iter().all(|&(_, i)| i < 4),
+            "hybrid fill must stay inside the playback window: {reqs:?}"
+        );
+        assert_eq!(reqs.iter().filter(|&&(p, _)| p == 0x11).count(), 4);
+
+        // Window chunks land → the head slides to 4 and the scheduler
+        // moves on to the (now-)contiguous tail.
+        for i in 0..4u32 {
+            let p = build_data_payload(0x4C0D, i, &data[i as usize * 1024..(i as usize + 1) * 1024]);
+            let _ = m.on_chunk_data(&p, 0x11, NOW, &[]);
+        }
+        let actions = m.on_tick(NOW, &[0x11, 0x22]);
+        let reqs: Vec<u32> = actions
+            .iter()
+            .filter_map(|a| match a {
+                SwarmAction::Unicast {
+                    to,
+                    msg_type,
+                    payload,
+                } if *msg_type == MSG_CHUNK_REQUEST && *to == 0x11 => {
+                    parse_chunk_request_payload(payload).map(|(_, i)| i)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reqs, vec![4, 5, 6, 7], "the window must slide with the head");
     }
 
     #[test]
@@ -1237,5 +1611,226 @@ mod tests {
         let a2 = m.on_tick(NOW + 200_000_000, &[0x11]);
         assert_eq!(a2.len(), 2);
         assert_eq!(m.stats()[0].timeouts, 2);
+    }
+
+    // ── Phase 3: backpressure ─────────────────────────────────────────
+
+    fn chunk_requests(actions: &[SwarmAction]) -> Vec<(u64, u32)> {
+        actions
+            .iter()
+            .filter_map(|a| match a {
+                SwarmAction::Unicast {
+                    to,
+                    msg_type,
+                    payload,
+                } if *msg_type == MSG_CHUNK_REQUEST => {
+                    parse_chunk_request_payload(payload).map(|(_, i)| (*to, i))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn global_window_backpressure_caps_total_inflight() {
+        // Two full havers × 4-deep pipelines could stampede 8 datagrams;
+        // the swarm-wide budget of 3 must clamp the total.
+        let mut p = params(1024);
+        p.sequential_window = 0;
+        p.max_total_inflight = 3;
+        let (mut m, _log) = manager_with_sink(0x99, p);
+        let data = sample_track(8 * 1024);
+        let manifest = TrackManifest::build(0x6A6A, &data, 1024);
+        let _ = m.on_manifest(&manifest.to_wire(), 0x11, NOW);
+        let full = build_have_payload(&manifest, &[true; 8]);
+        let _ = m.on_have(&full, 0x11, NOW);
+        let _ = m.on_have(&full, 0x22, NOW);
+
+        let reqs = chunk_requests(&m.on_tick(NOW, &[0x11, 0x22]));
+        assert_eq!(reqs.len(), 3, "global window must clamp swarm-wide demand");
+
+        // Budget stays exhausted while the 3 requests are unanswered.
+        let again = chunk_requests(&m.on_tick(NOW + 1, &[0x11, 0x22]));
+        assert!(again.is_empty(), "no refills while the window is full");
+
+        // Timeouts reopen the budget — still capped at 3.
+        let reopened = chunk_requests(&m.on_tick(NOW + 200_000_000, &[0x11, 0x22]));
+        assert_eq!(reopened.len(), 3);
+    }
+
+    // ── Phase 3: resumable transfer state ─────────────────────────────
+
+    #[test]
+    fn save_restore_state_resumes_without_refetching_disk_chunks() {
+        let (mut m, _log) = manager_with_sink(0x99, params(1024));
+        let data = sample_track(8 * 1024);
+        let manifest = TrackManifest::build(0x5E5E, &data, 1024);
+        let _ = m.on_manifest(&manifest.to_wire(), 0x11, NOW);
+        // 5 of 8 chunks landed over the network before the "app died".
+        for i in 0..5u32 {
+            let p =
+                build_data_payload(0x5E5E, i, &data[i as usize * 1024..(i as usize + 1) * 1024]);
+            let _ = m.on_chunk_data(&p, 0x11, NOW, &[]);
+        }
+        let blob = m.save_state(0x5E5E).unwrap();
+
+        // "Process restart": a brand-new manager restores from the blob.
+        let (mut m2, _l2) = manager_with_sink(0x99, params(1024));
+        let info = m2.restore_state(&blob, NOW).unwrap();
+        assert_eq!(info.track_id, 0x5E5E);
+        assert_eq!(info.num_chunks, 8);
+        assert_eq!(info.have_chunks, 5);
+        assert_eq!(m2.stats()[0].provisional_chunks, 5);
+
+        // Provisional chunks are neither served NOR announced before
+        // rehydration (honest bitfield discipline).
+        let req = build_chunk_request_payload(0x5E5E, 0);
+        assert!(m2.on_chunk_request(&req, 0x77, NOW).is_empty());
+
+        // Disk rehydration: all 5 verify against the manifest.
+        for i in 0..5u32 {
+            assert_eq!(
+                m2.rehydrate_chunk(
+                    0x5E5E,
+                    i,
+                    &data[i as usize * 1024..(i as usize + 1) * 1024],
+                    NOW,
+                    &[]
+                ),
+                RehydrateOutcome::Verified { idx: i }
+            );
+        }
+
+        // The scheduler only asks for the 3-chunk gap.
+        let full = build_have_payload(&manifest, &[true; 8]);
+        let _ = m2.on_have(&full, 0x11, NOW);
+        let reqs = chunk_requests(&m2.on_tick(NOW, &[0x11]));
+        assert_eq!(reqs.len(), 3);
+        assert!(reqs.iter().all(|&(_, i)| i >= 5), "only the gap is fetched: {reqs:?}");
+
+        for &(_, i) in &reqs {
+            let p =
+                build_data_payload(0x5E5E, i, &data[i as usize * 1024..(i as usize + 1) * 1024]);
+            let _ = m2.on_chunk_data(&p, 0x11, NOW, &[]);
+        }
+        assert_eq!(m2.take_track(0x5E5E).unwrap(), data);
+        let st = &m2.stats()[0];
+        assert_eq!(st.restored_chunks, 5);
+        assert_eq!(st.data_rx_bytes, 3 * 1024, "network fetched ONLY the gap");
+        assert_eq!(st.provisional_chunks, 0);
+        assert_eq!(st.complete, true);
+    }
+
+    #[test]
+    fn bitrot_disk_chunk_is_redownloaded_from_alternative_peer() {
+        // Corruption at BOTH layers: the disk copy rots (Blake3-gated
+        // rehydration catches it), then the first wire re-download ALSO
+        // arrives corrupt (blacklist catches it) — the swarm finally
+        // heals the chunk from the ALTERNATIVE peer.
+        let data = sample_track(4 * 1024);
+        let manifest = TrackManifest::build(0xB170, &data, 1024);
+
+        // Donor receives chunks 0 and 2, then persists the state blob.
+        let (mut donor, _d) = manager_with_sink(0x88, params(1024));
+        let _ = donor.on_manifest(&manifest.to_wire(), 0x11, NOW);
+        for i in [0u32, 2u32] {
+            let p =
+                build_data_payload(0xB170, i, &data[i as usize * 1024..(i as usize + 1) * 1024]);
+            let _ = donor.on_chunk_data(&p, 0x11, NOW, &[]);
+        }
+        let blob = donor.save_state(0xB170).unwrap();
+
+        let (mut m, _log) = manager_with_sink(0x99, params(1024));
+        let info = m.restore_state(&blob, NOW).unwrap();
+        assert_eq!(info.have_chunks, 2);
+
+        // Chunk 0 rotted on disk → back to missing.
+        let mut rot = data[..1024].to_vec();
+        rot[100] ^= 0x55;
+        assert_eq!(
+            m.rehydrate_chunk(0xB170, 0, &rot, NOW, &[]),
+            RehydrateOutcome::BitRot { idx: 0 }
+        );
+        // Chunk 2 is still clean.
+        assert_eq!(
+            m.rehydrate_chunk(0xB170, 2, &data[2048..3072], NOW, &[]),
+            RehydrateOutcome::Verified { idx: 2 }
+        );
+
+        // Two full havers; the rotted chunk is requested again.
+        let full = build_have_payload(&manifest, &[true; 4]);
+        let _ = m.on_have(&full, 0x11, NOW);
+        let _ = m.on_have(&full, 0x22, NOW);
+        let reqs = chunk_requests(&m.on_tick(NOW, &[0x11, 0x22]));
+        assert!(reqs.iter().any(|&(_, i)| i == 0), "rotted chunk must be re-requested");
+
+        // The wire reply from 0x11 is ALSO corrupt → blacklisted for idx 0.
+        let mut wire_rot = data[..1024].to_vec();
+        wire_rot[512] ^= 0xFF;
+        let bad = build_data_payload(0xB170, 0, &wire_rot);
+        let _ = m.on_chunk_data(&bad, 0x11, NOW, &[]);
+        assert_eq!(m.stats()[0].corrupt_chunks, 1);
+        assert_eq!(m.stats()[0].have_chunks, 1); // only the rehydrated chunk 2
+
+        // Next fill: idx 0 cannot come from 0x11 (blacklisted) → the
+        // ALTERNATIVE peer 0x22 serves the clean copy.
+        let reqs2 = chunk_requests(&m.on_tick(NOW + 1, &[0x11, 0x22]));
+        assert!(
+            reqs2.iter().any(|&(p, i)| p == 0x22 && i == 0),
+            "corrupted chunk must be re-requested from an alternative peer: {reqs2:?}"
+        );
+        let good = build_data_payload(0xB170, 0, &data[0..1024]);
+        let _ = m.on_chunk_data(&good, 0x22, NOW, &[]);
+
+        // Remaining gap (chunk 1, 3) heals from 0x11.
+        for i in [1u32, 3u32] {
+            let p =
+                build_data_payload(0xB170, i, &data[i as usize * 1024..(i as usize + 1) * 1024]);
+            let _ = m.on_chunk_data(&p, 0x11, NOW, &[]);
+        }
+        assert_eq!(m.take_track(0xB170).unwrap(), data);
+        let st = &m.stats()[0];
+        assert_eq!(st.bitrot_chunks, 1);
+        assert_eq!(st.corrupt_chunks, 1);
+        assert_eq!(st.restored_chunks, 1);
+    }
+
+    #[test]
+    fn restore_state_rejects_malformed_blobs() {
+        let data = sample_track(5 * 1024);
+        let manifest = TrackManifest::build(0xFBA0, &data, 1024);
+        let (mut donor, _d) = manager_with_sink(0x88, params(1024));
+        let _ = donor.on_manifest(&manifest.to_wire(), 0x11, NOW);
+        for i in 0..3u32 {
+            let p =
+                build_data_payload(0xFBA0, i, &data[i as usize * 1024..(i as usize + 1) * 1024]);
+            let _ = donor.on_chunk_data(&p, 0x11, NOW, &[]);
+        }
+        let blob = donor.save_state(0xFBA0).unwrap();
+
+        let (mut m, _log) = manager_with_sink(0x99, params(1024));
+        // Every truncation is a clean rejection, never a panic.
+        for cut in 0..blob.len() {
+            assert!(
+                m.restore_state(&blob[..cut], NOW).is_none(),
+                "truncation at {cut} must be rejected"
+            );
+        }
+        // Junk magic.
+        let mut bad = blob.clone();
+        bad[0] = b'X';
+        assert!(m.restore_state(&bad, NOW).is_none());
+        // Stray padding bit in the final bitmap byte (5 chunks → bits
+        // 5..8 are padding): corruption or a foreign blob.
+        let mut pad = blob.clone();
+        let last = pad.len() - 1;
+        pad[last] |= 0x80;
+        assert!(m.restore_state(&pad, NOW).is_none());
+        // First restore lands; a second restore of the same blob into
+        // the now-live manager is a no-op.
+        assert!(m.restore_state(&blob, NOW).is_some());
+        assert!(m.restore_state(&blob, NOW).is_none());
+        // Unknown track ids have nothing to save.
+        assert!(m.save_state(0xDEAD).is_none());
     }
 }
