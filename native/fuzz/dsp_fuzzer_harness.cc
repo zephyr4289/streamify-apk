@@ -16,6 +16,13 @@
 #include "../math/CandidateHasher.h"
 #include "../math/CircadianCurves.h"
 #include "../math/HarmonicTransitionEngine.h"
+// Phase-3 additions (BEHIND.md #45/#38/#44/#57).
+#include "../agsl/AmbientGlowShader.h"
+#include "../audio/AdtsFrameParser.h"
+#include "../audio/AudioFrameRemuxer.h"
+#include "../audio/OpusPacketParser.h"
+#include "../palette/BitmapPalette.h"
+#include "../video/CanvasLoopMath.h"
 
 // LibFuzzer abort()s are reported as crashes; use this for invariants.
 static inline void fuzz_check(bool ok) {
@@ -376,6 +383,279 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             uint64_t out[2] = {1, 2};
             streamify::math::hashCandidateIdsBulk(spans, 2, out);
             fuzz_check(out[0] == h1 && out[1] == h1);
+        }
+    }
+
+    // 12. Phase-3: audio remuxer — corrupted Opus/ADTS bitstreams against
+    //     the remuxer and both packet validators. data[0] picks the codec;
+    //     the stream is carved into deterministic sub-spans, seeded with
+    //     structurally valid heads half the time so the ACCEPT path stays
+    //     exercised (a harness that only feeds garbage proves nothing about
+    //     the muxer, only the reject ladder). Sequence numbers regress
+    //     occasionally to exercise the out-of-order gate.
+    if (size >= 16) {
+        const bool aac = (data[0] & 1) != 0;
+        std::vector<uint8_t> out;
+        out.reserve(8192);
+        const streamify::audio::RemuxSink sink{
+            &out, [](void* ctx, const uint8_t* d, size_t n) {
+                static_cast<std::vector<uint8_t>*>(ctx)->insert(
+                    static_cast<std::vector<uint8_t>*>(ctx)->end(), d, d + n);
+                return true;
+            }};
+        streamify::audio::AudioFrameRemuxer remux;
+        streamify::audio::RemuxerConfig cfg;
+        cfg.codec = aac ? streamify::audio::Codec::kAacAdts
+                        : streamify::audio::Codec::kOpus;
+        remux.begin(cfg, sink);
+
+        size_t pos = 1;
+        uint64_t seq = 0;
+        while (pos < size) {
+            size_t len = 1 + (data[pos] % 97);
+            if (len > size - pos) len = size - pos;
+            std::vector<uint8_t> pkt(data + pos, data + pos + len);
+            // Seed a plausible header on every 2nd packet (bounded by the
+            // minimum header sizes so the seed itself cannot overread).
+            if ((seq & 1) == 0) {
+                if (aac && len >= 7) {
+                    pkt[0] = 0xFF;
+                    pkt[1] = 0xF1;
+                    pkt[2] = static_cast<uint8_t>(
+                        (1 << 6) | ((data[pos] % 13) << 2));
+                    pkt[3] = static_cast<uint8_t>(2 << 6);
+                    pkt[4] = static_cast<uint8_t>((len >> 3) & 0xFF);
+                    pkt[5] = static_cast<uint8_t>(((len & 7) << 5) | 0x1F);
+                    pkt[6] = 0xFC;
+                } else if (!aac && len >= 2) {
+                    pkt[0] = static_cast<uint8_t>(
+                        (31u << 3) | ((data[pos] & 4) ? (1u << 2) : 0u) |
+                        (data[pos] % 4));
+                }
+            }
+            // Sequence: strictly increasing except every 8th packet, which
+            // regresses into the already-seen range.
+            const uint64_t s =
+                (seq % 8 == 7) ? (seq / 2) : seq;
+            (void)remux.remuxPacket(pkt.data(), pkt.size(), s);
+            ++seq;
+            pos += len;
+        }
+        (void)remux.finish();
+        (void)remux.remuxPacket(data, 4, seq);  // post-finish: wrong state
+
+        const auto& st = remux.stats();
+        fuzz_check(st.packetsIn == st.packetsAccepted + st.droppedCorrupt +
+                                      st.droppedTruncated +
+                                      st.droppedOutOfOrder);
+        if (!out.empty()) {
+            if (!aac) {
+                // Opus output is always a valid Ogg prefix.
+                fuzz_check(std::memcmp(out.data(), "OggS", 4) == 0);
+            } else {
+                // ADTS output frames always carry a syncword head.
+                fuzz_check(out.size() >= 7);
+                fuzz_check(out[0] == 0xFF && (out[1] & 0xF0) == 0xF0);
+            }
+        }
+
+        // Standalone validators on raw sub-spans (probe API, no session):
+        // any bytes, any length — never a crash (the checks are the calls
+        // themselves under ASan/UBSan; statuses are informational).
+        {
+            streamify::audio::OpusFrameInfo oi;
+            (void)streamify::audio::OpusPacketParser::parse(data + 8,
+                                                           size - 8, &oi);
+            streamify::audio::AdtsFrameInfo ai;
+            (void)streamify::audio::AdtsFrameParser::parse(data + 8,
+                                                          size - 8, false,
+                                                          &ai);
+            // Truncated variants: exact-boundary discipline.
+            if (size >= 10) {
+                (void)streamify::audio::OpusPacketParser::parse(data, size - 1,
+                                                                &oi);
+                (void)streamify::audio::AdtsFrameParser::parse(data, size - 1,
+                                                               false, &ai);
+            }
+        }
+    }
+
+    // 13. Phase-3: palette extractor — malformed/truncated image bytes.
+    //     data[1..3] derive dimensions/formats for both a large case (usually
+    //     past the buffer: graceful kBadBufferSize) and a tiny case (usually
+    //     accepted: full pipeline under fuzz bytes). Every successful
+    //     extraction must produce valid ARGB colors and a real WCAG pick.
+    if (size >= 16) {
+        streamify::palette::BitmapPaletteExtractor extractor;
+        streamify::palette::PaletteResult r;
+        const int32_t bigW = 1 + (data[1] % 512);
+        const int32_t bigH = 1 + (data[2] % 512);
+        const int32_t fmtIdx = data[3] % 3;
+        const auto fmt = static_cast<streamify::palette::PixelFormat>(fmtIdx);
+        // Large case: offset 4, all remaining bytes.
+        (void)extractor.extract(data + 4, size - 4, bigW, bigH, fmt, &r);
+        // Tiny case: offset 8, dimensions that usually fit.
+        const int32_t w = 1 + (data[5] % 16);
+        const int32_t h = 1 + (data[6] % 16);
+        const auto st2 = extractor.extract(data + 8, size - 8, w, h, fmt, &r);
+        // Snapshot for the determinism check: `r` is overwritten in place
+        // by the RGB565 twin and the truncation probe below.
+        const streamify::palette::PaletteResult first = r;
+        if (st2 == streamify::palette::PaletteStatus::kOk) {
+            fuzz_check((r.primaryArgb >> 24) == 0xFF);
+            fuzz_check((r.secondaryArgb >> 24) == 0xFF);
+            fuzz_check((r.textForegroundArgb >> 24) == 0xFF);
+            fuzz_check((r.ambientGlowArgb >> 24) == 0xFF);
+            fuzz_check(r.textForegroundArgb == 0xFFFFFFFF ||
+                       r.textForegroundArgb == 0xFF000000);
+            // Theoretical floor of max(white,black) contrast is ~4.58.
+            fuzz_check(r.foregroundContrastRatio >= 4.0f);
+            fuzz_check(r.swatchCount >= 1 && r.swatchCount <= 24);
+            // RGB565 twin: same bytes as 565 must also be graceful.
+            (void)extractor.extract(data + 8, size - 8, w, h,
+                                    streamify::palette::PixelFormat::kRgb565,
+                                    &r);
+        }
+        // Exact-boundary truncation: one byte short of any declared size is
+        // ALWAYS kBadBufferSize, never a crash (never reads past `size`).
+        const int32_t w2 = 1 + (data[9] % 48);
+        const int32_t h2 = 1 + (data[10] % 48);
+        const size_t need =
+            static_cast<size_t>(w2) * static_cast<size_t>(h2) *
+            static_cast<size_t>(
+                streamify::palette::BitmapPaletteExtractor::bytesPerPixel(
+                    fmt));
+        if (need > 0 && size - 8 >= need) {
+            fuzz_check(extractor.extract(data + 8, need - 1, w2, h2, fmt,
+                                         &r) ==
+                       streamify::palette::PaletteStatus::kBadBufferSize);
+        }
+        // Determinism under fuzz bytes: identical input -> identical bits.
+        // (Compares against the snapshot taken BEFORE the RGB565 twin and
+        // truncation probe overwrote `r`.)
+        if (st2 == streamify::palette::PaletteStatus::kOk) {
+            streamify::palette::BitmapPaletteExtractor twin;
+            streamify::palette::PaletteResult r2;
+            fuzz_check(twin.extract(data + 8, size - 8, w, h, fmt, &r2) ==
+                       streamify::palette::PaletteStatus::kOk);
+            fuzz_check(std::memcmp(&first, &r2, sizeof(first)) == 0);
+        }
+    }
+
+    // 14. Phase-3: canvas loop + AGSL param generator — hostile time and
+    //     config floats (fuzz bytes are frequently NaN/Inf/huge patterns;
+    //     every output must stay finite and in range), plus a periodicity
+    //     error-budget spot check in a PROVEN safe domain (see the Phase-2
+    //     circadian guard for the methodology): |t| < 1e6 ms and period in
+    //     [0.5, 120] s bound the float shift error by < 1 ULP of 1e6 ms
+    //     (0.0625 ms) so the phase drifts at most ~1e-8 and every derived
+    //     param by <= 2*pi*1e-8*scale << 1e-4.
+    if (size >= 40) {
+        float tMs, periodSec;
+        std::memcpy(&tMs, data + 24, 4);
+        std::memcpy(&periodSec, data + 28, 4);
+        streamify::video::CanvasLoopConfig cfg;
+        cfg.periodSec = periodSec;
+        cfg.blendSec = tMs;  // hostile blend, sanitized internally
+        streamify::video::CanvasLoopFrame f;
+        streamify::video::CanvasLoopMath::computeFrame(
+            tMs * 0.001f, cfg, 0.012f, 0.035f, 0.015f, 1.0f, &f);
+        fuzz_check(std::isfinite(f.phase) && f.phase >= 0.0f && f.phase < 1.0f);
+        fuzz_check(std::isfinite(f.crossfadeWeight) &&
+                   f.crossfadeWeight >= 0.0f && f.crossfadeWeight <= 1.0f);
+        fuzz_check(std::isfinite(f.scale) && std::isfinite(f.rotationRad) &&
+                   std::isfinite(f.translateX) && std::isfinite(f.translateY));
+        fuzz_check(std::isfinite(f.glowPulse) && f.glowPulse >= 0.0f &&
+                   f.glowPulse <= 1.0f);
+        fuzz_check(std::isfinite(f.hueDriftRad));
+
+        // AGSL param generator with an entirely hostile config. NOTE: the
+        // float->int64 cast is domain-guarded FIRST — casting NaN/Inf/huge
+        // floats to int64 is UB (float-cast-overflow) and the CI fuzzer
+        // would rightly trap it (the JNI layer receives jlong natively and
+        // never performs this cast).
+        streamify::agsl::AmbientGlowConfig gcfg;
+        float hostile[16];
+        std::memcpy(hostile, data + 24, 16);  // may be NaN/Inf patterns
+        streamify::agsl::AmbientGlowRuntime::floatsToConfig(hostile, &gcfg);
+        const int64_t ms =
+            (std::isfinite(tMs) && std::fabs(tMs) < 1.0e15f)
+                ? static_cast<int64_t>(tMs)
+                : 0;
+        streamify::agsl::GlowShaderParams params;
+        streamify::agsl::AmbientGlowRuntime::computeFrameParams(
+            ms, 1080, 2400, gcfg, &params);
+        const float* pf = reinterpret_cast<const float*>(&params);
+        for (int i = 0; i < streamify::agsl::GlowShaderParams::kFloatCount;
+             ++i) {
+            fuzz_check(std::isfinite(pf[static_cast<size_t>(i)]));
+        }
+        // loopPhase bound: [0,1] INCLUSIVE — hostile config floats can select
+        // the ping-pong strategy, whose triangle phase legitimately peaks at
+        // exactly 1.0f at the turnaround (t/period == 0.5). The stricter
+        // wraparound bound (< 1.0) is a dedicated unit-test invariant.
+        fuzz_check(params.loopPhase >= 0.0f && params.loopPhase <= 1.0f);
+        fuzz_check(params.crossfade >= 0.0f && params.crossfade <= 1.0f);
+
+        // Periodicity spot check (safe domain, WRAP-AWARE methodology).
+        //
+        // Error budget (second revision — the first trapped the local soak
+        // by ignoring the ms quantization of the sample offset):
+        //   * the B sample is placed at (int64)(period*1000) ms, and that
+        //     cast TRUNCATES fractional milliseconds: the sample can sit
+        //     up to ~1 ms off the true seam. At the smallest guarded period
+        //     (0.5 s) that alone is a phase error of 1e-3/0.5 = 2.0e-3.
+        //     This is a HARNESS measurement artifact — the engine's own
+        //     seam periodicity is bit-exact at exact-ms periods and is
+        //     unit-tested as such at t = 0 / period.
+        //   * float demotion of tSec rounds: |tSec| < 1000 s -> two sides
+        //     of 0.5*ULP(1024 s) = 6.1e-5 s -> 2.44e-4 phase at 0.5 s.
+        //   * the quotient t/period rounds independently per side:
+        //     quotient <= 2000 -> 2 * 0.5*ULP(2000) = 1.2e-4.
+        //   * total phase error <= 2.0e-3 + 2.44e-4 + 1.2e-4 = 2.4e-3 ->
+        //     loopPhase/lagPhase tolerance 5e-3 (2.1x margin); hueDriftRad
+        //     = 2*pi*hueTurns*phase, hueTurns = 1 (clean defaults) ->
+        //     1.5e-2 -> tolerance 5e-2 (3.3x margin).
+        //   * RAW phases wrap at the seam and crossfade jumps 1 -> 0 there
+        //     BY DESIGN — the continuity lives in the shader composite
+        //     mix(g(p), g(p-1), w), unit-tested bit-exact at the seam. The
+        //     linear phase comparison is only sound when BOTH samples rest
+        //     outside the crossfade window (weight exactly 0): the 0-weight
+        //     region ends at 1 - blendFrac <= 1 - 1/120, an 8.3e-3 guard
+        //     band that still dwarfs the 2.4e-3 phase error, so no wrap
+        //     can occur between the two samples. In-window samples skip.
+        //   * every config-derived field (resolution, intensity, breath,
+        //     colors, noise*, grain, vignette) is time-invariant: must be
+        //     BIT-IDENTICAL between the two frames.
+        if (std::isfinite(tMs) && std::fabs(tMs) < 1.0e6f &&
+            std::isfinite(periodSec) && periodSec >= 0.5f &&
+            periodSec <= 120.0f) {
+            streamify::agsl::GlowShaderParams pA, pB;
+            streamify::agsl::AmbientGlowConfig clean;
+            clean.periodSec = periodSec;
+            streamify::agsl::AmbientGlowRuntime::computeFrameParams(
+                static_cast<int64_t>(tMs), 500, 500, clean, &pA);
+            streamify::agsl::AmbientGlowRuntime::computeFrameParams(
+                static_cast<int64_t>(tMs) +
+                    static_cast<int64_t>(periodSec * 1000.0f),
+                500, 500, clean, &pB);
+            const float* a = reinterpret_cast<const float*>(&pA);
+            const float* b = reinterpret_cast<const float*>(&pB);
+            // Field map (frozen by the uniform table static_asserts):
+            // 0-1 resolution, 2 loopPhase, 3 crossfade, 4 lagPhase,
+            // 5 intensity, 6 breath, 7 hueDriftRad, 8-16 colors,
+            // 17-20 noise/grain/vignette.
+            for (int i = 0; i < streamify::agsl::GlowShaderParams::kFloatCount;
+                 ++i) {
+                if (i == 2 || i == 3 || i == 4 || i == 7) continue;
+                fuzz_check(a[static_cast<size_t>(i)] ==
+                           b[static_cast<size_t>(i)]);
+            }
+            if (pA.crossfade == 0.0f && pB.crossfade == 0.0f) {
+                fuzz_check(std::fabs(a[2] - b[2]) < 5e-3f);   // loopPhase
+                fuzz_check(std::fabs(a[4] - b[4]) < 5e-3f);   // lagPhase
+                fuzz_check(std::fabs(a[7] - b[7]) < 5e-2f);   // hueDriftRad
+            }
         }
     }
 

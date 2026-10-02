@@ -13,13 +13,17 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
 endif()
 
 include_directories(
+    agsl
+    audio
     dsp
     dsp/kissfft
     engine
     ingest
     jni
     math
+    palette
     util
+    video
     third_party/sqlite3
 )
 
@@ -28,6 +32,13 @@ add_library(streamify_native_core SHARED
     math/CandidateHasher.cc
     math/HarmonicTransitionEngine.cc
     math/CircadianCurves.cc
+    video/CanvasLoopMath.cc
+    video/CanvasLoopRenderer.cc
+    agsl/AmbientGlowShader.cc
+    audio/OpusPacketParser.cc
+    audio/AdtsFrameParser.cc
+    audio/AudioFrameRemuxer.cc
+    palette/BitmapPalette.cc
     dsp/LufsNormalizer.cc
     dsp/SoftKneeLimiter.cc
     dsp/AcousticPhaseResampler.cc
@@ -40,6 +51,9 @@ add_library(streamify_native_core SHARED
     jni/jni_bridge_dsp.cc
     jni/jni_bridge_native_dsp_engine.cc
     jni/jni_bridge_harmonic_engine.cc
+    jni/jni_bridge_media_palette.cc
+    jni/jni_bridge_audio_remuxer.cc
+    jni/jni_bridge_agsl_glow.cc
     engine/StreamifyDB.cc
     engine/RecommendEngine.cc
     engine/EventTracker.cc
@@ -65,9 +79,19 @@ if (STREAMIFY_BUILD_TESTS)
         tests/test_dsp.cc
         tests/test_dsp_phase1.cc
         tests/test_harmonic_math.cc
+        tests/test_canvas_loop_agsl.cc
+        tests/test_audio_remuxer.cc
+        tests/test_media_palette.cc
         math/CandidateHasher.cc
         math/HarmonicTransitionEngine.cc
         math/CircadianCurves.cc
+        video/CanvasLoopMath.cc
+        video/CanvasLoopRenderer.cc
+        agsl/AmbientGlowShader.cc
+        audio/OpusPacketParser.cc
+        audio/AdtsFrameParser.cc
+        audio/AudioFrameRemuxer.cc
+        palette/BitmapPalette.cc
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
         dsp/ChannelOps.cc
@@ -78,7 +102,7 @@ if (STREAMIFY_BUILD_TESTS)
         dsp/kissfft/kiss_fft.c
         dsp/kissfft/kiss_fftr.c
     )
-    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine math util .)
+    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine math util video agsl audio palette .)
     target_link_libraries(dsp_test_suite PRIVATE m pthread)
 
     add_executable(simd_physics_test_suite
@@ -140,8 +164,15 @@ if (STREAMIFY_BUILD_FUZZERS)
         math/CandidateHasher.cc
         math/HarmonicTransitionEngine.cc
         math/CircadianCurves.cc
+        video/CanvasLoopMath.cc
+        video/CanvasLoopRenderer.cc
+        agsl/AmbientGlowShader.cc
+        audio/OpusPacketParser.cc
+        audio/AdtsFrameParser.cc
+        audio/AudioFrameRemuxer.cc
+        palette/BitmapPalette.cc
     )
-    target_include_directories(dsp_fuzzer_harness PRIVATE dsp mix math util .)
+    target_include_directories(dsp_fuzzer_harness PRIVATE dsp mix math util video agsl audio palette .)
     # Sanitizers replace global -O3/-flto/-ffast-math for this target: fast-math
     # elides the NaN guards the harness exists to exercise.
     target_compile_options(dsp_fuzzer_harness PRIVATE
