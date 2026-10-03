@@ -153,9 +153,15 @@ if (STREAMIFY_BUILD_TESTS)
     # The suites assert on NaN/Inf/overflow guards and bounded outputs; the
     # global -ffast-math would fold those guards away (the limiter test
     # asserts |sample| <= 1.1). Same rationale as the fuzzer harness below.
+    # The flag must ALSO reach the LINK step: with -flto, link-time
+    # optimization re-optimizes the merged IR using the link-line flags, so
+    # a compile-only -fno-fast-math still leaks fast-math semantics back
+    # into the sanitized suites (observed on clang-18 LTO: folded isfinite
+    # guards and reassociated token-bucket arithmetic).
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
         foreach(tname dsp_test_suite simd_physics_test_suite storage_telemetry_test_suite dsp_phase_lock_test_suite)
             target_compile_options(${tname} PRIVATE -fno-fast-math)
+            target_link_options(${tname} PRIVATE -fno-fast-math)
         endforeach()
     endif()
 endif()
@@ -191,7 +197,7 @@ if (STREAMIFY_BUILD_FUZZERS)
         -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -fno-fast-math -O1 -g
     )
     target_link_options(dsp_fuzzer_harness PRIVATE
-        -fsanitize=fuzzer,address,undefined
+        -fsanitize=fuzzer,address,undefined -fno-fast-math
     )
 
     # Phase-4: malformed network audio streams & packet corruption (the
@@ -207,6 +213,6 @@ if (STREAMIFY_BUILD_FUZZERS)
         -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -fno-fast-math -O1 -g
     )
     target_link_options(audio_sink_fuzz_harness PRIVATE
-        -fsanitize=fuzzer,address,undefined
+        -fsanitize=fuzzer,address,undefined -fno-fast-math
     )
 endif()

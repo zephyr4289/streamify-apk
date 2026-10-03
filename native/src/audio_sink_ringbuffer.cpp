@@ -37,7 +37,14 @@ namespace sink {
 // ============================================================================
 
 int16_t ConvertSampleF32ToI16(float sample) {
-    if (!std::isfinite(sample)) {
+    // Bit-pattern finite check (NOT std::isfinite): the production .so is
+    // built with -ffast-math, which folds isfinite() to true and would
+    // smuggle NaN/Inf into the quantizer. Integer bit inspection cannot be
+    // folded, so the "non-finite -> digital silence" contract holds under
+    // every floating-point mode.
+    uint32_t bits = 0;
+    std::memcpy(&bits, &sample, sizeof(bits));
+    if ((bits & 0x7F800000u) == 0x7F800000u) {
         return 0;  // NaN / +-Inf -> digital silence (documented contract)
     }
     if (sample > 1.0f) sample = 1.0f;
