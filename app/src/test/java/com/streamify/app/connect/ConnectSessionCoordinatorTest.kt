@@ -24,7 +24,7 @@ import org.junit.Test
  */
 class ConnectSessionCoordinatorTest {
 
-    private lateinit var gateway: FakeGateway
+    private lateinit var gateway: ScriptedGateway
     private lateinit var hooks: RecordingHooks
     private lateinit var registry: ConnectDeviceRegistry
 
