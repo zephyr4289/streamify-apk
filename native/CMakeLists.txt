@@ -18,16 +18,20 @@ include_directories(
     dsp
     dsp/kissfft
     engine
+    include
     ingest
     jni
     math
     palette
+    src
     util
     video
     third_party/sqlite3
 )
 
 add_library(streamify_native_core SHARED
+    # Phase-4: lock-free SPSC audio sink + SIMD sample converter.
+    src/audio_sink_ringbuffer.cpp
     engine/TaskOrchestrator.cc
     math/CandidateHasher.cc
     math/HarmonicTransitionEngine.cc
