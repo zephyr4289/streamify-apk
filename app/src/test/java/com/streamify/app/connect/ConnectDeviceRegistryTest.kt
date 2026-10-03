@@ -118,8 +118,10 @@ class ConnectDeviceRegistryTest {
 
     @Test
     fun `link status overlay reflects connect and loss`() {
-        val registry = registry()
+        // Device must be discovered BEFORE the registry snapshot — the
+        // overlay only decorates rows the registry already knows.
         audioDevices += speaker("spk-1")
+        val registry = registry()
 
         registry.markStatus("spk-1", DeviceLinkStatus.CONNECTING)
         assertEquals(DeviceLinkStatus.CONNECTING, registry.rows.value.first { it.id == "spk-1" }.status)

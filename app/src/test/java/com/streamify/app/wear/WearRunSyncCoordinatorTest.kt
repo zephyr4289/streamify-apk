@@ -111,7 +111,7 @@ class WearRunSyncCoordinatorTest {
             // Empty dir fails (nothing to push).
             assertFalse(WearRunSyncCoordinator.bundleFitsBudget(dir))
 
-            val f1 = File(dir, "a.m4a").apply { writeBytes(ByteArray(10)) }
+            File(dir, "a.m4a").writeBytes(ByteArray(10))
             assertTrue(WearRunSyncCoordinator.bundleFitsBudget(dir, budgetBytes = 100L))
             assertFalse(WearRunSyncCoordinator.bundleFitsBudget(dir, budgetBytes = 5L))
         } finally {
