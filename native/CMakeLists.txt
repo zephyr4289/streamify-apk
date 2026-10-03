@@ -90,6 +90,7 @@ if (STREAMIFY_BUILD_TESTS)
         tests/test_canvas_loop_agsl.cc
         tests/test_audio_remuxer.cc
         tests/test_media_palette.cc
+        tests/test_audio_sink_ringbuffer.cpp
         math/CandidateHasher.cc
         math/HarmonicTransitionEngine.cc
         math/CircadianCurves.cc
@@ -100,6 +101,9 @@ if (STREAMIFY_BUILD_TESTS)
         audio/AdtsFrameParser.cc
         audio/AudioFrameRemuxer.cc
         palette/BitmapPalette.cc
+        # Phase-4: SPSC audio sink + WearOS packetizer under test.
+        src/audio_sink_ringbuffer.cpp
+        src/wear_audio_encoder.cpp
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
         dsp/ChannelOps.cc
@@ -110,7 +114,7 @@ if (STREAMIFY_BUILD_TESTS)
         dsp/kissfft/kiss_fft.c
         dsp/kissfft/kiss_fftr.c
     )
-    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine math util video agsl audio palette .)
+    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine math util video agsl audio palette include src .)
     target_link_libraries(dsp_test_suite PRIVATE m pthread)
 
     add_executable(simd_physics_test_suite
