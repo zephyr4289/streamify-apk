@@ -57,8 +57,10 @@
 //!   The phone serializes the manifest (per-track layout + total hash +
 //!   per-segment Blake3 hashes — Phase 3 verifier discipline,
 //!   miniaturized) into a byte stream, then chunks it across
-//!   CACHE_MANIFEST frames; the watch accumulates until the final chunk
-//!   and parses. CACHE_CHUNK frames carry 1 KiB segments under a TOKEN
+//!   CACHE_MANIFEST frames carrying (manifest_id, chunk_idx,
+//!   chunk_count, data); the watch reassembles BY INDEX — immune to
+//!   network reordering — and parses once complete. CACHE_CHUNK frames
+//!   carry 1 KiB segments under a TOKEN
 //!   BUCKET pacer: refill = rate × elapsed, capped burst, in-flight
 //!   window of 16 unacked segments (backpressure). The watch verifies
 //!   EVERY segment hash before buffering it and acks in 64-segment
@@ -74,7 +76,7 @@
 //! input discipline throughout (bounds checks, checksum, budget caps,
 //! counters on every refusal).
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use crate::chunk_verifier::hash_payload;
 
@@ -97,8 +99,9 @@ pub const SEGMENT_SIZE: usize = 1000;
 pub const MAX_TRACK_SEGMENTS: u32 = 4096;
 /// Tracks per manifest (a watch holds ~8–16 offline tracks).
 pub const MAX_CACHE_TRACKS: usize = 16;
-/// Manifest byte-stream budget (bounded accumulation on the watch).
-pub const MAX_MANIFEST_BYTES: usize = 512 * 1024;
+/// Manifest byte-stream budget (bounded accumulation on the watch; one
+/// full manifest must frame into ≤ 255 CACHE_MANIFEST frames).
+pub const MAX_MANIFEST_BYTES: usize = 255 * (MAX_WSX_PAYLOAD - 8);
 /// Queue mirror bound (the watch face shows the next handful).
 pub const MAX_QUEUE_MIRROR: usize = 64;
 /// Unacked-segment in-flight window (backpressure for the pacer).
@@ -259,7 +262,9 @@ pub fn encode_frame_into(
 }
 
 /// Owned-frame convenience (coordinator boundary: ONE copy).
-fn encode_frame(frame_type: u8, seq: u16, flags: u8, payload: &[u8]) -> Vec<u8> {
+/// Owned-frame convenience (coordinator boundary: ONE copy — also the
+/// test/binding surface for hand-built frames).
+pub fn encode_frame(frame_type: u8, seq: u16, flags: u8, payload: &[u8]) -> Vec<u8> {
     let mut buf = vec![0u8; WSX_HEADER_LEN + payload.len() + 4];
     let n = encode_frame_into(&mut buf, frame_type, seq, flags, payload)
         .expect("payload pre-budgeted");
@@ -761,6 +766,23 @@ fn build_chunk_payload(track_info: &CacheTrackInfo, data: &[u8], idx: u32) -> Op
     Some(payload)
 }
 
+/// Recent-frame seq window for retry dedupe (bounded, wraparound-safe).
+const RECENT_SEQ_WINDOW: usize = 256;
+
+fn is_duplicate(recent: &mut VecDeque<u16>, seen: &mut HashSet<u16>, seq: u16) -> bool {
+    if seen.contains(&seq) {
+        return true;
+    }
+    if recent.len() == RECENT_SEQ_WINDOW {
+        if let Some(old) = recent.pop_front() {
+            seen.remove(&old);
+        }
+    }
+    recent.push_back(seq);
+    seen.insert(seq);
+    false
+}
+
 // ─────────────────────────────────────────────── phone-side coordinator
 
 /// One in-push track on the phone side (audio bytes owned here — the app
@@ -822,6 +844,9 @@ pub struct PhoneSyncCoordinator {
     battery: Option<(u8, bool)>,
     user_paused: bool,
     pending_controls: BTreeMap<u16, PendingControl>,
+    /// Retry dedupe for watch-originated ack_requested frames.
+    recent_seqs: VecDeque<u16>,
+    seen_seqs: HashSet<u16>,
     events: VecDeque<WearSyncEvent>,
     actions: Vec<WearSyncAction>,
     stats: WearSyncStats,
@@ -839,6 +864,8 @@ impl PhoneSyncCoordinator {
             battery: None,
             user_paused: false,
             pending_controls: BTreeMap::new(),
+            recent_seqs: VecDeque::new(),
+            seen_seqs: HashSet::new(),
             events: VecDeque::new(),
             actions: Vec::new(),
             stats: WearSyncStats::default(),
@@ -951,7 +978,9 @@ impl PhoneSyncCoordinator {
     }
 
     /// Manifest frames: the serialized manifest byte stream chunked into
-    /// ≤ 1 KiB frames with `more` chaining flags.
+    /// ≤ 1 KiB frames. Each frame carries (manifest_id, chunk_idx,
+    /// chunk_count, data) — reassembly is BY INDEX, immune to network
+    /// reordering (a late-arriving tail can never poison the stream).
     fn emit_manifest_frames(&mut self) {
         let Some(push) = &self.push else { return };
         let manifest_id = push.manifest_id;
@@ -965,27 +994,34 @@ impl PhoneSyncCoordinator {
             .collect();
         let Some(bytes) = encode_manifest_bytes(&entries) else { return };
         // Chunk into frame payloads FIRST (owned), then send.
-        const CHUNK: usize = MAX_WSX_PAYLOAD - 2; // id + more byte
-        let mut payloads: Vec<(bool, Vec<u8>)> = Vec::new();
-        let mut off = 0usize;
-        while off < bytes.len() {
-            let end = (off + CHUNK).min(bytes.len());
-            let more = end < bytes.len();
-            let mut p = Vec::with_capacity(2 + end - off);
-            p.push(manifest_id);
-            p.push(u8::from(more));
-            p.extend_from_slice(&bytes[off..end]);
-            payloads.push((more, p));
-            off = end;
+        const CHUNK: usize = MAX_WSX_PAYLOAD - 8; // id + idx/count varints
+        let total = bytes.len().div_ceil(CHUNK);
+        if total == 0 || total > 255 {
+            return; // cannot frame (encode_manifest_bytes bounds this)
         }
-        for (more, payload) in payloads {
-            let _ = more; // the LAST chunk's more flag is already false
+        let mut payloads: Vec<Vec<u8>> = Vec::new();
+        for (idx, chunk) in bytes.chunks(CHUNK).enumerate() {
+            // Varint head pre-sized (WearBuf writes in place).
+            let mut head = [0u8; 8];
+            let mut w = WearBuf::new(&mut head);
+            let _ = w.put_varint(idx as u64);
+            let _ = w.put_varint(total as u64);
+            let used = w.pos();
+            let mut frame_payload = Vec::with_capacity(1 + used + chunk.len());
+            frame_payload.push(manifest_id);
+            frame_payload.extend_from_slice(&head[..used]);
+            frame_payload.extend_from_slice(chunk);
+            payloads.push(frame_payload);
+        }
+        for payload in payloads {
             self.send(WSX_CACHE_MANIFEST, FLAG_ACK_REQUESTED, &payload);
         }
     }
 
     /// Watch → phone frame ingestion (edits / ratings / upvotes / acks /
-    /// battery / controls).
+    /// battery / controls). Watch-originated ack_requested frames are
+    /// deduped by seq: a retry (our ACK was lost) re-ACKs without
+    /// re-raising the event — exactly-once semantics for votes.
     pub fn on_frame(&mut self, bytes: &[u8], now_ms: u64) -> bool {
         let frame = match parse_frame(bytes) {
             Ok(f) => f,
@@ -995,6 +1031,14 @@ impl PhoneSyncCoordinator {
             }
         };
         self.stats.frames_rx += 1;
+        let retryable = matches!(
+            frame.frame_type,
+            WSX_QUEUE_ACTION | WSX_TRACK_RATING | WSX_JAM_UPVOTE
+        );
+        if retryable && is_duplicate(&mut self.recent_seqs, &mut self.seen_seqs, frame.seq) {
+            self.ack(frame.seq); // idempotent re-ACK; no double event
+            return true;
+        }
         match frame.frame_type {
             WSX_SYNC_ACK => {
                 if let Some(echo) = Reader::new(frame.payload).u16_pair() {
@@ -1376,15 +1420,34 @@ pub struct WatchSyncCoordinator {
     seq: u16,
     queue_mirror: Vec<u64>,
     manifest_id: Option<u8>,
-    manifest_buf: Vec<u8>,
+    /// Chunk-indexed manifest reassembly (reordering-immune).
+    manifest_chunks: BTreeMap<u8, Vec<u8>>,
+    manifest_chunk_count: Option<u8>,
     tracks: HashMap<u64, RecvTrack>,
     track_order: Vec<u64>,
     /// Pending ack bitmap batches (cad → (base, bits)).
     ack_batch: BTreeMap<u64, (u32, Vec<u8>)>,
     ack_since_flush: u32,
+    /// Watch-side reliable mini-protocol: ack_requested frames awaiting
+    /// a SYNC_ACK echo (a vote/rating must never vanish on flaky links).
+    pending_controls: BTreeMap<u16, WatchPendingControl>,
+    /// Retry dedupe for phone-originated ack_requested frames (queue
+    /// deltas / manifest chunks).
+    recent_seqs: VecDeque<u16>,
+    seen_seqs: HashSet<u16>,
     events: VecDeque<WearSyncEvent>,
     actions: Vec<WearSyncAction>,
     stats: WearSyncStats,
+}
+
+/// Pending ack_requested control frame on the watch side. The watch
+/// coordinator's tick is clock-less — retry pacing is tick-count based
+/// (`ticks_per_retry` ≈ WEAR_RTO_MS / tick cadence).
+struct WatchPendingControl {
+    frame: Vec<u8>,
+    /// Ticks since the last (re)send.
+    ticks_since_send: u64,
+    attempts: u32,
 }
 
 impl WatchSyncCoordinator {
@@ -1393,11 +1456,15 @@ impl WatchSyncCoordinator {
             seq: 0,
             queue_mirror: Vec::new(),
             manifest_id: None,
-            manifest_buf: Vec::new(),
+            manifest_chunks: BTreeMap::new(),
+            manifest_chunk_count: None,
             tracks: HashMap::new(),
             track_order: Vec::new(),
             ack_batch: BTreeMap::new(),
             ack_since_flush: 0,
+            pending_controls: BTreeMap::new(),
+            recent_seqs: VecDeque::new(),
+            seen_seqs: HashSet::new(),
             events: VecDeque::new(),
             actions: Vec::new(),
             stats: WearSyncStats::default(),
@@ -1426,8 +1493,19 @@ impl WatchSyncCoordinator {
     }
 
     fn send(&mut self, frame_type: u8, flags: u8, payload: &[u8]) {
-        let frame = encode_frame(frame_type, self.next_seq(), flags, payload);
+        let seq = self.next_seq();
+        let frame = encode_frame(frame_type, seq, flags, payload);
         self.stats.frames_tx += 1;
+        if flags & FLAG_ACK_REQUESTED != 0 {
+            self.pending_controls.insert(
+                seq,
+                WatchPendingControl {
+                    frame: frame.clone(),
+                    ticks_since_send: 0,
+                    attempts: 1,
+                },
+            );
+        }
         self.actions.push(WearSyncAction::Send { frame });
     }
 
@@ -1477,7 +1555,8 @@ impl WatchSyncCoordinator {
         self.send(WSX_CACHE_CONTROL, 0, &payload);
         if self.manifest_id.is_none() || self.manifest_id == Some(manifest_id) {
             self.manifest_id = None;
-            self.manifest_buf.clear();
+            self.manifest_chunks.clear();
+            self.manifest_chunk_count = None;
             self.tracks.clear();
             self.track_order.clear();
             self.events.push_back(WearSyncEvent::CacheCancelled { manifest_id });
@@ -1511,7 +1590,9 @@ impl WatchSyncCoordinator {
         }
     }
 
-    /// Phone → watch frame ingestion.
+    /// Phone → watch frame ingestion. Phone-originated ack_requested
+    /// frames (queue deltas, manifest chunks) are deduped by seq: a
+    /// retry re-ACKs without re-applying — exactly-once mirror updates.
     pub fn on_frame(&mut self, bytes: &[u8], _now_ms: u64) -> bool {
         let frame = match parse_frame(bytes) {
             Ok(f) => f,
@@ -1521,6 +1602,11 @@ impl WatchSyncCoordinator {
             }
         };
         self.stats.frames_rx += 1;
+        let retryable = matches!(frame.frame_type, WSX_QUEUE_DELTA | WSX_CACHE_MANIFEST);
+        if retryable && is_duplicate(&mut self.recent_seqs, &mut self.seen_seqs, frame.seq) {
+            self.ack(frame.seq); // idempotent re-ACK; no double apply
+            return true;
+        }
         match frame.frame_type {
             WSX_QUEUE_DELTA => match decode_queue_delta(frame.payload) {
                 Some(ops) => {
@@ -1536,7 +1622,13 @@ impl WatchSyncCoordinator {
                     false
                 }
             },
-            WSX_SYNC_ACK => true, // watch control retries: minimal (see docs)
+            WSX_SYNC_ACK => {
+                // Echo for one of OUR ack_requested frames: retire it.
+                if let Some(echo) = Reader::new(frame.payload).u16_pair() {
+                    self.pending_controls.remove(&echo);
+                }
+                true
+            }
             WSX_CACHE_MANIFEST => self.on_manifest(frame.payload, frame.seq),
             WSX_CACHE_CHUNK => self.on_chunk(frame.payload),
             _ => {
@@ -1554,26 +1646,40 @@ impl WatchSyncCoordinator {
     fn on_manifest(&mut self, payload: &[u8], seq: u16) -> bool {
         let mut r = Reader::new(payload);
         let Some(manifest_id) = r.u8() else { return false };
-        let Some(more) = r.u8() else { return false };
-        let chunk = r.rest();
-        // Manifest id switch → reset accumulation.
-        if self.manifest_id != Some(manifest_id) && self.manifest_buf.is_empty() {
-            self.manifest_id = Some(manifest_id);
-        } else if self.manifest_id != Some(manifest_id) {
-            self.manifest_buf.clear();
-            self.manifest_id = Some(manifest_id);
-        }
-        if self.manifest_buf.len() + chunk.len() > MAX_MANIFEST_BYTES {
-            // Hostile manifest stream — refuse and reset.
+        let Some(idx) = r.varint() else { return false };
+        let Some(count) = r.varint() else { return false };
+        if idx > 254 || count == 0 || count > 255 || idx >= count {
             self.stats.frames_rejected += 1;
-            self.manifest_buf.clear();
+            return false;
+        }
+        let (idx, count) = (idx as u8, count as u8);
+        let chunk = r.rest();
+        // Manifest id switch → reset reassembly.
+        if self.manifest_id != Some(manifest_id) {
+            self.manifest_id = Some(manifest_id);
+            self.manifest_chunks.clear();
+            self.manifest_chunk_count = None;
+        }
+        // Budget bound (hostile floods).
+        let buffered: usize = self.manifest_chunks.values().map(Vec::len).sum();
+        if buffered + chunk.len() > MAX_MANIFEST_BYTES || self.manifest_chunks.len() >= 255 {
+            self.stats.frames_rejected += 1;
+            self.manifest_chunks.clear();
+            self.manifest_chunk_count = None;
             self.manifest_id = None;
             return false;
         }
-        self.manifest_buf.extend_from_slice(chunk);
+        self.manifest_chunks.insert(idx, chunk.to_vec());
+        self.manifest_chunk_count = Some(count);
         self.ack(seq);
-        if more == 0 {
-            let bytes = std::mem::take(&mut self.manifest_buf);
+        // Complete when every chunk index has landed (any order).
+        if self.manifest_chunks.len() == count as usize {
+            let mut bytes = Vec::with_capacity(buffered + chunk.len());
+            for part in self.manifest_chunks.values() {
+                bytes.extend_from_slice(part);
+            }
+            self.manifest_chunks.clear();
+            self.manifest_chunk_count = None;
             match decode_manifest_bytes(&bytes) {
                 Some(entries) => {
                     for e in entries {
@@ -1758,9 +1864,35 @@ impl WatchSyncCoordinator {
         self.ack_since_flush = 0;
     }
 
-    /// Watch housekeeping: flush pending ack batches.
+    /// Watch housekeeping: flush pending ack batches + retry un-acked
+    /// ack_requested control frames (bounded attempts, event on
+    /// abandon — a watch vote must never vanish silently). Retry pace:
+    /// every WEAR_RTO_MS-equivalent in ticks (caller cadence ≈ 10 ms →
+    /// 150 ticks).
     pub fn tick(&mut self) {
         self.flush_all_acks();
+        const RETRY_TICKS: u64 = WEAR_RTO_MS / 10 + 1;
+        let mut retry: Vec<u16> = Vec::new();
+        for (seq, pc) in self.pending_controls.iter_mut() {
+            if pc.ticks_since_send >= RETRY_TICKS {
+                if pc.attempts >= MAX_CONTROL_ATTEMPTS {
+                    retry.push(*seq);
+                } else {
+                    pc.attempts += 1;
+                    pc.ticks_since_send = 0;
+                    let frame = pc.frame.clone();
+                    self.stats.control_retries += 1;
+                    self.stats.frames_tx += 1;
+                    self.actions.push(WearSyncAction::Send { frame });
+                }
+            } else {
+                pc.ticks_since_send += 1;
+            }
+        }
+        for seq in retry {
+            self.pending_controls.remove(&seq);
+            self.events.push_back(WearSyncEvent::ControlAbandoned { seq });
+        }
     }
 
     /// Takes the assembled bytes of a completed track (caller persists).
@@ -1948,26 +2080,20 @@ mod tests {
     }
 
     fn deliver(phone: &mut PhoneSyncCoordinator, watch: &mut WatchSyncCoordinator) {
-        let actions = phone.drain_actions();
-        for a in actions {
-            if let WearSyncAction::Send { frame } = a {
-                watch.on_frame(&frame, 0);
-            }
+        for a in phone.drain_actions() {
+            let WearSyncAction::Send { frame } = a;
+            watch.on_frame(&frame, 0);
         }
-        let back = watch.drain_actions();
-        for a in back {
-            if let WearSyncAction::Send { frame } = a {
-                phone.on_frame(&frame, 0);
-            }
+        for a in watch.drain_actions() {
+            let WearSyncAction::Send { frame } = a;
+            phone.on_frame(&frame, 0);
         }
     }
 
     fn deliver_watch_to_phone(watch: &mut WatchSyncCoordinator, phone: &mut PhoneSyncCoordinator) {
-        let back = watch.drain_actions();
-        for a in back {
-            if let WearSyncAction::Send { frame } = a {
-                phone.on_frame(&frame, 0);
-            }
+        for a in watch.drain_actions() {
+            let WearSyncAction::Send { frame } = a;
+            phone.on_frame(&frame, 0);
         }
     }
 
@@ -2040,15 +2166,13 @@ mod tests {
             now += 10;
             phone.tick(now);
             for a in phone.drain_actions() {
-                if let WearSyncAction::Send { frame } = a {
-                    watch.on_frame(&frame, now);
-                }
+                let WearSyncAction::Send { frame } = a;
+                watch.on_frame(&frame, now);
             }
             watch.tick();
             for a in watch.drain_actions() {
-                if let WearSyncAction::Send { frame } = a {
-                    phone.on_frame(&frame, now);
-                }
+                let WearSyncAction::Send { frame } = a;
+                phone.on_frame(&frame, now);
             }
             if phone.cache_complete() {
                 break;
@@ -2107,9 +2231,8 @@ mod tests {
         assert!(phone.start_cache_push(3, &[(0xC9, &track)], 0));
         // Deliver the manifest frames to the watch.
         for a in phone.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                watch.on_frame(&frame, 0);
-            }
+            let WearSyncAction::Send { frame } = a;
+            watch.on_frame(&frame, 0);
         }
         assert!(watch.drain_events().iter().any(|e| matches!(
             e,
@@ -2125,7 +2248,8 @@ mod tests {
             now += 10;
             phone.tick(now);
             for a in phone.drain_actions() {
-                if let WearSyncAction::Send { frame } = a {
+                let WearSyncAction::Send { frame } = a;
+                {
                     let mut frame = frame;
                     if frame[3] == WSX_CACHE_CHUNK && !corrupted_once {
                         let flip = frame.len() - 6;
@@ -2140,12 +2264,11 @@ mod tests {
             }
             watch.tick();
             for a in watch.drain_actions() {
-                if let WearSyncAction::Send { frame } = a {
-                    if frame[3] == WSX_CACHE_CONTROL && frame[WSX_HEADER_LEN] == CTRL_SEG_BAD {
-                        seg_bad_seen = true;
-                    }
-                    phone.on_frame(&frame, now);
+                let WearSyncAction::Send { frame } = a;
+                if frame[3] == WSX_CACHE_CONTROL && frame[WSX_HEADER_LEN] == CTRL_SEG_BAD {
+                    seg_bad_seen = true;
                 }
+                phone.on_frame(&frame, now);
             }
             if phone.cache_complete() {
                 break;
@@ -2174,9 +2297,8 @@ mod tests {
         let track = pseudo_track(5, 4 * SEGMENT_SIZE);
         phone.start_cache_push(1, &[(0xD4, &track)], 0);
         for a in phone.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                watch.on_frame(&frame, 0);
-            }
+            let WearSyncAction::Send { frame } = a;
+            watch.on_frame(&frame, 0);
         }
         // 10% battery, not charging → pause fires.
         watch.report_battery(10, false);
@@ -2250,9 +2372,8 @@ mod tests {
         let track = pseudo_track(7, 2 * SEGMENT_SIZE);
         phone.start_cache_push(9, &[(0xF6, &track)], 0);
         for a in phone.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                watch.on_frame(&frame, 0);
-            }
+            let WearSyncAction::Send { frame } = a;
+            watch.on_frame(&frame, 0);
         }
         watch.user_pause(true);
         deliver_watch_to_phone(&mut watch, &mut phone);
@@ -2291,27 +2412,40 @@ mod tests {
             w.pos()
         };
         chunk.truncate(used);
-        let mut payload = vec![1u8, 0]; // manifest 1, more=0
+        // Grammar: [manifest_id, idx varint, count varint, data].
+        let mut payload = vec![1u8, 0, 1]; // manifest 1, chunk 0 of 1
         payload.extend_from_slice(&chunk);
         let frame = encode_frame(WSX_CACHE_MANIFEST, 1, 0, &payload);
         assert!(!watch.on_frame(&frame, 0), "lying manifest must be refused");
         // No track state leaked.
         assert!(watch.drain_events().is_empty());
-        // Oversize count header.
-        let mut payload = vec![1u8, 0];
-        payload.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF, 0x7F]); // huge varint
+        // Oversize count / lying indices.
+        let mut payload = vec![1u8, 5, 1]; // idx 5 of count 1 — impossible
+        payload.extend_from_slice(&[0u8; 16]);
         let frame = encode_frame(WSX_CACHE_MANIFEST, 2, 0, &payload);
         assert!(!watch.on_frame(&frame, 0));
-        // Hostile manifest flood: more=1 forever beyond the byte budget.
+        let payload = vec![1u8, 0, 0]; // count 0 — impossible
+        let frame = encode_frame(WSX_CACHE_MANIFEST, 3, 0, &payload);
+        assert!(!watch.on_frame(&frame, 0));
+        // Hostile manifest flood: endless chunk frames with distinct
+        // indices beyond the byte budget.
         let mut watch2 = WatchSyncCoordinator::new();
-        for i in 0..(MAX_MANIFEST_BYTES / MAX_WSX_PAYLOAD + 8) {
-            let mut payload = vec![4u8, 1]; // manifest 4, more=1
-            payload.extend_from_slice(&[0u8; MAX_WSX_PAYLOAD - 2]);
+        for i in 0..(MAX_MANIFEST_BYTES / (MAX_WSX_PAYLOAD - 8) + 8) {
+            let mut payload = vec![4u8];
+            let idx = (i % 200) as u64;
+            let count = 200u64;
+            let mut w = WearBuf::new(&mut payload);
+            let _ = w.put_varint(idx);
+            let _ = w.put_varint(count);
+            let used = w.pos();
+            payload.truncate(used);
+            payload.extend_from_slice(&[0u8; MAX_WSX_PAYLOAD - 8]);
             let frame = encode_frame(WSX_CACHE_MANIFEST, (i % 60000) as u16, 0, &payload);
             watch2.on_frame(&frame, 0);
         }
         assert!(watch2.stats().frames_rejected >= 1, "flood must trip the byte budget");
-        assert!(watch2.manifest_buf.is_empty() || watch2.manifest_buf.len() <= MAX_MANIFEST_BYTES);
+        let buffered: usize = watch2.manifest_chunks.values().map(Vec::len).sum();
+        assert!(buffered <= MAX_MANIFEST_BYTES);
     }
 
     #[test]

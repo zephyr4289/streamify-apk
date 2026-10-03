@@ -458,7 +458,7 @@ impl Default for DeviceRegistry {
 mod tests {
     use super::*;
 
-    const TV_ID: u64 = 0xA11CE_0001;
+    const TV_ID: u64 = 0xA11C_E001;
 
     fn tv_caps() -> DeviceCaps {
         DeviceCaps {

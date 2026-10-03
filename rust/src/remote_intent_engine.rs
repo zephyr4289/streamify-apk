@@ -645,7 +645,8 @@ struct ReceiverState {
 
 /// Pending handoff on the controller side. `epoch`/`snapshot` ride the
 /// signed OFFER (kept for telemetry + future offer-retry re-signing);
-/// `deadline_ms` governs the abort path.
+/// `deadline_ms` governs the abort path, `last_offer_ms` the offer
+/// retransmission cadence (a lost OFFER must not doom the handoff).
 #[derive(Debug, Clone)]
 struct HandoffState {
     target: u64,
@@ -653,6 +654,12 @@ struct HandoffState {
     #[allow(dead_code)] // telemetry / future offer-retry re-signing
     epoch: u32,
     deadline_ms: u64,
+    /// Logical ms of the last OFFER (re)transmission.
+    last_offer_ms: u64,
+    /// Offer retransmissions fired (bounded by the deadline).
+    offer_attempts: u32,
+    /// The signed OFFER frame, cached verbatim for identical retransmits.
+    offer_frame: Vec<u8>,
     #[allow(dead_code)] // telemetry / debugging introspection of a live gateway
     snapshot: PlaybackSnapshot,
 }
@@ -881,12 +888,15 @@ impl RemoteIntentEngine {
         payload.extend_from_slice(&sig.to_bytes());
 
         let frame = encode_rim(RIM_HANDOFF_OFFER, self.self_id, target, nonce, &payload);
-        self.actions.push(IntentAction::Send { target, frame });
+        self.actions.push(IntentAction::Send { target, frame: frame.clone() });
         self.handoff = Some(HandoffState {
             target,
             nonce,
             epoch,
             deadline_ms: now_ms + HANDOFF_TIMEOUT_MS,
+            last_offer_ms: now_ms,
+            offer_attempts: 1,
+            offer_frame: frame,
             snapshot,
         });
         self.stats.handoffs_started += 1;
@@ -897,8 +907,10 @@ impl RemoteIntentEngine {
     }
 
     /// Housekeeping: retransmit timed-out intents (capped exponential
-    /// backoff), expire a stuck handoff (local playback NEVER halted),
-    /// abandon exhausted intents, observe the receiver's controller lease.
+    /// backoff), re-send a pending OFFER under packet loss (bounded by
+    /// the handoff deadline — local playback NEVER halted until
+    /// confirmed), expire a stuck handoff, abandon exhausted intents,
+    /// observe the receiver's controller lease.
     pub fn tick(&mut self, now_ms: u64) {
         // Handoff deadline (controller-initiated abort path).
         if let Some(h) = &self.handoff {
@@ -907,6 +919,24 @@ impl RemoteIntentEngine {
                 let nonce = h.nonce;
                 self.timeout_handoff(target, nonce);
             }
+        }
+        // OFFER retransmission: every INTENT_RTO_MS while un-confirmed.
+        // The frame is re-sent VERBATIM (same nonce + signature) so the
+        // receiver's idempotent nonce match keeps duplicates inert.
+        let resend_offer: Option<Vec<u8>> = self.handoff.as_ref().and_then(|h| {
+            if now_ms >= h.last_offer_ms + INTENT_RTO_MS && now_ms < h.deadline_ms {
+                Some(h.offer_frame.clone())
+            } else {
+                None
+            }
+        });
+        if let Some(frame) = resend_offer {
+            let target = self.handoff.as_ref().expect("just checked").target;
+            if let Some(h) = self.handoff.as_mut() {
+                h.last_offer_ms = now_ms;
+                h.offer_attempts += 1;
+            }
+            self.actions.push(IntentAction::Send { target, frame });
         }
         // Intent retransmission / abandonment.
         if matches!(self.role, Role::ActiveController | Role::HandoffPending) {
