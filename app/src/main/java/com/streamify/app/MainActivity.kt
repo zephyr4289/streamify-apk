@@ -165,9 +165,42 @@ class MainActivity : ComponentActivity() {
             StreamifyTheme {
                 val navController = rememberNavController()
                 val playerViewModel: PlayerViewModel = viewModel()
+                val connectViewModel: com.streamify.app.connect.ConnectViewModel = viewModel()
                 val playerState by playerViewModel.playerState.collectAsState()
                 val scope = rememberCoroutineScope()
                 val context = LocalContext.current
+
+                // ── Phase 4 Connect runtime: coordinator + silent-controller hooks ─
+                LaunchedEffect(Unit) {
+                    com.streamify.app.connect.ConnectRuntime.initialize(this@MainActivity)
+                }
+                LaunchedEffect(playerViewModel) {
+                    com.streamify.app.connect.ConnectRuntime.playbackHooks =
+                        object : com.streamify.app.connect.LocalPlaybackHooks {
+                            override fun enterSilentController() {
+                                // Silent remote controller: pause local render,
+                                // keep queue + clock loaded (flip-back = seek).
+                                val ctrl = playerViewModel.getController() ?: return
+                                runCatching { ctrl.pause() }
+                            }
+
+                            override fun exitSilentController(positionMs: Long, play: Boolean) {
+                                val ctrl = playerViewModel.getController() ?: return
+                                runCatching {
+                                    ctrl.seekTo(positionMs)
+                                    if (play) ctrl.play() else ctrl.pause()
+                                }
+                            }
+                        }
+                }
+                val connectSnapshotProvider: () -> com.streamify.app.connect.PlaybackSnapshot = {
+                    com.streamify.app.connect.PlaybackSnapshot(
+                        queueTitles = playerState.queue.map { it.title },
+                        currentIndex = playerState.currentIndex,
+                        positionMs = playerViewModel.positionMs.value,
+                        isPlaying = playerState.isPlaying
+                    )
+                }
 
                 var targetColor by remember { mutableStateOf(Color(0xFF212121)) }
                 val dominantColor by animateColorAsState(
@@ -392,7 +425,19 @@ class MainActivity : ComponentActivity() {
                                                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(200)),
                                                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(200))
                                             ) {
-                                                MiniPlayerBar(
+                                                Column {
+                                                    // "Listening on <device>" — one tap opens the
+                                                    // Connect picker; hidden while purely local.
+                                                    val connectSession by com.streamify.app.connect.ConnectRuntime.coordinator.state.collectAsState()
+                                                    if (connectSession.isRemoteActive || connectSession.phase == com.streamify.app.connect.ConnectSessionPhase.CONNECTING) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .padding(start = 16.dp, bottom = 4.dp)
+                                                        ) {
+                                                            com.streamify.app.connect.ConnectStatusPill(compact = true)
+                                                        }
+                                                    }
+                                                    MiniPlayerBar(
                                                     track = playerState.currentTrack,
                                                     isPlaying = playerState.isPlaying,
                                                     progressFlow = playerViewModel.progressFraction,
@@ -478,7 +523,8 @@ class MainActivity : ComponentActivity() {
                                     .fillMaxSize()
                                     .zIndex(10f)
                             ) {
-                            FullPlayerSheet(
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    FullPlayerSheet(
                                 track = playerState.currentTrack,
                                 isPlaying = playerState.isPlaying,
                                 positionFlow = playerViewModel.positionMs,
@@ -519,8 +565,30 @@ class MainActivity : ComponentActivity() {
                                 },
                                 isAutoPlayEnabled = playerState.isAutoPlayEnabled,
                                 onAutoPlayToggle = { playerViewModel.toggleAutoPlay() }
-                            )
+                                    )
+                                    // Active-device pill pinned over the full player's
+                                    // top edge — same one-tap picker entry as the dock.
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .zIndex(12f)
+                                            .padding(top = 10.dp)
+                                    ) {
+                                        com.streamify.app.connect.ConnectStatusPill()
+                                    }
+                                }
+                            }
                         }
+                    }
+
+                    // ── LAYER 4: Connect device picker (Gap #52) ─────────────
+                    val connectPickerVisible by com.streamify.app.connect.ConnectRuntime.pickerVisible.collectAsState()
+                    if (connectPickerVisible) {
+                        com.streamify.app.connect.ConnectDeviceSheet(
+                            viewModel = connectViewModel,
+                            snapshotProvider = connectSnapshotProvider,
+                            onDismiss = { com.streamify.app.connect.ConnectRuntime.closeDevicePicker() }
+                        )
                     }
                 }
             }
