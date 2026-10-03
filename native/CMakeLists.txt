@@ -32,6 +32,8 @@ include_directories(
 add_library(streamify_native_core SHARED
     # Phase-4: lock-free SPSC audio sink + SIMD sample converter.
     src/audio_sink_ringbuffer.cpp
+    # Phase-4: companion WearOS frame packetizer & rate-limiting compressor.
+    src/wear_audio_encoder.cpp
     engine/TaskOrchestrator.cc
     math/CandidateHasher.cc
     math/HarmonicTransitionEngine.cc
