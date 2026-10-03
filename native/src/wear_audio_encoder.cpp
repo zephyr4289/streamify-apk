@@ -102,8 +102,10 @@ uint32_t SampleRateFromCode(uint8_t code) {
 // ---- zero-run RLE codec ---------------------------------------------------------
 
 // Token grammar (byte-oriented):
-//   [0x00..0xFE] literal count L (1..255) followed by L literal bytes
+//   [0x01..0xFE] literal count L (1..254) followed by L literal bytes
 //   [0xFF, R]    run of R (1..255) zero bytes
+// Literal counts stop at 254 so a literal control byte can never collide
+// with the 0xFF run marker.
 size_t WearCompressMaxOutput(size_t raw_bytes) {
     return raw_bytes * 2 + 8;
 }
@@ -123,7 +125,7 @@ size_t WearCompressPayload(const uint8_t* in, size_t n, uint8_t* out,
             i += run;
         } else {
             const size_t start = i;
-            while (i < n && (i - start) < 255 && in[i] != 0) ++i;
+            while (i < n && (i - start) < 254 && in[i] != 0) ++i;
             const size_t lit = i - start;
             if (o + 1 + lit > cap) return kWearCodecBadSize;
             out[o++] = static_cast<uint8_t>(lit);
@@ -187,8 +189,12 @@ void RateLimiter::refill(double now_ms) {
         started_ = true;
         return;
     }
-    double dt = now_ms - last_ms_;
-    if (dt < 0.0) dt = 0.0;
+    if (now_ms <= last_ms_) {
+        // Monotonic-clock contract: a regress neither mints tokens nor
+        // rewinds the clock (a rewind would double-count the next span).
+        return;
+    }
+    const double dt = now_ms - last_ms_;
     last_ms_ = now_ms;
     tokens_ += dt * static_cast<double>(rate_) / 1000.0;
     if (tokens_ > static_cast<double>(burst_)) {
