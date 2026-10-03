@@ -139,7 +139,22 @@ async fn foreign_session_device_discovers_live_room() {
             assert_eq!(r.epoch, 1);
             assert_eq!(r.capacity, 32, "advertised capacity");
             assert!(r.member_count >= 1, "live member count");
-            assert_eq!(r.from_addr.port(), host.local_addr().port());
+            // EVERY member of a governed room (host OR guest that adopted
+            // the host claim) embeds the full room descriptor in its
+            // beacons, and a same-epoch refresh overwrites `from_addr`
+            // with the LATEST announcer (ingest_foreign_beacon) — so the
+            // observer may legitimately discover the room via either
+            // member's beacon depending on arrival order. The descriptor
+            // identity assertions above are the real contract.
+            assert!(
+                r.from_addr.port() == host.local_addr().port()
+                    || r.from_addr.port() == guest.local_addr().port(),
+                "room must be discovered via a room member's beacon, got {} \
+                 (host {}, guest {})",
+                r.from_addr,
+                host.local_addr(),
+                guest.local_addr()
+            );
             break;
         }
         assert!(
