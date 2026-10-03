@@ -61,8 +61,9 @@ class ConnectViewModelTest {
     @Test
     fun `rows expose registry devices with this phone first`() {
         val ids = viewModel.rows.value.map { it.id }
+        // Cast family outranks speakers in the picker ordering.
         assertEquals(
-            listOf(ConnectDevice.LOCAL_DEVICE_ID, "lan-spk", "cast-tv"),
+            listOf(ConnectDevice.LOCAL_DEVICE_ID, "cast-tv", "lan-spk"),
             ids
         )
     }

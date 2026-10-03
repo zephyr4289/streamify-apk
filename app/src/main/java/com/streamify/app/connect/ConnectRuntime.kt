@@ -44,7 +44,7 @@ object ConnectRuntime {
 
     val registry: ConnectDeviceRegistry by lazy {
         ConnectDeviceRegistry(
-            audioRoutes = ::systemAudioDevices,
+            audioRoutes = ConnectRuntime::systemAudioDevices,
             castRoutes = { castRouteProvider() },
             advertisedRoutes = { wearRouteProvider() + rememberedDevices() },
             rememberedRoutes = { rememberedDevices() },
@@ -54,7 +54,7 @@ object ConnectRuntime {
 
     val coordinator: ConnectSessionCoordinator by lazy {
         ConnectSessionCoordinator(
-            gatewayFor = ::gatewayFor,
+            gatewayFor = ConnectRuntime::gatewayFor,
             hooks = object : LocalPlaybackHooks {
                 override fun enterSilentController() = playbackHooks.enterSilentController()
                 override fun exitSilentController(positionMs: Long, play: Boolean) =
