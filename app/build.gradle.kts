@@ -160,6 +160,11 @@ dependencies {
     // Phase 4 — WearOS companion links (Data/Message/Channel clients)
     implementation("com.google.android.gms:play-services-wearable:18.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+
+    // Phase 4 — Home/Lock screen Now Playing widgets (Glance)
+    implementation("androidx.glance:glance:1.0.0")
+    implementation("androidx.glance:glance-appwidget:1.0.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.7.3")
     
     // Coil
     implementation("io.coil-kt:coil-compose:2.5.0")

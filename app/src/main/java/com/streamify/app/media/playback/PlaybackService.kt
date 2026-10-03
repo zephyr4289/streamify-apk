@@ -208,6 +208,17 @@ class PlaybackService : MediaSessionService() {
                     }
                     lastPlayStartMs = 0L
                 }
+                // Phase 4 — Now Playing widgets: transport-flag pushes ride the
+                // throttled Glance store (re-renders at most ~1/s).
+                val meta = exoPlayer.currentMediaItem?.mediaMetadata
+                com.streamify.app.widget.NowPlayingWidgetStateStore.update(
+                    context = this@PlaybackService,
+                    title = meta?.title?.toString(),
+                    artist = meta?.artist?.toString(),
+                    artwork = meta?.artworkUri?.toString(),
+                    isPlaying = isPlaying,
+                    jamActive = com.streamify.app.jam.JamEngine.isActive()
+                )
             }
 
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
@@ -229,6 +240,16 @@ class PlaybackService : MediaSessionService() {
                     val artist = mediaItem.mediaMetadata.artist?.toString() ?: ""
                     val cover = mediaItem.mediaMetadata.artworkUri?.toString() ?: ""
                     val path = mediaItem.localConfiguration?.uri?.toString() ?: ""
+                    // Phase 4 — Now Playing widgets: track transitions push
+                    // the fresh identity into the throttled widget store.
+                    com.streamify.app.widget.NowPlayingWidgetStateStore.update(
+                        context = this@PlaybackService,
+                        title = title,
+                        artist = artist,
+                        artwork = cover,
+                        isPlaying = exoPlayer.isPlaying,
+                        jamActive = com.streamify.app.jam.JamEngine.isActive()
+                    )
                     // STATS OVERHAUL: this listener is the SINGLE writer for
                     // listening seconds AND play counts. Real listen length is
                     // passed so sub-10s blips never inflate Top Songs, and
@@ -371,6 +392,11 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
+        // Phase 4 — widget state fan-out (Glance renders on transition +
+        // transport changes via the throttled store).
+        com.streamify.app.widget.NowPlayingWidgetStateStore.updater =
+            com.streamify.app.widget.GlanceWidgetUpdater()
+
         val sessionCallback = object : MediaSession.Callback {
             override fun onConnect(
                 session: MediaSession,
@@ -390,6 +416,43 @@ class PlaybackService : MediaSessionService() {
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                     .setAvailablePlayerCommands(availablePlayerCommands)
                     .build()
+            }
+
+            /**
+             * Phase 4 — Gap #56 voice actions + Auto leaf taps: controllers
+             * hand over mediaId-only items (Assistant search queries arrive
+             * as RequestMetadata.searchQuery). Resolution runs entirely on
+             * the error-recovery IO scope; the binder thread only builds
+             * the future.
+             */
+            override fun onAddMediaItems(
+                session: MediaSession,
+                controller: MediaSession.ControllerInfo,
+                mediaItems: List<androidx.media3.common.MediaItem>
+            ): com.google.common.util.concurrent.ListenableFuture<List<androidx.media3.common.MediaItem>> {
+                val future = com.google.common.util.concurrent.SettableFuture
+                    .create<List<androidx.media3.common.MediaItem>>()
+                val scope = errorRecoveryScope
+                if (scope == null) {
+                    future.set(emptyList())
+                    return future
+                }
+                scope.launch {
+                    val resolved = mediaItems.mapNotNull { item ->
+                        val voice = com.streamify.app.media.voice.MediaSessionVoiceHandler
+                            .resolve(item.requestMetadata.searchQuery)
+                        if (voice != null) {
+                            com.streamify.app.media.voice.VoicePlaybackResolver.resolve(voice)
+                        } else {
+                            listOfNotNull(
+                                com.streamify.app.media.voice.VoicePlaybackResolver
+                                    .resolveMediaIdItem(item)
+                            )
+                        }
+                    }.flatten()
+                    future.set(resolved)
+                }
+                return future
             }
         }
 

@@ -104,6 +104,31 @@
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="com.streamify.app.cast.StreamifyCastOptionsProvider" />
 
+        <!-- ═══ Phase 4 — Home/Lock screen Now Playing widgets (Gap #42) ═══ -->
+        <receiver
+            android:name=".widget.StreamifyAppWidgetProvider"
+            android:exported="false"
+            android:label="Streamify — Now Playing (Compact)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/now_playing_widget_info_compact" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.StreamifyExpandedWidgetProvider"
+            android:exported="false"
+            android:label="Streamify — Now Playing (Expanded)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/now_playing_widget_info_expanded" />
+        </receiver>
+
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"

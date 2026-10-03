@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Phase 4 — Now Playing widget picker description (Gap #42). -->
+    <string name="now_playing_widget_desc">Playback controls for the current track, with a Join Jam shortcut</string>
+</resources>
