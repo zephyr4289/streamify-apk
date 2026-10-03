@@ -646,10 +646,7 @@ mod tests {
 
     #[test]
     fn offline_payload_roundtrip_and_compresses() {
-        let sdp: String = std::iter::repeat(
-            "v=0\r\no=- 46117317 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\na=ice-ufrag:8hhY\r\na=ice-pwd:asd88fgpdd777uzjYhagZg1x\r\na=fingerprint:sha-256 4A:AD:B9:B1:3F:82:1A:37:8E:53:37:3B:1B:2D:3E:4F:5A:6B:7C:8D:9E:AF:B0:C1:D2:E3:F4:A5:B6:C7\r\n",
-        )
-        .take(8)
+        let sdp: String = std::iter::repeat_n("v=0\r\no=- 46117317 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\na=ice-ufrag:8hhY\r\na=ice-pwd:asd88fgpdd777uzjYhagZg1x\r\na=fingerprint:sha-256 4A:AD:B9:B1:3F:82:1A:37:8E:53:37:3B:1B:2D:3E:4F:5A:6B:7C:8D:9E:AF:B0:C1:D2:E3:F4:A5:B6:C7\r\n", 8)
         .collect();
         let msg = RendezvousMessage::SdpOffer {
             node_id_hex: "4242424242424242".into(),

@@ -69,7 +69,7 @@ impl JamTick {
     /// = position ms clamped to [0, 2^31) (~24.8 days — far beyond any track).
     #[inline]
     pub fn pack(&self) -> i64 {
-        let pos = self.pos_ms.clamp(0, (1i64 << 31) - 1) as i64;
+        let pos = self.pos_ms.clamp(0, (1i64 << 31) - 1);
         ((self.seq as i64) << 32) | pos
     }
 

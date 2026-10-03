@@ -231,16 +231,12 @@ fn full_duplex_sync_survives_20pct_loss_and_reordering() {
         step += 1;
         let now = step as u64 * 10;
         phone.tick(now);
-        for a in phone.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                link.send(false, frame, step);
-            }
+        for WearSyncAction::Send { frame } in phone.drain_actions() {
+            link.send(false, frame, step);
         }
         watch.tick();
-        for a in watch.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                link.send(true, frame, step);
-            }
+        for WearSyncAction::Send { frame } in watch.drain_actions() {
+            link.send(true, frame, step);
         }
         link.pump(&mut phone, &mut watch, step);
         if phone.cache_complete() && step > 40 {
@@ -254,16 +250,12 @@ fn full_duplex_sync_survives_20pct_loss_and_reordering() {
         step += 1;
         let now = step as u64 * 10;
         phone.tick(now);
-        for a in phone.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                link.send(false, frame, step);
-            }
+        for WearSyncAction::Send { frame } in phone.drain_actions() {
+            link.send(false, frame, step);
         }
         watch.tick();
-        for a in watch.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                link.send(true, frame, step);
-            }
+        for WearSyncAction::Send { frame } in watch.drain_actions() {
+            link.send(true, frame, step);
         }
         link.pump(&mut phone, &mut watch, step);
     }
@@ -327,10 +319,8 @@ fn vote_never_vanishes_under_sustained_loss() {
     loop {
         step += 1;
         watch.tick();
-        for a in watch.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                link.send(true, frame, step);
-            }
+        for WearSyncAction::Send { frame } in watch.drain_actions() {
+            link.send(true, frame, step);
         }
         link.pump(&mut phone, &mut watch, step);
         // CUMULATIVE event counting (drain_events is per-iteration).
@@ -342,10 +332,8 @@ fn vote_never_vanishes_under_sustained_loss() {
             }
         }
         // Phone ACKs flow back so the watch retires its pendings.
-        for a in phone.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                link.send(false, frame, step);
-            }
+        for WearSyncAction::Send { frame } in phone.drain_actions() {
+            link.send(false, frame, step);
         }
         if got_ratings == 10 && got_upvotes == 10 {
             break;
@@ -372,37 +360,33 @@ fn corrupt_cache_segment_heals_via_priority_retransmit_under_loss() {
         step += 1;
         let now = step as u64 * 10;
         phone.tick(now);
-        for a in phone.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                let mut frame = frame;
-                if !corrupted_once && frame.len() > 3 && frame[3] == WSX_CACHE_CHUNK {
-                    // Corrupt one DATA byte and RE-FIX the FNV checksum —
-                    // only the per-segment Blake3 can catch this.
-                    let flip = frame.len() - 6;
-                    frame[flip] ^= 0x01;
-                    let sum = {
-                        let mut h: u32 = 0x811c_9dc5;
-                        for &b in &frame[..frame.len() - 4] {
-                            h ^= b as u32;
-                            h = h.wrapping_mul(0x0100_0193);
-                        }
-                        h
-                    };
-                    let e = frame.len() - 4;
-                    frame[e..e + 4].copy_from_slice(&sum.to_le_bytes());
-                    corrupted_once = true;
-                }
-                link.send(false, frame, step);
+        for WearSyncAction::Send { frame } in phone.drain_actions() {
+            let mut frame = frame;
+            if !corrupted_once && frame.len() > 3 && frame[3] == WSX_CACHE_CHUNK {
+                // Corrupt one DATA byte and RE-FIX the FNV checksum —
+                // only the per-segment Blake3 can catch this.
+                let flip = frame.len() - 6;
+                frame[flip] ^= 0x01;
+                let sum = {
+                    let mut h: u32 = 0x811c_9dc5;
+                    for &b in &frame[..frame.len() - 4] {
+                        h ^= b as u32;
+                        h = h.wrapping_mul(0x0100_0193);
+                    }
+                    h
+                };
+                let e = frame.len() - 4;
+                frame[e..e + 4].copy_from_slice(&sum.to_le_bytes());
+                corrupted_once = true;
             }
+            link.send(false, frame, step);
         }
         watch.tick();
-        for a in watch.drain_actions() {
-            if let WearSyncAction::Send { frame } = a {
-                if frame.len() > 9 && frame[3] == WSX_CACHE_CONTROL && frame[9] == CTRL_SEG_BAD {
-                    seg_bad_seen = true; // CTRL_SEG_BAD observed on the wire
-                }
-                link.send(true, frame, step);
+        for WearSyncAction::Send { frame } in watch.drain_actions() {
+            if frame.len() > 9 && frame[3] == WSX_CACHE_CONTROL && frame[9] == CTRL_SEG_BAD {
+                seg_bad_seen = true; // CTRL_SEG_BAD observed on the wire
             }
+            link.send(true, frame, step);
         }
         link.pump(&mut phone, &mut watch, step);
         if phone.cache_complete() && step > 40 {

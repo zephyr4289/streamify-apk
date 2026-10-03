@@ -26,7 +26,7 @@ impl MarkovEngine {
             *self.second_order.entry((track_a, track_b, track_c)).or_insert(0) += 1;
         }
         if track_c > 0 {
-            self.play_history.entry(track_c).or_insert_with(Vec::new).push(timestamp_sec);
+            self.play_history.entry(track_c).or_default().push(timestamp_sec);
         }
     }
 
@@ -59,5 +59,11 @@ impl MarkovEngine {
         }
 
         penalty.clamp(0.0, 5.0)
+    }
+}
+
+impl Default for MarkovEngine {
+    fn default() -> Self {
+        Self::new()
     }
 }

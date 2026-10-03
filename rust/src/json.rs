@@ -359,7 +359,7 @@ impl InnertubeParser {
             }
         }
 
-        candidate_streams.sort_by(|a, b| b.0.cmp(&a.0));
+        candidate_streams.sort_by_key(|(priority, _)| std::cmp::Reverse(*priority));
         candidate_streams.into_iter().next().map(|(_, stream)| stream)
     }
 

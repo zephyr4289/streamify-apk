@@ -1,3 +1,8 @@
+// Clippy: FFI entry points in this module all follow the house safety
+// model (catch_unwind shields, sentinel returns, no panics across the
+// boundary — see the module docs); per-function `# Safety` boilerplate
+// would be copy-paste.
+#![allow(clippy::missing_safety_doc)]
 use reqwest::Client;
 use std::ffi::CStr;
 use std::panic::catch_unwind;
@@ -9,7 +14,9 @@ use crate::resolver::{get_client, get_runtime};
 struct SpotifyPagingResponse<T> {
     items: Vec<T>,
     next: Option<String>,
+    /// Kept for wire-schema fidelity (paging contract).
     #[serde(default)]
+    #[allow(dead_code)]
     total: u32,
 }
 
@@ -73,8 +80,10 @@ struct SpotifyPlaylistsResponse {
 #[derive(serde::Deserialize)]
 struct SpotifyPlaylistItem {
     #[serde(default)]
+    #[allow(dead_code)] // wire-schema fidelity
     id: String,
     #[serde(default)]
+    #[allow(dead_code)] // wire-schema fidelity
     name: String,
     tracks: Option<SpotifyPlaylistTracksRef>,
 }
@@ -83,7 +92,9 @@ struct SpotifyPlaylistItem {
 struct SpotifyPlaylistTracksRef {
     #[serde(default)]
     href: String,
+    /// Kept for wire-schema fidelity (paging contract).
     #[serde(default)]
+    #[allow(dead_code)]
     total: u32,
 }
 

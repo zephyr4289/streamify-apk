@@ -1,3 +1,8 @@
+// Clippy: FFI entry points in this module all follow the house safety
+// model (catch_unwind shields, sentinel returns, no panics across the
+// boundary — see the module docs); per-function `# Safety` boilerplate
+// would be copy-paste.
+#![allow(clippy::missing_safety_doc)]
 use reqwest::Client;
 use serde_json::Value;
 use std::ffi::CStr;
@@ -105,6 +110,7 @@ pub struct SearchCandidate {
 }
 
 /// The 3-tier async resolution logic
+#[allow(clippy::result_unit_err)] // sentinel Err(()) from the triage sweep
 pub async fn execute_resolution(
     db_path: &str,
     cad_id: &str,
@@ -465,14 +471,14 @@ fn bind_video_id_to_db(db_path: &str, cad_id: &str, title: &str, artist: &str, v
     }
 }
 
-/// Live diagnostic evidence (2026 enforcement): unauthenticated player
-/// requests from every client (ANDROID/IOS/VR/MUSIC/WEB/MWEB/TVEMBED) are
-/// bot-walled ("Sign in to confirm you're not a bot") with ZERO formats.
-/// The ONLY working path is WEB_REMIX **with the user's harvested YouTube
-/// session**: `Authorization: SAPISIDHASH` + `Cookie`. When `auth_header`
-/// and `cookies` are non-empty we go authenticated-WEB_REMIX first and only
-/// then fall through to the legacy client cascade.
-
+// Live diagnostic evidence (2026 enforcement): unauthenticated player
+// requests from every client (ANDROID/IOS/VR/MUSIC/WEB/MWEB/TVEMBED) are
+// bot-walled ("Sign in to confirm you're not a bot") with ZERO formats.
+// The ONLY working path is WEB_REMIX **with the user's harvested YouTube
+// session**: `Authorization: SAPISIDHASH` + `Cookie`. When `auth_header`
+// and `cookies` are non-empty we go authenticated-WEB_REMIX first and only
+// then fall through to the legacy client cascade.
+//
 // ═══════════════════════════════════════════════════════════════════
 // ANONYMOUS EXTRACTION (2026-proven): watch-page warm-up + ANDROID_VR
 // 1.65.10. No login, no PO token. Validated live: playabilityStatus=OK,
@@ -620,7 +626,7 @@ pub async fn resolve_stream_master(
 ) -> Result<String, String> {
     // Tier 1 — anonymous (works for the vast majority of tracks)
     match fetch_stream_anonymous(client, video_id).await {
-        Ok(u) => return Ok(u),
+        Ok(u) => Ok(u),
         Err(e_anon) => {
             // Tier 2 — authenticated WEB_REMIX fallback (age-gated etc.)
             if !auth_header.trim().is_empty() && !cookies.trim().is_empty() {
@@ -799,7 +805,7 @@ fn extract_best_audio_url(json: &Value) -> Option<String> {
             if mime.starts_with("audio/") {
                 if let Some(url) = fmt.get("url").and_then(|v| v.as_str()) {
                     let bitrate = fmt.get("bitrate").and_then(|v| v.as_u64()).unwrap_or(0);
-                    if best_audio.map_or(true, |(_, b)| bitrate > b) {
+                    if best_audio.is_none_or(|(_, b)| bitrate > b) {
                         best_audio = Some((url, bitrate));
                     }
                 }
@@ -833,6 +839,7 @@ fn extract_best_audio_url(json: &Value) -> Option<String> {
 pub struct StreamResolver;
 
 impl StreamResolver {
+    #[allow(dead_code)] // URL reservation for the authenticated player path
     const INNERTUBE_PLAYER_URL: &'static str = "https://www.youtube.com/youtubei/v1/player";
     const INNERTUBE_SEARCH_URL: &'static str = "https://music.youtube.com/youtubei/v1/search";
 

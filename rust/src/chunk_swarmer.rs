@@ -128,7 +128,7 @@ impl TrackManifest {
     /// Builds the manifest (and the chunk list) for a seeded track.
     pub fn build(track_id: u64, data: &[u8], chunk_size: usize) -> Self {
         let chunk_size = chunk_size.max(1);
-        let num_chunks = (data.len() + chunk_size - 1) / chunk_size;
+        let num_chunks = data.len().div_ceil(chunk_size);
         let mut chunk_hashes = Vec::with_capacity(num_chunks);
         for i in 0..num_chunks {
             let lo = i * chunk_size;
@@ -210,7 +210,7 @@ impl TrackManifest {
 /// HAVE payload: `[track u64][total_hash 32][num u32][bitmap ceil(num/8)]`.
 fn build_have_payload(manifest: &TrackManifest, have: &[bool]) -> Vec<u8> {
     let n = manifest.num_chunks as usize;
-    let mut bitmap = vec![0u8; (n + 7) / 8];
+    let mut bitmap = vec![0u8; n.div_ceil(8)];
     for (i, &h) in have.iter().enumerate() {
         if h {
             bitmap[i / 8] |= 1 << (i % 8);
@@ -240,7 +240,7 @@ fn parse_have_payload(payload: &[u8]) -> Option<HaveBits> {
     if num_chunks > MANIFEST_MAX_CHUNKS {
         return None;
     }
-    let bitmap_len = (num_chunks as usize + 7) / 8;
+    let bitmap_len = (num_chunks as usize).div_ceil(8);
     if payload.len() != 44 + bitmap_len {
         return None;
     }
@@ -372,7 +372,7 @@ pub enum RehydrateOutcome {
 
 /// Compact bit-packing (LSB-first) for persistence blobs.
 fn encode_bitmap(bits: &[bool]) -> Vec<u8> {
-    let mut b = vec![0u8; (bits.len() + 7) / 8];
+    let mut b = vec![0u8; bits.len().div_ceil(8)];
     for (i, &set) in bits.iter().enumerate() {
         if set {
             b[i / 8] |= 1 << (i % 8);
@@ -975,7 +975,7 @@ impl SwarmManager {
         }
         let num = num_peek as usize;
         let manifest_wire_len = 56 + 32 * num;
-        let bitmap_len = (num + 7) / 8;
+        let bitmap_len = num.div_ceil(8);
         let base = 5 + manifest_wire_len;
         if blob.len() != base + bitmap_len {
             return None;
@@ -1242,7 +1242,7 @@ fn fill_pipelines(
                     let tries = swarm.tries.get(&idx).copied().unwrap_or(0);
                     // Window semantics: [head, head + window) — the next
                     // `sequential_window` chunks the playback buffer needs.
-                    let dist = if idx >= head { idx - head } else { head - idx };
+                    let dist = idx.abs_diff(head);
                     let seq_rank = if params.sequential_window > 0 && dist < params.sequential_window {
                         0u32
                     } else {
@@ -1718,7 +1718,7 @@ mod tests {
         assert_eq!(st.restored_chunks, 5);
         assert_eq!(st.data_rx_bytes, 3 * 1024, "network fetched ONLY the gap");
         assert_eq!(st.provisional_chunks, 0);
-        assert_eq!(st.complete, true);
+        assert!(st.complete);
     }
 
     #[test]

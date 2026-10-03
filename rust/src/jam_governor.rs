@@ -752,6 +752,7 @@ impl RoomGovernor {
     /// Pure signature check (no state mutation): shared by the full gate
     /// path and the commit path so the nonce/rate gates are consumed
     /// exactly once per frame.
+    #[allow(clippy::type_complexity)] // tuple mirrors the intent wire fields
     fn verify_intent_signature(
         &self,
         frame: &[u8],
@@ -919,8 +920,6 @@ impl RoomGovernor {
         // 1. Origin authenticity: Ed25519 over [0..61) — plus the wire
         //    field parse (shared with the commit path).
         let (kind, epoch, nonce, origin, body) = self.verify_intent_signature(frame)?;
-        let origin = origin;
-        let body = body;
 
         // 2. Blacklist.
         if self.blacklist.contains(&origin) {
@@ -1120,7 +1119,7 @@ impl RoomGovernor {
         let host_hex = hex_string(&self.host_pubkey);
         let members: Vec<String> = member_pubkeys
             .iter()
-            .map(|p| hex_string(p))
+            .map(hex_string)
             .chain(std::iter::once(hex_string(&me)))
             .collect();
         let successor = JamGovernor::elect_successor(&members, &host_hex, true)?;

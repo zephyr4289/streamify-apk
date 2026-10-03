@@ -156,7 +156,7 @@ fn fold_level(level: Vec<ChunkHash>) -> Vec<ChunkHash> {
     if level.len() <= 1 {
         return level;
     }
-    let mut next = Vec::with_capacity((level.len() + 1) / 2);
+    let mut next = Vec::with_capacity(level.len().div_ceil(2));
     let mut i = 0;
     while i + 1 < level.len() {
         next.push(fold_pair(&level[i], &level[i + 1], true));
@@ -186,7 +186,7 @@ fn merkle_path_for(leaves: &[ChunkHash], index: usize) -> Vec<ProofStep> {
     let mut level = leaves.to_vec();
     let mut idx = index;
     while level.len() > 1 {
-        if idx % 2 == 0 {
+        if idx.is_multiple_of(2) {
             if idx + 1 < level.len() {
                 steps.push(ProofStep {
                     sibling_hash: level[idx + 1],
@@ -231,7 +231,7 @@ impl HashTreeManifest {
         if !(MIN_CHUNK_SIZE..=MAX_CHUNK_SIZE).contains(&chunk_size) {
             return Err(VerifierError::ChunkSizeOutOfRange { chunk_size });
         }
-        let num_chunks = (data.len() + chunk_size - 1) / chunk_size;
+        let num_chunks = data.len().div_ceil(chunk_size);
         if num_chunks > MAX_TREE_CHUNKS as usize {
             return Err(VerifierError::TooManyChunks {
                 num_chunks: num_chunks as u32,
@@ -350,7 +350,7 @@ impl HashTreeManifest {
         let expected = if manifest.total_len == 0 {
             0
         } else {
-            ((manifest.total_len + manifest.chunk_size as u64 - 1) / manifest.chunk_size as u64)
+            manifest.total_len.div_ceil(manifest.chunk_size as u64)
                 as u32
         };
         if expected != manifest.num_chunks {

@@ -43,8 +43,11 @@ impl FuzzySearchEngine {
         let mut prev_row: Vec<usize> = (0..=len2).collect();
         let mut curr_row: Vec<usize> = vec![0; len2 + 1];
 
+        // Classic DP recurrence on row indices — iterator form obscures it.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..len1 {
             curr_row[0] = i + 1;
+            #[allow(clippy::needless_range_loop)]
             for j in 0..len2 {
                 let cost = if v1[i] == v2[j] { 0 } else { 1 };
                 curr_row[j + 1] = (curr_row[j] + 1)

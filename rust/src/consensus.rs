@@ -95,7 +95,7 @@ impl ConsensusEngine {
         hasher.update(nonce.as_bytes());
 
         for sample in pcm_slice {
-            hasher.update(&sample.to_le_bytes());
+            hasher.update(sample.to_le_bytes());
         }
 
         let result = hasher.finalize();
@@ -316,6 +316,7 @@ pub struct PlaylistOp {
 
 impl PlaylistOp {
     /// Seals an op (checksum computed over the exact header span).
+    #[allow(clippy::too_many_arguments)] // one arg per op-header field
     pub fn new(
         kind: PlaylistOpKind,
         claimed_role: PlaylistRole,
@@ -1101,7 +1102,7 @@ mod collab_playlist_tests {
             vec![rn.clone(), c1.clone(), reo.clone(), rem.clone(), b1.clone(), a2.clone(), a1.clone()],
             vec![b1.clone(), reo.clone(), a1.clone(), c1.clone(), a2.clone(), rn.clone(), rem.clone()],
         ];
-        let mut replicas = vec![a, b, c];
+        let mut replicas = [a, b, c];
         for (rep, stream) in replicas.iter_mut().zip(streams.iter()) {
             for op in stream {
                 assert_eq!(rep.apply_op(op), PlaylistApplyResult::Applied);

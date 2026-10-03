@@ -1,8 +1,7 @@
 use streamify_core_rs::consensus::ConsensusEngine;
 use streamify_core_rs::json::InnertubeParser;
-use streamify_core_rs::lyrics::{CompiledLyricEntry, LyricCompiler};
+use streamify_core_rs::lyrics::LyricCompiler;
 use streamify_core_rs::ptp::PtpFilter;
-use streamify_core_rs::tagger::AudioMetadataEngine;
 
 #[test]
 fn test_duration_parser() {
@@ -57,7 +56,7 @@ fn test_lyrics_precompiler() {
     // (O(log N) binary search over raw memory).
     let slyr = LyricCompiler::compile_to_slyr(lrc);
     assert!(!slyr.is_empty());
-    unsafe {
+    {
         // Before the first line: no active line.
         assert_eq!(
             LyricCompiler::find_active_positions(slyr.as_ptr(), slyr.len(), 5000),
@@ -136,7 +135,7 @@ fn test_slyr_compilation_and_alignment() {
     assert_eq!(&slyr_bytes[0..4], b"SLYR");
 
     // Test O(log N) binary search lookup from raw memory
-    unsafe {
+    {
         let pos_10_2s = LyricCompiler::find_active_positions(slyr_bytes.as_ptr(), slyr_bytes.len(), 10200);
         assert!(pos_10_2s.is_some());
         let (line_idx, syl_idx) = pos_10_2s.unwrap();

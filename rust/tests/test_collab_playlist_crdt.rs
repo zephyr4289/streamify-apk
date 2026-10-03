@@ -122,7 +122,7 @@ fn concurrent_multi_author_edits_converge_over_the_wire() {
     }
     orders.push(shuffled);
 
-    let mut replicas = vec![a, b, c];
+    let mut replicas = [a, b, c];
     for (rep, order) in replicas.iter_mut().zip(orders.iter()) {
         ship(rep, order);
     }

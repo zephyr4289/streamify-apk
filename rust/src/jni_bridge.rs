@@ -1,4 +1,11 @@
-use jni::objects::{JByteArray, JByteBuffer, JClass, JFloatArray, JLongArray, JObject, JString, ReleaseMode};
+// Clippy: the JNI surface is a wall of `unsafe extern "C"` entry points
+// that ALL follow the same documented house safety model (catch_unwind
+// shields, sentinel returns, no panics across the boundary — see the
+// module docs). Per-function `# Safety` boilerplate would add ~60 lines
+// of copy-paste; the model is documented once, here and below.
+#![allow(clippy::missing_safety_doc)]
+
+use jni::objects::{JByteArray, JClass, JFloatArray, JLongArray, JObject, JString, ReleaseMode};
 use jni::sys::{jboolean, jfloat, jint, jlong, jstring};
 use jni::JNIEnv;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -190,10 +197,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeResolveT
         let cookies_actual = env.get_array_length(&cookies_bytes).unwrap_or(0).max(0) as usize;
         let cookies_len = (cookies_len.max(0) as usize).min(cookies_actual);
         let cookies_elements =
-            match env.get_array_elements(&cookies_bytes, ReleaseMode::NoCopyBack) {
-                Ok(e) => Some(e),
-                Err(_) => None,
-            };
+            env.get_array_elements(&cookies_bytes, ReleaseMode::NoCopyBack).ok();
 
         let out_actual = env.get_array_length(&out_buffer).unwrap_or(0).max(0);
         let mut out_elements =
@@ -378,7 +382,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFindActi
 
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeCalculatePtp(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     seq_id: jint,
     t0: jlong,
@@ -501,7 +505,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFreeDsp(
 
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeProcessDsp(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     state_ptr: jlong,
     input_buffer: JObject,
@@ -632,7 +636,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_spotifyDeltaSy
         crate::queue_engine::spotify_delta_sync(
             c_db.as_ptr(),
             c_token.as_ptr(),
-            last_sync_timestamp as i64,
+            last_sync_timestamp,
         )
     }))
     .unwrap_or(-10)
@@ -833,7 +837,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeFreeNorm
 
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeApplyNormalization(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     state_ptr: jlong,
     pcm_buffer: JObject,
@@ -871,7 +875,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeApplyNor
 
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeProcessFusedAudio(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     state_ptr: jlong,
     normalizer_ptr: jlong,
@@ -938,7 +942,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeSubmitSe
     position_ms: jlong,
 ) -> jint {
     catch_unwind(AssertUnwindSafe(|| {
-        crate::seek_guard::submit_seek_request(position_ms as i64)
+        crate::seek_guard::submit_seek_request(position_ms)
     }))
     .unwrap_or(-1)
 }
@@ -950,7 +954,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeConsumeP
     debounce_ms: jlong,
 ) -> jlong {
     catch_unwind(AssertUnwindSafe(|| {
-        crate::seek_guard::consume_pending_seek(debounce_ms as i64)
+        crate::seek_guard::consume_pending_seek(debounce_ms)
     }))
     .unwrap_or(-1)
 }
@@ -1176,7 +1180,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamClock
 /// Ingest one Cristian handshake sample; writes [theta_ms, delta_ms] into out.
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamClockApplySample(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     t0: jlong,
     t1: jlong,
@@ -1216,7 +1220,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamClock
 
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamTickIngest(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     seq: jint,
     pos_ms: jlong,
@@ -1253,7 +1257,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamTickI
 /// Kalman PLL decision point. Writes [decision, speed_milli, seek_target_ms].
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeKalmanPllDecide(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     z_pos_ms: jlong,
     now_synced_ms: jlong,
@@ -1288,7 +1292,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeKalmanPl
 
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeTickMatrixDiagnostics(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     out_results: JLongArray,
 ) {
@@ -1389,7 +1393,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamCrdtA
 /// out_tomb with suppressed ids. Returns queue-entry count.
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamCrdtFold(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     out_queue: JLongArray,
     out_tomb: JLongArray,
@@ -1552,7 +1556,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamOutbo
 
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamOutboxAck(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     op_ids: JLongArray,
 ) -> jint {
@@ -1639,7 +1643,7 @@ pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamElect
 /// Pivot decision. out_results = [code(0=OK,1=BEYOND_END,2=MISMATCH), posMs].
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_streamify_app_data_NativeBridge_nativeJamExtrapolatePivot(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     last_pos_ms: jlong,
     last_tick_mono_ms: jlong,

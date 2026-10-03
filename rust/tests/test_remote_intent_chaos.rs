@@ -234,12 +234,12 @@ fn churn_to(engine: &mut RemoteIntentEngine, target_epoch: u32) {
 }
 
 fn frame_of(e: &mut RemoteIntentEngine) -> Vec<u8> {
-    e.drain_actions()
+    let IntentAction::Send { frame, .. } = e
+        .drain_actions()
         .into_iter()
-        .find_map(|a| match a {
-            IntentAction::Send { frame, .. } => Some(frame),
-        })
-        .expect("an action")
+        .next()
+        .expect("an action");
+    frame
 }
 
 #[test]
@@ -535,18 +535,14 @@ fn offer_retransmission_survives_burst_loss() {
     for _ in 0..400 {
         now += 10;
         ctrl.tick(now);
-        for a in ctrl.drain_actions() {
-            if let IntentAction::Send { frame, .. } = a {
-                if !rng.gen_bool(0.25) {
-                    rcv.on_frame(&frame, now);
-                }
+        for IntentAction::Send { frame, .. } in ctrl.drain_actions() {
+            if !rng.gen_bool(0.25) {
+                rcv.on_frame(&frame, now);
             }
         }
-        for a in rcv.drain_actions() {
-            if let IntentAction::Send { frame, .. } = a {
-                if !rng.gen_bool(0.25) {
-                    ctrl.on_frame(&frame, now);
-                }
+        for IntentAction::Send { frame, .. } in rcv.drain_actions() {
+            if !rng.gen_bool(0.25) {
+                ctrl.on_frame(&frame, now);
             }
         }
         if ctrl

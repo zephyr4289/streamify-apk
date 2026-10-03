@@ -239,14 +239,14 @@ impl NeuroQueueEngine {
     }
 
     fn compute_circadian_bonus(c: &NeuroCandidate, seed_bpm: f32, hour: u32) -> f32 {
-        if hour >= 6 && hour <= 10 {
+        if (6..=10).contains(&hour) {
             // Morning Boost: Ascending tempo (+3% BPM bias) & bright acoustic profiles
             if c.energy >= 0.60 && c.bpm >= seed_bpm {
                 0.06
             } else {
                 0.0
             }
-        } else if hour >= 14 && hour <= 18 {
+        } else if (14..=18).contains(&hour) {
             // Afternoon Focus: Low variance (<=4% BPM drift)
             let diff = (c.bpm - seed_bpm).abs();
             if diff <= 5.0 {

@@ -1,3 +1,8 @@
+// Clippy: FFI entry points in this module all follow the house safety
+// model (catch_unwind shields, sentinel returns, no panics across the
+// boundary — see the module docs); per-function `# Safety` boilerplate
+// would be copy-paste.
+#![allow(clippy::missing_safety_doc)]
 use sha1::{Digest, Sha1};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::panic::catch_unwind;
@@ -73,7 +78,7 @@ mod tests {
 
         let test_payload = format!("{} {} {}", timestamp, sapisid, origin);
         assert_eq!(test_payload, "1715000000 TEST_SAPISID_123 https://music.youtube.com");
-        assert_eq!(expected_result.starts_with("1715000000_"), true);
+        assert!(expected_result.starts_with("1715000000_"));
     }
 
     #[test]

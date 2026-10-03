@@ -11,7 +11,6 @@
 //!   • Malformed/truncated beacons never panic the ingress;
 //!   • Guest beacons advertise the room (pubkey registry convergence).
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use streamify_core_rs::p2p_mesh::{
@@ -44,7 +43,7 @@ fn beacon_v2_payload_layout_is_exact() {
     let host_pk = [0x22u8; 32];
     let sender_pk = [0x33u8; 32];
     let payload = build_beacon_v2_payload(
-        0xAABB_CCDDEE11_2233,
+        0xAABB_CCDD_EE11_2233,
         0x0003,
         7777,
         room_id,
@@ -57,7 +56,7 @@ fn beacon_v2_payload_layout_is_exact() {
     );
     assert_eq!(payload.len(), BEACON_V2_FULL_LEN);
     let parsed = parse_beacon(&payload).expect("v2 parses");
-    assert_eq!(parsed.peer_id, 0xAABB_CCDDEE11_2233);
+    assert_eq!(parsed.peer_id, 0xAABB_CCDD_EE11_2233);
     assert_eq!(parsed.caps, 0x0003);
     assert_eq!(parsed.port, 7777);
     let room = parsed.room.expect("room descriptor present");
@@ -286,7 +285,7 @@ async fn stop_lan_beacon_silences_advertisement() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert!(
-        member.lan_beacon_active() == false,
+        !member.lan_beacon_active(),
         "guest did not call startLanBeacon itself"
     );
 
