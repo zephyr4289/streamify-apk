@@ -45,6 +45,7 @@ pub mod local_sync;
 // remote intent dispatch, WearOS compact binary sync.
 pub mod connect_gateway;
 pub mod device_registry;
+pub mod remote_intent_engine;
 pub mod queue_optimizer;
 pub mod radio_scorer;
 pub mod repository;
