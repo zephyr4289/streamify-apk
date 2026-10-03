@@ -34,6 +34,8 @@ add_library(streamify_native_core SHARED
     src/audio_sink_ringbuffer.cpp
     # Phase-4: companion WearOS frame packetizer & rate-limiting compressor.
     src/wear_audio_encoder.cpp
+    # Phase-4: audio sink JNI bridges (DirectByteBuffer transfer + telemetry).
+    src/jni_bridge_audio_sinks.cpp
     engine/TaskOrchestrator.cc
     math/CandidateHasher.cc
     math/HarmonicTransitionEngine.cc
