@@ -192,6 +192,24 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
+
+                    // Cast handoff source: full MediaItems (stream URL +
+                    // metadata + artwork) from the live session controller.
+                    com.streamify.app.cast.CastMediaManager.queueProvider = {
+                        val ctrl = playerViewModel.getController()
+                        if (ctrl != null && ctrl.mediaItemCount > 0) {
+                            com.streamify.app.cast.CastPlaybackState(
+                                items = (0 until ctrl.mediaItemCount).mapNotNull { i ->
+                                    runCatching { ctrl.getMediaItemAt(i) }.getOrNull()
+                                },
+                                startIndex = ctrl.currentMediaItemIndex,
+                                positionMs = ctrl.currentPosition,
+                                isPlaying = ctrl.isPlaying
+                            )
+                        } else {
+                            null
+                        }
+                    }
                 }
                 val connectSnapshotProvider: () -> com.streamify.app.connect.PlaybackSnapshot = {
                     com.streamify.app.connect.PlaybackSnapshot(

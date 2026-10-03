@@ -42,6 +42,10 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         // documented in AppGraph.initialize.
         com.streamify.app.di.AppGraph.initialize(this)
 
+        // Phase 4 — Google Cast route stack (no-ops quietly on hardware
+        // without Play Services; discovery feeds ConnectRuntime's registry).
+        com.streamify.app.cast.CastMediaManager.initialize(this)
+
         // Screen-level lifecycle breadcrumbs for the admin terminal.
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private fun name(a: android.app.Activity) = a.javaClass.simpleName
