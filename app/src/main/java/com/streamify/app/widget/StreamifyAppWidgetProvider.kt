@@ -15,12 +15,12 @@ import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
-import androidx.glance.action.actionRunCallback
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.ActionCallback
-import androidx.glance.appwidget.clickable
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
@@ -29,7 +29,6 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.height
@@ -96,9 +95,9 @@ class GlanceWidgetUpdater : WidgetUpdater {
     override suspend fun refreshAll(context: Context?) {
         val ctx = context ?: return
         val manager = GlanceAppWidgetManager(ctx)
-        val compact = manager.getGlanceIds(StreamifyAppWidgetProvider::class.java)
+        val compact = manager.getGlanceIds(StreamifyCompactWidget::class.java)
         compact.forEach { StreamifyCompactWidget.update(ctx, it) }
-        val expanded = manager.getGlanceIds(StreamifyExpandedWidgetProvider::class.java)
+        val expanded = manager.getGlanceIds(StreamifyExpandedWidget::class.java)
         expanded.forEach { StreamifyExpandedWidget.update(ctx, it) }
     }
 }

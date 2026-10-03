@@ -552,6 +552,7 @@ class MainActivity : ComponentActivity() {
                                                     },
                                                     tokenController = quantumController
                                                 )
+                                                }
                                             }
 
                                             // Docked Bottom Navigation (top-level tab destinations only)
@@ -678,10 +679,8 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                        }
-                    }
 
-                    // ── LAYER 4: Connect device picker (Gap #52) ─────────────
+                            // ── LAYER 4: Connect device picker (Gap #52) ─────────────
                     val connectPickerVisible by com.streamify.app.connect.ConnectRuntime.pickerVisible.collectAsState()
                     if (connectPickerVisible) {
                         com.streamify.app.connect.ConnectDeviceSheet(
@@ -693,6 +692,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
     }
 }
 

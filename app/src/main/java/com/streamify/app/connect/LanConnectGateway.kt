@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
@@ -118,7 +119,9 @@ class HttpLatencyProbe(private val gateway: LanConnectGateway) : LatencyProbe {
         val start = System.nanoTime()
         // connect() doubles as the RTT measurement: the handshake frame is
         // exactly the packet whose round-trip a listener cares about.
-        val reachable = runCatching { gateway.connect(device) }.getOrDefault(false)
+        val reachable = runCatching {
+            gateway.connect(device, PlaybackSnapshot())
+        }.getOrDefault(false)
         if (!reachable) return null
         return (System.nanoTime() - start) / 1_000_000L
     }

@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.media3.cast.CastPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import com.google.android.gms.cast.CastState
 import com.google.android.gms.cast.framework.CastContext
+import com.google.android.gms.cast.framework.CastState
 import com.streamify.app.connect.ConnectCommand
 import com.streamify.app.connect.ConnectDevice
 import com.streamify.app.connect.ConnectGateway
@@ -102,8 +102,7 @@ object CastMediaManager {
             CastState.NOT_CONNECTED -> CastRoutePhase.IDLE
             CastState.CONNECTING -> CastRoutePhase.CONNECTING
             CastState.CONNECTED -> CastRoutePhase.CONNECTED
-            CastState.TRANSFERRING -> CastRoutePhase.TRANSFERRING
-            else -> CastRoutePhase.NO_DEVICES
+            else -> CastRoutePhase.IDLE
         }
         receiverName = runCatching {
             castContext?.sessionManager?.currentCastSession?.castDevice?.friendlyName
@@ -145,6 +144,11 @@ object CastMediaManager {
     /** True when a receiver session can accept a handoff right now. */
     fun isReceiverReady(): Boolean =
         routePhase == CastRoutePhase.CONNECTED || routePhase == CastRoutePhase.TRANSFERRING
+
+    /** Sink-visible disconnect signal (used by the nested gateway impl). */
+    private fun emitDisconnectEvent() {
+        _events.tryEmit(ConnectGatewayEvent.Disconnected)
+    }
 
     /**
      * Route-aware volume application (Gap #16): the value only reaches the
@@ -209,7 +213,7 @@ object CastMediaManager {
                 }
                 CastMediaManager.castContext?.sessionManager?.endCurrentSession(true)
             }
-            CastMediaManager.events.tryEmit(ConnectGatewayEvent.Disconnected)
+            CastMediaManager.emitDisconnectEvent()
         }
 
         override suspend fun send(command: ConnectCommand): Boolean {

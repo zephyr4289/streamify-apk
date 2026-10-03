@@ -4,10 +4,10 @@ import android.content.Context
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
-import androidx.media3.session.LibraryParams
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
@@ -95,7 +95,7 @@ class StreamifyAutoMediaBrowserService : MediaLibraryService() {
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
             controller: MediaSession.ControllerInfo,
-            params: LibraryParams?
+            params: MediaLibraryService.LibraryParams?
         ): ListenableFuture<LibraryResult<MediaItem>> =
             Futures.immediateFuture(LibraryResult.ofItem(tree.root().toMedia3(), params))
 
@@ -105,9 +105,9 @@ class StreamifyAutoMediaBrowserService : MediaLibraryService() {
             parentId: String,
             page: Int,
             pageSize: Int,
-            params: LibraryParams?
-        ): ListenableFuture<LibraryResult<List<MediaItem>>> {
-            val future = SettableFuture.create<LibraryResult<List<MediaItem>>>()
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
             serviceScope.launch {
                 val all = tree.childrenOf(parentId).map { it.toMedia3() }
                 val window = if (pageSize > 0 && page >= 0) {
@@ -159,7 +159,7 @@ class StreamifyAutoMediaBrowserService : MediaLibraryService() {
         }
     }
 
-    private fun resolveForPlayback(item: MediaItem): MediaItem? = runCatching {
+    private suspend fun resolveForPlayback(item: MediaItem): MediaItem? = runCatching {
         val key = playbackKeyOf(item.mediaId) ?: return@runCatching null
         val metadata = MediaMetadata.Builder()
             .setTitle(item.mediaMetadata.title)

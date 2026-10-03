@@ -96,7 +96,7 @@ class ConnectDeviceRegistry(
             }
         }
         _rows.value = seen.values
-            .sortedWith(compareBy(familyRank) { it.name.lowercase() })
+            .sortedWith(compareBy(familyRank, { it.name.lowercase() }))
             .map { ConnectDeviceRow(it, linkStatus[it.id] ?: DeviceLinkStatus.IDLE) }
     }
 

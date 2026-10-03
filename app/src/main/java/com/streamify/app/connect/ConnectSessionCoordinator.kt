@@ -175,7 +175,7 @@ class ConnectSessionCoordinator(
      * the sink-reported one during remote sessions, the tap snapshot
      * otherwise — and preserves the donor's play intent.
      */
-    private fun finishLocalTransfer(
+    private suspend fun finishLocalTransfer(
         current: ConnectSessionState,
         snapshot: PlaybackSnapshot,
         error: String? = null
