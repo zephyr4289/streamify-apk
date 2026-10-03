@@ -57,7 +57,7 @@ class ConnectSessionCoordinatorTest {
 
     @Before
     fun setUp() {
-        gateway = FakeGateway()
+        gateway = ScriptedGateway()
         hooks = RecordingHooks()
         registry = ConnectDeviceRegistry()
     }
@@ -125,7 +125,7 @@ class ConnectSessionCoordinatorTest {
         c.onGatewayEvent(sinkReported)
 
         // Second gateway declined for the TV.
-        val failing = FakeGateway(connectResult = false)
+        val failing = ScriptedGateway(connectResult = false)
         val hop = ConnectSessionCoordinator(
             gatewayFor = { if (it.id == tv.id) failing else gateway },
             hooks = hooks,
@@ -254,9 +254,12 @@ class ConnectSessionCoordinatorTest {
 }
 
 /** Scriptable gateway double. */
-private class FakeGateway(var connectResult: Boolean = true) : ConnectGateway {
+private class ScriptedGateway(var connectResult: Boolean = true) : ConnectGateway {
     private val _events = MutableSharedFlow<ConnectGatewayEvent>(extraBufferCapacity = 8)
     override val events: SharedFlow<ConnectGatewayEvent> = _events
+
+    override val boundDeviceId: String?
+        get() = bound
 
     var bound: String? = null
         private set

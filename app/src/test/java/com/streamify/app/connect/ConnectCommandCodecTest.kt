@@ -47,8 +47,8 @@ class ConnectCommandCodecTest {
     fun `empty and garbage frames decode to null`() {
         assertNull(ConnectCommandCodec.decode("".toByteArray()))
         assertNull(ConnectCommandCodec.decode("not-json-at-all".toByteArray()))
-        assertNull(ConnectCommandCodec.decode("""{"op":"unknownOp"}"""))
-        assertNull(ConnectCommandCodec.decode("""{"nope":1}"""))
+        assertNull(ConnectCommandCodec.decode("""{"op":"unknownOp"}""".toByteArray()))
+        assertNull(ConnectCommandCodec.decode("""{"nope":1}""".toByteArray()))
     }
 }
 

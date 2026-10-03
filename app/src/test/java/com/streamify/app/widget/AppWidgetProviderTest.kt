@@ -145,7 +145,7 @@ class AppWidgetProviderTest {
 
 private class RecordingUpdater : WidgetUpdater {
     val calls = mutableListOf<String>()
-    override suspend fun refreshAll(context: Context) {
+    override suspend fun refreshAll(context: Context?) {
         calls.add(NowPlayingWidgetStateStore.state.title)
     }
 }

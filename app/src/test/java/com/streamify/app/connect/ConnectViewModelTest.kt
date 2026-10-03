@@ -106,14 +106,17 @@ class ConnectViewModelTest {
     }
 
     @Test
-    fun `pending flag clears after a completed transfer`() {
-        gateway.connectDelayMs = 200
+    fun `pending flag is visible mid-handshake and clears after completion`() {
+        // Gate the handshake: the coroutine parks inside connect() while we
+        // assert the in-flight flag, then completes synchronously when the
+        // gate opens (Unconfined main resumes inline on the completer).
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        gateway.connectGate = gate
         viewModel.requestTransfer(tv, snapshot)
-        // Unconfined main ran the coroutine into the connect suspension;
-        // the pending flag is visible while the handshake is in flight.
+
         assertEquals(tv.id, viewModel.pendingTransfer.value)
 
-        kotlinx.coroutines.runBlocking { kotlinx.coroutines.delay(400) }
+        gate.complete(Unit)
 
         assertEquals(ConnectSessionPhase.REMOTE_ACTIVE, viewModel.session.value.phase)
         assertNull(viewModel.pendingTransfer.value)
@@ -124,13 +127,19 @@ class ConnectViewModelTest {
 private class FakeGateway(var connectResult: Boolean = true) : ConnectGateway {
     private val _events = kotlinx.coroutines.flow.MutableSharedFlow<ConnectGatewayEvent>()
     override val events: kotlinx.coroutines.flow.SharedFlow<ConnectGatewayEvent> get() = _events
-    var connectDelayMs = 0L
+
+    override val boundDeviceId: String?
+        get() = bound
+
+    /** Optional handshake gate for deterministic mid-flight assertions. */
+    var connectGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+
     var bound: String? = null
         private set
     val sent = mutableListOf<ConnectCommand>()
 
     override suspend fun connect(device: ConnectDevice, snapshot: PlaybackSnapshot): Boolean {
-        if (connectDelayMs > 0) kotlinx.coroutines.delay(connectDelayMs)
+        connectGate?.await()
         if (!connectResult) return false
         bound = device.id
         return true

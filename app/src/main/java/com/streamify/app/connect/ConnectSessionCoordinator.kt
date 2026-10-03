@@ -148,8 +148,11 @@ class ConnectSessionCoordinator(
             // Releasing the previous sink is graceful: it keeps playing
             // until the new one takes over (double-glitch-free handoff).
             activeGateway?.let { old ->
+                val oldId = old.boundDeviceId
                 runCatching { old.disconnect() }
-                registry?.markStatus(old.boundDeviceId ?: "", DeviceLinkStatus.IDLE)
+                if (!oldId.isNullOrBlank()) {
+                    registry?.markStatus(oldId, DeviceLinkStatus.IDLE)
+                }
             }
             activeGateway = gateway
             registry?.markStatus(target.id, DeviceLinkStatus.ACTIVE)
@@ -188,8 +191,11 @@ class ConnectSessionCoordinator(
         val play = if (current.isRemoteActive) current.remoteIsPlaying else snapshot.isPlaying
 
         activeGateway?.let { gw ->
+            val oldId = gw.boundDeviceId
             runCatching { gw.disconnect() }
-            registry?.markStatus(gw.boundDeviceId ?: "", DeviceLinkStatus.IDLE)
+            if (!oldId.isNullOrBlank()) {
+                registry?.markStatus(oldId, DeviceLinkStatus.IDLE)
+            }
         }
         activeGateway = null
 
