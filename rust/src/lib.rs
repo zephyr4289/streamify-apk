@@ -46,6 +46,7 @@ pub mod local_sync;
 pub mod connect_gateway;
 pub mod device_registry;
 pub mod remote_intent_engine;
+pub mod wear_sync;
 pub mod queue_optimizer;
 pub mod radio_scorer;
 pub mod repository;
