@@ -193,4 +193,20 @@ if (STREAMIFY_BUILD_FUZZERS)
     target_link_options(dsp_fuzzer_harness PRIVATE
         -fsanitize=fuzzer,address,undefined
     )
+
+    # Phase-4: malformed network audio streams & packet corruption (the
+    # same TU carries a -DSTREAMIFY_FUZZ_STANDALONE mutator driver for
+    # sanitizer-only environments without compiler-rt fuzzer runtime).
+    add_executable(audio_sink_fuzz_harness
+        tests/fuzz_audio_sink.cpp
+        src/audio_sink_ringbuffer.cpp
+        src/wear_audio_encoder.cpp
+    )
+    target_include_directories(audio_sink_fuzz_harness PRIVATE include src util .)
+    target_compile_options(audio_sink_fuzz_harness PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -fno-fast-math -O1 -g
+    )
+    target_link_options(audio_sink_fuzz_harness PRIVATE
+        -fsanitize=fuzzer,address,undefined
+    )
 endif()
