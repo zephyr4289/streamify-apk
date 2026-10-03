@@ -46,6 +46,10 @@ class StreamifyApp : Application(), ImageLoaderFactory {
         // without Play Services; discovery feeds ConnectRuntime's registry).
         com.streamify.app.cast.CastMediaManager.initialize(this)
 
+        // Phase 4 — WearOS companion links: wrist transport controls, Jam
+        // voting and run-bundle pushes ride the GMS wearable clients.
+        com.streamify.app.wear.WearSessionManager.initialize(this)
+
         // Screen-level lifecycle breadcrumbs for the admin terminal.
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private fun name(a: android.app.Activity) = a.javaClass.simpleName
