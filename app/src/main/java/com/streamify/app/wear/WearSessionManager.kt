@@ -51,7 +51,7 @@ object WearSessionManager {
         appContext = context.applicationContext
         runCatching {
             val ctx = appContext ?: return
-            Wearable.getMessageClient(ctx).addListener(::onMessageReceived)
+            Wearable.getMessageClient(ctx).addListener(WearSessionManager::onMessageReceived)
             Wearable.getCapabilityClient(ctx).addListener(
                 { _ -> refreshConnectedNodes() },
                 WEAR_CAPABILITY

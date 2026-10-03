@@ -84,7 +84,8 @@ object CastMediaManager {
             castPlayer = player
 
             // Feed the Connect registry + gateway holder.
-            com.streamify.app.connect.ConnectRuntime.castRouteProvider = ::currentRouteRows
+            com.streamify.app.connect.ConnectRuntime.castRouteProvider =
+                CastMediaManager::currentRouteRows
             com.streamify.app.connect.CastConnectGatewayHolder.install(CastConnectGateway())
         }.onFailure { t ->
             SLog.st("CastMediaManager", "Cast unavailable on this device", t)
