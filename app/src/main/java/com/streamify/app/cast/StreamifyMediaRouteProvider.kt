@@ -63,4 +63,14 @@ object StreamifyMediaRouteProvider {
         com.streamify.app.connect.ConnectVolumePolicy.forRoute(
             com.streamify.app.connect.ConnectRouteKind.CAST_RECEIVER
         )
+
+    /**
+     * Route-death rule: a live receiver session dying without migrating.
+     * TRANSFERRING is a hop, not a death; anything before CONNECTED was
+     * never alive. The coordinator turns this into local-playback fallback.
+     */
+    fun isRouteDeath(previous: CastRoutePhase, next: CastRoutePhase): Boolean =
+        previous == CastRoutePhase.CONNECTED &&
+            next != CastRoutePhase.CONNECTED &&
+            next != CastRoutePhase.TRANSFERRING
 }

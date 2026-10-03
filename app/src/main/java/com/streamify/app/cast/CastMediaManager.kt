@@ -110,7 +110,7 @@ object CastMediaManager {
 
         // Route death while a receiver session was live → the coordinator
         // must fall back to local playback at the last known position.
-        if (previous == CastRoutePhase.CONNECTED && routePhase != CastRoutePhase.CONNECTED && routePhase != CastRoutePhase.TRANSFERRING) {
+        if (StreamifyMediaRouteProvider.isRouteDeath(previous, routePhase)) {
             _events.tryEmit(ConnectGatewayEvent.Disconnected)
         }
     }

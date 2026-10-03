@@ -93,12 +93,13 @@ object StreamifyExpandedWidget : GlanceAppWidget() {
 
 /** Installs the Glance fan-out once at app boot. */
 class GlanceWidgetUpdater : WidgetUpdater {
-    override suspend fun refreshAll(context: Context) {
-        val manager = GlanceAppWidgetManager(context)
+    override suspend fun refreshAll(context: Context?) {
+        val ctx = context ?: return
+        val manager = GlanceAppWidgetManager(ctx)
         val compact = manager.getGlanceIds(StreamifyAppWidgetProvider::class.java)
-        compact.forEach { StreamifyCompactWidget.update(context, it) }
+        compact.forEach { StreamifyCompactWidget.update(ctx, it) }
         val expanded = manager.getGlanceIds(StreamifyExpandedWidgetProvider::class.java)
-        expanded.forEach { StreamifyExpandedWidget.update(context, it) }
+        expanded.forEach { StreamifyExpandedWidget.update(ctx, it) }
     }
 }
 

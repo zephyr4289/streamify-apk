@@ -32,7 +32,7 @@ data class WidgetNowPlaying(
 
 /** Widget refresh fan-out seam (Glance manager in production). */
 interface WidgetUpdater {
-    suspend fun refreshAll(context: Context)
+    suspend fun refreshAll(context: Context?)
 }
 
 /** Pure mapping: playback transition fields → widget state. */
@@ -77,6 +77,18 @@ object NowPlayingWidgetStateStore {
     /** Minimum spacing between widget re-renders. */
     const val THROTTLE_MS: Long = 900L
 
+    /** Test seam: collapse the debounce window for deterministic tests. */
+    @Volatile
+    var throttleMsForTest: Long = THROTTLE_MS
+
+    /** Test seam: reset singleton state between test cases. */
+    fun resetForTest() {
+        state = WidgetNowPlaying()
+        updater = null
+        lastPushMs = 0L
+        throttleMsForTest = THROTTLE_MS
+    }
+
     /**
      * Playback transition writer. Re-renders only when the visible fields
      * actually changed; pushes are debounced so a burst collapses into
@@ -85,7 +97,7 @@ object NowPlayingWidgetStateStore {
      * and each waits out the remainder of the window).
      */
     fun update(
-        context: Context,
+        context: Context?,
         title: String?,
         artist: String?,
         artwork: String?,
@@ -101,7 +113,7 @@ object NowPlayingWidgetStateStore {
         state = next
         scope.launch {
             pushMutex.withLock {
-                val wait = (lastPushMs + THROTTLE_MS) - System.currentTimeMillis()
+                val wait = (lastPushMs + throttleMsForTest) - System.currentTimeMillis()
                 if (wait > 0) kotlinx.coroutines.delay(wait)
                 lastPushMs = System.currentTimeMillis()
                 runCatching { updater?.refreshAll(context) }

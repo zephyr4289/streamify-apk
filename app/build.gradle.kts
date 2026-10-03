@@ -202,6 +202,8 @@ dependencies {
     // testDebugUnitTest suite (no package filter, so new tests in any
     // package are picked up automatically).
     testImplementation("junit:junit:4.13.2")
+    // Phase 4 — ViewModel viewModelScope support on the JVM shard.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 
     // JAM v4: offline pairing QR generation (pure-JVM zxing core — no
     // Android artifact, safe for the JVM test shard).

@@ -37,6 +37,10 @@ object MediaSessionVoiceHandler {
 
     private val LIKES_SYNONYMS = listOf("liked songs", "liked", "likes", "favorites", "favourites", "my songs")
     private val DAYLIST_SYNONYMS = listOf("daylist", "daily mix", "day list", "my mix")
+    private val FILLER_TOKENS = setOf(
+        "playlist", "shuffle", "play", "my", "the", "a", "on", "in",
+        "streamify", "spotify", "please"
+    )
 
     /**
      * Resolve one spoken query. Precedence (first match wins):
@@ -63,24 +67,28 @@ object MediaSessionVoiceHandler {
 
         playlistNameOf(text)?.let { return VoiceCommand.PlayPlaylist(it) }
 
-        return searchQueryOf(text)?.let { VoiceCommand.PlaySearch(it, shuffle = text.contains("shuffle")) }
+        val searchQuery = searchQueryOf(text)
+        return when {
+            searchQuery.length >= MIN_QUERY_LENGTH ->
+                VoiceCommand.PlaySearch(searchQuery, shuffle = text.contains("shuffle"))
+            text.startsWith("shuffle") ->
+                // Bare "shuffle" = shuffle the whole library.
+                VoiceCommand.PlaySearch("", shuffle = true)
+            else -> null
+        }
     }
 
-    /** "play my focus flow playlist" → "focus flow". */
+    /** "play my focus flow playlist" → "focus flow" (filler tokens dropped). */
     private fun playlistNameOf(text: String): String? {
         if (!text.contains("playlist")) return null
-        var name = text
-        for (filler in listOf("playlist", "shuffle", "play", "my", "the", "on streamify", "on spotify", "in streamify")) {
-            name = name.replace(" $filler ", " ")
-            if (name.startsWith("$filler ")) name = name.removePrefix("$filler ")
-            if (name.endsWith(" $filler")) name = name.removeSuffix(" $filler")
-        }
-        name = name.trim()
+        val name = text.split(Regex("\\s+"))
+            .filter { token -> token.isNotBlank() && token !in FILLER_TOKENS }
+            .joinToString(" ")
         return name.takeIf { it.length >= MIN_NAME_LENGTH }
     }
 
-    /** Strips leading verbs so the search pipeline gets a clean query. */
-    private fun searchQueryOf(text: String): String? {
+    /** Strips leading verbs + app suffixes so the search pipeline gets a clean query. */
+    private fun searchQueryOf(text: String): String {
         var query = text
         for (lead in listOf("please play", "play", "shuffle", "listen to", "stream")) {
             if (query.startsWith(lead)) {
@@ -89,7 +97,7 @@ object MediaSessionVoiceHandler {
             }
         }
         query = query.removeSuffix("on streamify").removeSuffix("in streamify").trim()
-        return query.takeIf { it.length >= MIN_QUERY_LENGTH }
+        return query
     }
 
     /** "join the jam abc123" → "abc123" (last token when code-like). */
