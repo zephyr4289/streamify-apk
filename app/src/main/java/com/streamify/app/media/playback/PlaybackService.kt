@@ -397,6 +397,10 @@ class PlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, forwardingPlayer)
             .setCallback(sessionCallback)
             .build()
+
+        // Phase 4 — Android Auto: expose the engine to the Auto browse
+        // service so head-unit and phone share ONE queue + session.
+        SharedPlaybackEngine.publish(forwardingPlayer)
     }
 
     private var preBufferManager: PredictivePreBufferManager? = null
@@ -413,6 +417,9 @@ class PlaybackService : MediaSessionService() {
         EqualizerManager.release()
         preBufferManager?.release()
         preBufferManager = null
+        // Phase 4 — withdraw the shared engine BEFORE releasing the
+        // session so the Auto service never grabs a dying player.
+        mediaSession?.player?.let { SharedPlaybackEngine.withdraw(it) }
         // Free the DSP native handles. Only StreamifyAudioProcessor holds any
         // (custom release()); Sync/Crossfade are pure-Kotlin helpers with
         // process lifetime — media3's AudioProcessor interface has no release().

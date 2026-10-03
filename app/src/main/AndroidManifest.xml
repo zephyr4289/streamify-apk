@@ -77,9 +77,27 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
+        <!-- ═══ Phase 4 — Android Auto / Automotive browse service (Gap #54) ═══
+             Owns the legacy MediaBrowserService discovery filter (moved off
+             PlaybackService so Auto binds exactly one browse entry point)
+             and drives the SAME shared playback engine as the phone UI. -->
+        <service
+            android:name=".auto.StreamifyAutoMediaBrowserService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <!-- Android Auto / Automotive app declaration -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
 
         <!-- ═══ Phase 4 — Google Cast receiver discovery (Gap #53) ═══ -->
         <meta-data
