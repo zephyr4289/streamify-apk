@@ -29,6 +29,12 @@ int main() {
     extern int run_media_palette_tests();
     run_media_palette_tests();
 
+    // Phase-4 audio sinks suite: lock-free SPSC ringbuffer + SIMD sample
+    // converter, WearOS packetizer/compressor, sink registry + stats wire
+    // layout (10M-frame concurrency stress included).
+    extern int run_audio_sink_tests();
+    const int phase4_failures = run_audio_sink_tests();
+
     // 1. Test SoftKneeLimiter float processing.
     // A 5ms-attack limiter (tau ~= 240 samples @ 48kHz) legitimately passes
     // short transients through unattenuated — the envelope ballistics have
@@ -92,5 +98,7 @@ int main() {
     std::cout << "  - KissFFTR 1024 Transform: PASSED" << std::endl;
 
     std::cout << "[TEST] All Native DSP Tests Passed Successfully! (ASan/UBSan Verified)" << std::endl;
-    return 0;
+    // The Phase-1..3 runners report internally; Phase-4 added explicit
+    // propagation so the shard's exit code gates on its checks.
+    return phase4_failures == 0 ? 0 : 1;
 }

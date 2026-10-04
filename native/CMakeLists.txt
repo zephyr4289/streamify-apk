@@ -18,16 +18,24 @@ include_directories(
     dsp
     dsp/kissfft
     engine
+    include
     ingest
     jni
     math
     palette
+    src
     util
     video
     third_party/sqlite3
 )
 
 add_library(streamify_native_core SHARED
+    # Phase-4: lock-free SPSC audio sink + SIMD sample converter.
+    src/audio_sink_ringbuffer.cpp
+    # Phase-4: companion WearOS frame packetizer & rate-limiting compressor.
+    src/wear_audio_encoder.cpp
+    # Phase-4: audio sink JNI bridges (DirectByteBuffer transfer + telemetry).
+    src/jni_bridge_audio_sinks.cpp
     engine/TaskOrchestrator.cc
     math/CandidateHasher.cc
     math/HarmonicTransitionEngine.cc
@@ -82,6 +90,7 @@ if (STREAMIFY_BUILD_TESTS)
         tests/test_canvas_loop_agsl.cc
         tests/test_audio_remuxer.cc
         tests/test_media_palette.cc
+        tests/test_audio_sink_ringbuffer.cpp
         math/CandidateHasher.cc
         math/HarmonicTransitionEngine.cc
         math/CircadianCurves.cc
@@ -92,6 +101,9 @@ if (STREAMIFY_BUILD_TESTS)
         audio/AdtsFrameParser.cc
         audio/AudioFrameRemuxer.cc
         palette/BitmapPalette.cc
+        # Phase-4: SPSC audio sink + WearOS packetizer under test.
+        src/audio_sink_ringbuffer.cpp
+        src/wear_audio_encoder.cpp
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
         dsp/ChannelOps.cc
@@ -102,7 +114,7 @@ if (STREAMIFY_BUILD_TESTS)
         dsp/kissfft/kiss_fft.c
         dsp/kissfft/kiss_fftr.c
     )
-    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine math util video agsl audio palette .)
+    target_include_directories(dsp_test_suite PRIVATE dsp dsp/kissfft mix engine math util video agsl audio palette include src .)
     target_link_libraries(dsp_test_suite PRIVATE m pthread)
 
     add_executable(simd_physics_test_suite
@@ -141,9 +153,15 @@ if (STREAMIFY_BUILD_TESTS)
     # The suites assert on NaN/Inf/overflow guards and bounded outputs; the
     # global -ffast-math would fold those guards away (the limiter test
     # asserts |sample| <= 1.1). Same rationale as the fuzzer harness below.
+    # The flag must ALSO reach the LINK step: with -flto, link-time
+    # optimization re-optimizes the merged IR using the link-line flags, so
+    # a compile-only -fno-fast-math still leaks fast-math semantics back
+    # into the sanitized suites (observed on clang-18 LTO: folded isfinite
+    # guards and reassociated token-bucket arithmetic).
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
         foreach(tname dsp_test_suite simd_physics_test_suite storage_telemetry_test_suite dsp_phase_lock_test_suite)
             target_compile_options(${tname} PRIVATE -fno-fast-math)
+            target_link_options(${tname} PRIVATE -fno-fast-math)
         endforeach()
     endif()
 endif()
@@ -179,6 +197,22 @@ if (STREAMIFY_BUILD_FUZZERS)
         -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -fno-fast-math -O1 -g
     )
     target_link_options(dsp_fuzzer_harness PRIVATE
-        -fsanitize=fuzzer,address,undefined
+        -fsanitize=fuzzer,address,undefined -fno-fast-math
+    )
+
+    # Phase-4: malformed network audio streams & packet corruption (the
+    # same TU carries a -DSTREAMIFY_FUZZ_STANDALONE mutator driver for
+    # sanitizer-only environments without compiler-rt fuzzer runtime).
+    add_executable(audio_sink_fuzz_harness
+        tests/fuzz_audio_sink.cpp
+        src/audio_sink_ringbuffer.cpp
+        src/wear_audio_encoder.cpp
+    )
+    target_include_directories(audio_sink_fuzz_harness PRIVATE include src util .)
+    target_compile_options(audio_sink_fuzz_harness PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -fno-fast-math -O1 -g
+    )
+    target_link_options(audio_sink_fuzz_harness PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-fast-math
     )
 endif()
