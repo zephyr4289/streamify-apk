@@ -143,8 +143,9 @@ flowchart LR
   - [x] Engineer 2 (Rust Chunk Swarmer & Local LAN Sync) — Merged in PR #20
   - [x] Engineer 3 (Kotlin Canvas Scrapers, UI, Background Downloader & Folders) — Merged in PR #21
   - [x] CI Verification & Release Test Build — All 12/12 Shards Green
-- [ ] **Phase 4: Everywhere Playback (Connect, Cast, Car & Wear)**
-  - [ ] Engineer 1 (Native Low-Latency Audio Sinks)
-  - [ ] Engineer 2 (Rust Connect Gateway & Wear Sync)
-  - [ ] Engineer 3 (Kotlin Connect UI, Cast, Auto & WearOS)
-  - [ ] CI Verification & Release Test Build
+- [x] **Phase 4: Everywhere Playback (Connect, Cast, Car & Wear)**
+  - [x] Engineer 1 (Native Low-Latency Audio Sinks) — Merged in `feat/phase4-native-audio-sinks-wear-codec`
+  - [x] Engineer 2 (Rust Connect Gateway & Wear Sync) — Merged in `feat/phase4-rust-connect-gateway-wear-sync`
+  - [x] Engineer 3 (Kotlin Connect UI, Cast, Auto & WearOS) — Merged in `feat/phase4-app-connect-cast-auto-wear`
+  - [x] CI Verification & Release Test Build — All 12/12 Shards Green
+
