@@ -50,7 +50,7 @@ impl BiquadFilter {
         let alpha = sn / (2.0 * q);
         let a = 10.0f64.powf(gain_db / 40.0);
 
-        let (mut b0, mut b1, mut b2, mut a0, mut a1, mut a2) = match filter_type {
+        let (b0, b1, b2, a0, a1, a2) = match filter_type {
             FilterType::Peaking => {
                 let b0 = 1.0 + alpha * a;
                 let b1 = -2.0 * cs;
@@ -126,6 +126,12 @@ impl BiquadFilter {
     pub fn reset(&mut self) {
         self.s1 = 0.0;
         self.s2 = 0.0;
+    }
+}
+
+impl Default for BiquadFilter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -220,6 +226,8 @@ impl SpectrumVisualizer {
 
         // Logarithmic frequency binning for aesthetic visualizer curves
         let mut bars = vec![0.0f32; bar_count];
+        // Index math drives the log-scale bin edges — iterator form is worse.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..bar_count {
             let low_idx = (half_n as f32 * (i as f32 / bar_count as f32).powf(2.2)) as usize;
             let high_idx = ((half_n as f32 * ((i + 1) as f32 / bar_count as f32).powf(2.2)) as usize)
@@ -228,6 +236,7 @@ impl SpectrumVisualizer {
 
             let mut sum = 0.0f32;
             let mut count = 0usize;
+            #[allow(clippy::needless_range_loop)]
             for j in low_idx..high_idx {
                 sum += magnitudes[j];
                 count += 1;

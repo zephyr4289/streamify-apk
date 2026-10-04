@@ -389,7 +389,7 @@ impl SyncPlan {
         let mut plan = SyncPlan::default();
         let mut push_budget_left = policy.max_push_bytes;
 
-        let mut pull = |plan: &mut SyncPlan, entry: &CatalogEntry, path: String| {
+        let pull = |plan: &mut SyncPlan, entry: &CatalogEntry, path: String| {
             if !policy.allow_pull {
                 plan.skipped.push((path, SkipReason::PolicyDenied));
                 return;
@@ -774,13 +774,11 @@ impl SyncSession {
             .files
             .values()
             .all(|f| f.done)
-        {
-            if self.state == SessionState::Syncing {
+            && self.state == SessionState::Syncing {
                 self.state = SessionState::Completed;
                 let ev = SyncEvent::SessionCompleted(self.summary);
                 self.events.push_back(ev);
             }
-        }
     }
 
     /// Per-file progress fraction, `None` for unknown jobs.

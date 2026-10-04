@@ -1,3 +1,10 @@
+// Clippy: the C ABI surface is a wall of `unsafe extern "C"` entry points
+// that ALL follow the same documented house safety model (catch_unwind
+// shields, sentinel returns, no panics across the boundary — see the
+// module docs). Per-function `# Safety` boilerplate would add ~60 lines
+// of copy-paste; the model is documented once, here and below.
+#![allow(clippy::missing_safety_doc)]
+
 use crate::consensus::ConsensusEngine;
 use crate::json::InnertubeParser;
 use crate::lyrics::LyricCompiler;

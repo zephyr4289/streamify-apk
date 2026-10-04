@@ -27,6 +27,7 @@ pub const STATUS_IN_FLIGHT: i64 = 1;
 pub const STATUS_DEAD: i64 = 3;
 
 const MAX_ATTEMPTS: i64 = 8;
+#[allow(dead_code)] // reserved: caller-driven staleness window knob
 const DEFAULT_STALE_MS: i64 = 30_000;
 
 /// Counters surfaced through FFI diagnostics.

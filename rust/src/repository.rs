@@ -1,3 +1,8 @@
+// Clippy: FFI entry points in this module all follow the house safety
+// model (catch_unwind shields, sentinel returns, no panics across the
+// boundary — see the module docs); per-function `# Safety` boilerplate
+// would be copy-paste.
+#![allow(clippy::missing_safety_doc)]
 use rusqlite::{params, Connection};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -165,6 +170,9 @@ impl TrackRepository {
 
     /// Queries the shelf and writes directly to a Kotlin-provided DirectByteBuffer.
     /// ZERO JSON serialization. ZERO Kotlin String allocations in hot path.
+    /// FFI-facing: the caller (C/JNI boundary, itself unsafe) owns the
+    /// output buffer; length-guarded writes only.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn fetch_virtual_shelf_to_buffer(&self, out_buf: *mut u8, out_buf_len: usize) -> i32 {
         let result = catch_unwind(AssertUnwindSafe(|| {
             if out_buf.is_null() || out_buf_len < 4 {

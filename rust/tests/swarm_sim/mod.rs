@@ -58,6 +58,7 @@ pub const TICK_NS: i64 = 1_000_000;
 
 impl SimMesh {
     /// `n` nodes (ids 0..n); `origin` seeds `track_id` from `data`.
+    #[allow(clippy::too_many_arguments)] // one arg per sim-harness knob
     pub fn new(
         n: usize,
         seed: u64,

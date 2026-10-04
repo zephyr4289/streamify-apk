@@ -1,3 +1,8 @@
+// Clippy: FFI entry points in this module all follow the house safety
+// model (catch_unwind shields, sentinel returns, no panics across the
+// boundary — see the module docs); per-function `# Safety` boilerplate
+// would be copy-paste.
+#![allow(clippy::missing_safety_doc)]
 use serde::{Deserialize, Serialize};
 
 pub const SLYR_MAGIC: u32 = 0x534C5952; // "SLYR" (big-endian reading)
@@ -293,6 +298,9 @@ impl LyricCompiler {
         CompiledLyrics { entries }
     }
 
+    /// FFI-facing: the caller (C/JNI boundary, itself unsafe) owns the
+    /// pointer; this function null-checks before the slice view.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn find_active_positions(slyr_ptr: *const u8, slyr_len: usize, position_ms: u32) -> Option<(usize, usize)> {
         if slyr_ptr.is_null() || slyr_len == 0 {
             return None;

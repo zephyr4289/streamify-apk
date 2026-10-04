@@ -396,7 +396,7 @@ pub extern "system" fn Java_com_streamify_app_sync_NativeChunkSyncEngine_hashByt
         let digest = hash_payload(&bytes);
         make_byte_array(&mut env, &digest)
     }))
-    .unwrap_or_else(|_| std::ptr::null_mut())
+    .unwrap_or(std::ptr::null_mut())
 }
 
 /// `buildHashTree(data: ByteArray, chunkSize: Int): ByteArray` —
@@ -422,7 +422,7 @@ pub extern "system" fn Java_com_streamify_app_sync_NativeChunkSyncEngine_buildHa
             Err(_) => make_byte_array(&mut env, &[]),
         }
     }))
-    .unwrap_or_else(|_| std::ptr::null_mut())
+    .unwrap_or(std::ptr::null_mut())
 }
 
 fn normalize_chunk_size(cs: usize) -> Option<usize> {

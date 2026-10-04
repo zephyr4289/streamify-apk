@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Write};
 use std::path::Path;
 
 pub struct StreamDownloader;

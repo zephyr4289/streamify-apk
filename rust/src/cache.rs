@@ -1,3 +1,8 @@
+// Clippy: FFI entry points in this module all follow the house safety
+// model (catch_unwind shields, sentinel returns, no panics across the
+// boundary — see the module docs); per-function `# Safety` boilerplate
+// would be copy-paste.
+#![allow(clippy::missing_safety_doc)]
 use std::panic::catch_unwind;
 
 /// Encrypts / Decrypts an audio chunk using a position-dependent stream cipher

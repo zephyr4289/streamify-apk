@@ -171,7 +171,7 @@ async fn four_leechers_swarm_track_with_zero_duplicate_cdn_fetches() {
     let _guard = RUN_LOCK.lock().await;
     const N: usize = 5;
     const TRACK_LEN: usize = 480 * 1024; // 480 KiB → 15 chunks @ 32 KiB
-    const TRACK_ID: u64 = 0xA11CE_5EED;
+    const TRACK_ID: u64 = 0x000A_11CE_5EED;
 
     let session = format!("swarm-10pct-{}", std::process::id());
     let nodes = build_mesh(&session, N).await;
@@ -218,6 +218,7 @@ async fn four_leechers_swarm_track_with_zero_duplicate_cdn_fetches() {
     let elapsed = t0.elapsed();
 
     // ── integrity: every leecher assembled the identical, verified track ──
+    #[allow(clippy::needless_range_loop)] // node[i] label used in panics
     for i in 1..N {
         let got = nodes[i]
             .swarm_take_track(TRACK_ID)
@@ -286,6 +287,7 @@ async fn swarm_completes_under_25pct_hostile_loss() {
     nodes[0].swarm_seed_track(TRACK_ID, &track);
 
     let elapsed = wait_all_complete(&nodes, TRACK_ID, N - 1, Duration::from_secs(30)).await;
+    #[allow(clippy::needless_range_loop)] // node[i] label used in assertions
     for i in 1..N {
         let got = nodes[i]
             .swarm_take_track(TRACK_ID)

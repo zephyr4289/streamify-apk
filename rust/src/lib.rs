@@ -39,6 +39,15 @@ pub mod p2p_mesh;
 pub mod chunk_verifier;
 pub mod jni_bridge_chunk_sync;
 pub mod local_sync;
+// Phase 4 — Streamify Connect gateway & WearOS P2P sync
+// (feat/phase4-rust-connect-gateway-wear-sync): device discovery
+// registry with presence leases, cross-device session handoff &
+// remote intent dispatch, WearOS compact binary sync.
+pub mod connect_gateway;
+pub mod device_registry;
+pub mod jni_bridge_connect;
+pub mod remote_intent_engine;
+pub mod wear_sync;
 pub mod queue_optimizer;
 pub mod radio_scorer;
 pub mod repository;

@@ -442,7 +442,7 @@ impl VoteLedger {
 }
 
 #[derive(Debug, Clone)]
-struct QueueEntry {
+pub struct QueueEntry {
     cad_id: u64,
 }
 
@@ -840,7 +840,7 @@ impl JamCrdtState {
         if self.votes.per_target.is_empty() && self.committed.is_empty() {
             return; // fast path: no voting activity yet (pure Add/Remove rooms)
         }
-        let threshold = self.promotion.effective_threshold() as u32;
+        let threshold = self.promotion.effective_threshold();
         let mut next: HashSet<u64> = HashSet::new();
         for target in self.votes.targets() {
             // Vote-before-Add tolerance: only live elements promote.
@@ -877,7 +877,7 @@ impl JamCrdtState {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    voters.sort_by(|a, b| a.0.cmp(&b.0));
+                    voters.sort_by_key(|a| a.0);
                     (t, voters)
                 })
                 .collect(),
@@ -909,6 +909,8 @@ pub struct FullSnapshot {
     /// Suppressed add op ids.
     pub tombstones: Vec<u64>,
     /// Vote ledger: (target, [(voter, upvote?, op_id)] sorted by voter).
+    /// Flat tuple by design: it mirrors the FFI snapshot export verbatim.
+    #[allow(clippy::type_complexity)]
     pub votes: Vec<(u64, Vec<(VoterId, bool, u64)>)>,
 }
 
@@ -985,7 +987,7 @@ mod tests {
 
         // ── R2: reorder preserves cad identity captured pre-removal ──
         st.load_snapshot(vec![], vec![]);
-        st.apply_op(&add_a).then(|| ());
+        st.apply_op(&add_a).then_some(());
         assert_eq!(st.queue.len(), 1);
         let reorder = JamOp::new(
             JamOp::generate_op_id(),

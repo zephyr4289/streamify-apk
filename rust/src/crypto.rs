@@ -44,8 +44,8 @@ impl VaultCryptoEngine {
 
             // Derive per-chunk nonce keystream
             let mut chunk_hasher = Sha256::new();
-            chunk_hasher.update(&derived_key);
-            chunk_hasher.update(&chunk_idx.to_le_bytes());
+            chunk_hasher.update(derived_key);
+            chunk_hasher.update(chunk_idx.to_le_bytes());
             let chunk_key = chunk_hasher.finalize();
 
             // Vectorized XOR keystream encryption
@@ -120,8 +120,8 @@ impl VaultCryptoEngine {
             mac.update(&buffer[..bytes_read]);
 
             let mut chunk_hasher = Sha256::new();
-            chunk_hasher.update(&derived_key);
-            chunk_hasher.update(&chunk_idx.to_le_bytes());
+            chunk_hasher.update(derived_key);
+            chunk_hasher.update(chunk_idx.to_le_bytes());
             let chunk_key = chunk_hasher.finalize();
 
             for i in 0..bytes_read {

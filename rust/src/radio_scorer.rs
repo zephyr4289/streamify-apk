@@ -72,11 +72,10 @@ impl RadioAntiDriftEngine {
             }
 
             // Duration sanity check
-            if seed_duration_sec >= 60 && seed_duration_sec <= 600 {
-                if track.duration_sec > 720 || track.duration_sec < 35 {
+            if (60..=600).contains(&seed_duration_sec)
+                && (track.duration_sec > 720 || track.duration_sec < 35) {
                     continue;
                 }
-            }
 
             // B. Seen signature check
             let sig = Self::signature(&track.title, &track.artist);

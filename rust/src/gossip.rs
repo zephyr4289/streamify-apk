@@ -571,11 +571,10 @@ impl GossipEngine {
                 if !self.is_scaled() {
                     self.outbox.entry(p).or_default().push(id);
                 }
-            } else if self.lazy.contains(&p) {
-                if self.should_announce(p, id) {
+            } else if self.lazy.contains(&p)
+                && self.should_announce(p, id) {
                     self.outbox.entry(p).or_default().push(id);
                 }
-            }
         }
         if was_empty && !self.outbox.is_empty() {
             self.outbox_since_ns = now;
@@ -957,8 +956,8 @@ impl GossipEngine {
                         ids.iter()
                             .copied()
                             .filter(|id| {
-                                let announce = self.should_announce(p, *id);
-                                announce
+                                
+                                self.should_announce(p, *id)
                             })
                             .collect()
                     } else {

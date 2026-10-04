@@ -30,7 +30,7 @@ const TRACK_CRASH: u64 = 0x5EED_0C7A;
 fn have_frame(manifest: &TrackManifest, bits: &[bool]) -> Vec<u8> {
     let n = manifest.num_chunks as usize;
     assert_eq!(bits.len(), n);
-    let mut bitmap = vec![0u8; (n + 7) / 8];
+    let mut bitmap = vec![0u8; n.div_ceil(8)];
     for (i, &b) in bits.iter().enumerate() {
         if b {
             bitmap[i / 8] |= 1 << (i % 8);

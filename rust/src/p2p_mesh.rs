@@ -100,7 +100,7 @@ use tokio::sync::{mpsc, watch};
 use crate::chunk_swarmer::{SwarmAction, SwarmEvent, SwarmManager, SwarmParams, TrackSwarmStats};
 use crate::gossip::{Action, GossipEngine, GossipParams, GossipStats, Outcomes};
 use crate::jam_crdt::{
-    FullSnapshot, JamCrdtState, JamOp, OpType, PromotionPolicy, QueueViewEntry, VOTE_FLAG_UP,
+    FullSnapshot, JamCrdtState, JamOp, OpType, QueueViewEntry, VOTE_FLAG_UP,
     VoterId,
 };
 use crate::jam_governor::{
@@ -312,6 +312,7 @@ pub fn parse_beacon(payload: &[u8]) -> Option<BeaconPayload> {
 
 /// Builds the full v2 beacon payload (legacy fields + room descriptor +
 /// sender pubkey binding). Called with the node's live governance state.
+#[allow(clippy::too_many_arguments)] // one arg per wire field — the frame IS the signature
 pub fn build_beacon_v2_payload(
     peer_id: u64,
     caps: u16,
@@ -455,6 +456,7 @@ pub fn build_friend_activity_frame(
 
 /// Bounds-checked parse of a FRIEND_ACTIVITY payload. Returns the field
 /// tuple; `None` on any malformed frame (never panics).
+#[allow(clippy::type_complexity)] // flat tuple mirrors the FRIEND_ACTIVITY frame verbatim
 pub fn parse_friend_activity(
     payload: &[u8],
 ) -> Option<(u64, u64, Option<[u8; 16]>, bool, bool, String, String)> {
@@ -1356,7 +1358,7 @@ impl MeshNode {
                 caps: e.caps.load(Ordering::Relaxed) as u16,
                 rtt_ms: {
                     let ns = e.rtt_ns.load(Ordering::Relaxed);
-                    (ns > 0).then(|| (ns as u64) / 1_000_000)
+                    (ns > 0).then_some((ns as u64) / 1_000_000)
                 },
             })
             .collect()
@@ -2074,6 +2076,7 @@ impl MeshNode {
     /// #31, #32). Sender-side throttled: bursts inside
     /// `friend_activity_min_interval` return `Err(Throttled)` without
     /// touching the wire.
+    #[allow(clippy::too_many_arguments)] // directive-D payload fields
     pub fn broadcast_friend_activity(
         &self,
         cad_id: u64,
@@ -2175,8 +2178,8 @@ impl MeshNode {
     }
 
     fn build_beacon_packet(&self) -> Vec<u8> {
-        let caps = (self.cfg.enable_lan.then_some(CAP_LAN).unwrap_or(0))
-            | (self.cfg.enable_webrtc.then_some(CAP_WEBRTC).unwrap_or(0));
+        let caps = (if self.cfg.enable_lan { CAP_LAN } else { 0 })
+            | if self.cfg.enable_webrtc { CAP_WEBRTC } else { 0 };
         let port = self.local_addr().port();
         // Phase 1: every member of a governed room (host OR guest that
         // adopted the host claim) embeds the full room session descriptor
@@ -2798,7 +2801,7 @@ impl MeshNode {
                 self.send_raw(from_peer, &raw);
             }
             1 => {
-                let rtt_ns = (mono_ns() as i64).saturating_sub(t1 as i64).max(0);
+                let rtt_ns = mono_ns().saturating_sub(t1 as i64).max(0);
                 let map = heal(self.peers.read());
                 if let Some(e) = map.get(&from_peer) {
                     e.rtt_ns.store(rtt_ns, Ordering::Relaxed);
@@ -3010,6 +3013,7 @@ impl MeshNode {
     }
 }
 
+#[allow(dead_code)] // Phase-1 helper reserved for v2 beacon capability payloads
 fn parse_beacon_caps(payload: &[u8]) -> Option<u16> {
     if payload.len() < 12 {
         return None;

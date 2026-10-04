@@ -11,7 +11,6 @@
 //!   • Malformed/truncated beacons never panic the ingress;
 //!   • Guest beacons advertise the room (pubkey registry convergence).
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use streamify_core_rs::p2p_mesh::{
@@ -44,7 +43,7 @@ fn beacon_v2_payload_layout_is_exact() {
     let host_pk = [0x22u8; 32];
     let sender_pk = [0x33u8; 32];
     let payload = build_beacon_v2_payload(
-        0xAABB_CCDDEE11_2233,
+        0xAABB_CCDD_EE11_2233,
         0x0003,
         7777,
         room_id,
@@ -57,7 +56,7 @@ fn beacon_v2_payload_layout_is_exact() {
     );
     assert_eq!(payload.len(), BEACON_V2_FULL_LEN);
     let parsed = parse_beacon(&payload).expect("v2 parses");
-    assert_eq!(parsed.peer_id, 0xAABB_CCDDEE11_2233);
+    assert_eq!(parsed.peer_id, 0xAABB_CCDD_EE11_2233);
     assert_eq!(parsed.caps, 0x0003);
     assert_eq!(parsed.port, 7777);
     let room = parsed.room.expect("room descriptor present");
@@ -140,7 +139,22 @@ async fn foreign_session_device_discovers_live_room() {
             assert_eq!(r.epoch, 1);
             assert_eq!(r.capacity, 32, "advertised capacity");
             assert!(r.member_count >= 1, "live member count");
-            assert_eq!(r.from_addr.port(), host.local_addr().port());
+            // EVERY member of a governed room (host OR guest that adopted
+            // the host claim) embeds the full room descriptor in its
+            // beacons, and a same-epoch refresh overwrites `from_addr`
+            // with the LATEST announcer (ingest_foreign_beacon) — so the
+            // observer may legitimately discover the room via either
+            // member's beacon depending on arrival order. The descriptor
+            // identity assertions above are the real contract.
+            assert!(
+                r.from_addr.port() == host.local_addr().port()
+                    || r.from_addr.port() == guest.local_addr().port(),
+                "room must be discovered via a room member's beacon, got {} \
+                 (host {}, guest {})",
+                r.from_addr,
+                host.local_addr(),
+                guest.local_addr()
+            );
             break;
         }
         assert!(
@@ -286,7 +300,7 @@ async fn stop_lan_beacon_silences_advertisement() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert!(
-        member.lan_beacon_active() == false,
+        !member.lan_beacon_active(),
         "guest did not call startLanBeacon itself"
     );
 

@@ -45,7 +45,7 @@ impl PlaylistParser {
         }
 
         // Locate music shelf items or continuation items
-        let contents_path = if root.pointer("/continuationContents").is_some() {
+        let _contents_path = if root.pointer("/continuationContents").is_some() {
             "/continuationContents/musicPlaylistShelfContinuation"
         } else {
             "/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/musicResponsiveListItemRenderer"

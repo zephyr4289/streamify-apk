@@ -389,6 +389,7 @@ async fn democratic_voting_converges_on_live_mesh() {
 
     // Democratic run: tracks 0 and 1 collect 3 of 5 votes (threshold
     // ⌊5/2⌋+1 = 3 → promote); track 2 stays at 2 votes.
+    #[allow(clippy::needless_range_loop)] // voter-index labels in assertions
     for voter_idx in 0..3usize {
         for (t, track) in tracks.iter().enumerate() {
             if t < 2 || voter_idx < 2 {
@@ -401,7 +402,7 @@ async fn democratic_voting_converges_on_live_mesh() {
 
     // Convergence watchdog: every replica must reach the identical fold.
     let t0 = Instant::now();
-    let reference = loop {
+    let _reference = loop {
         let folds: Vec<FullSnapshot> = nodes.iter().map(|n| n.crdt_fold()).collect();
         if folds.iter().all(|f| *f == folds[0]) && !folds[0].votes.is_empty() {
             break folds[0].clone();
@@ -725,9 +726,11 @@ async fn thirty_two_peer_democratic_voting_chaos() {
     // (staying below threshold); two voters retract their stray votes.
     let hero = tracks[0].op_id;
     let t_start = Instant::now();
+    #[allow(clippy::needless_range_loop)] // voter-index labels in assertions
     for voter in 0..17usize {
         nodes[voter].cast_vote(hero, true).expect("hero vote");
     }
+    #[allow(clippy::needless_range_loop)] // voter-index labels in assertions
     for voter in 17..21usize {
         nodes[voter].cast_vote(tracks[1].op_id, true).expect("stray vote");
         nodes[voter].cast_vote(tracks[2].op_id, true).expect("stray vote");

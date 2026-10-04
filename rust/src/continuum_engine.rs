@@ -1,3 +1,8 @@
+// Clippy: FFI entry points in this module all follow the house safety
+// model (catch_unwind shields, sentinel returns, no panics across the
+// boundary — see the module docs); per-function `# Safety` boilerplate
+// would be copy-paste.
+#![allow(clippy::missing_safety_doc)]
 use std::collections::HashMap;
 use std::panic::catch_unwind;
 
@@ -69,6 +74,7 @@ pub unsafe extern "C" fn evaluate_continuum_batch(
             let mut norm_c = 0.0f32;
             let mut norm_m = 0.0f32;
 
+            #[allow(clippy::needless_range_loop)] // parallel vector lanes
             for j in 0..128 {
                 let cv = candidate_vec[j];
                 let mv = state.momentum_vector[j];
@@ -81,7 +87,7 @@ pub unsafe extern "C" fn evaluate_continuum_batch(
             let sim = (dot_product / denom).clamp(-1.0, 1.0);
 
             // 2. BPM Proximity Score
-            let cand_bpm = candidate_vec[0].abs().max(40.0).min(240.0);
+            let cand_bpm = candidate_vec[0].abs().clamp(40.0, 240.0);
             let bpm_diff = (cand_bpm - state.current_bpm).abs();
             let bpm_score = 30.0 * (-((bpm_diff * bpm_diff) / (2.0 * 25.0 * 25.0))).exp();
 
@@ -96,7 +102,7 @@ pub unsafe extern "C" fn evaluate_continuum_batch(
             // 5. Exploration Entropy Boost (Multi-Armed Bandit ε-Greedy)
             if state.exploration_entropy > 0.2 {
                 // Outlier exploration reward
-                let pseudo_rand = ((i as f32 * 17.31 + state.session_track_idx as f32 * 7.13).sin().abs());
+                let pseudo_rand = (i as f32 * 17.31 + state.session_track_idx as f32 * 7.13).sin().abs();
                 if pseudo_rand < state.exploration_entropy {
                     score += 25.0;
                 }
@@ -133,6 +139,7 @@ pub unsafe extern "C" fn commit_track_to_continuum(
         let alpha = 0.3f32;
         let one_minus_alpha = 0.7f32;
 
+        #[allow(clippy::needless_range_loop)] // EMA over parallel lanes
         for j in 0..128 {
             state.momentum_vector[j] = (state.momentum_vector[j] * one_minus_alpha) + (track_vec[j] * alpha);
         }
@@ -147,7 +154,7 @@ pub unsafe extern "C" fn commit_track_to_continuum(
         }
 
         // Natural session decay of older artist counts
-        if state.session_track_idx % 10 == 0 {
+        if state.session_track_idx.is_multiple_of(10) {
             for count in state.session_artist_counts.values_mut() {
                 if *count > 0 {
                     *count -= 1;

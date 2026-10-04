@@ -183,6 +183,7 @@ impl LyricAlignerEngine {
                 let mut max_energy = 0.0f32;
                 let mut peak_idx = start_idx;
 
+                #[allow(clippy::needless_range_loop)] // peak search keeps the index
                 for idx in min_idx..=max_idx {
                     if energy_100hz[idx] > max_energy {
                         max_energy = energy_100hz[idx];

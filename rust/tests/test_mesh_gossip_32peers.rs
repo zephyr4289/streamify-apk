@@ -192,8 +192,8 @@ fn jam_op_frames(count: usize) -> Vec<Vec<u8>> {
 type LogKey = (u64, u32);
 
 fn drain(
-    rxs: &mut Vec<Receiver<streamify_core_rs::p2p_mesh::InboundPacket>>,
-    logs: &mut Vec<HashMap<LogKey, Vec<u8>>>,
+    rxs: &mut [Receiver<streamify_core_rs::p2p_mesh::InboundPacket>],
+    logs: &mut [HashMap<LogKey, Vec<u8>>],
 ) {
     for (rx, log) in rxs.iter_mut().zip(logs.iter_mut()) {
         while let Ok(pkt) = rx.try_recv() {

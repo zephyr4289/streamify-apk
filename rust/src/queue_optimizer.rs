@@ -83,3 +83,9 @@ impl QueueOptimizer {
             || ((num1 == 1 && num2 == 12) || (num1 == 12 && num2 == 1)) && letter1 == letter2
     }
 }
+
+impl Default for QueueOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}

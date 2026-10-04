@@ -14,7 +14,7 @@
 //!      shape on REAL MeshNode instances over loopback UDP with a live
 //!      chaos driver blacking out random links mid-transfer.
 //!   3. [`lan_sync_session_survives_lossy_transport_and_intent_chaos`]
-//!      + [`two_way_sync_converges_both_libraries`] — the LAN sync
+//!      and [`two_way_sync_converges_both_libraries`] — the LAN sync
 //!      coordinator under 20% chunk-delivery loss, random pause/resume
 //!      interrupts, and full two-way catalog convergence.
 
@@ -316,6 +316,7 @@ async fn real_socket_ten_node_swarm_under_20pct_loss() {
     driver.abort();
 
     // ── end-to-end byte equivalence on every node ──
+    #[allow(clippy::needless_range_loop)] // node[i] labels in assertions
     for i in 1..N {
         let got = nodes[i]
             .swarm_take_track(TRACK_ID)
