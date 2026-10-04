@@ -299,9 +299,10 @@ class AndroidHapticActuator(context: android.content.Context) : HapticActuator {
                 context.getSystemService<android.os.Vibrator>()
             }
             vibrator = vib
-            if (vib == null || !vib.hasVibrator()) return
-            hasVibrator = true
-            hasAmplitudeControl = vib.hasAmplitudeControl()
+            if (vib != null && vib.hasVibrator()) {
+                hasVibrator = true
+                hasAmplitudeControl = vib.hasAmplitudeControl()
+            }
         } catch (_: Throwable) {
             // Custom ROMs: absorb init issues silently.
         }

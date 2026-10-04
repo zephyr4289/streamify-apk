@@ -79,7 +79,8 @@ class MainActivity : ComponentActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
-    override fun onNewIntent(intent: android.content.Intent?) {
+    // activity 1.9.x: ComponentActivity.onNewIntent takes a non-null Intent.
+    override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleSpotifyCallback(intent)

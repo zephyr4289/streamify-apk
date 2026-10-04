@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -288,13 +289,7 @@ fun SharedCoverMorphLayer(
 fun Modifier.reportBoundsTo(
     rect: MutableState<Rect>
 ): Modifier = this.onGloballyPositioned { coords ->
-    val pos = coords.positionInRoot()
-    rect.value = Rect(
-        left = pos.x,
-        top = pos.y,
-        right = pos.x + coords.size.width,
-        bottom = pos.y + coords.size.height
-    )
+    rect.value = coords.boundsInRoot()
 }
 
 /** Throttle-style helper: true when |v| commits a direction outright. */
