@@ -206,13 +206,15 @@ class HapticFeedbackManager(
     /**
      * Seek-scrub micro-ticks: call on every scrub position update; a tick is
      * emitted each time the scrubbed position crosses a 5-second audio
-     * boundary (independent of pixel detents), subject to throttling.
+     * boundary (independent of pixel detents), subject to throttling. The
+     * first call of a gesture always fires (arming tick).
      */
     fun onScrubPositionChanged(positionMs: Long) {
         val bucket = positionMs / SCRUB_BUCKET_MS
-        if (lastScrubBucket == null || bucket != lastScrubBucket) {
+        val isArming = lastScrubBucket == null
+        if (isArming || bucket != lastScrubBucket) {
             lastScrubBucket = bucket
-            trigger(HapticPattern.SCRUB_TICK, buildScrubTick(), force = lastScrubBucket == null)
+            trigger(HapticPattern.SCRUB_TICK, buildScrubTick(), force = isArming)
         }
     }
 
@@ -220,9 +222,10 @@ class HapticFeedbackManager(
     fun onVolumeFractionChanged(fraction: Float) {
         val clamped = fraction.coerceIn(0f, 1f)
         val bucket = (clamped * 10f).toInt()
-        if (lastVolumeBucket == null || bucket != lastVolumeBucket) {
+        val isArming = lastVolumeBucket == null
+        if (isArming || bucket != lastVolumeBucket) {
             lastVolumeBucket = bucket
-            trigger(HapticPattern.VOLUME_STEP, buildScrubTick(), force = lastVolumeBucket == null)
+            trigger(HapticPattern.VOLUME_STEP, buildScrubTick(), force = isArming)
         }
     }
 
@@ -316,8 +319,12 @@ class AndroidHapticActuator(context: android.content.Context) : HapticActuator {
                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O -> {
                     val amps = waveform.amplitudes
                         ?: IntArray(waveform.timings.size) { DEFAULT_AMP }
+                    // No amplitude control: keep the ON/OFF structure, map any
+                    // non-zero pulse to the platform default amplitude.
                     val scaled = if (!hasAmplitudeControl) {
-                        IntArray(amps.size) { if (it > 0) android.os.VibrationEffect.DEFAULT_AMPLITUDE else 0 }
+                        IntArray(amps.size) { i ->
+                            if (amps[i] > 0) android.os.VibrationEffect.DEFAULT_AMPLITUDE else 0
+                        }
                     } else amps
                     if (waveform.timings.isEmpty()) fallbackOneShot()
                     else android.os.VibrationEffect.createWaveform(waveform.timings, scaled, -1)

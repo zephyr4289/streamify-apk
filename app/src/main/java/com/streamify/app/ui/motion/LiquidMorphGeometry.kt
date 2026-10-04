@@ -132,13 +132,16 @@ object LiquidMorphGeometry {
 
     /**
      * Peek-preview reveal fraction (0..1) for the upcoming/previous track
-     * title: starts growing once the drag passes 55% of the trigger
-     * threshold and saturates just past it.
+     * title: dead zone until 55% of the trigger threshold, then a smoothstep
+     * ramp that saturates at ~85% of it — the preview is fully legible
+     * exactly when the arming haptic fires.
      */
     fun swipePeekFraction(rawDragPx: Float, thresholdPx: Float): Float {
         if (thresholdPx <= 0f) return 0f
         val mag = abs(rawDragPx)
-        val t = (mag / (thresholdPx * 0.85f)).coerceIn(0f, 1f)
+        val start = thresholdPx * 0.55f
+        if (mag <= start) return 0f
+        val t = ((mag - start) / (thresholdPx * 0.30f)).coerceIn(0f, 1f)
         return smoothstep(t)
     }
 

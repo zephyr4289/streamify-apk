@@ -174,8 +174,9 @@ class LiquidMorphGeometryTest {
     fun `peek fraction reveals only past half the threshold and saturates`() {
         val t = 200f
         assertEquals(0f, LiquidMorphGeometry.swipePeekFraction(0f, t), eps)
-        assertEquals(0f, LiquidMorphGeometry.swipePeekFraction(50f, t), eps)      // < 55% of threshold
-        assertTrue(LiquidMorphGeometry.swipePeekFraction(110f, t) > 0f)
+        assertEquals(0f, LiquidMorphGeometry.swipePeekFraction(50f, t), eps)      // dead zone (< 55%)
+        assertEquals(0f, LiquidMorphGeometry.swipePeekFraction(110f, t), eps)     // exactly at the dead-zone edge
+        assertTrue(LiquidMorphGeometry.swipePeekFraction(120f, t) > 0f)           // past the edge: revealing
         assertEquals(1f, LiquidMorphGeometry.swipePeekFraction(t, t), eps)        // saturated by threshold
         assertEquals(1f, LiquidMorphGeometry.swipePeekFraction(3f * t, t), eps)
     }
