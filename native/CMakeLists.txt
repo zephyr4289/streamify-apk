@@ -99,6 +99,9 @@ if (STREAMIFY_BUILD_TESTS)
         tests/test_audio_remuxer.cc
         tests/test_media_palette.cc
         tests/test_audio_sink_ringbuffer.cpp
+        # Phase-5: SIMD palette + WCAG contrast, lock-free frame pacer.
+        tests/test_palette_simd.cpp
+        tests/test_frame_pacer.cpp
         math/CandidateHasher.cc
         math/HarmonicTransitionEngine.cc
         math/CircadianCurves.cc
@@ -112,6 +115,10 @@ if (STREAMIFY_BUILD_TESTS)
         # Phase-4: SPSC audio sink + WearOS packetizer under test.
         src/audio_sink_ringbuffer.cpp
         src/wear_audio_encoder.cpp
+        # Phase-5: palette clustering + frame pacer under test.
+        src/palette_extractor_simd.cpp
+        src/frame_pacer_monitor.cpp
+        src/streamify_frame_palette.cpp
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
         dsp/ChannelOps.cc
