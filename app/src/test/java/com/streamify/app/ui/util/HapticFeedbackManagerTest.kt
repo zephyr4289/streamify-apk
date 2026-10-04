@@ -34,7 +34,7 @@ class HapticFeedbackManagerTest {
     }
 
     private fun manager(
-        actuator: RecordingActuator = RecordingActuator(),
+        actuator: HapticActuator = RecordingActuator(),
         clock: ManualClock = ManualClock()
     ): HapticFeedbackManager = HapticFeedbackManager(actuator, clock)
 
