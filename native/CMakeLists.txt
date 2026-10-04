@@ -34,6 +34,10 @@ add_library(streamify_native_core SHARED
     src/palette_extractor_simd.cpp
     # Phase-5: lock-free 120Hz frame pacing & jank monitor.
     src/frame_pacer_monitor.cpp
+    # Phase-5: frame pacer wire serialization + process-default instance.
+    src/streamify_frame_palette.cpp
+    # Phase-5: palette extraction & frame pacing JNI bridges.
+    src/jni_bridge_frame_palette.cpp
     # Phase-4: lock-free SPSC audio sink + SIMD sample converter.
     src/audio_sink_ringbuffer.cpp
     # Phase-4: companion WearOS frame packetizer & rate-limiting compressor.
