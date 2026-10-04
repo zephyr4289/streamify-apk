@@ -156,7 +156,7 @@ fn duration_math_is_exact() {
     assert_eq!(duration_ms_for_samples(100, 0), 0);
     assert_eq!(
         duration_ms_for_samples(usize::MAX, 8_000),
-        u32::MAX as u32 // saturates, never overflows
+        u32::MAX // saturates, never overflows
     );
 }
 
@@ -247,7 +247,7 @@ fn cache_disk_roundtrip_generate_save_load() {
 
     let pcm = sine_pcm(44_100, 31_000.0, 300.0, DEFAULT_SAMPLE_RATE_HZ as f32);
     let amps = generate_waveform(&pcm, 500).expect("generate");
-    let duration = duration_ms_for_samples(44_100, DEFAULT_SAMPLE_RATE_HZ as u32);
+    let duration = duration_ms_for_samples(44_100, DEFAULT_SAMPLE_RATE_HZ);
     save_cache(&path, duration, &amps).expect("save");
 
     // On-disk bytes are the canonical encoding.
