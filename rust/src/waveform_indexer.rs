@@ -141,8 +141,11 @@ struct BucketAcc {
 /// `[MIN_BUCKETS, MAX_BUCKETS]`. Returns exactly `bucket_count` bytes,
 /// each `0..=255`.
 ///
-/// If the clip is shorter than the bucket count, trailing buckets are
-/// zero (an empty bucket has no energy). Single pass, O(len).
+/// If the clip is shorter than the bucket count, the time-proportional
+/// bucket boundaries leave interior buckets empty (each bucket spans
+/// less than one sample of time): empty buckets render as zero while
+/// the covered ones still carry the correct energy. Single pass,
+/// O(len).
 pub fn generate_waveform(pcm_bytes: &[u8], bucket_count: usize) -> Result<Vec<u8>, WaveformError> {
     if !bucket_count_valid(bucket_count) {
         return Err(WaveformError::InvalidBucketCount(bucket_count));
@@ -196,7 +199,10 @@ pub fn duration_ms_for_samples(sample_count: usize, sample_rate_hz: u32) -> u32 
     if sample_rate_hz == 0 {
         return 0;
     }
-    ((sample_count as u64 * 1000) / sample_rate_hz as u64).min(u32::MAX as u64) as u32
+    // saturating_mul: u64::MAX frames × 1000 must not overflow debug
+    // builds; the clamp to u32::MAX dominates either way.
+    ((sample_count as u64).saturating_mul(1000) / sample_rate_hz as u64).min(u32::MAX as u64)
+        as u32
 }
 
 /// Zero-copy parsed view of a cache blob: the header fields plus the
