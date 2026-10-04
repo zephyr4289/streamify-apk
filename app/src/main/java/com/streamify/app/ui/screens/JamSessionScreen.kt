@@ -615,7 +615,13 @@ fun JamSessionScreen(
                                 onRemove = { track -> jamViewModel.removeFromJamQueue(track) },
                                 voteCountFor = { track -> jamViewModel.voteCountFor(track) },
                                 hasVotedFor = { track -> jamViewModel.hasVotedFor(track) },
-                                onUpvote = { track -> jamViewModel.castUpvote(track) }
+                                onUpvote = { track ->
+                                    // Phase 5 — energetic rising tactile pitch as
+                                    // the vote promotes the track.
+                                    com.streamify.app.ui.util.HapticFeedbackManager.get()
+                                        ?.jamUpvoteRising()
+                                    jamViewModel.castUpvote(track)
+                                }
                             )
                             if (jamQueue.size > maxCollapsedJamRows) {
                                 Text(
@@ -689,7 +695,7 @@ fun JamSessionScreen(
                     // never this screen, never the root scaffold. Tap any avatar
                     // for the governance / report surface (Gaps #14 & #18).
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        items(roster, key = { it.userId + it.nonce }) { m ->
+                        items(roster, key = { it.userId + it.nonce }, contentType = { "rosterAvatar" }) { m ->
                             RosterStripAvatar(member = m, onOpen = { showRosterSheet = true })
                         }
                     }
@@ -932,7 +938,7 @@ private fun JamAddSongModalBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
-                    itemsIndexed(displayTracks, key = { i, t -> "jam_${i}_${t.id}" }) { _, track ->
+                    itemsIndexed(displayTracks, key = { i, t -> "jam_${i}_${t.id}" }, contentType = { _, _ -> "trackRow" }) { _, track ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
