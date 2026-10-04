@@ -32,6 +32,8 @@ include_directories(
 add_library(streamify_native_core SHARED
     # Phase-5: SIMD palette clustering + WCAG contrast engine.
     src/palette_extractor_simd.cpp
+    # Phase-5: lock-free 120Hz frame pacing & jank monitor.
+    src/frame_pacer_monitor.cpp
     # Phase-4: lock-free SPSC audio sink + SIMD sample converter.
     src/audio_sink_ringbuffer.cpp
     # Phase-4: companion WearOS frame packetizer & rate-limiting compressor.
