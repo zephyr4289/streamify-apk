@@ -243,6 +243,34 @@ fun FullPlayerSheet(
         if (!canvasReady) canvasEnabled = false
     }
 
+    // ── Android 14+ Predictive Back (Gap: gesture navigation polish) ──────
+    // The system edge-swipe drives the liquid morph 1:1: the sheet scales
+    // down and translates toward the mini dock proportionally with the
+    // gesture. Completing the gesture pops into the mini player (controller
+    // collapse); cancelling springs the sheet back to fully expanded.
+    // Registered BEFORE the sub-sheet handlers so an open sub-sheet (added
+    // later = higher dispatcher priority) still wins the back event.
+    if (morphController != null) {
+        androidx.activity.compose.PredictiveBackHandler(
+            enabled = !showUpNextSheet && !showLyricsSheet &&
+                    !showCommentsSheet && !showRelatedSheet
+        ) { progress ->
+            try {
+                progress.collect { event ->
+                    // System progress 0..1 -> morph progress 1..0: the sheet
+                    // container transform (scale/translate/alpha) responds in
+                    // the draw phase; the shared cover morphs toward the dock.
+                    morphController.snapProgressTo(1f - event.progress)
+                }
+                // Flow completed normally: the system back gesture COMMITTED.
+                morphController.collapse()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Gesture cancelled (finger returned to the edge): spring back.
+                morphController.expand()
+            }
+        }
+    }
+
     // --- PILLAR 2: LIFO Sub-Sheet Back Trapping ---
     BackHandler(enabled = showUpNextSheet) {
         showUpNextSheet = false

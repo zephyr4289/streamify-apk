@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -59,6 +60,10 @@ fun MiniPlayerBar(
     alpha: Float = 1f,
     tokenController: QuantumSonicTokenController? = null,
     morphController: LiquidMorphController? = null,
+    /** Title of the next queue entry for the swipe-to-skip peek preview. */
+    nextTrackTitle: String? = null,
+    /** Title of the previous queue entry for the swipe-to-skip peek preview. */
+    previousTrackTitle: String? = null,
     modifier: Modifier = Modifier
 ) {
     if (track == null) return
@@ -108,8 +113,12 @@ fun MiniPlayerBar(
     )
 
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val swipeThresholdPx = with(density) { 75.dp.toPx() }
+    // 80dp trigger threshold (design spec): arming past it fires the haptic
+    // once and commits the skip on release.
+    val swipeThresholdPx = with(density) { 80.dp.toPx() }
     val dragOffsetX = remember { androidx.compose.animation.core.Animatable(0f) }
+    // Raw (unresisted) finger displacement — drives arming + peek reveal.
+    val rawDragX = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     val coroutineScope = rememberCoroutineScope()
 
     Surface(
@@ -183,16 +192,32 @@ fun MiniPlayerBar(
                     )
                 }
                 .pointerInput(Unit) {
+                    // Horizontal swipe-to-skip: 1:1 finger tracking with a
+                    // saturating spring-resistance tail past the 80dp trigger,
+                    // an arming haptic exactly at the threshold, and a
+                    // peek-preview of the destination track title.
+                    var rawDrag = 0f
+                    var armed = false
                     detectHorizontalDragGestures(
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            rawDrag += dragAmount
+                            rawDragX.floatValue = rawDrag
+                            coroutineScope.launch {
+                                dragOffsetX.snapTo(
+                                    LiquidMorphGeometry.swipeResistanceOffset(rawDrag, swipeThresholdPx)
+                                )
+                            }
+                            if (!armed && kotlin.math.abs(rawDrag) >= swipeThresholdPx) {
+                                armed = true
+                                // Trigger haptic at the 80dp drag threshold.
+                                com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
+                            }
+                        },
                         onDragEnd = {
                             coroutineScope.launch {
-                                val offset = dragOffsetX.value
-                                if (offset < -swipeThresholdPx) {
-                                    com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
-                                    onNext()
-                                } else if (offset > swipeThresholdPx) {
-                                    com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
-                                    onPrevious()
+                                if (armed) {
+                                    if (dragOffsetX.value < 0f) onNext() else onPrevious()
                                 }
                                 dragOffsetX.animateTo(
                                     targetValue = 0f,
@@ -202,12 +227,23 @@ fun MiniPlayerBar(
                                     )
                                 )
                             }
+                            rawDrag = 0f
+                            armed = false
+                            rawDragX.floatValue = 0f
                         },
-                        onHorizontalDrag = { change, dragAmount ->
-                            change.consume()
+                        onDragCancel = {
                             coroutineScope.launch {
-                                dragOffsetX.snapTo(dragOffsetX.value + dragAmount * 0.65f)
+                                dragOffsetX.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = androidx.compose.animation.core.spring(
+                                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                        stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+                                    )
+                                )
                             }
+                            rawDrag = 0f
+                            armed = false
+                            rawDragX.floatValue = 0f
                         }
                     )
                 }
@@ -341,6 +377,17 @@ fun MiniPlayerBar(
                 }
             }
 
+            // Swipe-to-skip peek preview — leaf-scoped: reads the raw drag
+            // State HERE so the reveal recomposes only this overlay, never
+            // the bar or the dock above it.
+            SwipePeekOverlay(
+                rawDragX = rawDragX,
+                thresholdPx = swipeThresholdPx,
+                dragOffsetX = dragOffsetX,
+                nextTitle = nextTrackTitle,
+                prevTitle = previousTrackTitle
+            )
+
             // 2dp Micro-Progress Bar — drawn flush at the bottom edge in the
             // DRAW PHASE via [Modifier.drawWithCache] + lambda state provider:
             // zero recomposition, zero remeasure, zero allocation per tick.
@@ -361,6 +408,67 @@ fun MiniPlayerBar(
                             )
                         }
                     }
+            )
+        }
+    }
+}
+
+/**
+ * Swipe-to-skip peek preview: as the horizontal drag approaches the 80dp
+ * trigger, the destination track's title (with a direction chevron) reveals
+ * itself from behind the sliding bar content via a counter-translated
+ * parallax layer. Recomposition is scoped to THIS leaf only.
+ */
+@Composable
+private fun SwipePeekOverlay(
+    rawDragX: androidx.compose.runtime.State<Float>,
+    thresholdPx: Float,
+    dragOffsetX: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
+    nextTitle: String?,
+    prevTitle: String?
+) {
+    val raw = rawDragX.value
+    if (raw == 0f) return
+    val towardNext = raw < 0f
+    val title = (if (towardNext) nextTitle else prevTitle) ?: return
+    val peek = LiquidMorphGeometry.swipePeekFraction(raw, thresholdPx)
+    if (peek <= 0.01f) return
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                // Counter-translate: the preview emerges from behind the
+                // bar content that slides away with the resisted drag.
+                translationX = -dragOffsetX.value * 0.85f
+                alpha = peek
+            },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        if (!towardNext) {
+            Icon(
+                imageVector = Icons.Filled.SkipPrevious,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+        Text(
+            text = title,
+            style = LocalAppTypography.current.songArtist,
+            color = TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 180.dp)
+        )
+        if (towardNext) {
+            Spacer(modifier = Modifier.width(6.dp))
+            Icon(
+                imageVector = Icons.Filled.SkipNext,
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(18.dp)
             )
         }
     }

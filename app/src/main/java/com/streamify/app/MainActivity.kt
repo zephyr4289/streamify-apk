@@ -570,7 +570,13 @@ class MainActivity : ComponentActivity() {
                                                         miniDockDismissedForTrack = playerState.currentTrack?.id
                                                     },
                                                     tokenController = quantumController,
-                                                    morphController = morphController
+                                                    morphController = morphController,
+                                                    nextTrackTitle = playerState.queue.getOrNull(
+                                                        playerState.currentIndex + 1
+                                                    )?.title,
+                                                    previousTrackTitle = playerState.queue.getOrNull(
+                                                        playerState.currentIndex - 1
+                                                    )?.title
                                                 )
                                                 }
                                             }

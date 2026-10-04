@@ -1,5 +1,7 @@
 package com.streamify.app.ui.motion
 
+import kotlin.math.abs
+
 /**
  * Pure geometry & easing math for the MiniPlayer <-> FullPlayer liquid sheet
  * morph. Everything here is a pure function of the morph progress
@@ -99,6 +101,45 @@ object LiquidMorphGeometry {
     fun dragToProgress(dragPx: Float, travelPx: Float): Float {
         if (travelPx <= 0f) return 0f
         return (dragPx / travelPx).coerceIn(0f, 1f)
+    }
+
+    // ── Horizontal swipe-to-skip resistance ───────────────────────────────
+
+    /** 80dp trigger threshold for the mini-player swipe-to-skip gesture. */
+    const val SKIP_TRIGGER_DP = 80f
+
+    /**
+     * Spring-resisted visual offset for the mini-player horizontal swipe:
+     * exactly 1:1 with the finger inside the trigger threshold, then a
+     * smooth saturating tanh tail beyond it so the card feels increasingly
+     * reluctant to leave — subtle resistance without dead motion.
+     */
+    fun swipeResistanceOffset(rawDragPx: Float, thresholdPx: Float): Float {
+        if (thresholdPx <= 0f) return 0f
+        val raw = rawDragPx
+        val sign = if (raw < 0f) -1f else 1f
+        val mag = abs(raw)
+        val offset = if (mag <= thresholdPx) {
+            mag
+        } else {
+            // C1-continuous tail: value & slope match the linear segment at
+            // the seam (threshold, threshold) -> tanh blended beyond it.
+            thresholdPx + thresholdPx * 0.75f *
+                    kotlin.math.tanh((mag - thresholdPx) / (thresholdPx * 0.75f))
+        }
+        return sign * offset
+    }
+
+    /**
+     * Peek-preview reveal fraction (0..1) for the upcoming/previous track
+     * title: starts growing once the drag passes 55% of the trigger
+     * threshold and saturates just past it.
+     */
+    fun swipePeekFraction(rawDragPx: Float, thresholdPx: Float): Float {
+        if (thresholdPx <= 0f) return 0f
+        val mag = abs(rawDragPx)
+        val t = (mag / (thresholdPx * 0.85f)).coerceIn(0f, 1f)
+        return smoothstep(t)
     }
 
     /**
