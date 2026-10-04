@@ -53,6 +53,7 @@ pub mod wear_sync;
 // spring/fling solver with edge rubberbanding, peak-preserving RMS
 // waveform downsampling with a compact binary cache.
 pub mod gesture_physics;
+pub mod jni_bridge_physics_waveform;
 pub mod waveform_indexer;
 pub mod queue_optimizer;
 pub mod radio_scorer;
