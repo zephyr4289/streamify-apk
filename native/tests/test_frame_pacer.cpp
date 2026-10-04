@@ -447,10 +447,19 @@ int run_frame_pacer_tests() {
 
     // ---- K. Lock-freedom --------------------------------------------------------------------------
     {
-        std::atomic<uint64_t> u64probe{0};
-        std::atomic<uint32_t> u32probe{0};
-        check(u64probe.is_lock_free() && u32probe.is_lock_free(),
-              "lockfree: 64/32-bit atomics are lock-free on this ABI");
+        // Compile-time proof — stronger than runtime is_lock_free() probes,
+        // whose out-of-line __atomic_is_lock_free reference the suite target
+        // does not link (-latomic absent; clang+LTO keeps the libcalls where
+        // GCC folds them away). Zero linkage, zero runtime cost.
+        static_assert(std::atomic<uint64_t>::is_always_lock_free,
+                      "64-bit atomics must be lock-free on this ABI");
+        static_assert(std::atomic<uint32_t>::is_always_lock_free,
+                      "32-bit atomics must be lock-free on this ABI");
+        static_assert(ATOMIC_INT_LOCK_FREE == 2,
+                      "int atomics must be always lock-free");
+        static_assert(ATOMIC_POINTER_LOCK_FREE == 2,
+                      "pointer atomics must be always lock-free");
+        check(true, "lockfree: 64/32-bit atomics are lock-free on this ABI");
     }
 
     // ---- L. JNI support layer: 192-byte wire layout -------------------------------------------------
