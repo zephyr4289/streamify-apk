@@ -189,6 +189,12 @@ if (STREAMIFY_BUILD_FUZZERS)
     endif()
     add_executable(dsp_fuzzer_harness
         fuzz/dsp_fuzzer_harness.cc
+        # Phase-5 palette/frame-pacer fuzz cases, composed into the shared
+        # entry (no LLVMFuzzerTestOneInput of its own in this mode).
+        tests/fuzz_palette.cpp
+        src/palette_extractor_simd.cpp
+        src/frame_pacer_monitor.cpp
+        src/streamify_frame_palette.cpp
         dsp/SoftKneeLimiter.cc
         dsp/LufsNormalizer.cc
         dsp/ChannelOps.cc
@@ -211,6 +217,9 @@ if (STREAMIFY_BUILD_FUZZERS)
     target_compile_options(dsp_fuzzer_harness PRIVATE
         -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -fno-fast-math -O1 -g
     )
+    # fuzz_palette.cpp joins WITHOUT its own libFuzzer entry point.
+    set_source_files_properties(tests/fuzz_palette.cpp PROPERTIES
+        COMPILE_DEFINITIONS "STREAMIFY_FUZZ_COMPOSED")
     target_link_options(dsp_fuzzer_harness PRIVATE
         -fsanitize=fuzzer,address,undefined -fno-fast-math
     )
@@ -230,4 +239,22 @@ if (STREAMIFY_BUILD_FUZZERS)
     target_link_options(audio_sink_fuzz_harness PRIVATE
         -fsanitize=fuzzer,address,undefined -fno-fast-math
     )
-endif()
+
+    # Phase-5: arbitrary image bitstreams (corrupt dimensions/strides/buffers,
+    # extreme RGB) through the SIMD palette extractor + WCAG contract, and
+    # corrupted frame histograms through the lock-free pacer (-DSTREAMIFY_
+    # FUZZ_STANDALONE mutator driver for sanitizer-only environments).
+    add_executable(frame_palette_fuzz_harness
+        tests/fuzz_palette.cpp
+        src/palette_extractor_simd.cpp
+        src/frame_pacer_monitor.cpp
+        src/streamify_frame_palette.cpp
+    )
+    target_include_directories(frame_palette_fuzz_harness PRIVATE include src util .)
+    target_compile_options(frame_palette_fuzz_harness PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -fno-fast-math -O1 -g
+    )
+    target_link_options(frame_palette_fuzz_harness PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-fast-math
+    )
+    endif()
