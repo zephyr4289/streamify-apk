@@ -23,10 +23,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.streamify.app.data.models.Track
+import com.streamify.app.ui.motion.LiquidMorphController
+import com.streamify.app.ui.motion.LiquidMorphGeometry
+import com.streamify.app.ui.motion.reportBoundsTo
 import com.streamify.app.ui.theme.*
 
 import androidx.compose.animation.AnimatedContent
@@ -54,6 +58,7 @@ fun MiniPlayerBar(
     onSwipeDown: (() -> Unit)? = null,
     alpha: Float = 1f,
     tokenController: QuantumSonicTokenController? = null,
+    morphController: LiquidMorphController? = null,
     modifier: Modifier = Modifier
 ) {
     if (track == null) return
@@ -113,10 +118,17 @@ fun MiniPlayerBar(
             .fillMaxWidth()
             .height(64.dp)
             .graphicsLayer {
-                this.alpha = alpha
-                this.scaleX = recoilScaleX
-                this.scaleY = recoilScaleY
+                // Liquid-morph response: the dock fades, lifts and shrinks as
+                // the shared cover layer expands toward the FullPlayerSheet.
+                // Read inside the lambda -> draw-phase-only invalidation.
+                val morphP = morphController?.progress?.value ?: 0f
+                this.alpha = alpha * LiquidMorphGeometry.miniBarAlpha(morphP)
+                val shrink = 1f - 0.04f * morphP
+                this.scaleX = recoilScaleX * shrink
+                this.scaleY = recoilScaleY * shrink
                 this.translationX = dragOffsetX.value
+                this.translationY =
+                    -LiquidMorphGeometry.miniBarLiftFraction(morphP) * 64.dp.toPx()
             }
     ) {
         Box(
@@ -125,23 +137,49 @@ fun MiniPlayerBar(
                 .pointerInput(Unit) {
                     detectTapGestures(onTap = { onExpand() })
                 }
-                .pointerInput(Unit) {
-                    // Swipe-down dismisses the dock for the current track
-                    // (auto-restores when the next track starts).
+                .pointerInput(morphController) {
+                    // Vertical gestures, sign-resolved:
+                    //  - UPWARD drag -> liquid morph expansion of the
+                    //    FullPlayerSheet, 1:1 with the finger (drag-to-open).
+                    //  - DOWNWARD flick past the dismiss threshold -> dock
+                    //    dismissal for the current track (auto-restores when
+                    //    the next track starts).
                     var totalDragY = 0f
+                    var expandGesture = false
+                    val tracker = VelocityTracker()
                     detectVerticalDragGestures(
+                        onDragStart = { tracker.resetTracking() },
                         onVerticalDrag = { change, dragAmount ->
                             change.consume()
+                            tracker.addPosition(change.uptimeMillis, change.position)
                             totalDragY += dragAmount
+                            if (!expandGesture && totalDragY < -12f && morphController != null) {
+                                expandGesture = true
+                                morphController.beginGesture(fromExpanded = false)
+                            }
+                            if (expandGesture) {
+                                // dy < 0 while expanding: negate -> progress rises.
+                                morphController?.dragBy(-dragAmount)
+                            }
                         },
                         onDragEnd = {
-                            if (totalDragY > 140f) {
+                            val velocityY = tracker.calculateVelocity().y
+                            if (expandGesture) {
+                                morphController?.endGesture(velocityPxPerSec = -velocityY)
+                            } else if (totalDragY > 140f) {
                                 com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
                                 currentOnSwipeDown?.invoke()
                             }
                             totalDragY = 0f
+                            expandGesture = false
                         },
-                        onDragCancel = { totalDragY = 0f }
+                        onDragCancel = {
+                            if (expandGesture) {
+                                morphController?.cancelGesture()
+                            }
+                            totalDragY = 0f
+                            expandGesture = false
+                        }
                     )
                 }
                 .pointerInput(Unit) {
@@ -180,12 +218,22 @@ fun MiniPlayerBar(
                     .padding(start = 8.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 48x48 Album Art
+                // 48x48 Album Art — 8dp corner radius (morph endpoint spec).
+                // Root-coordinate bounds are reported to the liquid morph
+                // controller so the shared cover layer can interpolate from
+                // this exact rect up to the FullPlayer hero art rect.
                 Box(
                     modifier = Modifier
                         .size(48.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(BgCard),
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(BgCard)
+                        .then(
+                            if (morphController != null) {
+                                Modifier.reportBoundsTo(morphController.miniCoverRect)
+                            } else {
+                                Modifier
+                            }
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (!track.coverArtPath.isNullOrBlank()) {
