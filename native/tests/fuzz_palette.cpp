@@ -215,10 +215,10 @@ static void FuzzFramePacer(const uint8_t* data, size_t size) {
         ++expect_total;
         if (d > kFrameBudget120HzNs) ++expect_j120;
         if (d > kFrameBudget60HzNs) ++expect_j60;
-        const __int128 a = off < 0
-            ? -static_cast<__int128>(off)
-            : static_cast<__int128>(off);
-        if (a > static_cast<__int128>(kVsyncMisalignToleranceNs)) ++expect_mis;
+        const uint64_t a = off >= 0
+            ? static_cast<uint64_t>(off)
+            : ~static_cast<uint64_t>(off) + 1ull;  // |i64| as u64 (no __int128)
+        if (a > static_cast<uint64_t>(kVsyncMisalignToleranceNs)) ++expect_mis;
         last_durs[last_n++ % kFrameRingSlots] = d;  // rolling last-512
     }
 

@@ -8,10 +8,12 @@
 //  the host test suites can link it directly (the JNI bridge layer owns the
 //  Android-side glue).
 //
-//  Portability note: __int128 is used for overflow-proof accumulation of
-//  fuzzed i64 VSYNC offsets and u64 variance sums. Every target ABI of this
-//  project (aarch64-linux-android, armv7a-linux-androideabi with NEON,
-//  x86_64) is GCC/Clang, where __int128 is a first-class type.
+//  Portability note: accumulation of fuzzed i64 VSYNC offsets (up to
+//  512 x 2^63) and u64 variance sums (up to 512 x (6e11)^2 < 2^88) uses the
+//  exact 128-bit software accumulator below — armeabi-v7a's 32-bit Clang
+//  has no __int128. Saturation happens only at the final narrowing, exactly
+//  like the original __int128 formulation (bit-for-bit, including the
+//  INT64_MIN/INT64_MAX cancellation case pinned by the unit tests).
 // ============================================================================
 
 #include "../include/frame_pacer_monitor.h"
@@ -37,24 +39,102 @@ uint64_t NowNs() {
 
 namespace {
 
-// Saturating narrowing from __int128 to the output integer types, so fuzzer
-// extremes (offsets near +-2^63, 512 of them) can never wrap a stat.
-inline uint64_t SaturateU64(__int128 v) {
-    if (v <= 0) return 0;
-    if (v > static_cast<__int128>(UINT64_MAX)) return UINT64_MAX;
-    return static_cast<uint64_t>(v);
+// ---- exact 128-bit unsigned accumulator (no __int128) ------------------------
+// All sums in this TU fit with room to spare (< 2^89), so every operation
+// below is EXACT; only the final narrowing saturates.
+struct U128 {
+    uint64_t hi;
+    uint64_t lo;
+};
+
+constexpr U128 kU128Zero{0, 0};
+
+inline U128 U128Add64(const U128& a, uint64_t b) {
+    U128 r{a.hi, a.lo + b};
+    if (r.lo < a.lo) ++r.hi;  // carry
+    return r;
 }
 
-inline int64_t SaturateI64(__int128 v) {
-    if (v > static_cast<__int128>(INT64_MAX)) return INT64_MAX;
-    if (v < static_cast<__int128>(INT64_MIN)) return INT64_MIN;
-    return static_cast<int64_t>(v);
+inline U128 U128Add(const U128& a, const U128& b) {
+    U128 r{a.hi + b.hi, a.lo + b.lo};
+    if (r.lo < a.lo) ++r.hi;
+    return r;
 }
 
-// |x| for the full i64 range without UB (INT64_MIN negation).
-inline __int128 AbsI64(int64_t x) {
-    const __int128 v = static_cast<__int128>(x);
-    return v < 0 ? -v : v;
+inline U128 U128Sub(const U128& a, const U128& b) {  // requires a >= b
+    U128 r{a.hi - b.hi, a.lo - b.lo};
+    if (a.lo < b.lo) --r.hi;  // borrow
+    return r;
+}
+
+inline int U128Cmp(const U128& a, const U128& b) {
+    if (a.hi != b.hi) return a.hi < b.hi ? -1 : 1;
+    if (a.lo != b.lo) return a.lo < b.lo ? -1 : 1;
+    return 0;
+}
+
+// Exact 64x64 -> 128 multiply (schoolbook, 32-bit limbs).
+inline U128 U128Mul64(uint64_t a, uint64_t b) {
+    const uint64_t aL = a & 0xffffffffull, aH = a >> 32;
+    const uint64_t bL = b & 0xffffffffull, bH = b >> 32;
+    const uint64_t ll = aL * bL;
+    const uint64_t lh = aL * bH;
+    const uint64_t hl = aH * bL;
+    const uint64_t hh = aH * bH;
+    const uint64_t mid = lh + hl;
+    const uint64_t midCarry = (mid < lh) ? 1u : 0u;
+    U128 r;
+    r.lo = ll + (mid << 32);
+    const uint64_t loCarry = (r.lo < ll) ? 1u : 0u;
+    r.hi = hh + midCarry + (mid >> 32) + loCarry;
+    return r;
+}
+
+// Truncated division by a small nonzero divisor (n <= 512 here; the limb
+// math holds for any d in [1, 2^32)).
+inline U128 U128DivSmall(const U128& a, uint32_t d) {
+    U128 q{kU128Zero};
+    q.hi = a.hi / d;
+    uint64_t rem = a.hi % d;  // < d < 2^32
+    const uint64_t t1 = (rem << 32) | (a.lo >> 32);
+    const uint64_t qMid = t1 / d;
+    rem = t1 % d;
+    const uint64_t t2 = (rem << 32) | (a.lo & 0xffffffffull);
+    const uint64_t qLow = t2 / d;
+    q.hi += qMid >> 32;
+    q.lo = (qMid << 32) + qLow;
+    if (q.lo < qLow) ++q.hi;
+    return q;
+}
+
+// |x| for the full i64 range as u64 (INT64_MIN -> 2^63), well-defined.
+inline uint64_t AbsU64(int64_t x) {
+    return x >= 0 ? static_cast<uint64_t>(x)
+                  : ~static_cast<uint64_t>(x) + 1ull;
+}
+
+// ---- saturating narrowings -----------------------------------------------------
+inline uint64_t U128ToU64Saturate(const U128& v) {
+    return v.hi != 0 ? UINT64_MAX : v.lo;
+}
+
+inline int64_t U128ToI64Saturate(const U128& v) {  // positive magnitude
+    if (v.hi != 0 || v.lo > static_cast<uint64_t>(INT64_MAX)) return INT64_MAX;
+    return static_cast<int64_t>(v.lo);
+}
+
+inline int64_t U128ToI64NegSaturate(const U128& v) {  // negated magnitude
+    // magnitude == 2^63 maps exactly onto INT64_MIN (C++20 two's complement).
+    if (v.hi != 0 || v.lo > 0x8000000000000000ull) return INT64_MIN;
+    return static_cast<int64_t>(0ull - v.lo);
+}
+
+// hi == 0 (every unit-tested window keeps var < 2^64) is bit-identical to a
+// native 128 -> double conversion; hi != 0 differs by at most 1 ulp, deep in
+// territory no assertion inspects.
+inline double U128ToDouble(const U128& v) {
+    return static_cast<double>(v.hi) * 18446744073709551616.0 +
+           static_cast<double>(v.lo);
 }
 
 // Nearest-rank percentile index for n samples (1-based rank = ceil(p*n/100),
@@ -127,8 +207,8 @@ void FramePacerMonitor::RecordFrame(uint64_t duration_ns,
     if (duration_ns > kFrameBudget60HzNs) {
         counters_.janky_60.fetch_add(1, std::memory_order_relaxed);
     }
-    if (AbsI64(vsync_offset_ns) >
-        static_cast<__int128>(kVsyncMisalignToleranceNs)) {
+    if (AbsU64(vsync_offset_ns) >
+        static_cast<uint64_t>(kVsyncMisalignToleranceNs)) {
         counters_.misaligned.fetch_add(1, std::memory_order_relaxed);
     }
     const uint64_t tm = counters_.total_max.load(std::memory_order_relaxed);
@@ -189,38 +269,49 @@ bool FramePacerMonitor::GetStats(FramePacerStats* out) const {
         st.window_p99_ns = durations_scratch_[PercentileIndex(n, 99)];
         st.window_max_ns = durations_scratch_[n - 1];
 
-        __int128 sum = 0;
+        U128 sum = kU128Zero;
         for (uint32_t i = 0; i < n; ++i) {
-            sum += durations_scratch_[i];
+            sum = U128Add64(sum, durations_scratch_[i]);
         }
-        const uint64_t mean = SaturateU64(sum / n);
+        const uint64_t mean = U128ToU64Saturate(U128DivSmall(sum, n));
         st.window_mean_ns = mean;
         st.estimated_fps = mean > 0 ? 1000000000.0 / static_cast<double>(mean) : 0.0;
 
-        __int128 var = 0;
+        U128 var = kU128Zero;
         for (uint32_t i = 0; i < n; ++i) {
-            const __int128 diff =
-                static_cast<__int128>(durations_scratch_[i]) -
-                static_cast<__int128>(mean);
-            var += diff * diff;
+            const uint64_t d = durations_scratch_[i];
+            const uint64_t diff = d >= mean ? d - mean : mean - d;
+            var = U128Add(var, U128Mul64(diff, diff));
         }
-        st.window_stddev_ns = SaturateU64(
-            static_cast<__int128>(std::sqrt(static_cast<double>(var) /
-                                            static_cast<double>(n)) +
-                                  0.5));
+        const double sd =
+            std::sqrt(U128ToDouble(var) / static_cast<double>(n)) + 0.5;
+        st.window_stddev_ns =
+            sd >= 18446744073709551616.0 ? UINT64_MAX
+                                         : static_cast<uint64_t>(sd);
 
-        __int128 off_sum = 0;
-        __int128 abs_sum = 0;
-        __int128 abs_max = 0;
+        U128 pos = kU128Zero;  // sum of positive offsets
+        U128 neg = kU128Zero;  // sum of |negative offsets|
+        U128 abs_sum = kU128Zero;
+        uint64_t abs_max = 0;
         for (uint32_t i = 0; i < n; ++i) {
-            const __int128 a = AbsI64(offsets_scratch_[i]);
-            off_sum += offsets_scratch_[i];
-            abs_sum += a;
+            const uint64_t a = AbsU64(offsets_scratch_[i]);
+            if (offsets_scratch_[i] >= 0) {
+                pos = U128Add64(pos, a);
+            } else {
+                neg = U128Add64(neg, a);
+            }
+            abs_sum = U128Add64(abs_sum, a);
             if (a > abs_max) abs_max = a;
         }
-        st.vsync_mean_offset_ns = SaturateI64(off_sum / n);
-        st.vsync_abs_mean_ns = SaturateU64(abs_sum / n);
-        st.vsync_max_abs_ns = SaturateU64(abs_max);
+        st.vsync_abs_mean_ns = U128ToU64Saturate(U128DivSmall(abs_sum, n));
+        st.vsync_max_abs_ns = abs_max;  // <= 2^63: always fits u64
+        // Exact signed mean: magnitude of (pos - neg), truncated division by
+        // n, sign reapplied, saturating narrow (INT64_MIN-safe).
+        const int sign = U128Cmp(pos, neg);
+        const U128 mag = sign >= 0 ? U128Sub(pos, neg) : U128Sub(neg, pos);
+        const U128 magq = U128DivSmall(mag, n);
+        st.vsync_mean_offset_ns = sign >= 0 ? U128ToI64Saturate(magq)
+                                            : U128ToI64NegSaturate(magq);
     }
 
     // Cumulative counters: one seqlock-validated group read (relaxed atomic

@@ -22,7 +22,6 @@
 #include "../include/palette_extractor_simd.h"
 
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <cstring>
 
@@ -43,6 +42,16 @@
 #endif
 
 namespace streamify {
+namespace {
+
+// floor(log2(v)) for v >= 1 — portable stand-in for std::bit_width(v) - 1.
+// NDK r25's libc++ predates <bit>'s bit_width; __builtin_clz is a GCC/Clang
+// builtin present on every ABI this project ships (aarch64, armv7-a, x86_64).
+inline uint32_t FloorLog2NonZero(uint32_t v) {
+    return 31u - static_cast<uint32_t>(__builtin_clz(v));
+}
+
+}  // namespace
 namespace palette_simd {
 
 namespace {
@@ -410,7 +419,7 @@ bool SimdPaletteExtractor::Quantize() {
         const uint32_t pop = hist_pop_[bin];
         if (pop == 0) continue;
         ++populated;
-        ++bucket_count[std::bit_width(pop) - 1];  // floor(log2(pop))
+        ++bucket_count[FloorLog2NonZero(pop)];  // floor(log2(pop))
     }
     if (populated == 0) return false;
 
@@ -443,7 +452,7 @@ bool SimdPaletteExtractor::Quantize() {
              ++bin) {
             const uint32_t pop = hist_pop_[bin];
             if (pop == 0) continue;
-            const int b = static_cast<int>(std::bit_width(pop)) - 1;
+            const int b = static_cast<int>(FloorLog2NonZero(pop));
             if (b > bstar) {
                 BinEntry& e = bins_[retained++];
                 e.idx = static_cast<uint16_t>(bin);
