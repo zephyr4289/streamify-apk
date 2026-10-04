@@ -1,6 +1,5 @@
 package com.streamify.app.ui.components
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -19,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -57,9 +57,13 @@ fun MiniPlayerBar(
     modifier: Modifier = Modifier
 ) {
     if (track == null) return
-    // Snapshot-backed subscription: reading .value inside the Canvas draw
-    // scope below triggers REDRAW-ONLY invalidation per tick.
+    // Snapshot-backed subscription: the State object is created here but its
+    // value is ONLY read inside the draw lambda of the 2dp strip below —
+    // 5Hz playback ticks trigger DRAW-ONLY invalidation of that strip,
+    // never a recomposition of this bar or the dock above it.
     val progressState = progressFlow.collectAsState()
+    // Lambda state provider (120Hz draw-phase contract): deferred read.
+    val progressProvider: () -> Float = { progressState.value.coerceIn(0f, 1f) }
     // Always-current callback reference for long-lived pointer detectors.
     val currentOnSwipeDown by androidx.compose.runtime.rememberUpdatedState(onSwipeDown)
 
@@ -289,26 +293,27 @@ fun MiniPlayerBar(
                 }
             }
 
-            // 2dp Micro-Progress Bar (Canvas drawn flush at the very bottom edge)
-            Canvas(
+            // 2dp Micro-Progress Bar — drawn flush at the bottom edge in the
+            // DRAW PHASE via [Modifier.drawWithCache] + lambda state provider:
+            // zero recomposition, zero remeasure, zero allocation per tick.
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp)
                     .align(Alignment.BottomCenter)
-            ) {
-                // Background track
-                drawRect(
-                    color = Divider,
-                    size = size
-                )
-                // Active progress (YouTube Stark White or Red).
-                // Snapshot read inside draw: ticks redraw this 2dp strip only.
-                val clampedProgress = progressState.value.coerceIn(0f, 1f)
-                drawRect(
-                    color = ActiveControl,
-                    size = Size(width = size.width * clampedProgress, height = size.height)
-                )
-            }
+                    .drawWithCache {
+                        val inactive = Divider
+                        val active = ActiveControl
+                        onDrawBehind {
+                            drawRect(color = inactive, size = size)
+                            val fraction = progressProvider()
+                            drawRect(
+                                color = active,
+                                size = Size(width = size.width * fraction, height = size.height)
+                            )
+                        }
+                    }
+            )
         }
     }
 }
