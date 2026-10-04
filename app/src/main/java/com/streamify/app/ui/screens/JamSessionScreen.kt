@@ -615,7 +615,13 @@ fun JamSessionScreen(
                                 onRemove = { track -> jamViewModel.removeFromJamQueue(track) },
                                 voteCountFor = { track -> jamViewModel.voteCountFor(track) },
                                 hasVotedFor = { track -> jamViewModel.hasVotedFor(track) },
-                                onUpvote = { track -> jamViewModel.castUpvote(track) }
+                                onUpvote = { track ->
+                                    // Phase 5 — energetic rising tactile pitch as
+                                    // the vote promotes the track.
+                                    com.streamify.app.ui.util.HapticFeedbackManager.get()
+                                        ?.jamUpvoteRising()
+                                    jamViewModel.castUpvote(track)
+                                }
                             )
                             if (jamQueue.size > maxCollapsedJamRows) {
                                 Text(

@@ -348,7 +348,9 @@ fun QueueScreen(
                         onDragStart = {
                             draggedItemIndex = index
                             draggedItemOffset = 0f
-                            com.streamify.app.util.StreamifyHapticEngine.queueGrab()
+                            // Phase 5 — firm grab click on long-press pickup.
+                            com.streamify.app.ui.util.HapticFeedbackManager.get()?.queueGrab()
+                                ?: com.streamify.app.util.StreamifyHapticEngine.queueGrab()
                         },
                         onDragMove = { deltaY ->
                             draggedItemOffset += deltaY
@@ -360,12 +362,16 @@ fun QueueScreen(
                                 playerViewModel.reorderQueue(absFrom, absTo)
                                 draggedItemIndex = targetIndex
                                 draggedItemOffset = 0f
-                                com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
+                                // Phase 5 — subtle tick across index boundaries.
+                                com.streamify.app.ui.util.HapticFeedbackManager.get()?.queueBoundaryTick()
+                                    ?: com.streamify.app.util.StreamifyHapticEngine.magneticDetent()
                             }
                         },
                         onDragEnd = {
                             draggedItemIndex = null
                             draggedItemOffset = 0f
+                            // Phase 5 — soft drop thud on release.
+                            com.streamify.app.ui.util.HapticFeedbackManager.get()?.queueDrop()
                         },
                         onClick = {
                             onTrackClick(track.id)

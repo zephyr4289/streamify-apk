@@ -520,7 +520,8 @@ fun FullPlayerSheet(
                         }
 
                         IconButton(onClick = {
-                            com.streamify.app.util.StreamifyHapticEngine.heartbeatFlutter()
+                            com.streamify.app.ui.util.HapticFeedbackManager.get()?.likeHeartbeat()
+                                ?: com.streamify.app.util.StreamifyHapticEngine.heartbeatFlutter()
                             onToggleLike()
                         }) {
                             Icon(
@@ -538,7 +539,8 @@ fun FullPlayerSheet(
                     YtPlayerActionPills(
                         isLiked = track.isLiked,
                         onToggleLike = {
-                            com.streamify.app.util.StreamifyHapticEngine.heartbeatFlutter()
+                            com.streamify.app.ui.util.HapticFeedbackManager.get()?.likeHeartbeat()
+                                ?: com.streamify.app.util.StreamifyHapticEngine.heartbeatFlutter()
                             onToggleLike()
                         },
                         onCommentsClick = { showCommentsSheet = true },
@@ -1033,7 +1035,8 @@ fun FullPlayerSheet(
                             )
                         }
 
-                        // 64dp YouTube Music White Play Button
+                        // 64dp YouTube Music White Play Button — crisp
+                        // confirmation click (Phase 5 haptic engine).
                         Box(
                             modifier = Modifier
                                 .size(64.dp)
@@ -1042,7 +1045,8 @@ fun FullPlayerSheet(
                             contentAlignment = Alignment.Center
                         ) {
                             IconButton(onClick = {
-                                com.streamify.app.util.StreamifyHapticEngine.playbackPulse()
+                                com.streamify.app.ui.util.HapticFeedbackManager.get()?.playPauseClick()
+                                    ?: com.streamify.app.util.StreamifyHapticEngine.playbackPulse()
                                 onPlayPause()
                             }) {
                                 AnimatedContent(

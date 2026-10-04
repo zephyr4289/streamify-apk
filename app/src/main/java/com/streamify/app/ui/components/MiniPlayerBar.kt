@@ -208,10 +208,11 @@ fun MiniPlayerBar(
                                     LiquidMorphGeometry.swipeResistanceOffset(rawDrag, swipeThresholdPx)
                                 )
                             }
-                            if (!armed && kotlin.math.abs(rawDrag) >= swipeThresholdPx) {
+                                if (!armed && kotlin.math.abs(rawDrag) >= swipeThresholdPx) {
                                 armed = true
                                 // Trigger haptic at the 80dp drag threshold.
-                                com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
+                                com.streamify.app.ui.util.HapticFeedbackManager.get()?.skipTrigger()
+                                    ?: com.streamify.app.util.StreamifyHapticEngine.tokenImpactDetent()
                             }
                         },
                         onDragEnd = {
@@ -313,10 +314,12 @@ fun MiniPlayerBar(
                     )
                 }
 
-                // Like / Heart Action
+                // Like / Heart Action — dual-pulse heartbeat, synchronized
+                // with the expanding heart-burst animation.
                 if (onToggleLike != null) {
                     IconButton(onClick = {
-                        com.streamify.app.util.StreamifyHapticEngine.heartbeatFlutter()
+                        com.streamify.app.ui.util.HapticFeedbackManager.get()?.likeHeartbeat()
+                            ?: com.streamify.app.util.StreamifyHapticEngine.heartbeatFlutter()
                         onToggleLike()
                     }) {
                         Icon(
@@ -328,8 +331,12 @@ fun MiniPlayerBar(
                     }
                 }
 
-                // Play / Pause Action
-                IconButton(onClick = onPlayPause) {
+                // Play / Pause Action — crisp confirmation click.
+                IconButton(onClick = {
+                    com.streamify.app.ui.util.HapticFeedbackManager.get()?.playPauseClick()
+                        ?: com.streamify.app.util.StreamifyHapticEngine.playbackPulse()
+                    onPlayPause()
+                }) {
                     Box(contentAlignment = Alignment.Center) {
                         AnimatedContent(
                             targetState = buttonState,

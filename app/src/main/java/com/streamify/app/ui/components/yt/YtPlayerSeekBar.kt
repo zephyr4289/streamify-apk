@@ -43,6 +43,9 @@ fun YtPlayerSeekBar(
     trackColor: Color = Divider
 ) {
     val scope = rememberCoroutineScope()
+    // Phase 5 haptic engine (falls back to nothing pre-init; scrub ticks
+    // bucket to every 5s of scrubbed audio and are throttle-guarded).
+    val hapticManager = com.streamify.app.ui.util.HapticFeedbackManager.get()
     // Collected but NOT read in this composition scope — reads are deferred
     // into the draw lambda and the leaf time-label below.
     val positionState = positionFlow.collectAsState()
@@ -114,7 +117,8 @@ fun YtPlayerSeekBar(
                             val targetFrac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
                             val targetMs = (targetFrac * totalDuration).toLong()
                             latchedPositionMs.value = targetMs
-                            com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
+                            hapticManager?.onScrubPositionChanged(targetMs)
+                            hapticManager?.resetBuckets()
                             currentOnSeek(targetFrac)
                         }
                     )
@@ -126,7 +130,8 @@ fun YtPlayerSeekBar(
                             val startFrac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
                             dragPositionMs.value = (startFrac * totalDuration).toLong()
                             latchedPositionMs.value = dragPositionMs.value
-                            com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
+                            hapticManager?.resetBuckets()
+                            hapticManager?.onScrubPositionChanged(dragPositionMs.value)
                             scope.launch {
                                 thumbScale.animateTo(
                                     targetValue = 2.0f,
@@ -141,12 +146,11 @@ fun YtPlayerSeekBar(
                             change.consume()
                             val curFrac = (dragPositionMs.value.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
                             val newFrac = (curFrac + (dragAmount.x / size.width.toFloat())).coerceIn(0f, 1f)
-                            val prevStep = (curFrac * 30).toInt()
-                            val newStep = (newFrac * 30).toInt()
-                            if (prevStep != newStep) {
-                                com.streamify.app.util.StreamifyHapticEngine.scrubberTick()
-                            }
                             dragPositionMs.value = (newFrac * totalDuration).toLong()
+                            // Phase 5 — micro-tick pulses every 5 seconds of
+                            // audio scrubbed (bucketed + throttled), replacing
+                            // the legacy 30-step pixel detents.
+                            hapticManager?.onScrubPositionChanged(dragPositionMs.value)
                             latchedPositionMs.value = dragPositionMs.value
                         },
                         onDragEnd = {
@@ -154,6 +158,7 @@ fun YtPlayerSeekBar(
                             val finalFrac = (finalTargetMs.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
                             latchedPositionMs.value = finalTargetMs
                             isDragging.value = false
+                            hapticManager?.resetBuckets()
                             currentOnSeek(finalFrac)
                             scope.launch {
                                 thumbScale.animateTo(
