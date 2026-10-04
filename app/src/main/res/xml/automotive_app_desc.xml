@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Phase 4 — Android Auto / Automotive declaration (Gap #54).
+  Declares the media browsing capability consumed by Android Auto and
+  Android Automotive head units; the browse tree itself is served by
+  StreamifyAutoMediaBrowserService.
+-->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

@@ -165,9 +165,142 @@ class MainActivity : ComponentActivity() {
             StreamifyTheme {
                 val navController = rememberNavController()
                 val playerViewModel: PlayerViewModel = viewModel()
+                val connectViewModel: com.streamify.app.connect.ConnectViewModel = viewModel()
                 val playerState by playerViewModel.playerState.collectAsState()
                 val scope = rememberCoroutineScope()
                 val context = LocalContext.current
+
+                // ── Phase 4 Connect runtime: coordinator + silent-controller hooks ─
+                LaunchedEffect(Unit) {
+                    com.streamify.app.connect.ConnectRuntime.initialize(this@MainActivity)
+                }
+                LaunchedEffect(playerViewModel) {
+                    com.streamify.app.connect.ConnectRuntime.playbackHooks =
+                        object : com.streamify.app.connect.LocalPlaybackHooks {
+                            override fun enterSilentController() {
+                                // Silent remote controller: pause local render,
+                                // keep queue + clock loaded (flip-back = seek).
+                                val ctrl = playerViewModel.getController() ?: return
+                                runCatching { ctrl.pause() }
+                            }
+
+                            override fun exitSilentController(positionMs: Long, play: Boolean) {
+                                val ctrl = playerViewModel.getController() ?: return
+                                runCatching {
+                                    ctrl.seekTo(positionMs)
+                                    if (play) ctrl.play() else ctrl.pause()
+                                }
+                            }
+                        }
+
+                    // Cast handoff source: full MediaItems (stream URL +
+                    // metadata + artwork) from the live session controller.
+                    com.streamify.app.cast.CastMediaManager.queueProvider = {
+                        val ctrl = playerViewModel.getController()
+                        if (ctrl != null && ctrl.mediaItemCount > 0) {
+                            com.streamify.app.cast.CastPlaybackState(
+                                items = (0 until ctrl.mediaItemCount).mapNotNull { i ->
+                                    runCatching { ctrl.getMediaItemAt(i) }.getOrNull()
+                                },
+                                startIndex = ctrl.currentMediaItemIndex,
+                                positionMs = ctrl.currentPosition,
+                                isPlaying = ctrl.isPlaying
+                            )
+                        } else {
+                            null
+                        }
+                    }
+
+                    // ── Phase 4 WearOS: wrist transport, volume, Jam voting ──
+                    com.streamify.app.wear.WearSessionManager.inputHandler =
+                        com.streamify.app.wear.WearInputHandler(
+                            object : com.streamify.app.wear.WearActionSink {
+                                override fun playPause() { playerViewModel.togglePlayPause() }
+                                override fun skipNext() { playerViewModel.skipNext() }
+                                override fun skipPrevious() { playerViewModel.skipPrevious() }
+
+                                override fun volumeStep(delta: Float): Boolean {
+                                    val ctrl = playerViewModel.getController() ?: return false
+                                    return runCatching {
+                                        ctrl.setVolume((ctrl.volume + delta).coerceIn(0f, 1f))
+                                        true
+                                    }.getOrDefault(false)
+                                }
+
+                                override fun jamUpvote(trackId: Int): Boolean {
+                                    val track = com.streamify.app.jam.JamEngine.queue.value
+                                        .find { it.id == trackId } ?: return false
+                                    return runCatching {
+                                        com.streamify.app.jam.JamEngine.castUpvote(track)
+                                    }.getOrDefault(false)
+                                }
+
+                                override fun queueAdd(videoId: String): Boolean {
+                                    if (!com.streamify.app.jam.JamEngine.isActive()) return false
+                                    val stub = com.streamify.app.data.models.Track(
+                                        id = videoId.hashCode(),
+                                        title = videoId,
+                                        artist = "",
+                                        ytmVideoId = videoId
+                                    )
+                                    return runCatching {
+                                        com.streamify.app.jam.JamEngine.addToQueue(stub, "Watch")
+                                    }.getOrDefault(false)
+                                }
+
+                                override fun launchQuickPlaylist(): Boolean {
+                                    return runCatching {
+                                        val liked = com.streamify.app.data.repository.TrackRepository.likedTracks.value
+                                        if (liked.isEmpty()) return false
+                                        playerViewModel.playCollection(liked.shuffled())
+                                        true
+                                    }.getOrDefault(false)
+                                }
+                            }
+                        )
+
+                    // Compact Now Playing mirror to the wrist (5s cadence,
+                    // IO transport; Jam rows carry live vote counts).
+                    while (true) {
+                        kotlinx.coroutines.delay(5000L)
+                        val state = playerViewModel.playerState.value
+                        val track = state.currentTrack ?: continue
+                        val jamActive = com.streamify.app.jam.JamEngine.isActive()
+                        val queueRows = if (jamActive) {
+                            com.streamify.app.jam.JamEngine.queue.value.take(3).map { t ->
+                                com.streamify.app.wear.WearQueueEntry(
+                                    trackId = t.id,
+                                    title = t.title,
+                                    artist = t.artist,
+                                    votes = com.streamify.app.jam.JamEngine.voteCountFor(t)
+                                )
+                            }
+                        } else {
+                            emptyList()
+                        }
+                        com.streamify.app.wear.WearSessionManager.publishNowPlaying(
+                            com.streamify.app.wear.WearNowPlayingState(
+                                trackTitle = track.title,
+                                artist = track.artist,
+                                artworkUrl = track.coverArtPath,
+                                isPlaying = state.isPlaying,
+                                positionMs = playerViewModel.positionMs.value,
+                                durationMs = state.duration,
+                                jamActive = jamActive,
+                                jamQueueTop = queueRows,
+                                updatedAtMs = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                }
+                val connectSnapshotProvider: () -> com.streamify.app.connect.PlaybackSnapshot = {
+                    com.streamify.app.connect.PlaybackSnapshot(
+                        queueTitles = playerState.queue.map { it.title },
+                        currentIndex = playerState.currentIndex,
+                        positionMs = playerViewModel.positionMs.value,
+                        isPlaying = playerState.isPlaying
+                    )
+                }
 
                 var targetColor by remember { mutableStateOf(Color(0xFF212121)) }
                 val dominantColor by animateColorAsState(
@@ -392,7 +525,19 @@ class MainActivity : ComponentActivity() {
                                                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(animationSpec = tween(200)),
                                                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(animationSpec = tween(200))
                                             ) {
-                                                MiniPlayerBar(
+                                                Column {
+                                                    // "Listening on <device>" — one tap opens the
+                                                    // Connect picker; hidden while purely local.
+                                                    val connectSession by com.streamify.app.connect.ConnectRuntime.coordinator.state.collectAsState()
+                                                    if (connectSession.isRemoteActive || connectSession.phase == com.streamify.app.connect.ConnectSessionPhase.CONNECTING) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .padding(start = 16.dp, bottom = 4.dp)
+                                                        ) {
+                                                            com.streamify.app.connect.ConnectStatusPill(compact = true)
+                                                        }
+                                                    }
+                                                    MiniPlayerBar(
                                                     track = playerState.currentTrack,
                                                     isPlaying = playerState.isPlaying,
                                                     progressFlow = playerViewModel.progressFraction,
@@ -407,6 +552,7 @@ class MainActivity : ComponentActivity() {
                                                     },
                                                     tokenController = quantumController
                                                 )
+                                                }
                                             }
 
                                             // Docked Bottom Navigation (top-level tab destinations only)
@@ -478,7 +624,8 @@ class MainActivity : ComponentActivity() {
                                     .fillMaxSize()
                                     .zIndex(10f)
                             ) {
-                            FullPlayerSheet(
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    FullPlayerSheet(
                                 track = playerState.currentTrack,
                                 isPlaying = playerState.isPlaying,
                                 positionFlow = playerViewModel.positionMs,
@@ -519,12 +666,33 @@ class MainActivity : ComponentActivity() {
                                 },
                                 isAutoPlayEnabled = playerState.isAutoPlayEnabled,
                                 onAutoPlayToggle = { playerViewModel.toggleAutoPlay() }
-                            )
-                        }
+                                    )
+                                    // Active-device pill pinned over the full player's
+                                    // top edge — same one-tap picker entry as the dock.
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .zIndex(12f)
+                                            .padding(top = 10.dp)
+                                    ) {
+                                        com.streamify.app.connect.ConnectStatusPill()
+                                    }
+                                }
+                            }
+
+                            // ── LAYER 4: Connect device picker (Gap #52) ─────────────
+                    val connectPickerVisible by com.streamify.app.connect.ConnectRuntime.pickerVisible.collectAsState()
+                    if (connectPickerVisible) {
+                        com.streamify.app.connect.ConnectDeviceSheet(
+                            viewModel = connectViewModel,
+                            snapshotProvider = connectSnapshotProvider,
+                            onDismiss = { com.streamify.app.connect.ConnectRuntime.closeDevicePicker() }
+                        )
                     }
                 }
             }
         }
+    }
     }
 }
 
